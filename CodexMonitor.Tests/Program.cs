@@ -344,4 +344,12 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
             Content = new StringContent(m_Body, Encoding.UTF8, "application/json"),
         };
     }
+
+    /// <summary>
+    /// Sends a fake asynchronous HTTP response for collector tests.
+    /// </summary>
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(Send(request, cancellationToken));
+    }
 }
