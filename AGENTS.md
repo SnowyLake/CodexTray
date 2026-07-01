@@ -55,8 +55,16 @@ dotnet run --project .\CodexMonitor.Tests\CodexMonitor.Tests.csproj
 发布托盘应用:
 
 ```powershell
-dotnet publish .\CodexMonitor.App\CodexMonitor.App.csproj -c Release -f net9.0-windows -r win-x64 -p:PublishSingleFile=true -p:SelfContained=false -o "..\Builds\Release\Publish\win-x64"
+.\Scripts\Publish-App.ps1
 ```
+
+修改托盘应用后, 验证通过时需要发布并重启预览程序:
+
+```powershell
+.\Scripts\Restart-App.ps1
+```
+
+如果需要从资源管理器双击运行, 使用 `Scripts/Publish-App.cmd` 或 `Scripts/Restart-App.cmd`, 结束后窗口会停留显示结果.
 
 ## 注意事项
 
