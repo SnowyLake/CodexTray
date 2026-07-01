@@ -285,11 +285,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
     }
 
     /// <summary>
-    /// Loads the application icon from copied resources.
+    /// Loads the application icon from embedded resources.
     /// </summary>
     private static Icon LoadApplicationIcon()
     {
-        string iconPath = Path.Combine(AppContext.BaseDirectory, "Resources", "icon.ico");
-        return File.Exists(iconPath) ? new Icon(iconPath) : (Icon)SystemIcons.Application.Clone();
+        Stream? stream = typeof(TrayApplicationContext).Assembly.GetManifestResourceStream("CodexMonitor.App.Resources.icon.ico");
+        return stream == null ? (Icon)SystemIcons.Application.Clone() : new Icon(stream);
     }
 }

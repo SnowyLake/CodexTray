@@ -2,8 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CodexMonitor.Core\CodexMonitor.Core.csproj" />
-    <Content Include="..\Resources\icon.ico" Link="Resources\icon.ico" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\Resources\icon.png" Link="Resources\icon.png" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="..\Resources\icon.ico" Link="Resources\icon.ico" />
+    <EmbeddedResource Include="..\Resources\icon.png" Link="Resources\icon.png" />
   </ItemGroup>
 
   <PropertyGroup>

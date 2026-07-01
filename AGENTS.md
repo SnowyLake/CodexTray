@@ -8,6 +8,7 @@
 - [构建与输出](#构建与输出)
 - [开发规则](#开发规则)
 - [验证命令](#验证命令)
+- [发布流程](#发布流程)
 - [注意事项](#注意事项)
 
 ## 项目概览
@@ -65,6 +66,35 @@ dotnet run --project .\CodexMonitor.Tests\CodexMonitor.Tests.csproj
 ```
 
 如果需要从资源管理器双击运行, 使用 `Scripts/Publish-App.cmd` 或 `Scripts/Restart-App.cmd`, 结束后窗口会停留显示结果.
+
+打包 GitHub Release 上传文件:
+
+```powershell
+.\Scripts\Package-Release.ps1 -Version 0.1.0
+```
+
+输出文件名格式为 `Builds/Release/CodexMonitor-vX.Y.Z-win-x64.zip`.
+
+## 发布流程
+
+- 当用户要求打 tag 或发布新版本并提供版本号时, 按本节自动完成后续流程.
+- 版本号支持 `X.Y.Z` 或 `vX.Y.Z`, tag 固定使用 `vX.Y.Z`, 上传文件固定使用 `Builds/Release/CodexMonitor-vX.Y.Z-win-x64.zip`.
+- 发布前先检查 `git status --short --branch`, 确认本次待提交内容只包含发布相关修改.
+- 如有发布脚本, 文档, 图标资源, 或应用打包行为变更, 先提交并推送这些源码修改. 不要提交 `Builds/Debug`, `Builds/Release`, 或 zip 产物.
+- 执行 `.\Scripts\Package-Release.ps1 -Version X.Y.Z -NoPause` 生成 zip, 并确认 zip 文件存在.
+- 在已推送的最终发布提交上执行 `git tag -a vX.Y.Z -m "vX.Y.Z"`, 再执行 `git push origin vX.Y.Z`.
+- 使用 GitHub CLI 创建 release 并上传 zip:
+
+```powershell
+gh release create vX.Y.Z `
+  "Builds\Release\CodexMonitor-vX.Y.Z-win-x64.zip" `
+  --title "CodexMonitor vX.Y.Z" `
+  --notes "Release vX.Y.Z." `
+  --verify-tag
+```
+
+- 如果对应 tag 或 release 已存在, 先停止并说明当前状态, 不要覆盖 tag. 替换 release asset 需要用户明确同意后才使用 `gh release upload --clobber`.
+- 如果 `git push` 被 non-fast-forward 拒绝, 停止流程并交给用户决定是否 rebase 或 merge.
 
 ## 注意事项
 

@@ -39,20 +39,30 @@ function Stop-RunningApp {
     }
 }
 
-function Remove-LegacyPublishedFiles {
-    $legacyNames = @(
-        "CodexMonitor.App.exe",
-        "CodexMonitor.App.dll",
-        "CodexMonitor.App.pdb",
-        "CodexMonitor.App.deps.json",
-        "CodexMonitor.App.runtimeconfig.json"
+function Remove-PreviousPublishDirectory {
+    if (Test-Path -LiteralPath $publishDir) {
+        Remove-PathWithRetry $publishDir
+        Write-Host "Removed previous publish directory."
+    }
+}
+
+function Remove-PathWithRetry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
     )
 
-    foreach ($legacyName in $legacyNames) {
-        $legacyPath = Join-Path $publishDir $legacyName
-        if (Test-Path -LiteralPath $legacyPath) {
-            Remove-Item -LiteralPath $legacyPath -Force
-            Write-Host "Removed legacy file: $legacyPath"
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            if ($attempt -eq 10) {
+                throw
+            }
+
+            Start-Sleep -Milliseconds 500
         }
     }
 }
@@ -67,10 +77,17 @@ function Invoke-AppPublish {
         if ($LASTEXITCODE -ne 0) {
             throw "dotnet publish failed with exit code $LASTEXITCODE."
         }
+
+        Remove-PublishDebugSymbols
     }
     finally {
         Pop-Location
     }
+}
+
+function Remove-PublishDebugSymbols {
+    Get-ChildItem -LiteralPath $publishDir -Filter "*.pdb" -File -ErrorAction SilentlyContinue |
+        Remove-Item -Force
 }
 
 function Start-PublishedApp {
@@ -98,7 +115,7 @@ function Wait-BeforeExit {
 $exitCode = 0
 try {
     Stop-RunningApp
-    Remove-LegacyPublishedFiles
+    Remove-PreviousPublishDirectory
     Invoke-AppPublish
     Start-PublishedApp
 }
