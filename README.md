@@ -3,167 +3,108 @@
 ## 目录
 
 - [概览](#概览)
-- [功能](#功能)
-- [工作方式](#工作方式)
-- [快速开始](#快速开始)
-- [托盘应用](#托盘应用)
-- [LiteMonitor 插件](#litemonitor-插件)
-- [HTTP API](#http-api)
-- [安全说明](#安全说明)
-- [开发](#开发)
+- [主要功能](#主要功能)
+- [安装使用](#安装使用)
+- [托盘菜单](#托盘菜单)
+- [额度刷新](#额度刷新)
+- [安全与隐私](#安全与隐私)
+- [常见问题](#常见问题)
+- [工程现状](#工程现状)
 
 ## 概览
 
-`CodexMonitor` 为 LiteMonitor 提供 OpenAI Codex 使用量显示能力. `CodexMonitor.exe` 会在 Windows 系统托盘后台运行本地桥接服务, 并提供设置窗口安装 LiteMonitor 插件配置, 配置刷新间隔和启用开机自启动.
+`CodexMonitor` 是一个 Windows 托盘小工具, 用来把 Codex 额度显示到 LiteMonitor.
 
-桥接服务优先读取 `~/.codex/auth.json` 中的 Codex OAuth 信息, 调用 ChatGPT 官方额度接口获取实时 `rate_limit` 数据, 然后把 5 小时额度和一周额度转换成 LiteMonitor 可解析的 JSON. 当 OAuth 凭据不存在时, 会回退扫描 `~/.codex/sessions/**/*.jsonl` 中的 `token_count` 事件.
+它会在后台读取当前机器上的 Codex 登录信息, 获取 5 小时额度和 Weekly 额度, 然后把结果提供给 LiteMonitor 插件显示. 启动后程序会常驻系统托盘, 不需要一直打开窗口.
 
-当前工程是 C#/.NET 托盘实现.
+适合已经在使用 LiteMonitor, 并且希望在任务栏里直接看到 Codex 剩余额度的用户.
 
-## 功能
+## 主要功能
 
-- 托盘后台运行本地桥接服务.
-- 首次启动自动打开设置窗口, 后续默认进入托盘.
-- 托盘右键支持打开设置, 安装 LiteMonitor 插件配置, 打开 LiteMonitor 文件夹, 重启服务, 停止运行.
-- 显示 5 小时额度剩余百分比和重置时间.
-- 显示一周额度剩余百分比和重置日期或时间.
-- 设置窗口默认每 5 分钟自动刷新额度状态并写入进程内缓存, 可配置刷新间隔, 也可点击 `Refresh Now` 立刻刷新.
-- 支持通过 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 启用当前用户开机自启动.
-- 暂时不显示 Cost 相关信息.
-- 读取 `~/.codex/auth.json` 仅用于请求官方额度接口, 不在本地 HTTP API 或 LiteMonitor 插件中暴露 access token.
+- 显示 Codex 5 小时额度剩余百分比和重置时间.
+- 显示 Codex Weekly 额度剩余百分比和重置日期或时间.
+- 默认每 5 分钟自动刷新一次额度.
+- 支持在设置窗口里修改刷新间隔.
+- 支持点击 `Refresh Now` 立刻刷新.
+- 支持一键安装 LiteMonitor 插件配置.
+- 支持自动检测 LiteMonitor 路径.
+- 支持随 Windows 开机自启动.
+- 支持托盘菜单快速打开设置, 安装插件, 重启服务, 退出程序.
 
-## 工作方式
+## 安装使用
 
-数据流如下:
+1. 打开项目的 GitHub Releases 页面.
+2. 下载 `CodexMonitor-vX.Y.Z-win-x64.zip`.
+3. 解压后运行 `CodexMonitor.exe`.
+4. 首次启动会打开设置窗口.
+5. 确认 LiteMonitor 路径正确, 然后点击安装插件.
+6. 重启 LiteMonitor, 或在 LiteMonitor 插件页面重载插件.
 
-1. Codex Desktop 在 `~/.codex/sessions` 下写入 JSONL session 文件.
-2. `CodexMonitor.exe` 读取 `~/.codex/auth.json` 中的 OAuth `access_token` 和 `account_id`.
-3. APP 请求 `https://chatgpt.com/backend-api/wham/usage`, 读取 `rate_limit.primary_window` 作为 5 小时窗口, 读取 `rate_limit.secondary_window` 作为一周窗口.
-4. APP 将最新结果保存到进程内缓存.
-5. 本地 HTTP 服务只返回缓存中的最新结果, 不在 LiteMonitor 请求到达时重新采集.
-6. LiteMonitor 插件请求 `http://127.0.0.1:17890/codex-usage`, 并把缓存结果显示到任务栏.
+如果已经登录过 Codex, 通常不需要额外配置账号. 如果程序无法读取额度, 请先确认本机 Codex 可以正常使用.
 
-## 快速开始
+## 托盘菜单
 
-发布托盘版 exe:
-
-```powershell
-dotnet publish .\CodexMonitor.App\CodexMonitor.App.csproj -c Release -f net9.0-windows -r win-x64 -p:PublishSingleFile=true -p:SelfContained=false -o "..\Builds\Release\Publish\win-x64"
-```
-
-运行发布后的文件:
-
-```text
-Builds/Release/Publish/win-x64/CodexMonitor.exe
-```
-
-首次运行会打开设置窗口. 设置窗口中可以自动检测 LiteMonitor 路径, 设置刷新间隔, 安装插件配置, 并按需启用 `Start with Windows`.
-
-服务启动后访问:
-
-```text
-http://127.0.0.1:17890/codex-usage
-```
-
-## 托盘应用
-
-`CodexMonitor.exe` 使用 `.NET WinForms` 实现系统托盘体验. 程序启动后会保持后台服务运行, 关闭设置窗口不会停止托盘程序.
-
-设置窗口会按 `Refresh interval (minutes)` 自动刷新当前额度状态, 默认值为 5 分钟. 点击 `Refresh Now` 可以立即请求官方额度接口并更新面板和插件读取的缓存.
+程序启动后会出现在 Windows 系统托盘. 关闭设置窗口不会退出程序.
 
 托盘右键菜单包含:
 
 - `Open Settings`: 打开设置窗口.
-- `Install LiteMonitor Plugin`: 将内置 `CodexMonitor.json` 写入 LiteMonitor 的 `resources/plugins/` 目录.
+- `Install LiteMonitor Plugin`: 安装或覆盖 LiteMonitor 插件配置.
 - `Open LiteMonitor Folder`: 打开当前 LiteMonitor 目录.
-- `Restart Service`: 重启本地 HTTP 服务.
-- `Exit`: 停止 HTTP 服务并退出托盘程序.
+- `Restart Service`: 重启本地服务.
+- `Exit`: 退出程序.
 
-设置保存位置:
+## 额度刷新
 
-```text
-%APPDATA%/CodexMonitor/settings.json
-```
+默认刷新间隔是 5 分钟. 你可以在设置窗口里修改 `Refresh interval (minutes)`.
 
-LiteMonitor 自动搜索顺序:
+点击 `Refresh Now` 会立即刷新一次额度, 并同步更新设置窗口和 LiteMonitor 插件读取到的数据.
 
-1. 已保存路径.
-2. 当没有可用保存路径时, 在本机已就绪的固定磁盘和可移动磁盘中递归搜索 `LiteMonitor.exe`.
+Weekly 额度的重置显示规则:
 
-## LiteMonitor 插件
+- 如果重置时间是今天且还没有到达重置时刻, 显示具体时间.
+- 如果重置时间不是今天, 显示日期.
 
-插件文件位于:
+## 安全与隐私
 
-```text
-LiteMonitorPlugin/CodexMonitor.json
-```
+`CodexMonitor` 只在本机运行, 默认只监听 `127.0.0.1`.
 
-推荐通过托盘设置窗口或托盘右键菜单安装插件配置. 手动安装时, 将 `LiteMonitorPlugin/CodexMonitor.json` 放入 LiteMonitor 的 `resources/plugins/` 目录, 然后重启 LiteMonitor 或在 LiteMonitor 插件页面重载插件.
+程序会读取本机 Codex 登录信息来请求官方额度数据. 这些 token 不会显示在 LiteMonitor 中, 也不会通过本地接口返回.
 
-## HTTP API
+请不要把自己的 Codex 登录文件, 设置文件, 或调试日志上传到公开位置.
 
-`GET /health` 返回:
+## 常见问题
 
-```json
-{"ok":true}
-```
+### 为什么 LiteMonitor 里没有变化
 
-`GET /codex-usage` 返回示例:
+先确认 `CodexMonitor.exe` 正在运行, 然后在设置窗口点击 `Refresh Now`. 如果仍然没有变化, 重新安装 LiteMonitor 插件配置并重启 LiteMonitor.
 
-```json
-{
-  "available": true,
-  "plan_type": "plus",
-  "updated_at": "2026-07-01T12:00:00+08:00",
-  "limits": {
-    "five_hour": {
-      "used_percent": 10,
-      "remaining_percent": 90,
-      "window_minutes": 300,
-      "reset_time": "15:45"
-    },
-    "weekly": {
-      "used_percent": 9,
-      "remaining_percent": 91,
-      "window_minutes": 10080,
-      "reset_time": "10:41",
-      "reset_label": "07-07"
-    }
-  },
-  "display": {
-    "codex_5h": "90%  15:45",
-    "codex_weekly": "91%  07-07",
-    "summary": "Codex 5h: 90%  15:45 | Codex Weekly: 91%  07-07"
-  }
-}
-```
+### 为什么找不到 LiteMonitor
 
-## 安全说明
+如果没有保存过路径, 程序会在本机磁盘里搜索 `LiteMonitor.exe`. 搜索可能需要一点时间. 也可以在设置窗口中手动选择 LiteMonitor 路径.
 
-桥接服务会读取 `~/.codex/auth.json` 中的 Codex OAuth token, 并只把 token 作为 `Authorization: Bearer` 请求头发送到 `https://chatgpt.com/backend-api/wham/usage`. 本地 HTTP API 不返回 token, 不读取浏览器 cookie, 也不向 LiteMonitor 暴露 access token.
+### 为什么额度显示不可用
 
-默认监听地址是 `127.0.0.1`, 不接受局域网访问. 如果修改监听地址, 需要自行确认网络暴露风险.
+通常是本机没有可用的 Codex 登录信息, 或当前网络无法请求额度接口. 先确认 Codex 本身能正常使用, 再点击 `Refresh Now`.
 
-## 开发
+### 可以只运行单个 exe 吗
 
-构建全部 .NET 项目:
+可以. 发布包里只需要运行 `CodexMonitor.exe`.
 
-```powershell
-dotnet build .\CodexMonitor.sln
-```
+## 工程现状
 
-构建产物统一输出到 `Builds/{Configuration}/{ProjectName}`. 例如 `CodexMonitor.App` 的 Debug 中间产物位于 `Builds/Debug/CodexMonitor.App/obj`, 编译产物位于 `Builds/Debug/CodexMonitor.App/bin`.
+当前工程是 C#/.NET Windows 托盘应用.
 
-运行 C# 测试:
-
-```powershell
-dotnet run --project .\CodexMonitor.Tests\CodexMonitor.Tests.csproj
-```
-
-主要文件:
-
-- `CodexMonitor.Core`: C# 额度解析, HTTP 服务, 设置, 插件安装, 自启管理.
+- `CodexMonitor.Core`: 额度采集, 缓存, 本地服务, 设置存储, LiteMonitor 插件安装.
 - `CodexMonitor.App`: WinForms 托盘应用和设置窗口.
 - `CodexMonitor.Tests`: C# 测试运行器.
-- `LiteMonitorPlugin/CodexMonitor.json`: LiteMonitor 插件定义.
-- `Builds`: 构建与发布产物目录.
+- `LiteMonitorPlugin`: LiteMonitor 插件定义.
+- `Scripts`: 发布, 重启, release 打包脚本.
+- `Builds`: 本地构建和发布产物目录, 不提交生成内容.
+
+开发验证命令:
+
+```powershell
+dotnet build .\CodexMonitor.sln -m:1
+dotnet run --project .\CodexMonitor.Tests\CodexMonitor.Tests.csproj
+```
