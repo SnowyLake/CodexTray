@@ -12,3 +12,7 @@ build/
 *.egg-info/
 *.log
 local_settings.json
+bin/
+obj/
+artifacts/
+*.user
