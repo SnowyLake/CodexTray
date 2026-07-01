@@ -61,8 +61,8 @@ class CodexUsageBridgeTests(unittest.TestCase):
         self.assertEqual(data["limits"]["weekly"]["used_percent"], 34)
         self.assertEqual(data["limits"]["weekly"]["remaining_percent"], 66)
         self.assertEqual(data["plan_type"], "plus")
-        self.assertRegex(data["display"]["codex_5h"], r"^88%-\d{2}:\d{2}$")
-        self.assertRegex(data["display"]["codex_weekly"], r"^66%-\d{2}-\d{2}$")
+        self.assertRegex(data["display"]["codex_5h"], r"^88%  \d{2}:\d{2}$")
+        self.assertRegex(data["display"]["codex_weekly"], r"^66%  \d{2}-\d{2}$")
 
     def test_empty_response_when_no_sessions_exist(self):
         root = self.work_root / "empty_response"

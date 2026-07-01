@@ -33,8 +33,8 @@
 1. Codex Desktop 在 `~/.codex/sessions` 下写入 JSONL session 文件.
 2. 本地桥接服务扫描 JSONL 文件中的 `payload.type == "token_count"` 事件.
 3. 服务读取 `payload.rate_limits.primary` 作为 5 小时窗口, 读取 `payload.rate_limits.secondary` 作为一周窗口.
-4. 服务按 5 小时窗口输出 `Codex 5h: {剩余百分比}-{重置时间}`.
-5. 服务按一周窗口输出 `Codex Weekly: {剩余百分比}-{重置日期或时间}`.
+4. 服务按 5 小时窗口输出 `Codex 5h          {剩余百分比}  {重置时间}`.
+5. 服务按一周窗口输出 `Codex Weekly  {剩余百分比}  {重置日期或时间}`.
 6. LiteMonitor 插件请求 `http://127.0.0.1:17890/codex-usage`, 并把返回结果显示到任务栏.
 
 ## 快速开始
@@ -127,9 +127,9 @@ litemonitor/CodexUsage.json
     }
   },
   "display": {
-    "codex_5h": "90%-15:45",
-    "codex_weekly": "91%-07-07",
-    "summary": "Codex 5h: 90%-15:45 | Codex Weekly: 91%-07-07"
+    "codex_5h": "90%  15:45",
+    "codex_weekly": "91%  07-07",
+    "summary": "Codex 5h: 90%  15:45 | Codex Weekly: 91%  07-07"
   }
 }
 ```

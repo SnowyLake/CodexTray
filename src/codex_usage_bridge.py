@@ -136,8 +136,8 @@ def collect_codex_usage(codex_dir: Path) -> dict[str, Any]:
     secondary = _build_limit("weekly", rate_limits.get("secondary"), now)
     secondary["reset_label"] = _format_weekly_reset_label(secondary["resets_at"], now)
 
-    codex_5h_display = f"{primary['remaining_percent']}%-{primary['reset_time']}"
-    codex_weekly_display = f"{secondary['remaining_percent']}%-{secondary['reset_label']}"
+    codex_5h_display = f"{primary['remaining_percent']}%  {primary['reset_time']}"
+    codex_weekly_display = f"{secondary['remaining_percent']}%  {secondary['reset_label']}"
 
     return {
         "available": True,
