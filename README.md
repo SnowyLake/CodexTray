@@ -14,9 +14,9 @@
 
 ## 概览
 
-`CodexMonitor` 为 LiteMonitor 提供 OpenAI Codex 使用量显示能力. `CodexMonitor.App.exe` 会在 Windows 系统托盘后台运行本地桥接服务, 并提供设置窗口安装 LiteMonitor 插件配置和启用开机自启动.
+`CodexMonitor` 为 LiteMonitor 提供 OpenAI Codex 使用量显示能力. `CodexMonitor.App.exe` 会在 Windows 系统托盘后台运行本地桥接服务, 并提供设置窗口安装 LiteMonitor 插件配置, 配置刷新间隔和启用开机自启动.
 
-桥接服务参考 `CodexBar-Win` 的 OpenAI Codex 实现思路, 从 `~/.codex/sessions/**/*.jsonl` 中读取 Codex Desktop 写入的 `token_count` 事件, 然后把 5 小时额度和一周额度转换成 LiteMonitor 可解析的 JSON.
+桥接服务优先读取 `~/.codex/auth.json` 中的 Codex OAuth 信息, 调用 ChatGPT 官方额度接口获取实时 `rate_limit` 数据, 然后把 5 小时额度和一周额度转换成 LiteMonitor 可解析的 JSON. 当 OAuth 凭据不存在时, 会回退扫描 `~/.codex/sessions/**/*.jsonl` 中的 `token_count` 事件.
 
 当前工程是 C#/.NET 托盘实现.
 
@@ -27,20 +27,21 @@
 - 托盘右键支持打开设置, 安装 LiteMonitor 插件配置, 打开 LiteMonitor 文件夹, 重启服务, 停止运行.
 - 显示 5 小时额度剩余百分比和重置时间.
 - 显示一周额度剩余百分比和重置日期或时间.
+- 设置窗口默认每 5 分钟自动刷新额度状态并写入进程内缓存, 可配置刷新间隔, 也可点击 `Refresh Now` 立刻刷新.
 - 支持通过 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 启用当前用户开机自启动.
 - 暂时不显示 Cost 相关信息.
-- 不读取 `~/.codex/auth.json`, 不接触 access token.
+- 读取 `~/.codex/auth.json` 仅用于请求官方额度接口, 不在本地 HTTP API 或 LiteMonitor 插件中暴露 access token.
 
 ## 工作方式
 
 数据流如下:
 
 1. Codex Desktop 在 `~/.codex/sessions` 下写入 JSONL session 文件.
-2. `CodexMonitor.App.exe` 扫描 JSONL 文件中的 `payload.type == "token_count"` 事件.
-3. 本地 HTTP 服务读取 `payload.rate_limits.primary` 作为 5 小时窗口, 读取 `payload.rate_limits.secondary` 作为一周窗口.
-4. 服务按 5 小时窗口输出 `Codex 5h          {剩余百分比}  {重置时间}`.
-5. 服务按一周窗口输出 `Codex Weekly  {剩余百分比}  {重置日期或时间}`.
-6. LiteMonitor 插件请求 `http://127.0.0.1:17890/codex-usage`, 并把返回结果显示到任务栏.
+2. `CodexMonitor.App.exe` 读取 `~/.codex/auth.json` 中的 OAuth `access_token` 和 `account_id`.
+3. APP 请求 `https://chatgpt.com/backend-api/wham/usage`, 读取 `rate_limit.primary_window` 作为 5 小时窗口, 读取 `rate_limit.secondary_window` 作为一周窗口.
+4. APP 将最新结果保存到进程内缓存.
+5. 本地 HTTP 服务只返回缓存中的最新结果, 不在 LiteMonitor 请求到达时重新采集.
+6. LiteMonitor 插件请求 `http://127.0.0.1:17890/codex-usage`, 并把缓存结果显示到任务栏.
 
 ## 快速开始
 
@@ -56,7 +57,7 @@ dotnet publish .\CodexMonitor.App\CodexMonitor.App.csproj -c Release -f net9.0-w
 Builds/Release/Publish/win-x64/CodexMonitor.App.exe
 ```
 
-首次运行会打开设置窗口. 设置窗口中可以自动检测 LiteMonitor 路径, 安装插件配置, 并按需启用 `Start with Windows`.
+首次运行会打开设置窗口. 设置窗口中可以自动检测 LiteMonitor 路径, 设置刷新间隔, 安装插件配置, 并按需启用 `Start with Windows`.
 
 服务启动后访问:
 
@@ -67,6 +68,8 @@ http://127.0.0.1:17890/codex-usage
 ## 托盘应用
 
 `CodexMonitor.App.exe` 使用 `.NET WinForms` 实现系统托盘体验. 程序启动后会保持后台服务运行, 关闭设置窗口不会停止托盘程序.
+
+设置窗口会按 `Refresh interval (minutes)` 自动刷新当前额度状态, 默认值为 5 分钟. 点击 `Refresh Now` 可以立即请求官方额度接口并更新面板和插件读取的缓存.
 
 托盘右键菜单包含:
 
@@ -85,9 +88,7 @@ http://127.0.0.1:17890/codex-usage
 LiteMonitor 自动搜索顺序:
 
 1. 已保存路径.
-2. `D:\Tools\LiteMonitor_v1.3.6-win-x64`.
-3. `D:\Tools\LiteMonitor*`.
-4. `%LOCALAPPDATA%`, `%PROGRAMFILES%`, `%PROGRAMFILES(X86)%` 下的 `LiteMonitor.exe`.
+2. 当没有可用保存路径时, 在本机已就绪的固定磁盘和可移动磁盘中递归搜索 `LiteMonitor.exe`.
 
 ## LiteMonitor 插件
 
@@ -139,7 +140,7 @@ LiteMonitorPlugin/CodexMonitor.json
 
 ## 安全说明
 
-桥接服务只读取 `~/.codex/sessions/**/*.jsonl`. 它不会读取 `~/.codex/auth.json`, 不会访问 OpenAI API, 不会读取浏览器 cookie, 也不会暴露 access token.
+桥接服务会读取 `~/.codex/auth.json` 中的 Codex OAuth token, 并只把 token 作为 `Authorization: Bearer` 请求头发送到 `https://chatgpt.com/backend-api/wham/usage`. 本地 HTTP API 不返回 token, 不读取浏览器 cookie, 也不向 LiteMonitor 暴露 access token.
 
 默认监听地址是 `127.0.0.1`, 不接受局域网访问. 如果修改监听地址, 需要自行确认网络暴露风险.
 
