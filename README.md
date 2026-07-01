@@ -1,4 +1,4 @@
-# CodexUsage-LiteMonitor-Plugin
+# CodexMonitor
 
 ## 目录
 
@@ -9,19 +9,20 @@
 - [托盘应用](#托盘应用)
 - [LiteMonitor 插件](#litemonitor-插件)
 - [HTTP API](#http-api)
-- [Legacy PowerShell 方式](#legacy-powershell-方式)
 - [安全说明](#安全说明)
 - [开发](#开发)
 
 ## 概览
 
-`CodexUsage-LiteMonitor-Plugin` 为 LiteMonitor 提供 OpenAI Codex 使用量显示能力. 推荐使用 `CodexUsageTray.exe`, 它会在 Windows 系统托盘后台运行本地桥接服务, 并提供设置窗口安装 LiteMonitor 插件配置和启用开机自启动.
+`CodexMonitor` 为 LiteMonitor 提供 OpenAI Codex 使用量显示能力. `CodexMonitor.App.exe` 会在 Windows 系统托盘后台运行本地桥接服务, 并提供设置窗口安装 LiteMonitor 插件配置和启用开机自启动.
 
 桥接服务参考 `CodexBar-Win` 的 OpenAI Codex 实现思路, 从 `~/.codex/sessions/**/*.jsonl` 中读取 Codex Desktop 写入的 `token_count` 事件, 然后把 5 小时额度和一周额度转换成 LiteMonitor 可解析的 JSON.
 
+当前工程是 C#/.NET 托盘实现.
+
 ## 功能
 
-- 托盘后台运行, 不需要手动执行 PowerShell 脚本.
+- 托盘后台运行本地桥接服务.
 - 首次启动自动打开设置窗口, 后续默认进入托盘.
 - 托盘右键支持打开设置, 安装 LiteMonitor 插件配置, 打开 LiteMonitor 文件夹, 重启服务, 停止运行.
 - 显示 5 小时额度剩余百分比和重置时间.
@@ -35,7 +36,7 @@
 数据流如下:
 
 1. Codex Desktop 在 `~/.codex/sessions` 下写入 JSONL session 文件.
-2. `CodexUsageTray.exe` 扫描 JSONL 文件中的 `payload.type == "token_count"` 事件.
+2. `CodexMonitor.App.exe` 扫描 JSONL 文件中的 `payload.type == "token_count"` 事件.
 3. 本地 HTTP 服务读取 `payload.rate_limits.primary` 作为 5 小时窗口, 读取 `payload.rate_limits.secondary` 作为一周窗口.
 4. 服务按 5 小时窗口输出 `Codex 5h          {剩余百分比}  {重置时间}`.
 5. 服务按一周窗口输出 `Codex Weekly  {剩余百分比}  {重置日期或时间}`.
@@ -46,13 +47,13 @@
 发布托盘版 exe:
 
 ```powershell
-dotnet publish .\src\CodexUsageTray\CodexUsageTray.csproj -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -o .\artifacts\CodexUsageTray\win-x64
+dotnet publish .\CodexMonitor.App\CodexMonitor.App.csproj -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -o .\Artifacts\CodexMonitor.App\win-x64
 ```
 
 运行发布后的文件:
 
 ```text
-artifacts/CodexUsageTray/win-x64/CodexUsageTray.exe
+Artifacts/CodexMonitor.App/win-x64/CodexMonitor.App.exe
 ```
 
 首次运行会打开设置窗口. 设置窗口中可以自动检测 LiteMonitor 路径, 安装插件配置, 并按需启用 `Start with Windows`.
@@ -65,7 +66,7 @@ http://127.0.0.1:17890/codex-usage
 
 ## 托盘应用
 
-`CodexUsageTray.exe` 使用 `.NET WinForms` 实现系统托盘体验. 程序启动后会保持后台服务运行, 关闭设置窗口不会停止托盘程序.
+`CodexMonitor.App.exe` 使用 `.NET WinForms` 实现系统托盘体验. 程序启动后会保持后台服务运行, 关闭设置窗口不会停止托盘程序.
 
 托盘右键菜单包含:
 
@@ -93,10 +94,10 @@ LiteMonitor 自动搜索顺序:
 插件文件位于:
 
 ```text
-litemonitor/CodexUsage.json
+LiteMonitorPlugin/CodexUsage.json
 ```
 
-推荐通过托盘设置窗口或托盘右键菜单安装插件配置. 手动安装时, 将 `litemonitor/CodexUsage.json` 放入 LiteMonitor 的 `resources/plugins/` 目录, 然后重启 LiteMonitor 或在 LiteMonitor 插件页面重载插件.
+推荐通过托盘设置窗口或托盘右键菜单安装插件配置. 手动安装时, 将 `LiteMonitorPlugin/CodexUsage.json` 放入 LiteMonitor 的 `resources/plugins/` 目录, 然后重启 LiteMonitor 或在 LiteMonitor 插件页面重载插件.
 
 ## HTTP API
 
@@ -136,28 +137,6 @@ litemonitor/CodexUsage.json
 }
 ```
 
-## Legacy PowerShell 方式
-
-PowerShell 脚本仍然保留为 legacy fallback. 如果不使用托盘版 exe, 可以继续启动 Python bridge:
-
-```powershell
-.\scripts\start_bridge.ps1
-```
-
-安装 LiteMonitor 插件配置:
-
-```powershell
-.\scripts\install_litemonitor_plugin.ps1 -LiteMonitorDir "D:\Tools\LiteMonitor_v1.3.6-win-x64"
-```
-
-注册旧版计划任务自启:
-
-```powershell
-.\scripts\install_startup_task.ps1
-```
-
-自动化调用这些脚本时可以追加 `-NoPause`.
-
 ## 安全说明
 
 桥接服务只读取 `~/.codex/sessions/**/*.jsonl`. 它不会读取 `~/.codex/auth.json`, 不会访问 OpenAI API, 不会读取浏览器 cookie, 也不会暴露 access token.
@@ -169,25 +148,19 @@ PowerShell 脚本仍然保留为 legacy fallback. 如果不使用托盘版 exe, 
 构建全部 .NET 项目:
 
 ```powershell
-dotnet build .\CodexUsage.sln
+dotnet build .\CodexMonitor.sln
 ```
 
 运行 C# 测试:
 
 ```powershell
-dotnet run --project .\tests\CodexUsage.Tests\CodexUsage.Tests.csproj
-```
-
-运行 legacy Python 测试:
-
-```powershell
-python -m unittest discover -s tests
+dotnet run --project .\CodexMonitor.Tests\CodexMonitor.Tests.csproj
 ```
 
 主要文件:
 
-- `src/CodexUsage.Core`: C# 额度解析, HTTP 服务, 设置, 插件安装, 自启管理.
-- `src/CodexUsageTray`: WinForms 托盘应用和设置窗口.
-- `tests/CodexUsage.Tests`: C# 测试运行器.
-- `src/codex_usage_bridge.py`: legacy Python 本地 HTTP 服务.
-- `litemonitor/CodexUsage.json`: LiteMonitor 插件定义.
+- `CodexMonitor.Core`: C# 额度解析, HTTP 服务, 设置, 插件安装, 自启管理.
+- `CodexMonitor.App`: WinForms 托盘应用和设置窗口.
+- `CodexMonitor.Tests`: C# 测试运行器.
+- `LiteMonitorPlugin/CodexUsage.json`: LiteMonitor 插件定义.
+- `Artifacts`: 发布产物目录.

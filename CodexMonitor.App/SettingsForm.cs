@@ -1,6 +1,6 @@
-using CodexUsage.Core;
+using CodexMonitor.Core;
 
-namespace CodexUsageTray;
+namespace CodexMonitor.App;
 
 internal sealed class SettingsSavedEventArgs : EventArgs
 {

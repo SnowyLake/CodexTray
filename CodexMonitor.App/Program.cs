@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace CodexUsageTray;
+namespace CodexMonitor.App;
 
 internal static class Program
 {

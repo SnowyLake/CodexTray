@@ -1,7 +1,7 @@
 using Microsoft.Win32;
 using System.Runtime.Versioning;
 
-namespace CodexUsage.Core;
+namespace CodexMonitor.Core;
 
 [SupportedOSPlatform("windows")]
 public static class StartupManager

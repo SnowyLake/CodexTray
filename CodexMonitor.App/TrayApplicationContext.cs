@@ -1,8 +1,8 @@
-using CodexUsage.Core;
+using CodexMonitor.Core;
 using System.Diagnostics;
 using System.Net.Sockets;
 
-namespace CodexUsageTray;
+namespace CodexMonitor.App;
 
 internal sealed class TrayApplicationContext : ApplicationContext
 {

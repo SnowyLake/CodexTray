@@ -1,4 +1,4 @@
-namespace CodexUsage.Core;
+namespace CodexMonitor.Core;
 
 public static class LiteMonitorLocator
 {

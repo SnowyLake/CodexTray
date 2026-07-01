@@ -3,13 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMonitor.Core", "CodexMonitor.Core\CodexMonitor.Core.csproj", "{54814689-48D3-45C2-B744-447CFE09D807}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexUsage.Core", "src\CodexUsage.Core\CodexUsage.Core.csproj", "{54814689-48D3-45C2-B744-447CFE09D807}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMonitor.App", "CodexMonitor.App\CodexMonitor.App.csproj", "{25E02684-7C26-43B8-A653-DD734FE90685}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexUsageTray", "src\CodexUsageTray\CodexUsageTray.csproj", "{25E02684-7C26-43B8-A653-DD734FE90685}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexUsage.Tests", "tests\CodexUsage.Tests\CodexUsage.Tests.csproj", "{0A01B12B-7129-4C20-83A9-08B5DD1882DD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMonitor.Tests", "CodexMonitor.Tests\CodexMonitor.Tests.csproj", "{0A01B12B-7129-4C20-83A9-08B5DD1882DD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -60,10 +58,5 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(NestedProjects) = preSolution
-		{54814689-48D3-45C2-B744-447CFE09D807} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
-		{25E02684-7C26-43B8-A653-DD734FE90685} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
-		{0A01B12B-7129-4C20-83A9-08B5DD1882DD} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

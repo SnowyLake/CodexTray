@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace CodexUsage.Core;
+namespace CodexMonitor.Core;
 
 public static class CodexUsageDefaults
 {

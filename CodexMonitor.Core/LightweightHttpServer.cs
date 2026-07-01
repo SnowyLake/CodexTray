@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 
-namespace CodexUsage.Core;
+namespace CodexMonitor.Core;
 
 public sealed class LightweightHttpServer : IDisposable
 {

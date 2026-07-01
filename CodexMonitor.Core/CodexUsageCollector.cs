@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 
-namespace CodexUsage.Core;
+namespace CodexMonitor.Core;
 
 public sealed class CodexUsageCollector
 {

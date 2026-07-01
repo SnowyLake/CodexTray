@@ -1,9 +1,9 @@
-using CodexUsage.Core;
+using CodexMonitor.Core;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 
-namespace CodexUsage.Tests;
+namespace CodexMonitor.Tests;
 
 internal static class Program
 {

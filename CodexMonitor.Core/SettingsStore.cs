@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace CodexUsage.Core;
+namespace CodexMonitor.Core;
 
 public sealed class AppSettings
 {
