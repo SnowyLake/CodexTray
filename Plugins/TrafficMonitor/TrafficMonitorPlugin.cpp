@@ -11,10 +11,10 @@
 
 #pragma comment(lib, "winhttp.lib")
 
-namespace CodexMonitorTrafficMonitor
+namespace TrafficMonitorPlugin
 {
-constexpr wchar_t k_DefaultUsageUrl[] = L"http://127.0.0.1:17890/codex-usage";
-constexpr wchar_t k_ConfigFileName[] = L"CodexMonitorTrafficMonitor.ini";
+constexpr wchar_t k_DefaultUsageUrl[] = L"http://127.0.0.1:17890/codex-monitor";
+constexpr wchar_t k_ConfigFileName[] = L"CodexMonitor.ini";
 constexpr wchar_t k_ConfigSection[] = L"CodexMonitor";
 constexpr wchar_t k_ConfigUsageUrlKey[] = L"UsageUrl";
 
@@ -218,7 +218,7 @@ bool FetchUrl(const std::wstring& url, std::string& body)
         requestPath = L"/";
     }
 
-    WinHttpHandle session(WinHttpOpen(L"CodexMonitorTrafficMonitor/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+    WinHttpHandle session(WinHttpOpen(L"CodexMonitor/TrafficMonitorPlugin 1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     if (session == nullptr)
     {
         return false;
@@ -427,7 +427,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved)
 {
     if (reason == DLL_PROCESS_ATTACH)
     {
-        CodexMonitorTrafficMonitor::g_Module = module;
+        TrafficMonitorPlugin::g_Module = module;
         DisableThreadLibraryCalls(module);
     }
 
@@ -439,6 +439,6 @@ extern "C"
     /// Returns the TrafficMonitor plugin instance.
     __declspec(dllexport) ITMPlugin* TMPluginGetInstance()
     {
-        return &CodexMonitorTrafficMonitor::GetPluginInstance();
+        return &TrafficMonitorPlugin::GetPluginInstance();
     }
 }

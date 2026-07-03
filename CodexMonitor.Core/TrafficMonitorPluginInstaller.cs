@@ -2,6 +2,12 @@ namespace CodexMonitor.Core;
 
 public static class TrafficMonitorPluginInstaller
 {
+    private const string k_BridgeUrlToken = "{{bridge_url}}";
+    private const string k_FallbackPluginConfig = """
+[CodexMonitor]
+UsageUrl={{bridge_url}}
+""";
+
     /// <summary>
     /// Installs the TrafficMonitor plugin DLL and local configuration into the selected directory.
     /// </summary>
@@ -30,10 +36,17 @@ public static class TrafficMonitorPluginInstaller
     private static string BuildPluginConfig(int port)
     {
         int normalizedPort = port is > 0 and <= 65535 ? port : CodexMonitorDefaults.Port;
-        return $"""
-[CodexMonitor]
-UsageUrl=http://127.0.0.1:{normalizedPort}/codex-usage
-""";
+        string bridgeUrl = $"http://127.0.0.1:{normalizedPort}{CodexMonitorDefaults.UsageEndpointPath}";
+        return ReadTemplateConfig().Replace(k_BridgeUrlToken, bridgeUrl, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Reads the packaged TrafficMonitor configuration template when available.
+    /// </summary>
+    private static string ReadTemplateConfig()
+    {
+        string templatePath = Path.Combine(AppContext.BaseDirectory, "Plugins", "TrafficMonitor", CodexMonitorDefaults.TrafficMonitorPluginConfigFileName);
+        return File.Exists(templatePath) ? File.ReadAllText(templatePath) : k_FallbackPluginConfig;
     }
 
     /// <summary>
@@ -80,6 +93,7 @@ UsageUrl=http://127.0.0.1:{normalizedPort}/codex-usage
         yield return Path.Combine(baseDirectory, CodexMonitorDefaults.TrafficMonitorPluginFileName);
 
         string currentDirectory = Directory.GetCurrentDirectory();
+        yield return Path.Combine(currentDirectory, "Plugins", "TrafficMonitor", CodexMonitorDefaults.TrafficMonitorPluginFileName);
         yield return Path.Combine(currentDirectory, "Plugins", "TrafficMonitor", "Builds", "x64", "Release", CodexMonitorDefaults.TrafficMonitorPluginFileName);
         yield return Path.Combine(currentDirectory, "Plugins", "TrafficMonitor", "Builds", "x64", "Debug", CodexMonitorDefaults.TrafficMonitorPluginFileName);
     }

@@ -14,7 +14,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{4bcd78a6-40b1-48fd-b53d-7197020e99b0}</ProjectGuid>
-    <RootNamespace>CodexMonitorTrafficMonitor</RootNamespace>
+    <RootNamespace>TrafficMonitorPlugin</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -34,8 +34,8 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
     <OutDir>$(ProjectDir)Builds\$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>$(ProjectDir)obj\$(Platform)\$(Configuration)\</IntDir>
-    <TargetName>CodexMonitorTrafficMonitor</TargetName>
+    <IntDir>$(ProjectDir)obj\$(MSBuildProjectName)\$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>CodexMonitor</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -67,7 +67,7 @@
     <ClInclude Include="PluginInterface.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="CodexMonitorTrafficMonitor.cpp" />
+    <ClCompile Include="TrafficMonitorPlugin.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

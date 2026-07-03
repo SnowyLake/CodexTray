@@ -14,8 +14,10 @@ public static class CodexMonitorDefaults
     public const string SettingsFileName = "settings.json";
     public const string StartupRunValueName = "CodexMonitorTray";
     public const string PluginFileName = "CodexMonitor.json";
-    public const string TrafficMonitorPluginFileName = "CodexMonitorTrafficMonitor.dll";
-    public const string TrafficMonitorPluginConfigFileName = "CodexMonitorTrafficMonitor.ini";
+    public const string TrafficMonitorPluginFileName = "CodexMonitor.dll";
+    public const string TrafficMonitorPluginConfigFileName = "CodexMonitor.ini";
+    public const string UsageEndpointPath = "/codex-monitor";
+    public const string DefaultBridgeUrl = "http://127.0.0.1:17890" + UsageEndpointPath;
 }
 
 public sealed class UsageResponse

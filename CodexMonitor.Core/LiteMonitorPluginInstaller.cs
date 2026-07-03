@@ -1,8 +1,18 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
 namespace CodexMonitor.Core;
 
 public static class LiteMonitorPluginInstaller
 {
-    public const string PluginJson = """
+    private static readonly JsonSerializerOptions s_JsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = true,
+    };
+
+    private const string k_FallbackPluginJson = """
 {
   "id": "CodexMonitor",
   "meta": {
@@ -16,8 +26,8 @@ public static class LiteMonitorPluginInstaller
       "key": "bridge_url",
       "label": "桥接服务地址",
       "type": "text",
-      "default": "http://127.0.0.1:17890/codex-usage",
-      "placeholder": "http://127.0.0.1:17890/codex-usage",
+      "default": "http://127.0.0.1:17890/codex-monitor",
+      "placeholder": "http://127.0.0.1:17890/codex-monitor",
       "scope": "global"
     }
   ],
@@ -26,7 +36,7 @@ public static class LiteMonitorPluginInstaller
     "interval": 60,
     "steps": [
       {
-        "id": "fetch_codex_usage",
+        "id": "fetch_codex_monitor",
         "url": "{{bridge_url}}",
         "method": "GET",
         "response_format": "json",
@@ -59,7 +69,7 @@ public static class LiteMonitorPluginInstaller
     /// <summary>
     /// Installs the LiteMonitor plugin JSON into the selected directory.
     /// </summary>
-    public static string Install(string liteMonitorDirectory)
+    public static string Install(string liteMonitorDirectory, int port = CodexMonitorDefaults.Port)
     {
         if (!LiteMonitorLocator.IsLiteMonitorDirectory(liteMonitorDirectory))
         {
@@ -75,7 +85,51 @@ public static class LiteMonitorPluginInstaller
         string pluginDirectory = Path.Combine(resourcesDirectory, "plugins");
         Directory.CreateDirectory(pluginDirectory);
         string targetPath = Path.Combine(pluginDirectory, CodexMonitorDefaults.PluginFileName);
-        File.WriteAllText(targetPath, PluginJson);
+        File.WriteAllText(targetPath, BuildPluginJson(port));
         return targetPath;
+    }
+
+    /// <summary>
+    /// Builds the LiteMonitor plugin JSON from the packaged template.
+    /// </summary>
+    private static string BuildPluginJson(int port)
+    {
+        int normalizedPort = port is > 0 and <= 65535 ? port : CodexMonitorDefaults.Port;
+        string bridgeUrl = $"http://127.0.0.1:{normalizedPort}{CodexMonitorDefaults.UsageEndpointPath}";
+        JsonNode root = JsonNode.Parse(ReadTemplateJson()) ?? throw new InvalidOperationException("LiteMonitor plugin template is empty.");
+        JsonArray inputs = root["inputs"]?.AsArray() ?? throw new InvalidOperationException("LiteMonitor plugin template has no inputs.");
+        bool bridgeInputUpdated = false;
+
+        foreach (JsonNode? input in inputs)
+        {
+            if (input is not JsonObject inputObject)
+            {
+                continue;
+            }
+
+            if (string.Equals(inputObject["key"]?.GetValue<string>(), "bridge_url", StringComparison.Ordinal))
+            {
+                inputObject["default"] = bridgeUrl;
+                inputObject["placeholder"] = bridgeUrl;
+                bridgeInputUpdated = true;
+                break;
+            }
+        }
+
+        if (!bridgeInputUpdated)
+        {
+            throw new InvalidOperationException("LiteMonitor plugin template has no bridge_url input.");
+        }
+
+        return root.ToJsonString(s_JsonOptions);
+    }
+
+    /// <summary>
+    /// Reads the packaged LiteMonitor plugin template when available.
+    /// </summary>
+    private static string ReadTemplateJson()
+    {
+        string templatePath = Path.Combine(AppContext.BaseDirectory, "Plugins", "LiteMonitor", CodexMonitorDefaults.PluginFileName);
+        return File.Exists(templatePath) ? File.ReadAllText(templatePath) : k_FallbackPluginJson;
     }
 }

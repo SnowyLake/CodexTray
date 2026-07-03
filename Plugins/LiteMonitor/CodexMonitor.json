@@ -11,8 +11,8 @@
       "key": "bridge_url",
       "label": "桥接服务地址",
       "type": "text",
-      "default": "http://127.0.0.1:17890/codex-usage",
-      "placeholder": "http://127.0.0.1:17890/codex-usage",
+      "default": "http://127.0.0.1:17890/codex-monitor",
+      "placeholder": "http://127.0.0.1:17890/codex-monitor",
       "scope": "global"
     }
   ],
@@ -21,7 +21,7 @@
     "interval": 60,
     "steps": [
       {
-        "id": "fetch_codex_usage",
+        "id": "fetch_codex_monitor",
         "url": "{{bridge_url}}",
         "method": "GET",
         "response_format": "json",

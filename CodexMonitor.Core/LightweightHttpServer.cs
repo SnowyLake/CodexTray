@@ -163,7 +163,7 @@ public sealed class LightweightHttpServer : IDisposable
             return;
         }
 
-        if (!path.StartsWith("/codex-usage", StringComparison.OrdinalIgnoreCase))
+        if (!path.StartsWith(CodexMonitorDefaults.UsageEndpointPath, StringComparison.OrdinalIgnoreCase))
         {
             await WriteResponseAsync(stream, 404, "Not Found", "application/json; charset=utf-8", "{\"error\":\"not_found\"}", cancellationToken).ConfigureAwait(false);
             return;
