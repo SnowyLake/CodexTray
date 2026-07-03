@@ -37,6 +37,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
             m_Settings.LiteMonitorDir = LiteMonitorLocator.AutoDetect();
         }
 
+        if (string.IsNullOrWhiteSpace(m_Settings.TrafficMonitorDir))
+        {
+            m_Settings.TrafficMonitorDir = TrafficMonitorLocator.AutoDetect();
+        }
+
         m_NotifyIcon = CreateNotifyIcon();
         m_RefreshTimer.Tick += async (_, _) => await RefreshUsageAsync();
         StartService();
@@ -76,8 +81,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         ContextMenuStrip menu = new();
         menu.Items.Add("Open Settings", null, (_, _) => ShowSettings());
-        menu.Items.Add("Install LiteMonitor Plugin", null, (_, _) => InstallPlugin());
+        menu.Items.Add("Install LiteMonitor Plugin", null, (_, _) => InstallLiteMonitorPlugin());
+        menu.Items.Add("Install TrafficMonitor Plugin", null, (_, _) => InstallTrafficMonitorPlugin());
         menu.Items.Add("Open LiteMonitor Folder", null, (_, _) => OpenLiteMonitorFolder());
+        menu.Items.Add("Open TrafficMonitor Folder", null, (_, _) => OpenTrafficMonitorFolder());
         menu.Items.Add("Restart Service", null, (_, _) => RestartService());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitApplication());
@@ -86,7 +93,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             ContextMenuStrip = menu,
             Icon = m_AppIcon,
-            Text = "CodexMonitor LiteMonitor",
+            Text = "CodexMonitor",
             Visible = true,
         };
         notifyIcon.DoubleClick += (_, _) => ShowSettings();
@@ -155,7 +162,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         m_SettingsForm = new SettingsForm(m_Settings, m_AppIcon);
         m_SettingsForm.SettingsSaved += (_, args) => SaveSettings(args.PreviousPort);
-        m_SettingsForm.InstallPluginRequested += (_, _) => InstallPlugin();
+        m_SettingsForm.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
+        m_SettingsForm.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
         m_SettingsForm.RefreshNowRequested += async (_, _) => await RefreshUsageAsync();
         m_SettingsForm.FormClosed += (_, _) => m_SettingsForm = null;
         m_SettingsForm.Show();
@@ -194,7 +202,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     /// <summary>
     /// Installs the LiteMonitor plugin file.
     /// </summary>
-    private void InstallPlugin()
+    private void InstallLiteMonitorPlugin()
     {
         try
         {
@@ -207,6 +215,29 @@ internal sealed class TrayApplicationContext : ApplicationContext
             string targetPath = LiteMonitorPluginInstaller.Install(m_Settings.LiteMonitorDir);
             RefreshSettingsStatus();
             MessageBox.Show($"Installed LiteMonitor plugin:\n{targetPath}", "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            MessageBox.Show(exception.Message, "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Installs the TrafficMonitor plugin file.
+    /// </summary>
+    private void InstallTrafficMonitorPlugin()
+    {
+        try
+        {
+            if (!TrafficMonitorLocator.IsTrafficMonitorDirectory(m_Settings.TrafficMonitorDir))
+            {
+                m_Settings.TrafficMonitorDir = TrafficMonitorLocator.AutoDetect(m_Settings.TrafficMonitorDir);
+                m_SettingsStore.Save(m_Settings);
+            }
+
+            string targetPath = TrafficMonitorPluginInstaller.Install(m_Settings.TrafficMonitorDir, m_Settings.Port);
+            RefreshSettingsStatus();
+            MessageBox.Show($"Installed TrafficMonitor plugin:\n{targetPath}", "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
@@ -244,6 +275,24 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         UsageResponse? response = m_UsageCache.Get();
         m_SettingsForm.UpdateStatus(m_Server?.IsRunning == true, m_Server?.Port ?? m_Settings.Port, response, m_Server?.LastError);
+    }
+
+    /// <summary>
+    /// Opens the TrafficMonitor installation folder.
+    /// </summary>
+    private void OpenTrafficMonitorFolder()
+    {
+        if (!TrafficMonitorLocator.IsTrafficMonitorDirectory(m_Settings.TrafficMonitorDir))
+        {
+            MessageBox.Show("TrafficMonitor folder is not configured.", "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = m_Settings.TrafficMonitorDir,
+            UseShellExecute = true,
+        });
     }
 
     /// <summary>

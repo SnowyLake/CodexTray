@@ -6,6 +6,8 @@ public sealed class AppSettings
 {
     public string LiteMonitorDir { get; set; } = string.Empty;
 
+    public string TrafficMonitorDir { get; set; } = string.Empty;
+
     public int Port { get; set; } = CodexMonitorDefaults.Port;
 
     public int RefreshIntervalMinutes { get; set; } = CodexMonitorDefaults.RefreshIntervalMinutes;
@@ -31,6 +33,7 @@ public sealed class AppSettings
         }
 
         LiteMonitorDir = LiteMonitorDir.Trim();
+        TrafficMonitorDir = TrafficMonitorDir.Trim();
         return this;
     }
 }

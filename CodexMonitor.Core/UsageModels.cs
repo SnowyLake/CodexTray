@@ -14,6 +14,8 @@ public static class CodexMonitorDefaults
     public const string SettingsFileName = "settings.json";
     public const string StartupRunValueName = "CodexMonitorTray";
     public const string PluginFileName = "CodexMonitor.json";
+    public const string TrafficMonitorPluginFileName = "CodexMonitorTrafficMonitor.dll";
+    public const string TrafficMonitorPluginConfigFileName = "CodexMonitorTrafficMonitor.ini";
 }
 
 public sealed class UsageResponse

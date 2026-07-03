@@ -4,6 +4,7 @@
     <ProjectReference Include="..\CodexMonitor.Core\CodexMonitor.Core.csproj" />
     <EmbeddedResource Include="..\Resources\icon.ico" Link="Resources\icon.ico" />
     <EmbeddedResource Include="..\Resources\icon.png" Link="Resources\icon.png" />
+    <None Include="..\Plugins\TrafficMonitor\Builds\x64\Release\CodexMonitorTrafficMonitor.dll" Link="Plugins\TrafficMonitor\CodexMonitorTrafficMonitor.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\Plugins\TrafficMonitor\Builds\x64\Release\CodexMonitorTrafficMonitor.dll')" />
   </ItemGroup>
 
   <PropertyGroup>

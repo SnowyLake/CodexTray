@@ -22,6 +22,7 @@ internal static class Program
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
+        await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
@@ -206,6 +207,25 @@ internal static class Program
         AssertTrue(File.Exists(targetPath), "plugin file should exist");
         string content = File.ReadAllText(targetPath);
         AssertTrue(content.Contains("Codex Weekly", StringComparison.Ordinal), "plugin content should include weekly output");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests installing the TrafficMonitor plugin files.
+    /// </summary>
+    private static Task TestTrafficMonitorPluginInstallAsync()
+    {
+        using TempDirectory temp = new();
+        File.WriteAllText(Path.Combine(temp.Path, "TrafficMonitor.exe"), string.Empty);
+        string sourcePath = Path.Combine(temp.Path, CodexMonitorDefaults.TrafficMonitorPluginFileName);
+        File.WriteAllText(sourcePath, "fake dll");
+
+        string targetPath = TrafficMonitorPluginInstaller.Install(temp.Path, 17999, sourcePath);
+        AssertTrue(File.Exists(targetPath), "plugin dll should exist");
+        string configPath = Path.Combine(temp.Path, "plugins", CodexMonitorDefaults.TrafficMonitorPluginConfigFileName);
+        AssertTrue(File.Exists(configPath), "plugin config should exist");
+        string content = File.ReadAllText(configPath);
+        AssertTrue(content.Contains("http://127.0.0.1:17999/codex-usage", StringComparison.Ordinal), "plugin config should include bridge URL");
         return Task.CompletedTask;
     }
 

@@ -2,6 +2,8 @@ bin/
 obj/
 Builds/*
 !Builds/.gitkeep
+Plugins/TrafficMonitor/Builds/
+Plugins/TrafficMonitor/obj/
 .vs/
 .idea/
 *.user
