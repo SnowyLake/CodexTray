@@ -6,6 +6,7 @@ Plugins/TrafficMonitor/Builds/
 Plugins/TrafficMonitor/obj/
 .vs/
 .idea/
+.agent-sessions/
 *.user
 *.suo
 *.log
