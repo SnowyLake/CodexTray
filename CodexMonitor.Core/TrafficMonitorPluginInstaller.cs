@@ -3,7 +3,7 @@ namespace CodexMonitor.Core;
 public static class TrafficMonitorPluginInstaller
 {
     private const string k_BridgeUrlToken = "{{bridge_url}}";
-private const string k_FallbackPluginConfig = """
+    private const string k_FallbackPluginConfig = """
 [CodexMonitor]
 UsageUrl={{bridge_url}}
 RequestIntervalSeconds=60
@@ -68,7 +68,7 @@ RequestIntervalSeconds=60
             }
         }
 
-        throw new FileNotFoundException($"TrafficMonitor plugin DLL was not found. Build Plugins\\TrafficMonitor first, then install {CodexMonitorDefaults.TrafficMonitorPluginFileName}.");
+        throw new FileNotFoundException($"TrafficMonitor plugin DLL was not found. Run Scripts\\Build-TrafficMonitorPlugin.ps1 first, then install {CodexMonitorDefaults.TrafficMonitorPluginFileName}.");
     }
 
     /// <summary>

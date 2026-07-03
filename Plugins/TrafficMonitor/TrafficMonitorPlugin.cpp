@@ -7,7 +7,6 @@
 
 #include <array>
 #include <string>
-#include <utility>
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -21,6 +20,8 @@ constexpr wchar_t k_ConfigRequestIntervalSecondsKey[] = L"RequestIntervalSeconds
 constexpr UINT k_DefaultRequestIntervalSeconds = 60;
 constexpr UINT k_MinimumRequestIntervalSeconds = 1;
 constexpr UINT k_MaximumRequestIntervalSeconds = 86400;
+constexpr size_t k_DisplayLabelWidth = 12;
+constexpr wchar_t k_FallbackValue[] = L"None";
 
 HMODULE g_Module = nullptr;
 
@@ -306,14 +307,20 @@ class CodexUsageItem final : public IPluginItem
 public:
     /// Creates one Codex usage display item.
     CodexUsageItem(const wchar_t* name, const wchar_t* id, const wchar_t* label, const wchar_t* sampleText)
-        : m_Name(name), m_Id(id), m_Label(label), m_SampleText(sampleText), m_Value(L"unavailable")
+        : m_Name(name), m_Id(id), m_Label(label), m_SampleText(sampleText), m_Value(k_FallbackValue)
     {
     }
 
     /// Updates the displayed item value.
     void SetValue(std::wstring value)
     {
-        m_Value = value.empty() ? L"unavailable" : std::move(value);
+        m_Value = value.empty() ? k_FallbackValue : BuildValueText(value);
+    }
+
+    /// Updates the displayed item value to the fallback text.
+    void SetFallback()
+    {
+        m_Value = k_FallbackValue;
     }
 
     /// Returns the display item name.
@@ -347,6 +354,20 @@ public:
     }
 
 private:
+    /// Builds the value text with label-relative padding.
+    std::wstring BuildValueText(const std::wstring& value) const
+    {
+        std::wstring text;
+        if (m_Label.size() < k_DisplayLabelWidth)
+        {
+            text.append(k_DisplayLabelWidth - m_Label.size(), L' ');
+        }
+
+        text.push_back(L' ');
+        text += value;
+        return text;
+    }
+
     std::wstring m_Name;
     std::wstring m_Id;
     std::wstring m_Label;
@@ -359,8 +380,8 @@ class CodexMonitorPlugin final : public ITMPlugin
 public:
     /// Creates the TrafficMonitor plugin singleton.
     CodexMonitorPlugin()
-        : m_FiveHourItem(L"Codex 5h", L"CodexMonitor5H", L"Codex 5h", L"88% [2h 45m]"),
-          m_WeeklyItem(L"Codex Weekly", L"CodexMonitorWeekly", L"Codex Weekly", L"66% [3d 04h]"),
+        : m_FiveHourItem(L"Codex 5h", L"CodexMonitor5H", L"Codex 5h", L"     100% [4h 59m]"),
+          m_WeeklyItem(L"Codex Weekly", L"CodexMonitorWeekly", L"Codex Weekly", L" 100% [6d 23h]"),
           m_Tooltip(L"CodexMonitor waiting for data"),
           m_LastRequestTick(0),
           m_HasRequested(false)
@@ -392,8 +413,8 @@ public:
         UsageValues values;
         if (!FetchUsageValues(values))
         {
-            m_FiveHourItem.SetValue(L"offline");
-            m_WeeklyItem.SetValue(L"offline");
+            m_FiveHourItem.SetFallback();
+            m_WeeklyItem.SetFallback();
             m_Tooltip = L"CodexMonitor bridge unavailable";
             return;
         }

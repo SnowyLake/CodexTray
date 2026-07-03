@@ -7,6 +7,9 @@ namespace CodexMonitor.Core;
 
 public sealed class CodexMonitorCollector
 {
+    private const string k_FiveHourDisplayLabel = "Codex 5h";
+    private const string k_WeeklyDisplayLabel = "Codex Weekly";
+
     private static readonly HttpClient s_HttpClient = new()
     {
         Timeout = TimeSpan.FromSeconds(15),
@@ -159,8 +162,7 @@ public sealed class CodexMonitorCollector
         fiveHour.ResetLabel = FormatFiveHourResetLabel(fiveHour.ResetsAt, now);
         weekly.ResetLabel = FormatWeeklyResetLabel(weekly.ResetsAt, now);
 
-        string codex5HDisplay = $"{fiveHour.RemainingPercent}% [{fiveHour.ResetLabel}]";
-        string codexWeeklyDisplay = $"{weekly.RemainingPercent}% [{weekly.ResetLabel}]";
+        UsageDisplay display = BuildDisplay(fiveHour, weekly);
 
         return new UsageResponse
         {
@@ -181,12 +183,7 @@ public sealed class CodexMonitorCollector
                 FiveHour = fiveHour,
                 Weekly = weekly,
             },
-            Display = new UsageDisplay
-            {
-                Codex5H = codex5HDisplay,
-                CodexWeekly = codexWeeklyDisplay,
-                Summary = $"Codex 5h: {codex5HDisplay} | Codex Weekly: {codexWeeklyDisplay}",
-            },
+            Display = display,
         };
     }
 
@@ -208,8 +205,7 @@ public sealed class CodexMonitorCollector
             return CreateEmptyResponse(codexDirectory, now, "Codex usage API did not return rate_limit windows");
         }
 
-        string codex5HDisplay = $"{fiveHour.RemainingPercent}% [{fiveHour.ResetLabel}]";
-        string codexWeeklyDisplay = $"{weekly.RemainingPercent}% [{weekly.ResetLabel}]";
+        UsageDisplay display = BuildDisplay(fiveHour, weekly);
         return new UsageResponse
         {
             Available = true,
@@ -224,12 +220,22 @@ public sealed class CodexMonitorCollector
                 FiveHour = fiveHour,
                 Weekly = weekly,
             },
-            Display = new UsageDisplay
-            {
-                Codex5H = codex5HDisplay,
-                CodexWeekly = codexWeeklyDisplay,
-                Summary = $"Codex 5h: {codex5HDisplay} | Codex Weekly: {codexWeeklyDisplay}",
-            },
+            Display = display,
+        };
+    }
+
+    /// <summary>
+    /// Builds all display strings for monitor plugins.
+    /// </summary>
+    private static UsageDisplay BuildDisplay(UsageLimit fiveHour, UsageLimit weekly)
+    {
+        string codex5HDisplay = $"{fiveHour.RemainingPercent}% [{fiveHour.ResetLabel}]";
+        string codexWeeklyDisplay = $"{weekly.RemainingPercent}% [{weekly.ResetLabel}]";
+        return new UsageDisplay
+        {
+            Codex5H = codex5HDisplay,
+            CodexWeekly = codexWeeklyDisplay,
+            Summary = $"{k_FiveHourDisplayLabel}: {codex5HDisplay} | {k_WeeklyDisplayLabel}: {codexWeeklyDisplay}",
         };
     }
 

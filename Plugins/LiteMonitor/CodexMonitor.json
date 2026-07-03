@@ -37,14 +37,14 @@
       "key": "codex_5h",
       "label": "Codex 5h",
       "short_label": "Codex 5h",
-      "format_val": "{{codex_5h_display}}",
+      "format_val": "     {{codex_5h_display}}",
       "unit": ""
     },
     {
       "key": "codex_weekly",
       "label": "Codex Weekly",
       "short_label": "Codex Weekly",
-      "format_val": "{{codex_weekly_display}}",
+      "format_val": " {{codex_weekly_display}}",
       "unit": ""
     }
   ]

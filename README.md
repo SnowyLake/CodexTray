@@ -10,7 +10,7 @@
 - [额度刷新](#额度刷新)
 - [安全与隐私](#安全与隐私)
 - [常见问题](#常见问题)
-- [工程现状](#工程现状)
+- [开发](#开发)
 
 ## 概览
 
@@ -51,7 +51,7 @@
 从 Release zip 解压时, 发布目录会包含 `Resources` 和 `Plugins` 模板目录. TrafficMonitor 插件如果从源码运行, 需要先构建原生 DLL:
 
 ```powershell
-.\Plugins\TrafficMonitor\Build-TrafficMonitorPlugin.ps1
+.\Scripts\Build-TrafficMonitorPlugin.ps1
 ```
 
 ## 托盘菜单
@@ -79,6 +79,7 @@
 - 5 小时额度字段值使用 `88% [2h 45m]` 格式.
 - Weekly 额度字段值使用 `66% [3d 04h]` 格式.
 - 分钟或小时小于 10 时保留两位数字, 例如 `05m` 和 `04h`.
+- `display.codex_5h` 和 `display.codex_weekly` 返回纯额度值. LiteMonitor 和 TrafficMonitor 插件保留宿主自己的 label, 并在 value 前按 `Codex Weekly` 的宽度补空格.
 
 ## 安全与隐私
 

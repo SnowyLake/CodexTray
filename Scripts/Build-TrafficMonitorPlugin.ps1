@@ -10,7 +10,9 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectPath = Join-Path $scriptRoot "TrafficMonitorPlugin.vcxproj"
+$repoRoot = Split-Path -Parent $scriptRoot
+$pluginRoot = Join-Path $repoRoot "Plugins\TrafficMonitor"
+$projectPath = Join-Path $pluginRoot "TrafficMonitorPlugin.vcxproj"
 
 function Get-MSBuildPath {
     $command = Get-Command msbuild -ErrorAction SilentlyContinue
@@ -42,5 +44,5 @@ if ($LASTEXITCODE -ne 0) {
     throw "TrafficMonitor plugin build failed with exit code $LASTEXITCODE."
 }
 
-$outputPath = Join-Path $scriptRoot "Builds\$Platform\$Configuration\CodexMonitor.dll"
+$outputPath = Join-Path $pluginRoot "Builds\$Platform\$Configuration\CodexMonitor.dll"
 Write-Host "Plugin DLL: $outputPath"

@@ -21,7 +21,8 @@
 - `CodexMonitor.App`: WinForms 托盘应用和设置窗口.
 - `CodexMonitor.Tests`: 自包含 C# 测试运行器.
 - `Plugins/LiteMonitor`: LiteMonitor 插件定义, 当前插件文件为 `CodexMonitor.json`.
-- `Plugins/TrafficMonitor`: TrafficMonitor 插件源码, 配置模板和构建脚本.
+- `Plugins/TrafficMonitor`: TrafficMonitor 插件源码和配置模板.
+- `Scripts`: 发布, 重启, release 打包, 和 TrafficMonitor 插件构建脚本.
 - `Builds`: 发布产物目录, 只提交 `.gitkeep`, 其余内容由 `.gitignore` 忽略.
 - `Directory.Build.props` 和 `Directory.Build.targets`: 全局 MSBuild 默认配置和默认编译项排除规则.
 
@@ -62,13 +63,19 @@ dotnet run --project .\CodexMonitor.Tests\CodexMonitor.Tests.csproj
 .\Scripts\Publish-App.ps1
 ```
 
+构建 TrafficMonitor 原生插件:
+
+```powershell
+.\Scripts\Build-TrafficMonitorPlugin.ps1
+```
+
 修改托盘应用后, 验证通过时需要发布并重启预览程序:
 
 ```powershell
 .\Scripts\Restart-App.ps1
 ```
 
-如果需要从资源管理器双击运行, 使用 `Scripts/Publish-App.cmd` 或 `Scripts/Restart-App.cmd`, 结束后窗口会停留显示结果.
+如果需要从资源管理器双击运行, 使用 `Scripts/Publish-App.cmd`, `Scripts/Restart-App.cmd`, 或 `Scripts/Build-TrafficMonitorPlugin.cmd`, 结束后窗口会停留显示结果.
 
 打包 GitHub Release 上传文件:
 

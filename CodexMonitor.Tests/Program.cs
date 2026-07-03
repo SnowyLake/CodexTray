@@ -208,7 +208,8 @@ internal static class Program
         string targetPath = LiteMonitorPluginInstaller.Install(temp.Path, 17998);
         AssertTrue(File.Exists(targetPath), "plugin file should exist");
         string content = File.ReadAllText(targetPath);
-        AssertTrue(content.Contains("Codex Weekly", StringComparison.Ordinal), "plugin content should include weekly output");
+        AssertTrue(content.Contains("\"format_val\": \"     {{codex_5h_display}}\"", StringComparison.Ordinal), "plugin content should include five hour padding");
+        AssertTrue(content.Contains("\"format_val\": \" {{codex_weekly_display}}\"", StringComparison.Ordinal), "plugin content should include weekly padding");
         AssertTrue(content.Contains("http://127.0.0.1:17998/codex-monitor", StringComparison.Ordinal), "plugin content should include bridge URL");
         return Task.CompletedTask;
     }

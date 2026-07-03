@@ -18,7 +18,7 @@
 需要安装 Visual Studio Build Tools, 并包含 C++ 桌面开发工作负载.
 
 ```powershell
-.\Plugins\TrafficMonitor\Build-TrafficMonitorPlugin.ps1
+.\Scripts\Build-TrafficMonitorPlugin.ps1
 ```
 
 默认输出:
