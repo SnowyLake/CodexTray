@@ -1,10 +1,24 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <Compile Include="CodexMonitorCollector.cs" />
+    <Compile Include="LightweightHttpServer.cs" />
+    <Compile Include="LiteMonitorLocator.cs" />
+    <Compile Include="LiteMonitorPluginInstaller.cs" />
+    <Compile Include="SettingsStore.cs" />
+    <Compile Include="StartupManager.cs" />
+    <Compile Include="TrafficMonitorLocator.cs" />
+    <Compile Include="TrafficMonitorPluginInstaller.cs" />
+    <Compile Include="UsageCache.cs" />
+    <Compile Include="UsageModels.cs" />
+  </ItemGroup>
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>CodexMonitor.Core</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
 </Project>
