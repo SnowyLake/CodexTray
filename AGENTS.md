@@ -20,7 +20,7 @@
 - `CodexMonitor.Core`: 官方额度采集, 本地 session 兜底采集, 使用量缓存, HTTP 服务, 设置存储, LiteMonitor 定位, 插件安装, Windows 自启动管理.
 - `CodexMonitor.App`: WinForms 托盘应用和设置窗口.
 - `CodexMonitor.Tests`: 自包含 C# 测试运行器.
-- `LiteMonitorPlugin`: LiteMonitor 插件定义, 当前插件文件为 `CodexMonitor.json`.
+- `Plugins/LiteMonitor`: LiteMonitor 插件定义, 当前插件文件为 `CodexMonitor.json`.
 - `Builds`: 发布产物目录, 只提交 `.gitkeep`, 其余内容由 `.gitignore` 忽略.
 - `Directory.Build.props` 和 `Directory.Build.targets`: 全局 MSBuild 默认配置和默认编译项排除规则.
 
@@ -36,7 +36,7 @@
 ## 开发规则
 
 - 修改 C# 代码时, namespace 必须与项目文件夹名对齐, 即 `CodexMonitor.Core`, `CodexMonitor.App`, `CodexMonitor.Tests`.
-- LiteMonitor 插件文件名应保持为 `LiteMonitorPlugin/CodexMonitor.json`.
+- LiteMonitor 插件文件名应保持为 `Plugins/LiteMonitor/CodexMonitor.json`.
 - 如果修改内置插件 JSON, 同步检查 `CodexMonitor.Core/LiteMonitorPluginInstaller.cs` 中的 `PluginJson`.
 
 ## 验证命令

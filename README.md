@@ -104,7 +104,7 @@
 - `CodexMonitor.Core`: 额度采集, 缓存, 本地服务, 设置存储, LiteMonitor 插件安装.
 - `CodexMonitor.App`: WinForms 托盘应用和设置窗口.
 - `CodexMonitor.Tests`: C# 测试运行器.
-- `LiteMonitorPlugin`: LiteMonitor 插件定义.
+- `Plugins/LiteMonitor`: LiteMonitor 插件定义.
 - `Scripts`: 发布, 重启, release 打包脚本.
 - `Builds`: 本地构建和发布产物目录, 不提交生成内容.
 
