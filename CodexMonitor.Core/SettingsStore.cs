@@ -12,8 +12,6 @@ public sealed class AppSettings
 
     public int RefreshIntervalMinutes { get; set; } = CodexMonitorDefaults.RefreshIntervalMinutes;
 
-    public bool FirstRunCompleted { get; set; }
-
     public bool StartWithWindows { get; set; }
 
     /// <summary>
@@ -64,11 +62,19 @@ public sealed class SettingsStore
     }
 
     /// <summary>
-    /// Loads persisted settings or returns defaults.
+    /// Returns true when the settings file already exists.
+    /// </summary>
+    public bool Exists()
+    {
+        return File.Exists(SettingsPath);
+    }
+
+    /// <summary>
+    /// Loads persisted settings, repairs missing fields, or returns defaults.
     /// </summary>
     public AppSettings Load()
     {
-        if (!File.Exists(SettingsPath))
+        if (!Exists())
         {
             return new AppSettings().Normalize();
         }
@@ -76,7 +82,9 @@ public sealed class SettingsStore
         try
         {
             string json = File.ReadAllText(SettingsPath);
-            return (JsonSerializer.Deserialize<AppSettings>(json, s_JsonOptions) ?? new AppSettings()).Normalize();
+            AppSettings settings = (JsonSerializer.Deserialize<AppSettings>(json, s_JsonOptions) ?? new AppSettings()).Normalize();
+            Save(settings);
+            return settings;
         }
         catch (JsonException)
         {

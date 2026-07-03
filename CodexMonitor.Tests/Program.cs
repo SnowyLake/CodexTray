@@ -24,6 +24,7 @@ internal static class Program
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
         await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
+        await RunAsync("repairs missing settings fields", TestSettingsStoreRepairsMissingFieldsAsync);
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
@@ -252,6 +253,31 @@ internal static class Program
         AssertTrue(File.Exists(expectedPath), "settings file should exist beside executable");
         AssertTrue(!Directory.Exists(Path.Combine(temp.Path, "CodexMonitor")), "settings directory should not exist");
         AssertEqual(17997, store.Load().Port, "saved settings port");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests loading partial settings and saving default fields back.
+    /// </summary>
+    private static Task TestSettingsStoreRepairsMissingFieldsAsync()
+    {
+        using TempDirectory temp = new();
+        SettingsStore store = new(temp.Path);
+        File.WriteAllText(store.SettingsPath, "{\"Port\":17996}");
+
+        AppSettings settings = store.Load();
+
+        AssertEqual(17996, settings.Port, "existing port");
+        AssertEqual(string.Empty, settings.LiteMonitorDir, "default LiteMonitor path");
+        AssertEqual(string.Empty, settings.TrafficMonitorDir, "default TrafficMonitor path");
+        AssertEqual(CodexMonitorDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
+
+        string repairedJson = File.ReadAllText(store.SettingsPath);
+        using JsonDocument document = JsonDocument.Parse(repairedJson);
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.LiteMonitorDir), out _), "repaired settings should include LiteMonitor path");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TrafficMonitorDir), out _), "repaired settings should include TrafficMonitor path");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.RefreshIntervalMinutes), out _), "repaired settings should include refresh interval");
+        AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
         return Task.CompletedTask;
     }
 

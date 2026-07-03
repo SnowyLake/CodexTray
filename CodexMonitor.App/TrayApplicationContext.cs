@@ -31,26 +31,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
         m_SettingsStore = new SettingsStore();
         m_Collector = new CodexMonitorCollector();
         m_AppIcon = LoadApplicationIcon();
+        bool settingsExists = m_SettingsStore.Exists();
         m_Settings = m_SettingsStore.Load();
-        if (string.IsNullOrWhiteSpace(m_Settings.LiteMonitorDir))
-        {
-            m_Settings.LiteMonitorDir = LiteMonitorLocator.AutoDetect();
-        }
-
-        if (string.IsNullOrWhiteSpace(m_Settings.TrafficMonitorDir))
-        {
-            m_Settings.TrafficMonitorDir = TrafficMonitorLocator.AutoDetect();
-        }
-
         m_NotifyIcon = CreateNotifyIcon();
         m_RefreshTimer.Tick += async (_, _) => await RefreshUsageAsync();
         StartService();
         ConfigureRefreshTimer();
         _ = RefreshUsageAsync();
         StartSignalListener();
-        if (!m_Settings.FirstRunCompleted)
+        if (!settingsExists)
         {
-            m_Settings.FirstRunCompleted = true;
             m_SettingsStore.Save(m_Settings);
             ShowSettings();
         }
@@ -206,13 +196,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         try
         {
-            if (!LiteMonitorLocator.IsLiteMonitorDirectory(m_Settings.LiteMonitorDir))
+            if (!TryValidateLiteMonitorDirectory(m_Settings.LiteMonitorDir, out string message))
             {
-                m_Settings.LiteMonitorDir = LiteMonitorLocator.AutoDetect(m_Settings.LiteMonitorDir);
-                m_SettingsStore.Save(m_Settings);
+                MessageBox.Show(message, "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
 
             string targetPath = LiteMonitorPluginInstaller.Install(m_Settings.LiteMonitorDir, m_Settings.Port);
+            m_SettingsStore.Save(m_Settings);
             RefreshSettingsStatus();
             MessageBox.Show($"Installed LiteMonitor plugin:\n{targetPath}", "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -229,13 +220,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         try
         {
-            if (!TrafficMonitorLocator.IsTrafficMonitorDirectory(m_Settings.TrafficMonitorDir))
+            if (!TryValidateTrafficMonitorDirectory(m_Settings.TrafficMonitorDir, out string message))
             {
-                m_Settings.TrafficMonitorDir = TrafficMonitorLocator.AutoDetect(m_Settings.TrafficMonitorDir);
-                m_SettingsStore.Save(m_Settings);
+                MessageBox.Show(message, "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
 
             string targetPath = TrafficMonitorPluginInstaller.Install(m_Settings.TrafficMonitorDir, m_Settings.Port);
+            m_SettingsStore.Save(m_Settings);
             RefreshSettingsStatus();
             MessageBox.Show($"Installed TrafficMonitor plugin:\n{targetPath}", "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -331,6 +323,48 @@ internal sealed class TrayApplicationContext : ApplicationContext
         m_NotifyIcon.Visible = false;
         m_Server?.Stop();
         ExitThread();
+    }
+
+    /// <summary>
+    /// Validates the configured LiteMonitor installation directory.
+    /// </summary>
+    private static bool TryValidateLiteMonitorDirectory(string directory, out string message)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            message = "LiteMonitor folder is not configured. Use Browse or Auto Detect first.";
+            return false;
+        }
+
+        if (!LiteMonitorLocator.IsLiteMonitorDirectory(directory))
+        {
+            message = $"LiteMonitor.exe was not found in:\n{directory}";
+            return false;
+        }
+
+        message = string.Empty;
+        return true;
+    }
+
+    /// <summary>
+    /// Validates the configured TrafficMonitor installation directory.
+    /// </summary>
+    private static bool TryValidateTrafficMonitorDirectory(string directory, out string message)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            message = "TrafficMonitor folder is not configured. Use Browse or Auto Detect first.";
+            return false;
+        }
+
+        if (!TrafficMonitorLocator.IsTrafficMonitorDirectory(directory))
+        {
+            message = $"TrafficMonitor.exe was not found in:\n{directory}";
+            return false;
+        }
+
+        message = string.Empty;
+        return true;
     }
 
     /// <summary>
