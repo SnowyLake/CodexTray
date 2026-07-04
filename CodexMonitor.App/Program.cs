@@ -23,7 +23,8 @@ internal static class Program
 
         using EventWaitHandle showPanelEvent = new(false, EventResetMode.AutoReset, k_ShowPanelEventName);
         ApplicationConfiguration.Initialize();
-        Application.Run(new TrayApplicationContext(showPanelEvent));
+        App app = new(showPanelEvent);
+        app.Run();
     }
 
     /// <summary>

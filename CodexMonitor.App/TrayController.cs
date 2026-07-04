@@ -1,19 +1,26 @@
 using CodexMonitor.Core;
 using System.IO;
 using System.Net.Sockets;
+using System.Windows.Threading;
+using Forms = System.Windows.Forms;
+using WpfApplication = System.Windows.Application;
 
 namespace CodexMonitor.App;
 
-internal sealed class TrayApplicationContext : ApplicationContext
+/// <summary>
+/// Owns the tray icon, background service, and WPF popup window.
+/// </summary>
+internal sealed class TrayController : IDisposable
 {
+    private readonly WpfApplication m_Application;
     private readonly EventWaitHandle m_ShowPanelEvent;
+    private readonly Dispatcher m_Dispatcher;
     private readonly SettingsStore m_SettingsStore;
     private readonly CodexMonitorCollector m_Collector;
     private readonly UsageCache m_UsageCache = new();
-    private readonly Icon m_AppIcon;
-    private readonly NotifyIcon m_NotifyIcon;
-    private readonly System.Windows.Forms.Timer m_RefreshTimer = new();
-    private readonly SynchronizationContext m_SynchronizationContext;
+    private readonly Forms.NotifyIcon m_NotifyIcon;
+    private readonly System.Drawing.Icon m_AppIcon;
+    private readonly DispatcherTimer m_RefreshTimer;
     private readonly CancellationTokenSource m_SignalCancellation = new();
     private AppSettings m_Settings;
     private LightweightHttpServer? m_Server;
@@ -23,18 +30,20 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private bool m_IsExiting;
 
     /// <summary>
-    /// Creates the tray application context.
+    /// Creates the tray controller and starts background work.
     /// </summary>
-    public TrayApplicationContext(EventWaitHandle showPanelEvent)
+    public TrayController(WpfApplication application, EventWaitHandle showPanelEvent, Dispatcher dispatcher)
     {
+        m_Application = application;
         m_ShowPanelEvent = showPanelEvent;
-        m_SynchronizationContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+        m_Dispatcher = dispatcher;
         m_SettingsStore = new SettingsStore();
         m_Collector = new CodexMonitorCollector();
         m_AppIcon = LoadApplicationIcon();
         bool settingsExists = m_SettingsStore.Exists();
         m_Settings = m_SettingsStore.Load();
         m_NotifyIcon = CreateNotifyIcon();
+        m_RefreshTimer = new DispatcherTimer(DispatcherPriority.Background, m_Dispatcher);
         m_RefreshTimer.Tick += async (_, _) => await RefreshUsageAsync();
         StartService();
         ConfigureRefreshTimer();
@@ -43,40 +52,35 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (!settingsExists)
         {
             m_SettingsStore.Save(m_Settings);
-            m_SynchronizationContext.Post(_ => ShowPanel(), null);
+            m_Dispatcher.BeginInvoke(new Action(ShowPanel));
         }
     }
 
     /// <summary>
     /// Releases tray resources and stops the background service.
     /// </summary>
-    protected override void Dispose(bool disposing)
+    public void Dispose()
     {
-        if (disposing)
-        {
-            m_SignalCancellation.Cancel();
-            m_Server?.Dispose();
-            m_RefreshTimer.Dispose();
-            m_NotifyIcon.Dispose();
-            m_AppIcon.Dispose();
-            m_SignalCancellation.Dispose();
-        }
-
-        base.Dispose(disposing);
+        m_SignalCancellation.Cancel();
+        m_RefreshTimer.Stop();
+        m_Server?.Dispose();
+        m_NotifyIcon.Dispose();
+        m_AppIcon.Dispose();
+        m_SignalCancellation.Dispose();
     }
 
     /// <summary>
     /// Creates the tray icon and context menu.
     /// </summary>
-    private NotifyIcon CreateNotifyIcon()
+    private Forms.NotifyIcon CreateNotifyIcon()
     {
-        ContextMenuStrip menu = new();
+        Forms.ContextMenuStrip menu = new();
         menu.Items.Add("Open Panel", null, (_, _) => ShowPanel());
         menu.Items.Add("Refresh Now", null, async (_, _) => await RefreshUsageAsync());
-        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitApplication());
 
-        NotifyIcon notifyIcon = new()
+        Forms.NotifyIcon notifyIcon = new()
         {
             ContextMenuStrip = menu,
             Icon = m_AppIcon,
@@ -85,7 +89,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
         notifyIcon.MouseUp += (_, args) =>
         {
-            if (args.Button == MouseButtons.Left)
+            if (args.Button == Forms.MouseButtons.Left)
             {
                 TogglePanel();
             }
@@ -107,7 +111,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         catch (SocketException exception)
         {
             m_NotifyIcon.Text = $"{CodexMonitorDefaults.AppName} service failed";
-            MessageBox.Show($"Unable to start CodexMonitor service on port {m_Settings.Port}.\n\n{exception.Message}", CodexMonitorDefaults.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Forms.MessageBox.Show($"Unable to start CodexMonitor service on port {m_Settings.Port}.\n\n{exception.Message}", CodexMonitorDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Warning);
         }
     }
 
@@ -133,7 +137,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             {
                 if (m_ShowPanelEvent.WaitOne(TimeSpan.FromMilliseconds(500)))
                 {
-                    m_SynchronizationContext.Post(_ => ShowPanel(), null);
+                    m_Dispatcher.BeginInvoke(new Action(ShowPanel));
                 }
             }
         }, m_SignalCancellation.Token);
@@ -163,17 +167,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         RefreshPopupStatus();
         m_TrayPopupWindow?.ShowNearTray();
         _ = RefreshUsageAsync();
-    }
-
-    /// <summary>
-    /// Opens the tray popup on the settings page.
-    /// </summary>
-    private void ShowSettings()
-    {
-        EnsurePopup();
-        m_PopupViewModel?.ShowSettings();
-        RefreshPopupStatus();
-        m_TrayPopupWindow?.ShowNearTray();
     }
 
     /// <summary>
@@ -211,7 +204,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        StartupManager.SetEnabled(Application.ExecutablePath, m_Settings.StartWithWindows);
+        StartupManager.SetEnabled(Environment.ProcessPath ?? string.Empty, m_Settings.StartWithWindows);
         m_SettingsStore.Save(m_Settings);
         ConfigureRefreshTimer();
         if (previousPort != m_Settings.Port)
@@ -230,7 +223,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         m_Settings.Normalize();
         m_RefreshTimer.Stop();
-        m_RefreshTimer.Interval = m_Settings.RefreshIntervalMinutes * 60 * 1000;
+        m_RefreshTimer.Interval = TimeSpan.FromMinutes(m_Settings.RefreshIntervalMinutes);
         m_RefreshTimer.Start();
     }
 
@@ -352,7 +345,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         m_TrayPopupWindow?.Close();
         m_NotifyIcon.Visible = false;
         m_Server?.Stop();
-        ExitThread();
+        m_Application.Shutdown();
     }
 
     /// <summary>
@@ -384,7 +377,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         m_PopupViewModel?.SetMessage(message);
         if (m_TrayPopupWindow?.IsVisible != true)
         {
-            MessageBox.Show(message, CodexMonitorDefaults.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Forms.MessageBox.Show(message, CodexMonitorDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Warning);
         }
     }
 
@@ -412,9 +405,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
     /// <summary>
     /// Loads the application icon from the published resources directory.
     /// </summary>
-    private static Icon LoadApplicationIcon()
+    private static System.Drawing.Icon LoadApplicationIcon()
     {
         string iconPath = Path.Combine(AppContext.BaseDirectory, "Resources", "icon.ico");
-        return File.Exists(iconPath) ? new Icon(iconPath) : (Icon)SystemIcons.Application.Clone();
+        return File.Exists(iconPath) ? new System.Drawing.Icon(iconPath) : (System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();
     }
 }

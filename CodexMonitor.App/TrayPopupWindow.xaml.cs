@@ -48,6 +48,36 @@ internal sealed partial class TrayPopupWindow : Window
         WindowState = WindowState.Normal;
         PositionNearTray();
         Activate();
+        ForceForeground();
+    }
+
+    /// <summary>
+    /// Forces the popup to the foreground so it can receive keyboard input.
+    /// </summary>
+    private void ForceForeground()
+    {
+        nint handle = new WindowInteropHelper(this).Handle;
+        if (handle == 0)
+        {
+            return;
+        }
+
+        nint foregroundWindow = GetForegroundWindow();
+        uint foregroundThread = GetWindowThreadProcessId(foregroundWindow, out _);
+        uint currentThread = GetCurrentThreadId();
+        if (foregroundThread != currentThread && foregroundThread != 0)
+        {
+            AttachThreadInput(currentThread, foregroundThread, true);
+            SetForegroundWindow(handle);
+            AttachThreadInput(currentThread, foregroundThread, false);
+        }
+        else
+        {
+            SetForegroundWindow(handle);
+        }
+
+        Activate();
+        Focus();
     }
 
     /// <summary>
@@ -199,4 +229,36 @@ internal sealed partial class TrayPopupWindow : Window
     /// </summary>
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+    /// <summary>
+    /// Brings a window to the foreground.
+    /// </summary>
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(nint hWnd);
+
+    /// <summary>
+    /// Gets the current foreground window handle.
+    /// </summary>
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+
+    /// <summary>
+    /// Gets the thread that owns a window.
+    /// </summary>
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
+
+    /// <summary>
+    /// Attaches or detaches the input processing of two threads.
+    /// </summary>
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachThreadInput(uint attachTo, uint attachFrom, [MarshalAs(UnmanagedType.Bool)] bool attach);
+
+    /// <summary>
+    /// Gets the current thread identifier.
+    /// </summary>
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
 }
