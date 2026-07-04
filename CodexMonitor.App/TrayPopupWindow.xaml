@@ -28,6 +28,8 @@
             <SolidColorBrush x:Key="TextStrongBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="MutedTextBrush" Color="#93A6A1" />
             <SolidColorBrush x:Key="FaintTextBrush" Color="#6F827D" />
+            <SolidColorBrush x:Key="IconHighlight1Brush" Color="#EAF3F0" />
+            <SolidColorBrush x:Key="IconHighlight2Brush" Color="#FFFFFF" />
 
             <LinearGradientBrush x:Key="CardFillBrush" StartPoint="0,0" EndPoint="0,1">
                 <GradientStop Offset="0" Color="#1CFFFFFF" />
@@ -40,6 +42,10 @@
             <SolidColorBrush x:Key="FieldFocusFillBrush" Color="#24FFFFFF" />
 
             <SolidColorBrush x:Key="TrackBrush" Color="#22FFFFFF" />
+
+            <Style TargetType="{x:Type ToolTip}">
+                <Setter Property="FontFamily" Value="Segoe UI" />
+            </Style>
 
             <!-- Primary accent button -->
             <Style x:Key="PanelButtonStyle" TargetType="{x:Type Button}">
@@ -148,16 +154,17 @@
                 </Setter>
             </Style>
 
-            <!-- Icon-style round button (header refresh) -->
+            <!-- Icon button -->
             <Style x:Key="RoundIconButtonStyle" TargetType="{x:Type Button}">
-                <Setter Property="Width" Value="38" />
-                <Setter Property="Height" Value="38" />
-                <Setter Property="Background" Value="#1FFFFFFF" />
-                <Setter Property="BorderBrush" Value="#2BFFFFFF" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="Foreground" Value="#EAF3F0" />
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
                 <Setter Property="FontSize" Value="16" />
                 <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="{x:Type Button}">
@@ -165,16 +172,16 @@
                                     Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="19">
+                                    CornerRadius="11">
                                 <ContentPresenter HorizontalAlignment="Center"
                                                   VerticalAlignment="Center" />
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="ButtonChrome" Property="Background" Value="#30FFFFFF" />
+                                    <Setter Property="Foreground" Value="{StaticResource IconHighlight1Brush}" />
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="ButtonChrome" Property="Background" Value="#18FFFFFF" />
+                                    <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -258,38 +265,63 @@
                 <Setter Property="FontWeight" Value="SemiBold" />
                 <Setter Property="FontSize" Value="13" />
                 <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="{x:Type Button}">
                             <Border x:Name="TabChrome"
                                     Background="{TemplateBinding Background}"
-                                    CornerRadius="13"
+                                    CornerRadius="11"
                                     Padding="{TemplateBinding Padding}">
                                 <ContentPresenter HorizontalAlignment="Center"
                                                   VerticalAlignment="Center" />
                             </Border>
                             <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="TabChrome" Property="Background" Value="#16FFFFFF" />
-                                </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
             </Style>
             <Style x:Key="HomeTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="Margin" Value="0,0,4,0" />
                 <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Foreground" Value="{StaticResource IconHighlight1Brush}" />
+                    </Trigger>
+                    <Trigger Property="IsPressed" Value="True">
+                        <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
+                    </Trigger>
                     <DataTrigger Binding="{Binding IsHomeSelected}" Value="True">
-                        <Setter Property="Foreground" Value="#FFFFFFFF" />
-                        <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
+                        <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
             <Style x:Key="SettingsTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                <Setter Property="FontSize" Value="16" />
                 <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Foreground" Value="{StaticResource IconHighlight1Brush}" />
+                    </Trigger>
+                    <Trigger Property="IsPressed" Value="True">
+                        <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
+                    </Trigger>
                     <DataTrigger Binding="{Binding IsSettingsSelected}" Value="True">
-                        <Setter Property="Foreground" Value="#FFFFFFFF" />
-                        <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
+                        <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
@@ -340,12 +372,17 @@
             </LinearGradientBrush>
         </Border.Background>
         <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
             <!-- ===================== HOME ===================== -->
-            <Grid Visibility="{Binding IsHomeVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid Grid.Row="0"
+                  Visibility="{Binding IsHomeVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <!-- Header -->
@@ -370,7 +407,7 @@
                                     Background="{Binding PlanBadgeBrush}">
                                 <TextBlock Text="{Binding PlanDisplay}"
                                            Foreground="#FFFFFF"
-                                           FontWeight="SemiBold"
+                                           FontWeight="Normal"
                                            FontSize="12"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
@@ -391,7 +428,10 @@
                 </StackPanel>
 
                 <!-- Quota list -->
-                <StackPanel Grid.Row="1" VerticalAlignment="Top" Margin="0,24,0,0">
+                <StackPanel Grid.Row="1"
+                            VerticalAlignment="Top"
+                            Margin="0,24,0,0"
+                            Grid.IsSharedSizeScope="True">
                     <TextBlock Text="Usage"
                                Foreground="{StaticResource FaintTextBrush}"
                                FontSize="12"
@@ -405,27 +445,40 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding FiveHourQuota.Title}"
-                                       VerticalAlignment="Center"
-                                       Foreground="{StaticResource TextBrush}"
-                                       FontSize="13.5"
-                                       FontWeight="Medium" />
+                            <Grid VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="QuotaTitleColumn" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding FiveHourQuota.Title}"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource TextBrush}"
+                                           FontSize="13.5"
+                                           FontWeight="Medium" />
+                                <TextBlock Grid.Column="1"
+                                           Text=" | "
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource FaintTextBrush}"
+                                           FontSize="13.5" />
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding FiveHourQuota.ResetText}"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource FaintTextBrush}"
+                                           FontSize="13.5" />
+                            </Grid>
                             <TextBlock Grid.Column="1"
                                        Text="{Binding FiveHourQuota.PercentText}"
                                        VerticalAlignment="Center"
                                        Foreground="{StaticResource TextStrongBrush}"
                                        FontSize="14"
-                                       FontWeight="SemiBold" />
+                                       FontWeight="Normal" />
                         </Grid>
                         <ProgressBar Margin="0,9,0,0"
                                      Maximum="100"
                                      Value="{Binding FiveHourQuota.RemainingPercent, Mode=OneWay}"
                                      Foreground="{Binding FiveHourQuota.AccentBrush}"
                                      Style="{StaticResource QuotaProgressBarStyle}" />
-                        <TextBlock Text="{Binding FiveHourQuota.ResetText}"
-                                   Margin="0,7,0,0"
-                                   Foreground="{StaticResource FaintTextBrush}"
-                                   FontSize="11.5" />
                     </StackPanel>
 
                     <!-- Weekly -->
@@ -435,87 +488,81 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding WeeklyQuota.Title}"
-                                       VerticalAlignment="Center"
-                                       Foreground="{StaticResource TextBrush}"
-                                       FontSize="13.5"
-                                       FontWeight="Medium" />
+                            <Grid VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="QuotaTitleColumn" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding WeeklyQuota.Title}"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource TextBrush}"
+                                           FontSize="13.5"
+                                           FontWeight="Medium" />
+                                <TextBlock Grid.Column="1"
+                                           Text=" | "
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource FaintTextBrush}"
+                                           FontSize="13.5" />
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding WeeklyQuota.ResetText}"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource FaintTextBrush}"
+                                           FontSize="13.5" />
+                            </Grid>
                             <TextBlock Grid.Column="1"
                                        Text="{Binding WeeklyQuota.PercentText}"
                                        VerticalAlignment="Center"
                                        Foreground="{StaticResource TextStrongBrush}"
                                        FontSize="14"
-                                       FontWeight="SemiBold" />
+                                       FontWeight="Normal" />
                         </Grid>
                         <ProgressBar Margin="0,9,0,0"
                                      Maximum="100"
                                      Value="{Binding WeeklyQuota.RemainingPercent, Mode=OneWay}"
                                      Foreground="{Binding WeeklyQuota.AccentBrush}"
                                      Style="{StaticResource QuotaProgressBarStyle}" />
-                        <TextBlock Text="{Binding WeeklyQuota.ResetText}"
-                                   Margin="0,7,0,0"
-                                   Foreground="{StaticResource FaintTextBrush}"
-                                   FontSize="11.5" />
                     </StackPanel>
                 </StackPanel>
 
-                <!-- Footer -->
-                <Grid Grid.Row="2" Margin="0,18,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <Border Grid.Column="1"
-                            Padding="3"
-                            CornerRadius="16"
-                            Background="#16FFFFFF"
-                            BorderBrush="#20FFFFFF"
-                            BorderThickness="1">
-                        <StackPanel Orientation="Horizontal">
-                            <Button Command="{Binding ShowHomeCommand}"
-                                    Content="Home"
-                                    Style="{StaticResource HomeTabButtonStyle}" />
-                            <Button Command="{Binding ShowSettingsCommand}"
-                                    Content="Settings"
-                                    Style="{StaticResource SettingsTabButtonStyle}" />
-                        </StackPanel>
-                    </Border>
-                </Grid>
             </Grid>
 
             <!-- ===================== SETTINGS ===================== -->
-            <Grid Visibility="{Binding IsSettingsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid Grid.Row="0"
+                  Visibility="{Binding IsSettingsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Grid Grid.Row="0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
+                <StackPanel Grid.Row="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
                         <TextBlock Text="Settings"
                                    Foreground="{StaticResource TextStrongBrush}"
                                    FontSize="26"
-                                   FontWeight="Bold" />
-                        <TextBlock Margin="0,4,0,0"
-                                   Text="{Binding StatusMessage}"
-                                   Foreground="{StaticResource MutedTextBrush}"
-                                   FontSize="12"
-                                   TextWrapping="Wrap" />
-                    </StackPanel>
-                    <Button Grid.Column="1"
-                            VerticalAlignment="Top"
-                            Command="{Binding ShowHomeCommand}"
-                            Content="Back"
-                            Style="{StaticResource SecondaryButtonStyle}" />
-                </Grid>
+                                   FontWeight="Medium"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Command="{Binding SaveSettingsCommand}"
+                                Content="&#xE74E;"
+                                FontFamily="Segoe MDL2 Assets"
+                                ToolTip="Save"
+                                Style="{StaticResource RoundIconButtonStyle}" />
+                    </Grid>
+                    <TextBlock Margin="2,6,0,0"
+                               Text="{Binding StatusMessage}"
+                               Foreground="{StaticResource FaintTextBrush}"
+                               FontSize="12"
+                               TextWrapping="Wrap" />
+                </StackPanel>
 
                 <ScrollViewer Grid.Row="1"
-                              Margin="0,16,-8,14"
+                              Margin="0,16,-8,0"
                               Padding="0,0,8,0"
                               VerticalScrollBarVisibility="Auto">
                     <StackPanel>
@@ -607,38 +654,26 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <Grid Grid.Row="2">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0"
-                                Orientation="Horizontal"
-                                VerticalAlignment="Center">
-                        <Button Command="{Binding SaveSettingsCommand}"
-                                Content="Save"
-                                Margin="0,0,0,0"
-                                Style="{StaticResource PanelButtonStyle}" />
-                        <Button Command="{Binding RefreshCommand}"
-                                Content="Refresh"
-                                Style="{StaticResource SecondaryButtonStyle}" />
-                    </StackPanel>
-                    <Border Grid.Column="1"
-                            Padding="3"
-                            CornerRadius="16"
-                            Background="#16FFFFFF"
-                            BorderBrush="#20FFFFFF"
-                            BorderThickness="1">
-                        <StackPanel Orientation="Horizontal">
-                            <Button Command="{Binding ShowHomeCommand}"
-                                    Content="Home"
-                                    Style="{StaticResource HomeTabButtonStyle}" />
-                            <Button Command="{Binding ShowSettingsCommand}"
-                                    Content="Settings"
-                                    Style="{StaticResource SettingsTabButtonStyle}" />
-                        </StackPanel>
-                    </Border>
-                </Grid>
+            </Grid>
+
+            <!-- Footer -->
+            <Grid Grid.Row="1" Margin="0,18,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button Command="{Binding ShowHomeCommand}"
+                            Content="&#xE80F;"
+                            ToolTip="Home"
+                            Style="{StaticResource HomeTabButtonStyle}" />
+                    <Button Command="{Binding ShowSettingsCommand}"
+                            Content="&#xE713;"
+                            ToolTip="Settings"
+                            Style="{StaticResource SettingsTabButtonStyle}" />
+                </StackPanel>
             </Grid>
         </Grid>
     </Border>

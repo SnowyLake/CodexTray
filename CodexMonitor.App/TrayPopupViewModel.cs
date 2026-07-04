@@ -509,7 +509,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         private string m_Title;
         private int m_RemainingPercent;
         private string m_PercentText = "0%";
-        private string m_ResetText = "Resets unknown";
+        private string m_ResetText = "unknown";
         private Media.Brush m_AccentBrush = s_GreenBrush;
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -560,7 +560,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             int remaining = Math.Max(0, Math.Min(100, limit.RemainingPercent));
             RemainingPercent = remaining;
             PercentText = $"{remaining}%";
-            ResetText = string.IsNullOrWhiteSpace(limit.ResetLabel) ? "Resets unknown" : $"Resets {limit.ResetLabel}";
+            ResetText = string.IsNullOrWhiteSpace(limit.ResetLabel) ? "unknown" : limit.ResetLabel;
             AccentBrush = GetAccentBrush(remaining);
         }
 
@@ -571,7 +571,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             RemainingPercent = 0;
             PercentText = "0%";
-            ResetText = "Resets unknown";
+            ResetText = "unknown";
             AccentBrush = s_RedBrush;
         }
 
