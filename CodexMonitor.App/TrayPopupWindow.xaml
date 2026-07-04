@@ -23,145 +23,18 @@
 
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
 
-            <!-- Palette -->
-            <SolidColorBrush x:Key="TextBrush" Color="#F3F7F6" />
-            <SolidColorBrush x:Key="TextStrongBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="MutedTextBrush" Color="#93A6A1" />
-            <SolidColorBrush x:Key="FaintTextBrush" Color="#6F827D" />
-            <SolidColorBrush x:Key="IconHighlight1Brush" Color="#EAF3F0" />
-            <SolidColorBrush x:Key="IconHighlight2Brush" Color="#FFFFFF" />
-
-            <LinearGradientBrush x:Key="CardFillBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Offset="0" Color="#1CFFFFFF" />
-                <GradientStop Offset="1" Color="#0BFFFFFF" />
-            </LinearGradientBrush>
-            <SolidColorBrush x:Key="CardStrokeBrush" Color="#26FFFFFF" />
-
-            <SolidColorBrush x:Key="FieldFillBrush" Color="#16FFFFFF" />
-            <SolidColorBrush x:Key="FieldBorderBrush" Color="#2BFFFFFF" />
-            <SolidColorBrush x:Key="FieldFocusFillBrush" Color="#24FFFFFF" />
-
-            <SolidColorBrush x:Key="TrackBrush" Color="#22FFFFFF" />
-
             <Style TargetType="{x:Type ToolTip}">
                 <Setter Property="FontFamily" Value="Segoe UI" />
             </Style>
 
-            <!-- Primary accent button -->
-            <Style x:Key="PanelButtonStyle" TargetType="{x:Type Button}">
-                <Setter Property="MinHeight" Value="36" />
-                <Setter Property="Padding" Value="18,7" />
-                <Setter Property="Margin" Value="8,0,0,0" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.AccentColorLight1BrushKey}}" />
-                <Setter Property="Foreground" Value="#FFFFFF" />
-                <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
-                <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="Cursor" Value="Hand" />
-                <Setter Property="SnapsToDevicePixels" Value="True" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="{x:Type Button}">
-                            <Border x:Name="ButtonChrome"
-                                    Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="11"
-                                    Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.90" />
-                                </Trigger>
-                                <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.74" />
-                                    <Setter TargetName="ButtonChrome" Property="RenderTransform">
-                                        <Setter.Value>
-                                            <ScaleTransform ScaleX="0.98" ScaleY="0.98" CenterX="0" CenterY="0" />
-                                        </Setter.Value>
-                                    </Setter>
-                                </Trigger>
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.45" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
-            <!-- Secondary / subtle glass button -->
-            <Style x:Key="SecondaryButtonStyle" BasedOn="{StaticResource PanelButtonStyle}" TargetType="{x:Type Button}">
-                <Setter Property="Background" Value="#1FFFFFFF" />
-                <Setter Property="BorderBrush" Value="#2BFFFFFF" />
-                <Setter Property="Foreground" Value="#EAF3F0" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="{x:Type Button}">
-                            <Border x:Name="ButtonChrome"
-                                    Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="11"
-                                    Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="ButtonChrome" Property="Background" Value="#30FFFFFF" />
-                                </Trigger>
-                                <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="ButtonChrome" Property="Background" Value="#18FFFFFF" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
-            <!-- Ghost text button -->
-            <Style x:Key="GhostButtonStyle" TargetType="{x:Type Button}">
-                <Setter Property="MinHeight" Value="36" />
-                <Setter Property="Padding" Value="6,7" />
-                <Setter Property="Margin" Value="0" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
-                <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="Cursor" Value="Hand" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="{x:Type Button}">
-                            <Border x:Name="ButtonChrome"
-                                    Background="{TemplateBinding Background}"
-                                    CornerRadius="9"
-                                    Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
-            <!-- Icon button -->
+            <!-- Icon button (shared: home refresh + settings save) -->
             <Style x:Key="RoundIconButtonStyle" TargetType="{x:Type Button}">
                 <Setter Property="Width" Value="36" />
                 <Setter Property="Height" Value="36" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderBrush" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
                 <Setter Property="FontSize" Value="16" />
                 <Setter Property="Cursor" Value="Hand" />
                 <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -178,10 +51,10 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Foreground" Value="{StaticResource IconHighlight1Brush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
-                                    <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -189,69 +62,69 @@
                 </Setter>
             </Style>
 
-            <!-- Text input -->
-            <Style x:Key="PanelTextBoxStyle" TargetType="{x:Type TextBox}">
-                <Setter Property="Height" Value="36" />
-                <Setter Property="Margin" Value="0,6,0,0" />
-                <Setter Property="Padding" Value="12,7" />
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="VerticalContentAlignment" Value="Center" />
-                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-                <Setter Property="Background" Value="{StaticResource FieldFillBrush}" />
-                <Setter Property="BorderBrush" Value="{StaticResource FieldBorderBrush}" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CaretBrush" Value="{DynamicResource {x:Static SystemColors.AccentColorLight1BrushKey}}" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="{x:Type TextBox}">
-                            <Border x:Name="FieldChrome"
-                                    Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="9">
-                                <ScrollViewer x:Name="PART_ContentHost"
-                                              VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="FieldChrome" Property="BorderBrush" Value="#3AFFFFFF" />
-                                </Trigger>
-                                <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="FieldChrome" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
-                                    <Setter TargetName="FieldChrome" Property="Background" Value="{StaticResource FieldFocusFillBrush}" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
-            <Style x:Key="PanelCheckBoxStyle" TargetType="{x:Type CheckBox}">
-                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <!-- ============ Settings: native Fluent controls ============ -->
+            <!-- Only layout tweaks; templates stay Fluent so inputs work. -->
+            <Style x:Key="SettingsTextBoxStyle"
+                   BasedOn="{StaticResource {x:Type TextBox}}"
+                   TargetType="{x:Type TextBox}">
+                <Setter Property="Height" Value="34" />
                 <Setter Property="FontSize" Value="13" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
             </Style>
 
-            <Style x:Key="PanelComboBoxStyle" TargetType="{x:Type ComboBox}">
-                <Setter Property="Height" Value="36" />
-                <Setter Property="Margin" Value="0,6,0,0" />
-                <Setter Property="Padding" Value="10,4" />
-                <Setter Property="FontSize" Value="13" />
+            <Style x:Key="SettingsNumberTextBoxStyle"
+                   BasedOn="{StaticResource SettingsTextBoxStyle}"
+                   TargetType="{x:Type TextBox}">
+                <Setter Property="TextAlignment" Value="Center" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
             </Style>
 
-            <!-- Field caption -->
-            <Style x:Key="FieldLabelStyle" TargetType="{x:Type TextBlock}">
-                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+            <Style x:Key="SettingsComboBoxStyle"
+                   BasedOn="{StaticResource {x:Type ComboBox}}"
+                   TargetType="{x:Type ComboBox}">
+                <Setter Property="Height" Value="34" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="SettingsGlyphButtonStyle"
+                   BasedOn="{StaticResource {x:Type Button}}"
+                   TargetType="{x:Type Button}">
+                <Setter Property="Width" Value="40" />
+                <Setter Property="Height" Value="34" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Margin" Value="8,0,0,0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="Cursor" Value="Hand" />
+            </Style>
+
+            <Style x:Key="SettingsPrimaryButtonStyle"
+                   BasedOn="{StaticResource SettingsGlyphButtonStyle}"
+                   TargetType="{x:Type Button}">
+                <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
+                <Setter Property="Foreground" Value="#FFFFFF" />
+            </Style>
+
+            <Style x:Key="SettingsSectionHeaderStyle" TargetType="{x:Type TextBlock}">
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
                 <Setter Property="FontSize" Value="12" />
-                <Setter Property="FontWeight" Value="Medium" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Margin" Value="0,0,0,10" />
             </Style>
 
-            <!-- Card section header -->
-            <Style x:Key="CardHeaderStyle" TargetType="{x:Type TextBlock}">
-                <Setter Property="Foreground" Value="{StaticResource TextStrongBrush}" />
-                <Setter Property="FontSize" Value="14" />
-                <Setter Property="FontWeight" Value="SemiBold" />
+            <Style x:Key="SettingsRowTitleStyle" TargetType="{x:Type TextBlock}">
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                <Setter Property="FontSize" Value="13.5" />
+                <Setter Property="FontWeight" Value="Medium" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="SettingsRowMetaStyle" TargetType="{x:Type TextBlock}">
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="TextWrapping" Value="Wrap" />
             </Style>
 
             <!-- Segmented nav tab -->
@@ -260,7 +133,7 @@
                 <Setter Property="MinWidth" Value="80" />
                 <Setter Property="Padding" Value="14,0" />
                 <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="FontWeight" Value="SemiBold" />
                 <Setter Property="FontSize" Value="13" />
@@ -288,19 +161,19 @@
                 <Setter Property="Height" Value="36" />
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
                 <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
                 <Setter Property="FontSize" Value="16" />
                 <Setter Property="Margin" Value="0,0,4,0" />
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Foreground" Value="{StaticResource IconHighlight1Brush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
                     </Trigger>
                     <Trigger Property="IsPressed" Value="True">
-                        <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </Trigger>
                     <DataTrigger Binding="{Binding IsHomeSelected}" Value="True">
-                        <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
@@ -310,18 +183,18 @@
                 <Setter Property="Height" Value="36" />
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
                 <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
                 <Setter Property="FontSize" Value="16" />
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Foreground" Value="{StaticResource IconHighlight1Brush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
                     </Trigger>
                     <Trigger Property="IsPressed" Value="True">
-                        <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </Trigger>
                     <DataTrigger Binding="{Binding IsSettingsSelected}" Value="True">
-                        <Setter Property="Foreground" Value="{StaticResource IconHighlight2Brush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
@@ -329,7 +202,7 @@
             <!-- Quota progress bar -->
             <Style x:Key="QuotaProgressBarStyle" TargetType="{x:Type ProgressBar}">
                 <Setter Property="Height" Value="6" />
-                <Setter Property="Background" Value="{StaticResource TrackBrush}" />
+                <Setter Property="Background" Value="{DynamicResource ControlStrongFillColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Template">
                     <Setter.Value>
@@ -350,27 +223,15 @@
                 </Setter>
             </Style>
 
-            <!-- Quota card container -->
-            <Style x:Key="CardBorderStyle" TargetType="{x:Type Border}">
-                <Setter Property="CornerRadius" Value="14" />
-                <Setter Property="Background" Value="{StaticResource CardFillBrush}" />
-                <Setter Property="BorderBrush" Value="{StaticResource CardStrokeBrush}" />
-                <Setter Property="BorderThickness" Value="1" />
-            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
     <Border Margin="0"
             Padding="24,22,24,20"
             CornerRadius="0"
-            BorderBrush="#22FFFFFF"
+            Background="{DynamicResource ApplicationBackgroundBrush}"
+            BorderBrush="{DynamicResource SurfaceStrokeColorDefaultBrush}"
             BorderThickness="1">
-        <Border.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="0.3,1">
-                <GradientStop Offset="0" Color="#6616201F" />
-                <GradientStop Offset="1" Color="#720E1413" />
-            </LinearGradientBrush>
-        </Border.Background>
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
@@ -394,7 +255,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Codex"
-                                       Foreground="{StaticResource TextStrongBrush}"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                        FontSize="26"
                                        FontWeight="Medium"
                                        VerticalAlignment="Center" />
@@ -423,7 +284,7 @@
                     </Grid>
                     <TextBlock Text="{Binding UpdatedAtDisplay}"
                                Margin="2,6,0,0"
-                               Foreground="{StaticResource FaintTextBrush}"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                FontSize="12" />
                 </StackPanel>
 
@@ -433,7 +294,7 @@
                             Margin="0,24,0,0"
                             Grid.IsSharedSizeScope="True">
                     <TextBlock Text="Usage"
-                               Foreground="{StaticResource FaintTextBrush}"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                FontSize="12"
                                FontWeight="SemiBold"
                                Margin="0,0,0,14" />
@@ -453,24 +314,24 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="{Binding FiveHourQuota.Title}"
                                            VerticalAlignment="Center"
-                                           Foreground="{StaticResource TextBrush}"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                            FontSize="13.5"
                                            FontWeight="Medium" />
                                 <TextBlock Grid.Column="1"
                                            Text=" | "
                                            VerticalAlignment="Center"
-                                           Foreground="{StaticResource FaintTextBrush}"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                            FontSize="13.5" />
                                 <TextBlock Grid.Column="2"
                                            Text="{Binding FiveHourQuota.ResetText}"
                                            VerticalAlignment="Center"
-                                           Foreground="{StaticResource FaintTextBrush}"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                            FontSize="13.5" />
                             </Grid>
                             <TextBlock Grid.Column="1"
                                        Text="{Binding FiveHourQuota.PercentText}"
                                        VerticalAlignment="Center"
-                                       Foreground="{StaticResource TextStrongBrush}"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                        FontSize="14"
                                        FontWeight="Normal" />
                         </Grid>
@@ -496,24 +357,24 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="{Binding WeeklyQuota.Title}"
                                            VerticalAlignment="Center"
-                                           Foreground="{StaticResource TextBrush}"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                            FontSize="13.5"
                                            FontWeight="Medium" />
                                 <TextBlock Grid.Column="1"
                                            Text=" | "
                                            VerticalAlignment="Center"
-                                           Foreground="{StaticResource FaintTextBrush}"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                            FontSize="13.5" />
                                 <TextBlock Grid.Column="2"
                                            Text="{Binding WeeklyQuota.ResetText}"
                                            VerticalAlignment="Center"
-                                           Foreground="{StaticResource FaintTextBrush}"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                            FontSize="13.5" />
                             </Grid>
                             <TextBlock Grid.Column="1"
                                        Text="{Binding WeeklyQuota.PercentText}"
                                        VerticalAlignment="Center"
-                                       Foreground="{StaticResource TextStrongBrush}"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                        FontSize="14"
                                        FontWeight="Normal" />
                         </Grid>
@@ -535,6 +396,7 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
+                <!-- Header: aligned with Home (left title + right button) -->
                 <StackPanel Grid.Row="0">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -542,7 +404,7 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Settings"
-                                   Foreground="{StaticResource TextStrongBrush}"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                    FontSize="26"
                                    FontWeight="Medium"
                                    VerticalAlignment="Center" />
@@ -556,101 +418,152 @@
                     </Grid>
                     <TextBlock Margin="2,6,0,0"
                                Text="{Binding StatusMessage}"
-                               Foreground="{StaticResource FaintTextBrush}"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                FontSize="12"
                                TextWrapping="Wrap" />
                 </StackPanel>
 
                 <ScrollViewer Grid.Row="1"
-                              Margin="0,16,-8,0"
+                              Margin="0,20,-8,0"
                               Padding="0,0,8,0"
                               VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <!-- General -->
-                        <Border Style="{StaticResource CardBorderStyle}"
-                                Padding="16"
-                                Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="General" Style="{StaticResource CardHeaderStyle}" />
-                                <TextBlock Margin="0,12,0,0"
-                                           Text="Refresh interval (minutes)"
-                                           Style="{StaticResource FieldLabelStyle}" />
-                                <TextBox Text="{Binding RefreshIntervalText, UpdateSourceTrigger=PropertyChanged}"
-                                         Style="{StaticResource PanelTextBoxStyle}" />
-                                <TextBlock Margin="0,14,0,0"
-                                           Text="Theme"
-                                           Style="{StaticResource FieldLabelStyle}" />
-                                <ComboBox ItemsSource="{Binding ThemeModeOptions}"
-                                          SelectedItem="{Binding ThemeMode, UpdateSourceTrigger=PropertyChanged}"
-                                          Style="{StaticResource PanelComboBoxStyle}" />
-                                <CheckBox Margin="0,16,0,0"
-                                          Content="Start with Windows"
-                                          IsChecked="{Binding StartWithWindows}"
-                                          Style="{StaticResource PanelCheckBoxStyle}" />
+                        <TextBlock Text="General"
+                                   Style="{StaticResource SettingsSectionHeaderStyle}" />
+
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="84" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Refresh interval"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Text="Minutes between updates"
+                                           Style="{StaticResource SettingsRowMetaStyle}" />
                             </StackPanel>
-                        </Border>
+                            <TextBox Grid.Column="1"
+                                     VerticalAlignment="Center"
+                                     Text="{Binding RefreshIntervalText, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource SettingsNumberTextBoxStyle}" />
+                        </Grid>
+
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="140" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Theme"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <ComboBox Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      ItemsSource="{Binding ThemeModeOptions}"
+                                      SelectedItem="{Binding ThemeMode, UpdateSourceTrigger=PropertyChanged}"
+                                      Style="{StaticResource SettingsComboBoxStyle}" />
+                        </Grid>
+
+                        <Grid Margin="0,0,0,20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Start with Windows"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <CheckBox Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      IsChecked="{Binding StartWithWindows}"
+                                      ToolTip="Start with Windows" />
+                        </Grid>
 
                         <!-- Plugins -->
-                        <Border Style="{StaticResource CardBorderStyle}"
-                                Padding="16"
-                                Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="Plugins" Style="{StaticResource CardHeaderStyle}" />
-                                <TextBlock Margin="0,12,0,0"
-                                           Text="LiteMonitor folder"
-                                           Style="{StaticResource FieldLabelStyle}" />
-                                <TextBox Text="{Binding LiteMonitorDir, UpdateSourceTrigger=PropertyChanged}"
-                                         Style="{StaticResource PanelTextBoxStyle}" />
-                                <WrapPanel Margin="0,10,0,0">
-                                    <Button Command="{Binding BrowseLiteMonitorCommand}"
-                                            Content="Browse"
-                                            Margin="0,0,0,0"
-                                            Style="{StaticResource SecondaryButtonStyle}" />
-                                    <Button Command="{Binding AutoDetectLiteMonitorCommand}"
-                                            Content="Detect"
-                                            Style="{StaticResource SecondaryButtonStyle}" />
-                                    <Button Command="{Binding InstallLiteMonitorPluginCommand}"
-                                            Content="Install"
-                                            Style="{StaticResource PanelButtonStyle}" />
-                                </WrapPanel>
+                        <TextBlock Text="Plugins"
+                                   Style="{StaticResource SettingsSectionHeaderStyle}" />
 
-                                <TextBlock Margin="0,16,0,0"
-                                           Text="TrafficMonitor folder"
-                                           Style="{StaticResource FieldLabelStyle}" />
+                        <StackPanel Margin="0,0,0,16">
+                            <TextBlock Text="LiteMonitor folder"
+                                       Margin="0,0,0,6"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Text="{Binding LiteMonitorDir, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{StaticResource SettingsTextBoxStyle}" />
+                                <Button Grid.Column="1"
+                                        Command="{Binding BrowseLiteMonitorCommand}"
+                                        Content="&#xE8B7;"
+                                        ToolTip="Browse"
+                                        Style="{StaticResource SettingsGlyphButtonStyle}" />
+                                <Button Grid.Column="2"
+                                        Command="{Binding AutoDetectLiteMonitorCommand}"
+                                        Content="&#xE721;"
+                                        ToolTip="Detect"
+                                        Style="{StaticResource SettingsGlyphButtonStyle}" />
+                                <Button Grid.Column="3"
+                                        Command="{Binding InstallLiteMonitorPluginCommand}"
+                                        Content="&#xE896;"
+                                        ToolTip="Install"
+                                        Style="{StaticResource SettingsPrimaryButtonStyle}" />
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Margin="0,0,0,20">
+                            <TextBlock Text="TrafficMonitor folder"
+                                       Margin="0,0,0,6"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
                                 <TextBox Text="{Binding TrafficMonitorDir, UpdateSourceTrigger=PropertyChanged}"
-                                         Style="{StaticResource PanelTextBoxStyle}" />
-                                <WrapPanel Margin="0,10,0,0">
-                                    <Button Command="{Binding BrowseTrafficMonitorCommand}"
-                                            Content="Browse"
-                                            Margin="0,0,0,0"
-                                            Style="{StaticResource SecondaryButtonStyle}" />
-                                    <Button Command="{Binding AutoDetectTrafficMonitorCommand}"
-                                            Content="Detect"
-                                            Style="{StaticResource SecondaryButtonStyle}" />
-                                    <Button Command="{Binding InstallTrafficMonitorPluginCommand}"
-                                            Content="Install"
-                                            Style="{StaticResource PanelButtonStyle}" />
-                                </WrapPanel>
-                            </StackPanel>
-                        </Border>
+                                         Style="{StaticResource SettingsTextBoxStyle}" />
+                                <Button Grid.Column="1"
+                                        Command="{Binding BrowseTrafficMonitorCommand}"
+                                        Content="&#xE8B7;"
+                                        ToolTip="Browse"
+                                        Style="{StaticResource SettingsGlyphButtonStyle}" />
+                                <Button Grid.Column="2"
+                                        Command="{Binding AutoDetectTrafficMonitorCommand}"
+                                        Content="&#xE721;"
+                                        ToolTip="Detect"
+                                        Style="{StaticResource SettingsGlyphButtonStyle}" />
+                                <Button Grid.Column="3"
+                                        Command="{Binding InstallTrafficMonitorPluginCommand}"
+                                        Content="&#xE896;"
+                                        ToolTip="Install"
+                                        Style="{StaticResource SettingsPrimaryButtonStyle}" />
+                            </Grid>
+                        </StackPanel>
 
                         <!-- Advanced -->
-                        <Border Style="{StaticResource CardBorderStyle}"
-                                Padding="16">
-                            <StackPanel>
-                                <TextBlock Text="Advanced" Style="{StaticResource CardHeaderStyle}" />
-                                <TextBlock Margin="0,12,0,0"
-                                           Text="HTTP port"
-                                           Style="{StaticResource FieldLabelStyle}" />
-                                <TextBox Text="{Binding PortText, UpdateSourceTrigger=PropertyChanged}"
-                                         Style="{StaticResource PanelTextBoxStyle}" />
-                                <TextBlock Margin="0,14,0,0"
+                        <TextBlock Text="Advanced"
+                                   Style="{StaticResource SettingsSectionHeaderStyle}" />
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="84" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="HTTP port"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <TextBlock Margin="0,4,0,0"
                                            Text="{Binding ServiceStatus}"
-                                           Foreground="{StaticResource MutedTextBrush}"
-                                           TextWrapping="Wrap"
-                                           FontSize="12" />
+                                           Style="{StaticResource SettingsRowMetaStyle}" />
                             </StackPanel>
-                        </Border>
+                            <TextBox Grid.Column="1"
+                                     VerticalAlignment="Center"
+                                     Text="{Binding PortText, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource SettingsNumberTextBoxStyle}" />
+                        </Grid>
                     </StackPanel>
                 </ScrollViewer>
 

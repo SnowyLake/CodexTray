@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
+using Controls = System.Windows.Controls;
 using Forms = System.Windows.Forms;
 using Input = System.Windows.Input;
 
@@ -12,13 +13,10 @@ internal sealed partial class TrayPopupWindow : Window
 {
     private const int k_GwlExStyle = -20;
     private const int k_WsExToolWindow = 0x00000080;
-    private const int k_WcaAccentPolicy = 19;
     private const int k_DwmwaWindowCornerPreference = 33;
     private const int k_DwmwaSystemBackdropType = 38;
-    private const int k_AccentEnableAcrylicBlurBehind = 4;
     private const int k_DwmwcpRound = 2;
     private const int k_DwmsbtTransientWindow = 3;
-    private const uint k_AcrylicGradientColor = 0x78142020;
 
     /// <summary>
     /// Creates the WPF tray popup window.
@@ -60,7 +58,6 @@ internal sealed partial class TrayPopupWindow : Window
         base.OnSourceInitialized(args);
         HideFromAltTab();
         TryApplyDwmWindowAttributes();
-        TryApplyAcrylicBackdrop();
     }
 
     /// <summary>
@@ -69,7 +66,7 @@ internal sealed partial class TrayPopupWindow : Window
     protected override void OnDeactivated(EventArgs args)
     {
         base.OnDeactivated(args);
-        if (DataContext is TrayPopupViewModel { IsModalOpen: true })
+        if (DataContext is TrayPopupViewModel { IsModalOpen: true } || HasOpenComboBox(this))
         {
             return;
         }
@@ -119,6 +116,28 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
+    /// Returns true when a combo box in the popup is currently open.
+    /// </summary>
+    private static bool HasOpenComboBox(DependencyObject parent)
+    {
+        if (parent is Controls.ComboBox { IsDropDownOpen: true })
+        {
+            return true;
+        }
+
+        int childCount = VisualTreeHelper.GetChildrenCount(parent);
+        for (int index = 0; index < childCount; index++)
+        {
+            if (HasOpenComboBox(VisualTreeHelper.GetChild(parent, index)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Hides the popup from the Alt Tab switcher.
     /// </summary>
     private void HideFromAltTab()
@@ -126,45 +145,6 @@ internal sealed partial class TrayPopupWindow : Window
         nint handle = new WindowInteropHelper(this).Handle;
         int extendedStyle = GetWindowLong(handle, k_GwlExStyle);
         SetWindowLong(handle, k_GwlExStyle, extendedStyle | k_WsExToolWindow);
-    }
-
-    /// <summary>
-    /// Applies a best-effort Acrylic blur backdrop on supported Windows versions.
-    /// </summary>
-    private void TryApplyAcrylicBackdrop()
-    {
-        try
-        {
-            nint handle = new WindowInteropHelper(this).Handle;
-            AccentPolicy accent = new()
-            {
-                AccentState = k_AccentEnableAcrylicBlurBehind,
-                GradientColor = k_AcrylicGradientColor,
-            };
-            int accentSize = Marshal.SizeOf<AccentPolicy>();
-            nint accentPointer = Marshal.AllocHGlobal(accentSize);
-            try
-            {
-                Marshal.StructureToPtr(accent, accentPointer, false);
-                WindowCompositionAttributeData data = new()
-                {
-                    Attribute = k_WcaAccentPolicy,
-                    Data = accentPointer,
-                    SizeOfData = accentSize,
-                };
-                SetWindowCompositionAttribute(handle, ref data);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(accentPointer);
-            }
-        }
-        catch (DllNotFoundException)
-        {
-        }
-        catch (EntryPointNotFoundException)
-        {
-        }
     }
 
     /// <summary>
@@ -215,36 +195,8 @@ internal sealed partial class TrayPopupWindow : Window
     private static extern int SetWindowLong(nint hWnd, int nIndex, int dwNewLong);
 
     /// <summary>
-    /// Sets a Win32 window composition attribute.
-    /// </summary>
-    [DllImport("user32.dll")]
-    private static extern int SetWindowCompositionAttribute(nint hwnd, ref WindowCompositionAttributeData data);
-
-    /// <summary>
     /// Sets a DWM window attribute.
     /// </summary>
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct AccentPolicy
-    {
-        public int AccentState;
-
-        public int AccentFlags;
-
-        public uint GradientColor;
-
-        public int AnimationId;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WindowCompositionAttributeData
-    {
-        public int Attribute;
-
-        public nint Data;
-
-        public int SizeOfData;
-    }
 }
