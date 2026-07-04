@@ -18,7 +18,7 @@ internal static class Program
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
         await RunAsync("uses countdown label for same-day weekly reset", TestWeeklyCountdownLabelAsync);
         await RunAsync("uses countdown label for next-day weekly reset", TestNextDayWeeklyCountdownLabelAsync);
-        await RunAsync("returns unavailable response without sessions", TestEmptyResponseAsync);
+        await RunAsync("returns unavailable response without OAuth credentials", TestEmptyResponseAsync);
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
@@ -56,9 +56,9 @@ internal static class Program
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
         long reset5H = now.AddHours(2).AddMinutes(5).ToUnixTimeSeconds();
         long resetWeekly = now.AddDays(3).AddHours(4).ToUnixTimeSeconds();
-        WriteTokenEvent(temp.Path, now, reset5H, resetWeekly, 12.0, 34.0);
+        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetWeekly, 12.0, 34.0, out HttpClient client);
+        using HttpClient _ = client;
 
-        CodexMonitorCollector collector = new(() => now);
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(response.Available, "response should be available");
@@ -66,7 +66,7 @@ internal static class Program
         AssertEqual(88, response.Limits.FiveHour.RemainingPercent, "five hour remaining percent");
         AssertEqual(34, response.Limits.Weekly.UsedPercent, "weekly used percent");
         AssertEqual(66, response.Limits.Weekly.RemainingPercent, "weekly remaining percent");
-        AssertEqual("plus", response.PlanType, "plan type");
+        AssertEqual("chatgpt", response.PlanType, "plan type");
         AssertEqual("88% [2h 05m]", response.Display.Codex5H, "five hour display");
         AssertEqual("66% [3d 04h]", response.Display.CodexWeekly, "weekly display");
         return Task.CompletedTask;
@@ -81,9 +81,9 @@ internal static class Program
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
         long reset5H = now.AddHours(1).ToUnixTimeSeconds();
         long resetWeekly = now.AddHours(3).ToUnixTimeSeconds();
-        WriteTokenEvent(temp.Path, now, reset5H, resetWeekly, 20.0, 40.0);
+        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetWeekly, 20.0, 40.0, out HttpClient client);
+        using HttpClient _ = client;
 
-        CodexMonitorCollector collector = new(() => now);
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertEqual("60% [0d 03h]", response.Display.CodexWeekly, "weekly countdown display");
@@ -99,9 +99,9 @@ internal static class Program
         DateTimeOffset now = new(2026, 7, 1, 23, 0, 0, TimeSpan.FromHours(8));
         long reset5H = now.AddHours(1).ToUnixTimeSeconds();
         DateTimeOffset resetWeekly = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
-        WriteTokenEvent(temp.Path, now, reset5H, resetWeekly.ToUnixTimeSeconds(), 20.0, 40.0);
+        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetWeekly.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
+        using HttpClient _ = client;
 
-        CodexMonitorCollector collector = new(() => now);
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertEqual("60% [0d 03h]", response.Display.CodexWeekly, "weekly next-day countdown display");
@@ -109,7 +109,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests the empty response when no sessions exist.
+    /// Tests the unavailable response when OAuth credentials are missing.
     /// </summary>
     private static Task TestEmptyResponseAsync()
     {
@@ -179,8 +179,8 @@ internal static class Program
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        WriteTokenEvent(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0);
-        CodexMonitorCollector collector = new(() => now);
+        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient collectorClient);
+        using HttpClient _ = collectorClient;
         UsageCache usageCache = new();
         usageCache.Update(collector.Collect(temp.Path));
         using LightweightHttpServer server = new(usageCache, 0);
@@ -273,12 +273,14 @@ internal static class Program
         AssertEqual(string.Empty, settings.LiteMonitorDir, "default LiteMonitor path");
         AssertEqual(string.Empty, settings.TrafficMonitorDir, "default TrafficMonitor path");
         AssertEqual(CodexMonitorDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
+        AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
 
         string repairedJson = File.ReadAllText(store.SettingsPath);
         using JsonDocument document = JsonDocument.Parse(repairedJson);
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.LiteMonitorDir), out _), "repaired settings should include LiteMonitor path");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TrafficMonitorDir), out _), "repaired settings should include TrafficMonitor path");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.RefreshIntervalMinutes), out _), "repaired settings should include refresh interval");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
         return Task.CompletedTask;
     }
@@ -292,49 +294,52 @@ internal static class Program
         {
             Port = -1,
             RefreshIntervalMinutes = 0,
+            ThemeMode = "unexpected",
         };
 
         settings.Normalize();
 
         AssertEqual(CodexMonitorDefaults.Port, settings.Port, "default port");
         AssertEqual(CodexMonitorDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
+        AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Writes a sample Codex token_count session event.
+    /// Creates a collector backed by fake OAuth credentials and a fixed official quota response.
     /// </summary>
-    private static void WriteTokenEvent(string codexRoot, DateTimeOffset timestamp, long reset5H, long resetWeekly, double primaryUsed, double secondaryUsed)
+    private static CodexMonitorCollector CreateOfficialCollector(string codexRoot, DateTimeOffset now, long reset5H, long resetWeekly, double primaryUsed, double secondaryUsed, out HttpClient client)
     {
-        string sessions = Path.Combine(codexRoot, "sessions", "2026", "07", "01");
-        Directory.CreateDirectory(sessions);
-        string path = Path.Combine(sessions, "rollout-2026-07-01T10-00-00-test.jsonl");
-        object payload = new
+        File.WriteAllText(Path.Combine(codexRoot, "auth.json"), JsonSerializer.Serialize(new
         {
-            timestamp = timestamp.ToString("O"),
-            type = "event_msg",
-            payload = new
+            auth_mode = "chatgpt",
+            tokens = new
             {
-                type = "token_count",
-                rate_limits = new
+                access_token = "test-token",
+                account_id = "account-123",
+            },
+        }));
+
+        string body = JsonSerializer.Serialize(new
+        {
+            rate_limit = new
+            {
+                primary_window = new
                 {
-                    primary = new
-                    {
-                        used_percent = primaryUsed,
-                        window_minutes = 300,
-                        resets_at = reset5H,
-                    },
-                    secondary = new
-                    {
-                        used_percent = secondaryUsed,
-                        window_minutes = 10080,
-                        resets_at = resetWeekly,
-                    },
-                    plan_type = "plus",
+                    used_percent = primaryUsed,
+                    limit_window_seconds = 18000,
+                    reset_at = reset5H,
+                },
+                secondary_window = new
+                {
+                    used_percent = secondaryUsed,
+                    limit_window_seconds = 604800,
+                    reset_at = resetWeekly,
                 },
             },
-        };
-        File.WriteAllText(path, JsonSerializer.Serialize(payload));
+        });
+        client = new HttpClient(new FakeHttpMessageHandler(body));
+        return new CodexMonitorCollector(() => now, client);
     }
 
     /// <summary>

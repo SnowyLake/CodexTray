@@ -4,8 +4,13 @@
     <ProjectReference Include="..\CodexMonitor.Core\CodexMonitor.Core.csproj" />
     <Compile Include="ApplicationConfiguration.cs" />
     <Compile Include="Program.cs" />
-    <Compile Include="SettingsForm.cs" />
+    <Compile Include="RelayCommand.cs" />
     <Compile Include="TrayApplicationContext.cs" />
+    <Compile Include="TrayPopupViewModel.cs" />
+    <Compile Include="TrayPopupWindow.xaml.cs">
+      <DependentUpon>TrayPopupWindow.xaml</DependentUpon>
+    </Compile>
+    <Page Include="TrayPopupWindow.xaml" />
     <Content Include="..\Resources\icon.ico" Link="Resources\icon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Include="..\Resources\icon.png" Link="Resources\icon.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Include="..\Plugins\LiteMonitor\CodexMonitor.json" Link="Plugins\LiteMonitor\CodexMonitor.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
@@ -21,8 +26,11 @@
     <ApplicationIcon>..\Resources\icon.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
     <GenerateApplicationConfiguration>false</GenerateApplicationConfiguration>
   </PropertyGroup>
 

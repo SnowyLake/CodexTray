@@ -13,11 +13,11 @@
 
 ## 项目概览
 
-`CodexMonitor` 是一个 C#/.NET Windows 托盘应用, 用于读取 Codex OAuth 凭据并请求 ChatGPT 官方额度接口, 然后通过本地 HTTP 服务向 LiteMonitor 插件提供 Codex 额度显示数据. 当 OAuth 凭据不存在时, 会回退读取 `~/.codex/sessions/**/*.jsonl` 中的 `token_count` 事件.
+`CodexMonitor` 是一个 C#/.NET Windows 托盘应用, 用于读取 Codex OAuth 凭据并请求 ChatGPT 官方额度接口, 然后通过本地 HTTP 服务向 LiteMonitor 插件提供 Codex 额度显示数据. 当 OAuth 凭据不存在或无效时, 额度显示为不可用, 不再回退读取本地 session 数据.
 
 ## 目录结构
 
-- `CodexMonitor.Core`: 官方额度采集, 本地 session 兜底采集, 使用量缓存, HTTP 服务, 设置存储, LiteMonitor 和 TrafficMonitor 定位, 插件安装, Windows 自启动管理.
+- `CodexMonitor.Core`: 官方额度采集, 使用量缓存, HTTP 服务, 设置存储, LiteMonitor 和 TrafficMonitor 定位, 插件安装, Windows 自启动管理.
 - `CodexMonitor.App`: WinForms 托盘应用和设置窗口.
 - `CodexMonitor.Tests`: 自包含 C# 测试运行器.
 - `Plugins/LiteMonitor`: LiteMonitor 插件定义, 当前插件文件为 `CodexMonitor.json`.

@@ -4,6 +4,12 @@ namespace CodexMonitor.Core;
 
 public sealed class AppSettings
 {
+    public const string ThemeModeSystem = "System";
+
+    public const string ThemeModeLight = "Light";
+
+    public const string ThemeModeDark = "Dark";
+
     public string LiteMonitorDir { get; set; } = string.Empty;
 
     public string TrafficMonitorDir { get; set; } = string.Empty;
@@ -13,6 +19,8 @@ public sealed class AppSettings
     public int RefreshIntervalMinutes { get; set; } = CodexMonitorDefaults.RefreshIntervalMinutes;
 
     public bool StartWithWindows { get; set; }
+
+    public string ThemeMode { get; set; } = ThemeModeSystem;
 
     /// <summary>
     /// Creates a normalized copy of settings values.
@@ -32,7 +40,21 @@ public sealed class AppSettings
 
         LiteMonitorDir = LiteMonitorDir.Trim();
         TrafficMonitorDir = TrafficMonitorDir.Trim();
+        ThemeMode = NormalizeThemeMode(ThemeMode);
         return this;
+    }
+
+    /// <summary>
+    /// Normalizes a theme mode string to a supported value.
+    /// </summary>
+    private static string NormalizeThemeMode(string? themeMode)
+    {
+        return themeMode?.Trim().ToLowerInvariant() switch
+        {
+            "light" => ThemeModeLight,
+            "dark" => ThemeModeDark,
+            _ => ThemeModeSystem,
+        };
     }
 }
 

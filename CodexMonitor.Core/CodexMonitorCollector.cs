@@ -19,7 +19,7 @@ public sealed class CodexMonitorCollector
     private readonly HttpClient m_HttpClient;
 
     /// <summary>
-    /// Creates a collector that reads Codex session JSONL files.
+    /// Creates a collector that reads Codex OAuth quota data.
     /// </summary>
     public CodexMonitorCollector(Func<DateTimeOffset>? nowProvider = null, HttpClient? httpClient = null)
     {
@@ -40,19 +40,7 @@ public sealed class CodexMonitorCollector
     /// </summary>
     public UsageResponse Collect(string codexDirectory)
     {
-        UsageResponse officialResponse = CollectOfficialUsage(codexDirectory);
-        if (officialResponse.Available || !CanFallbackToSessionUsage(officialResponse) || !Directory.Exists(Path.Combine(codexDirectory, "sessions")))
-        {
-            return officialResponse;
-        }
-
-        UsageResponse sessionResponse = CollectSessionUsage(codexDirectory);
-        if (sessionResponse.Available)
-        {
-            return sessionResponse;
-        }
-
-        return officialResponse;
+        return CollectOfficialUsage(codexDirectory);
     }
 
     /// <summary>
@@ -61,14 +49,6 @@ public sealed class CodexMonitorCollector
     public static string GetDefaultCodexDirectory()
     {
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
-    }
-
-    /// <summary>
-    /// Returns whether local session data can be used when official quota is unavailable.
-    /// </summary>
-    private static bool CanFallbackToSessionUsage(UsageResponse response)
-    {
-        return response.Error is "Codex auth.json not found" or "Codex is not using ChatGPT OAuth mode" or "Codex access_token is missing";
     }
 
     /// <summary>
@@ -114,77 +94,6 @@ public sealed class CodexMonitorCollector
         {
             return CreateEmptyResponse(codexDirectory, now, $"Codex usage API unavailable: {exception.Message}");
         }
-    }
-
-    /// <summary>
-    /// Collects Codex usage from local session JSONL files.
-    /// </summary>
-    private UsageResponse CollectSessionUsage(string codexDirectory)
-    {
-        DateTimeOffset now = m_NowProvider();
-        string sessionsDirectory = Path.Combine(codexDirectory, "sessions");
-        if (!Directory.Exists(sessionsDirectory))
-        {
-            return CreateEmptyResponse(codexDirectory, now, "No Codex session JSONL files found");
-        }
-
-        List<FileInfo> files = EnumerateJsonlFiles(sessionsDirectory);
-        if (files.Count == 0)
-        {
-            return CreateEmptyResponse(codexDirectory, now, "No Codex session JSONL files found");
-        }
-
-        TokenCountEvent? latestEvent = null;
-        int scannedEvents = 0;
-        foreach (FileInfo file in files)
-        {
-            foreach (TokenCountEvent tokenEvent in ReadTokenCountEvents(file))
-            {
-                scannedEvents++;
-                if (latestEvent == null || tokenEvent.Timestamp > latestEvent.Timestamp)
-                {
-                    latestEvent = tokenEvent;
-                }
-            }
-        }
-
-        if (latestEvent == null)
-        {
-            return CreateEmptyResponse(codexDirectory, now, "No token_count events found");
-        }
-
-        JsonElement rateLimits = GetObjectProperty(latestEvent.Payload, "rate_limits");
-        JsonElement primary = GetObjectProperty(rateLimits, "primary");
-        JsonElement secondary = GetObjectProperty(rateLimits, "secondary");
-
-        UsageLimit fiveHour = BuildLimit("five_hour", primary, now);
-        UsageLimit weekly = BuildLimit("weekly", secondary, now);
-        fiveHour.ResetLabel = FormatFiveHourResetLabel(fiveHour.ResetsAt, now);
-        weekly.ResetLabel = FormatWeeklyResetLabel(weekly.ResetsAt, now);
-
-        UsageDisplay display = BuildDisplay(fiveHour, weekly);
-
-        return new UsageResponse
-        {
-            Available = true,
-            Error = null,
-            CodexDir = codexDirectory,
-            SourceFile = latestEvent.SourceFile,
-            Source = "sessions",
-            PlanType = GetStringProperty(rateLimits, "plan_type", "unknown"),
-            UpdatedAt = now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture),
-            Scanned = new ScanStats
-            {
-                Files = files.Count,
-                TokenCountEvents = scannedEvents,
-            },
-            Limits = new UsageLimits
-            {
-                FiveHour = fiveHour,
-                Weekly = weekly,
-            },
-            Display = display,
-        };
     }
 
     /// <summary>
@@ -236,102 +145,6 @@ public sealed class CodexMonitorCollector
             Codex5H = codex5HDisplay,
             CodexWeekly = codexWeeklyDisplay,
             Summary = $"{k_FiveHourDisplayLabel}: {codex5HDisplay} | {k_WeeklyDisplayLabel}: {codexWeeklyDisplay}",
-        };
-    }
-
-    /// <summary>
-    /// Enumerates JSONL files with newest modified files first.
-    /// </summary>
-    private static List<FileInfo> EnumerateJsonlFiles(string sessionsDirectory)
-    {
-        EnumerationOptions options = new()
-        {
-            RecurseSubdirectories = true,
-            IgnoreInaccessible = true,
-            MatchCasing = MatchCasing.CaseInsensitive,
-        };
-        return Directory.EnumerateFiles(sessionsDirectory, "*.jsonl", options)
-            .Select(path => new FileInfo(path))
-            .OrderByDescending(file => file.LastWriteTimeUtc)
-            .ToList();
-    }
-
-    /// <summary>
-    /// Reads token_count events from a session file.
-    /// </summary>
-    private static IEnumerable<TokenCountEvent> ReadTokenCountEvents(FileInfo file)
-    {
-        DateTimeOffset fallbackTimestamp = file.LastWriteTime;
-        string[] lines;
-        try
-        {
-            lines = File.ReadAllLines(file.FullName);
-        }
-        catch (IOException)
-        {
-            yield break;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            yield break;
-        }
-
-        foreach (string line in lines)
-        {
-            if (!line.Contains("token_count", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            using JsonDocument? document = TryParseJson(line);
-            if (document == null)
-            {
-                continue;
-            }
-
-            JsonElement root = document.RootElement;
-            JsonElement payload = GetObjectProperty(root, "payload");
-            if (payload.ValueKind != JsonValueKind.Object || GetStringProperty(payload, "type", string.Empty) != "token_count")
-            {
-                continue;
-            }
-
-            DateTimeOffset timestamp = ParseTimestamp(GetStringProperty(root, "timestamp", string.Empty), fallbackTimestamp);
-            yield return new TokenCountEvent(timestamp, payload.Clone(), file.FullName);
-        }
-    }
-
-    /// <summary>
-    /// Parses one JSON line without throwing on invalid input.
-    /// </summary>
-    private static JsonDocument? TryParseJson(string line)
-    {
-        try
-        {
-            return JsonDocument.Parse(line);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Builds a usage limit model from a rate limit object.
-    /// </summary>
-    private static UsageLimit BuildLimit(string name, JsonElement data, DateTimeOffset now)
-    {
-        int usedPercent = ClampPercent((int)Math.Round(GetDoubleProperty(data, "used_percent", 0.0), MidpointRounding.AwayFromZero));
-        long resetsAt = GetInt64Property(data, "resets_at", 0);
-        return new UsageLimit
-        {
-            Name = name,
-            UsedPercent = usedPercent,
-            RemainingPercent = 100 - usedPercent,
-            WindowMinutes = GetInt32Property(data, "window_minutes", 0),
-            ResetsAt = resetsAt,
-            ResetAtLocal = FormatResetLocal(resetsAt, now),
-            ResetTime = FormatResetClock(resetsAt, now),
         };
     }
 
@@ -404,27 +217,11 @@ public sealed class CodexMonitorCollector
             UpdatedAt = now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture),
             Limits = new UsageLimits
             {
-                FiveHour = BuildLimit("five_hour", default, now),
-                Weekly = BuildLimit("weekly", default, now),
+                FiveHour = BuildOfficialLimit("five_hour", default, now),
+                Weekly = BuildOfficialLimit("weekly", default, now),
             },
             Display = new UsageDisplay(),
         };
-    }
-
-    /// <summary>
-    /// Parses an ISO timestamp with a fallback value.
-    /// </summary>
-    private static DateTimeOffset ParseTimestamp(string rawValue, DateTimeOffset fallback)
-    {
-        if (string.IsNullOrWhiteSpace(rawValue))
-        {
-            return fallback;
-        }
-
-        string normalizedValue = rawValue.EndsWith("Z", StringComparison.Ordinal) ? rawValue[..^1] + "+00:00" : rawValue;
-        return DateTimeOffset.TryParse(normalizedValue, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset parsed)
-            ? parsed.ToLocalTime()
-            : fallback;
     }
 
     /// <summary>
@@ -566,8 +363,6 @@ public sealed class CodexMonitorCollector
 
         return defaultValue;
     }
-
-    private sealed record TokenCountEvent(DateTimeOffset Timestamp, JsonElement Payload, string SourceFile);
 
     private sealed record CodexCredentials(string AccessToken, string AccountId, string? Error)
     {

@@ -1,0 +1,644 @@
+<Window x:Class="CodexMonitor.App.TrayPopupWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="CodexMonitor"
+        Width="410"
+        Height="588"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        AllowsTransparency="False"
+        Background="#01131A1C"
+        Topmost="True"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="ClearType"
+        ThemeMode="System">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+            <!-- Palette -->
+            <SolidColorBrush x:Key="TextBrush" Color="#F3F7F6" />
+            <SolidColorBrush x:Key="TextStrongBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MutedTextBrush" Color="#93A6A1" />
+            <SolidColorBrush x:Key="FaintTextBrush" Color="#6F827D" />
+
+            <LinearGradientBrush x:Key="CardFillBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Offset="0" Color="#1CFFFFFF" />
+                <GradientStop Offset="1" Color="#0BFFFFFF" />
+            </LinearGradientBrush>
+            <SolidColorBrush x:Key="CardStrokeBrush" Color="#26FFFFFF" />
+
+            <SolidColorBrush x:Key="FieldFillBrush" Color="#16FFFFFF" />
+            <SolidColorBrush x:Key="FieldBorderBrush" Color="#2BFFFFFF" />
+            <SolidColorBrush x:Key="FieldFocusFillBrush" Color="#24FFFFFF" />
+
+            <SolidColorBrush x:Key="TrackBrush" Color="#22FFFFFF" />
+
+            <!-- Primary accent button -->
+            <Style x:Key="PanelButtonStyle" TargetType="{x:Type Button}">
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Padding" Value="18,7" />
+                <Setter Property="Margin" Value="8,0,0,0" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.AccentColorLight1BrushKey}}" />
+                <Setter Property="Foreground" Value="#FFFFFF" />
+                <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="SnapsToDevicePixels" Value="True" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type Button}">
+                            <Border x:Name="ButtonChrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="11"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.90" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.74" />
+                                    <Setter TargetName="ButtonChrome" Property="RenderTransform">
+                                        <Setter.Value>
+                                            <ScaleTransform ScaleX="0.98" ScaleY="0.98" CenterX="0" CenterY="0" />
+                                        </Setter.Value>
+                                    </Setter>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.45" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Secondary / subtle glass button -->
+            <Style x:Key="SecondaryButtonStyle" BasedOn="{StaticResource PanelButtonStyle}" TargetType="{x:Type Button}">
+                <Setter Property="Background" Value="#1FFFFFFF" />
+                <Setter Property="BorderBrush" Value="#2BFFFFFF" />
+                <Setter Property="Foreground" Value="#EAF3F0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type Button}">
+                            <Border x:Name="ButtonChrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="11"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="ButtonChrome" Property="Background" Value="#30FFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="ButtonChrome" Property="Background" Value="#18FFFFFF" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Ghost text button -->
+            <Style x:Key="GhostButtonStyle" TargetType="{x:Type Button}">
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Padding" Value="6,7" />
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type Button}">
+                            <Border x:Name="ButtonChrome"
+                                    Background="{TemplateBinding Background}"
+                                    CornerRadius="9"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Icon-style round button (header refresh) -->
+            <Style x:Key="RoundIconButtonStyle" TargetType="{x:Type Button}">
+                <Setter Property="Width" Value="38" />
+                <Setter Property="Height" Value="38" />
+                <Setter Property="Background" Value="#1FFFFFFF" />
+                <Setter Property="BorderBrush" Value="#2BFFFFFF" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Foreground" Value="#EAF3F0" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type Button}">
+                            <Border x:Name="ButtonChrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="19">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="ButtonChrome" Property="Background" Value="#30FFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="ButtonChrome" Property="Background" Value="#18FFFFFF" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Text input -->
+            <Style x:Key="PanelTextBoxStyle" TargetType="{x:Type TextBox}">
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Margin" Value="0,6,0,0" />
+                <Setter Property="Padding" Value="12,7" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                <Setter Property="Background" Value="{StaticResource FieldFillBrush}" />
+                <Setter Property="BorderBrush" Value="{StaticResource FieldBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CaretBrush" Value="{DynamicResource {x:Static SystemColors.AccentColorLight1BrushKey}}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type TextBox}">
+                            <Border x:Name="FieldChrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="9">
+                                <ScrollViewer x:Name="PART_ContentHost"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="FieldChrome" Property="BorderBrush" Value="#3AFFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="FieldChrome" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
+                                    <Setter TargetName="FieldChrome" Property="Background" Value="{StaticResource FieldFocusFillBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="PanelCheckBoxStyle" TargetType="{x:Type CheckBox}">
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="PanelComboBoxStyle" TargetType="{x:Type ComboBox}">
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Margin" Value="0,6,0,0" />
+                <Setter Property="Padding" Value="10,4" />
+                <Setter Property="FontSize" Value="13" />
+            </Style>
+
+            <!-- Field caption -->
+            <Style x:Key="FieldLabelStyle" TargetType="{x:Type TextBlock}">
+                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+
+            <!-- Card section header -->
+            <Style x:Key="CardHeaderStyle" TargetType="{x:Type TextBlock}">
+                <Setter Property="Foreground" Value="{StaticResource TextStrongBrush}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+            </Style>
+
+            <!-- Segmented nav tab -->
+            <Style x:Key="TabButtonStyle" TargetType="{x:Type Button}">
+                <Setter Property="Height" Value="32" />
+                <Setter Property="MinWidth" Value="80" />
+                <Setter Property="Padding" Value="14,0" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type Button}">
+                            <Border x:Name="TabChrome"
+                                    Background="{TemplateBinding Background}"
+                                    CornerRadius="13"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="TabChrome" Property="Background" Value="#16FFFFFF" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="HomeTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsHomeSelected}" Value="True">
+                        <Setter Property="Foreground" Value="#FFFFFFFF" />
+                        <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="SettingsTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsSettingsSelected}" Value="True">
+                        <Setter Property="Foreground" Value="#FFFFFFFF" />
+                        <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- Quota progress bar -->
+            <Style x:Key="QuotaProgressBarStyle" TargetType="{x:Type ProgressBar}">
+                <Setter Property="Height" Value="6" />
+                <Setter Property="Background" Value="{StaticResource TrackBrush}" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ProgressBar}">
+                            <Grid x:Name="TemplateRoot">
+                                <Border Background="{TemplateBinding Background}"
+                                        CornerRadius="3" />
+                                <Border x:Name="PART_Track"
+                                        Background="Transparent"
+                                        CornerRadius="3" />
+                                <Border x:Name="PART_Indicator"
+                                        HorizontalAlignment="Left"
+                                        Background="{TemplateBinding Foreground}"
+                                        CornerRadius="3" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Quota card container -->
+            <Style x:Key="CardBorderStyle" TargetType="{x:Type Border}">
+                <Setter Property="CornerRadius" Value="14" />
+                <Setter Property="Background" Value="{StaticResource CardFillBrush}" />
+                <Setter Property="BorderBrush" Value="{StaticResource CardStrokeBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Border Margin="0"
+            Padding="24,22,24,20"
+            CornerRadius="0"
+            BorderBrush="#22FFFFFF"
+            BorderThickness="1">
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0.3,1">
+                <GradientStop Offset="0" Color="#8A16201F" />
+                <GradientStop Offset="1" Color="#9E0E1413" />
+            </LinearGradientBrush>
+        </Border.Background>
+        <Grid>
+            <!-- ===================== HOME ===================== -->
+            <Grid Visibility="{Binding IsHomeVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Header -->
+                <StackPanel Grid.Row="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Codex"
+                                       Foreground="{StaticResource TextStrongBrush}"
+                                       FontSize="26"
+                                       FontWeight="Medium"
+                                       VerticalAlignment="Center" />
+                            <Border MinWidth="52"
+                                    Height="22"
+                                    Margin="12,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Padding="11,0"
+                                    CornerRadius="11"
+                                    Background="{Binding PlanBadgeBrush}">
+                                <TextBlock Text="{Binding PlanDisplay}"
+                                           Foreground="#FFFFFF"
+                                           FontWeight="SemiBold"
+                                           FontSize="12"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Command="{Binding RefreshCommand}"
+                                Content="&#xE72C;"
+                                FontFamily="Segoe MDL2 Assets"
+                                ToolTip="Refresh"
+                                Style="{StaticResource RoundIconButtonStyle}" />
+                    </Grid>
+                    <TextBlock Text="{Binding UpdatedAtDisplay}"
+                               Margin="2,6,0,0"
+                               Foreground="{StaticResource FaintTextBrush}"
+                               FontSize="12" />
+                </StackPanel>
+
+                <!-- Quota list -->
+                <StackPanel Grid.Row="1" VerticalAlignment="Top" Margin="0,24,0,0">
+                    <TextBlock Text="Usage"
+                               Foreground="{StaticResource FaintTextBrush}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,14" />
+
+                    <!-- 5 hour -->
+                    <StackPanel Margin="0,0,0,20">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding FiveHourQuota.Title}"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextBrush}"
+                                       FontSize="13.5"
+                                       FontWeight="Medium" />
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding FiveHourQuota.PercentText}"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextStrongBrush}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold" />
+                        </Grid>
+                        <ProgressBar Margin="0,9,0,0"
+                                     Maximum="100"
+                                     Value="{Binding FiveHourQuota.RemainingPercent, Mode=OneWay}"
+                                     Foreground="{Binding FiveHourQuota.AccentBrush}"
+                                     Style="{StaticResource QuotaProgressBarStyle}" />
+                        <TextBlock Text="{Binding FiveHourQuota.ResetText}"
+                                   Margin="0,7,0,0"
+                                   Foreground="{StaticResource FaintTextBrush}"
+                                   FontSize="11.5" />
+                    </StackPanel>
+
+                    <!-- Weekly -->
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding WeeklyQuota.Title}"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextBrush}"
+                                       FontSize="13.5"
+                                       FontWeight="Medium" />
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding WeeklyQuota.PercentText}"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextStrongBrush}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold" />
+                        </Grid>
+                        <ProgressBar Margin="0,9,0,0"
+                                     Maximum="100"
+                                     Value="{Binding WeeklyQuota.RemainingPercent, Mode=OneWay}"
+                                     Foreground="{Binding WeeklyQuota.AccentBrush}"
+                                     Style="{StaticResource QuotaProgressBarStyle}" />
+                        <TextBlock Text="{Binding WeeklyQuota.ResetText}"
+                                   Margin="0,7,0,0"
+                                   Foreground="{StaticResource FaintTextBrush}"
+                                   FontSize="11.5" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Footer -->
+                <Grid Grid.Row="2" Margin="0,18,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="1"
+                            Padding="3"
+                            CornerRadius="16"
+                            Background="#16FFFFFF"
+                            BorderBrush="#20FFFFFF"
+                            BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Command="{Binding ShowHomeCommand}"
+                                    Content="Home"
+                                    Style="{StaticResource HomeTabButtonStyle}" />
+                            <Button Command="{Binding ShowSettingsCommand}"
+                                    Content="Settings"
+                                    Style="{StaticResource SettingsTabButtonStyle}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <!-- ===================== SETTINGS ===================== -->
+            <Grid Visibility="{Binding IsSettingsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Settings"
+                                   Foreground="{StaticResource TextStrongBrush}"
+                                   FontSize="26"
+                                   FontWeight="Bold" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Text="{Binding StatusMessage}"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   FontSize="12"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            VerticalAlignment="Top"
+                            Command="{Binding ShowHomeCommand}"
+                            Content="Back"
+                            Style="{StaticResource SecondaryButtonStyle}" />
+                </Grid>
+
+                <ScrollViewer Grid.Row="1"
+                              Margin="0,16,-8,14"
+                              Padding="0,0,8,0"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <!-- General -->
+                        <Border Style="{StaticResource CardBorderStyle}"
+                                Padding="16"
+                                Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="General" Style="{StaticResource CardHeaderStyle}" />
+                                <TextBlock Margin="0,12,0,0"
+                                           Text="Refresh interval (minutes)"
+                                           Style="{StaticResource FieldLabelStyle}" />
+                                <TextBox Text="{Binding RefreshIntervalText, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{StaticResource PanelTextBoxStyle}" />
+                                <TextBlock Margin="0,14,0,0"
+                                           Text="Theme"
+                                           Style="{StaticResource FieldLabelStyle}" />
+                                <ComboBox ItemsSource="{Binding ThemeModeOptions}"
+                                          SelectedItem="{Binding ThemeMode, UpdateSourceTrigger=PropertyChanged}"
+                                          Style="{StaticResource PanelComboBoxStyle}" />
+                                <CheckBox Margin="0,16,0,0"
+                                          Content="Start with Windows"
+                                          IsChecked="{Binding StartWithWindows}"
+                                          Style="{StaticResource PanelCheckBoxStyle}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Plugins -->
+                        <Border Style="{StaticResource CardBorderStyle}"
+                                Padding="16"
+                                Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Plugins" Style="{StaticResource CardHeaderStyle}" />
+                                <TextBlock Margin="0,12,0,0"
+                                           Text="LiteMonitor folder"
+                                           Style="{StaticResource FieldLabelStyle}" />
+                                <TextBox Text="{Binding LiteMonitorDir, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{StaticResource PanelTextBoxStyle}" />
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button Command="{Binding BrowseLiteMonitorCommand}"
+                                            Content="Browse"
+                                            Margin="0,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}" />
+                                    <Button Command="{Binding AutoDetectLiteMonitorCommand}"
+                                            Content="Detect"
+                                            Style="{StaticResource SecondaryButtonStyle}" />
+                                    <Button Command="{Binding InstallLiteMonitorPluginCommand}"
+                                            Content="Install"
+                                            Style="{StaticResource PanelButtonStyle}" />
+                                </WrapPanel>
+
+                                <TextBlock Margin="0,16,0,0"
+                                           Text="TrafficMonitor folder"
+                                           Style="{StaticResource FieldLabelStyle}" />
+                                <TextBox Text="{Binding TrafficMonitorDir, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{StaticResource PanelTextBoxStyle}" />
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button Command="{Binding BrowseTrafficMonitorCommand}"
+                                            Content="Browse"
+                                            Margin="0,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}" />
+                                    <Button Command="{Binding AutoDetectTrafficMonitorCommand}"
+                                            Content="Detect"
+                                            Style="{StaticResource SecondaryButtonStyle}" />
+                                    <Button Command="{Binding InstallTrafficMonitorPluginCommand}"
+                                            Content="Install"
+                                            Style="{StaticResource PanelButtonStyle}" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Advanced -->
+                        <Border Style="{StaticResource CardBorderStyle}"
+                                Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="Advanced" Style="{StaticResource CardHeaderStyle}" />
+                                <TextBlock Margin="0,12,0,0"
+                                           Text="HTTP port"
+                                           Style="{StaticResource FieldLabelStyle}" />
+                                <TextBox Text="{Binding PortText, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{StaticResource PanelTextBoxStyle}" />
+                                <TextBlock Margin="0,14,0,0"
+                                           Text="{Binding ServiceStatus}"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           TextWrapping="Wrap"
+                                           FontSize="12" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Button Command="{Binding SaveSettingsCommand}"
+                                Content="Save"
+                                Margin="0,0,0,0"
+                                Style="{StaticResource PanelButtonStyle}" />
+                        <Button Command="{Binding RefreshCommand}"
+                                Content="Refresh"
+                                Style="{StaticResource SecondaryButtonStyle}" />
+                    </StackPanel>
+                    <Border Grid.Column="1"
+                            Padding="3"
+                            CornerRadius="16"
+                            Background="#16FFFFFF"
+                            BorderBrush="#20FFFFFF"
+                            BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Command="{Binding ShowHomeCommand}"
+                                    Content="Home"
+                                    Style="{StaticResource HomeTabButtonStyle}" />
+                            <Button Command="{Binding ShowSettingsCommand}"
+                                    Content="Settings"
+                                    Style="{StaticResource SettingsTabButtonStyle}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

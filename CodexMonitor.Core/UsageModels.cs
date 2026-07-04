@@ -42,23 +42,11 @@ public sealed class UsageResponse
     [JsonPropertyName("updated_at")]
     public string UpdatedAt { get; set; } = string.Empty;
 
-    [JsonPropertyName("scanned")]
-    public ScanStats Scanned { get; set; } = new();
-
     [JsonPropertyName("limits")]
     public UsageLimits Limits { get; set; } = new();
 
     [JsonPropertyName("display")]
     public UsageDisplay Display { get; set; } = new();
-}
-
-public sealed class ScanStats
-{
-    [JsonPropertyName("files")]
-    public int Files { get; set; }
-
-    [JsonPropertyName("token_count_events")]
-    public int TokenCountEvents { get; set; }
 }
 
 public sealed class UsageLimits

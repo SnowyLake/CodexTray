@@ -1,5 +1,5 @@
 using CodexMonitor.Core;
-using System.Diagnostics;
+using System.IO;
 using System.Net.Sockets;
 
 namespace CodexMonitor.App;
@@ -17,7 +17,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly CancellationTokenSource m_SignalCancellation = new();
     private AppSettings m_Settings;
     private LightweightHttpServer? m_Server;
-    private SettingsForm? m_SettingsForm;
+    private TrayPopupWindow? m_TrayPopupWindow;
+    private TrayPopupViewModel? m_PopupViewModel;
     private int m_IsRefreshing;
     private bool m_IsExiting;
 
@@ -42,7 +43,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (!settingsExists)
         {
             m_SettingsStore.Save(m_Settings);
-            ShowSettings();
         }
     }
 
@@ -70,12 +70,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private NotifyIcon CreateNotifyIcon()
     {
         ContextMenuStrip menu = new();
-        menu.Items.Add("Open Settings", null, (_, _) => ShowSettings());
-        menu.Items.Add("Install LiteMonitor Plugin", null, (_, _) => InstallLiteMonitorPlugin());
-        menu.Items.Add("Install TrafficMonitor Plugin", null, (_, _) => InstallTrafficMonitorPlugin());
-        menu.Items.Add("Open LiteMonitor Folder", null, (_, _) => OpenLiteMonitorFolder());
-        menu.Items.Add("Open TrafficMonitor Folder", null, (_, _) => OpenTrafficMonitorFolder());
-        menu.Items.Add("Restart Service", null, (_, _) => RestartService());
+        menu.Items.Add("Open Panel", null, (_, _) => ShowPanel());
+        menu.Items.Add("Refresh Now", null, async (_, _) => await RefreshUsageAsync());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitApplication());
 
@@ -86,7 +82,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
             Text = "CodexMonitor",
             Visible = true,
         };
-        notifyIcon.DoubleClick += (_, _) => ShowSettings();
+        notifyIcon.MouseUp += (_, args) =>
+        {
+            if (args.Button == MouseButtons.Left)
+            {
+                TogglePanel();
+            }
+        };
         return notifyIcon;
     }
 
@@ -116,7 +118,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         m_Server?.Dispose();
         m_Server = null;
         StartService();
-        RefreshSettingsStatus();
+        RefreshPopupStatus();
     }
 
     /// <summary>
@@ -130,42 +132,84 @@ internal sealed class TrayApplicationContext : ApplicationContext
             {
                 if (m_ShowSettingsEvent.WaitOne(TimeSpan.FromMilliseconds(500)))
                 {
-                    m_SynchronizationContext.Post(_ => ShowSettings(), null);
+                    m_SynchronizationContext.Post(_ => ShowPanel(), null);
                 }
             }
         }, m_SignalCancellation.Token);
     }
 
     /// <summary>
-    /// Opens or focuses the settings window.
+    /// Toggles the tray popup from the notification icon.
     /// </summary>
-    private void ShowSettings()
+    private void TogglePanel()
     {
-        if (m_SettingsForm != null && !m_SettingsForm.IsDisposed)
+        if (m_TrayPopupWindow?.IsVisible == true)
         {
-            m_SettingsForm.WindowState = FormWindowState.Normal;
-            m_SettingsForm.Show();
-            m_SettingsForm.Activate();
-            RefreshSettingsStatus();
+            m_TrayPopupWindow.Hide();
             return;
         }
 
-        m_SettingsForm = new SettingsForm(m_Settings, m_AppIcon);
-        m_SettingsForm.SettingsSaved += (_, args) => SaveSettings(args.PreviousPort);
-        m_SettingsForm.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
-        m_SettingsForm.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
-        m_SettingsForm.RefreshNowRequested += async (_, _) => await RefreshUsageAsync();
-        m_SettingsForm.FormClosed += (_, _) => m_SettingsForm = null;
-        m_SettingsForm.Show();
-        RefreshSettingsStatus();
+        ShowPanel();
+    }
+
+    /// <summary>
+    /// Opens the tray popup on the home page.
+    /// </summary>
+    private void ShowPanel()
+    {
+        EnsurePopup();
+        m_PopupViewModel?.ShowHome();
+        RefreshPopupStatus();
+        m_TrayPopupWindow?.ShowNearTray();
         _ = RefreshUsageAsync();
+    }
+
+    /// <summary>
+    /// Opens the tray popup on the settings page.
+    /// </summary>
+    private void ShowSettings()
+    {
+        EnsurePopup();
+        m_PopupViewModel?.ShowSettings();
+        RefreshPopupStatus();
+        m_TrayPopupWindow?.ShowNearTray();
+    }
+
+    /// <summary>
+    /// Creates the WPF tray popup and wires application callbacks.
+    /// </summary>
+    private void EnsurePopup()
+    {
+        if (m_TrayPopupWindow != null)
+        {
+            return;
+        }
+
+        m_PopupViewModel = new TrayPopupViewModel(m_Settings);
+        m_PopupViewModel.RefreshRequested += async (_, _) => await RefreshUsageAsync();
+        m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
+        m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
+        m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
+        m_PopupViewModel.ExitRequested += (_, _) => ExitApplication();
+        m_TrayPopupWindow = new TrayPopupWindow(m_PopupViewModel);
+        m_TrayPopupWindow.Closed += (_, _) =>
+        {
+            m_TrayPopupWindow = null;
+            m_PopupViewModel = null;
+        };
     }
 
     /// <summary>
     /// Saves settings and applies startup registration changes.
     /// </summary>
-    private void SaveSettings(int previousPort)
+    private void SaveSettings()
     {
+        int previousPort = m_Settings.Port;
+        if (m_PopupViewModel?.TryApplySettings(out _) == false)
+        {
+            return;
+        }
+
         StartupManager.SetEnabled(Application.ExecutablePath, m_Settings.StartWithWindows);
         m_SettingsStore.Save(m_Settings);
         ConfigureRefreshTimer();
@@ -174,7 +218,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             RestartService();
         }
 
-        RefreshSettingsStatus();
+        RefreshPopupStatus();
         _ = RefreshUsageAsync();
     }
 
@@ -196,20 +240,25 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         try
         {
+            if (m_PopupViewModel?.TryApplySettings(out _) == false)
+            {
+                return;
+            }
+
             if (!TryValidateLiteMonitorDirectory(m_Settings.LiteMonitorDir, out string message))
             {
-                MessageBox.Show(message, "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning(message);
                 return;
             }
 
             string targetPath = LiteMonitorPluginInstaller.Install(m_Settings.LiteMonitorDir, m_Settings.Port);
             m_SettingsStore.Save(m_Settings);
-            RefreshSettingsStatus();
-            MessageBox.Show($"Installed LiteMonitor plugin:\n{targetPath}", "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            RefreshPopupStatus();
+            m_PopupViewModel?.SetMessage($"Installed LiteMonitor plugin: {targetPath}");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
-            MessageBox.Show(exception.Message, "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ShowWarning(exception.Message);
         }
     }
 
@@ -220,71 +269,40 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         try
         {
+            if (m_PopupViewModel?.TryApplySettings(out _) == false)
+            {
+                return;
+            }
+
             if (!TryValidateTrafficMonitorDirectory(m_Settings.TrafficMonitorDir, out string message))
             {
-                MessageBox.Show(message, "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning(message);
                 return;
             }
 
             string targetPath = TrafficMonitorPluginInstaller.Install(m_Settings.TrafficMonitorDir, m_Settings.Port);
             m_SettingsStore.Save(m_Settings);
-            RefreshSettingsStatus();
-            MessageBox.Show($"Installed TrafficMonitor plugin:\n{targetPath}", "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            RefreshPopupStatus();
+            m_PopupViewModel?.SetMessage($"Installed TrafficMonitor plugin: {targetPath}");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
-            MessageBox.Show(exception.Message, "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ShowWarning(exception.Message);
         }
-    }
-
-    /// <summary>
-    /// Opens the LiteMonitor installation folder.
-    /// </summary>
-    private void OpenLiteMonitorFolder()
-    {
-        if (!LiteMonitorLocator.IsLiteMonitorDirectory(m_Settings.LiteMonitorDir))
-        {
-            MessageBox.Show("LiteMonitor folder is not configured.", "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = m_Settings.LiteMonitorDir,
-            UseShellExecute = true,
-        });
     }
 
     /// <summary>
     /// Updates the settings window with current service data.
     /// </summary>
-    private void RefreshSettingsStatus()
+    private void RefreshPopupStatus()
     {
-        if (m_SettingsForm == null || m_SettingsForm.IsDisposed)
+        if (m_PopupViewModel == null)
         {
             return;
         }
 
         UsageResponse? response = m_UsageCache.Get();
-        m_SettingsForm.UpdateStatus(m_Server?.IsRunning == true, m_Server?.Port ?? m_Settings.Port, response, m_Server?.LastError);
-    }
-
-    /// <summary>
-    /// Opens the TrafficMonitor installation folder.
-    /// </summary>
-    private void OpenTrafficMonitorFolder()
-    {
-        if (!TrafficMonitorLocator.IsTrafficMonitorDirectory(m_Settings.TrafficMonitorDir))
-        {
-            MessageBox.Show("TrafficMonitor folder is not configured.", "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = m_Settings.TrafficMonitorDir,
-            UseShellExecute = true,
-        });
+        m_PopupViewModel.UpdateStatus(m_Server?.IsRunning == true, m_Server?.Port ?? m_Settings.Port, response, m_Server?.LastError);
     }
 
     /// <summary>
@@ -297,14 +315,24 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
+        if (m_PopupViewModel != null)
+        {
+            m_PopupViewModel.IsRefreshing = true;
+        }
+
         try
         {
             UsageResponse response = await Task.Run(() => m_Collector.Collect()).ConfigureAwait(true);
             m_UsageCache.Update(response);
-            RefreshSettingsStatus();
+            RefreshPopupStatus();
         }
         finally
         {
+            if (m_PopupViewModel != null)
+            {
+                m_PopupViewModel.IsRefreshing = false;
+            }
+
             Interlocked.Exchange(ref m_IsRefreshing, 0);
         }
     }
@@ -320,6 +348,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         m_IsExiting = true;
+        m_TrayPopupWindow?.Close();
         m_NotifyIcon.Visible = false;
         m_Server?.Stop();
         ExitThread();
@@ -344,6 +373,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         message = string.Empty;
         return true;
+    }
+
+    /// <summary>
+    /// Shows a warning in the popup or a fallback message box.
+    /// </summary>
+    private void ShowWarning(string message)
+    {
+        m_PopupViewModel?.SetMessage(message);
+        if (m_TrayPopupWindow?.IsVisible != true)
+        {
+            MessageBox.Show(message, "CodexMonitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     /// <summary>
