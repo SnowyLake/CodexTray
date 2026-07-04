@@ -419,9 +419,10 @@
                                 Style="{StaticResource RoundIconButtonStyle}" />
                     </Grid>
                     <TextBlock Margin="2,6,0,0"
-                               Text="{Binding StatusMessage}"
-                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                               Text="{Binding SettingsStatusText}"
+                               Foreground="{Binding SettingsStatusBrush}"
                                FontSize="12"
+                               FontWeight="Medium"
                                TextWrapping="Wrap" />
                 </StackPanel>
 

@@ -11,6 +11,27 @@ using Media = System.Windows.Media;
 
 namespace CodexMonitor.App;
 
+/// <summary>
+/// Save state of the settings page.
+/// </summary>
+internal enum SettingsStatus
+{
+    /// <summary>
+    /// No message shown.
+    /// </summary>
+    Clean,
+
+    /// <summary>
+    /// Settings match the last saved snapshot after an explicit save.
+    /// </summary>
+    Saved,
+
+    /// <summary>
+    /// Settings differ from the last saved snapshot.
+    /// </summary>
+    Unsaved,
+}
+
 internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 {
     private const string k_HomePageName = "Home";
@@ -22,12 +43,14 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private static readonly Media.Brush s_PlanBadgeActiveBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_PlanBadgeInactiveBrush = new Media.SolidColorBrush(Media.Color.FromRgb(107, 122, 117));
 
+    private const int k_MinimumPort = 1;
+    private const int k_MaximumPort = 65535;
+
     private readonly AppSettings m_Settings;
     private string m_CurrentPage = k_HomePageName;
     private string m_PlanDisplay = "None";
     private Media.Brush m_PlanBadgeBrush = s_PlanBadgeInactiveBrush;
     private string m_UpdatedAtDisplay = "Waiting for first refresh";
-    private string m_StatusMessage = $"Starting {CodexMonitorDefaults.AppName}...";
     private string m_ServiceStatus = "Service: starting";
     private string m_SourceDisplay = "Source: unavailable";
     private string m_LiteMonitorDir = string.Empty;
@@ -38,6 +61,16 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private bool m_StartWithWindows;
     private bool m_IsRefreshing;
     private bool m_IsModalOpen;
+
+    private SettingsStatus m_SettingsStatus = SettingsStatus.Clean;
+    private SettingsStatus m_SettingsBaseline = SettingsStatus.Clean;
+    private bool m_SuppressDirtyTracking;
+    private string m_SnapshotLiteMonitorDir = string.Empty;
+    private string m_SnapshotTrafficMonitorDir = string.Empty;
+    private string m_SnapshotPortText = string.Empty;
+    private string m_SnapshotRefreshIntervalText = string.Empty;
+    private string m_SnapshotThemeMode = AppSettings.ThemeModeSystem;
+    private bool m_SnapshotStartWithWindows;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -95,11 +128,27 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         private set => SetField(ref m_UpdatedAtDisplay, value);
     }
 
-    public string StatusMessage
+    public SettingsStatus SettingsStatus
     {
-        get => m_StatusMessage;
-        private set => SetField(ref m_StatusMessage, value);
+        get => m_SettingsStatus;
+        private set
+        {
+            if (SetField(ref m_SettingsStatus, value))
+            {
+                OnPropertyChanged(nameof(SettingsStatusText));
+                OnPropertyChanged(nameof(SettingsStatusBrush));
+            }
+        }
     }
+
+    public string SettingsStatusText => m_SettingsStatus switch
+    {
+        SettingsStatus.Saved => "Changes saved",
+        SettingsStatus.Unsaved => "Unsaved changes",
+        _ => string.Empty,
+    };
+
+    public Media.Brush SettingsStatusBrush => m_SettingsStatus == SettingsStatus.Unsaved ? s_YellowBrush : s_GreenBrush;
 
     public string ServiceStatus
     {
@@ -116,31 +165,61 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public string LiteMonitorDir
     {
         get => m_LiteMonitorDir;
-        set => SetField(ref m_LiteMonitorDir, value);
+        set
+        {
+            if (SetField(ref m_LiteMonitorDir, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
     }
 
     public string TrafficMonitorDir
     {
         get => m_TrafficMonitorDir;
-        set => SetField(ref m_TrafficMonitorDir, value);
+        set
+        {
+            if (SetField(ref m_TrafficMonitorDir, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
     }
 
     public string PortText
     {
         get => m_PortText;
-        set => SetField(ref m_PortText, value);
+        set
+        {
+            if (SetField(ref m_PortText, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
     }
 
     public string RefreshIntervalText
     {
         get => m_RefreshIntervalText;
-        set => SetField(ref m_RefreshIntervalText, value);
+        set
+        {
+            if (SetField(ref m_RefreshIntervalText, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
     }
 
     public string ThemeMode
     {
         get => m_ThemeMode;
-        set => SetField(ref m_ThemeMode, NormalizeThemeMode(value));
+        set
+        {
+            if (SetField(ref m_ThemeMode, NormalizeThemeMode(value)))
+            {
+                EvaluateDirtyState();
+            }
+        }
     }
 
     public string[] ThemeModeOptions { get; } =
@@ -153,7 +232,13 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public bool StartWithWindows
     {
         get => m_StartWithWindows;
-        set => SetField(ref m_StartWithWindows, value);
+        set
+        {
+            if (SetField(ref m_StartWithWindows, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
     }
 
     public bool IsHomeVisible => m_CurrentPage == k_HomePageName;
@@ -201,12 +286,58 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     public void LoadSettings(AppSettings settings)
     {
-        LiteMonitorDir = settings.LiteMonitorDir;
-        TrafficMonitorDir = settings.TrafficMonitorDir;
-        PortText = settings.Port.ToString(CultureInfo.InvariantCulture);
-        RefreshIntervalText = settings.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture);
-        ThemeMode = settings.ThemeMode;
-        StartWithWindows = settings.StartWithWindows;
+        m_SuppressDirtyTracking = true;
+        try
+        {
+            LiteMonitorDir = settings.LiteMonitorDir;
+            TrafficMonitorDir = settings.TrafficMonitorDir;
+            PortText = settings.Port.ToString(CultureInfo.InvariantCulture);
+            RefreshIntervalText = settings.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture);
+            ThemeMode = settings.ThemeMode;
+            StartWithWindows = settings.StartWithWindows;
+        }
+        finally
+        {
+            m_SuppressDirtyTracking = false;
+        }
+
+        CaptureSnapshot(SettingsStatus.Clean);
+    }
+
+    /// <summary>
+    /// Captures the current editable values as the saved snapshot baseline.
+    /// </summary>
+    private void CaptureSnapshot(SettingsStatus baseline)
+    {
+        m_SnapshotLiteMonitorDir = m_LiteMonitorDir;
+        m_SnapshotTrafficMonitorDir = m_TrafficMonitorDir;
+        m_SnapshotPortText = m_PortText;
+        m_SnapshotRefreshIntervalText = m_RefreshIntervalText;
+        m_SnapshotThemeMode = m_ThemeMode;
+        m_SnapshotStartWithWindows = m_StartWithWindows;
+        m_SettingsBaseline = baseline;
+        SettingsStatus = baseline;
+    }
+
+    /// <summary>
+    /// Recomputes the settings save status against the saved snapshot.
+    /// </summary>
+    private void EvaluateDirtyState()
+    {
+        if (m_SuppressDirtyTracking)
+        {
+            return;
+        }
+
+        bool matchesSnapshot =
+            m_LiteMonitorDir == m_SnapshotLiteMonitorDir &&
+            m_TrafficMonitorDir == m_SnapshotTrafficMonitorDir &&
+            m_PortText == m_SnapshotPortText &&
+            m_RefreshIntervalText == m_SnapshotRefreshIntervalText &&
+            m_ThemeMode == m_SnapshotThemeMode &&
+            m_StartWithWindows == m_SnapshotStartWithWindows;
+
+        SettingsStatus = matchesSnapshot ? m_SettingsBaseline : SettingsStatus.Unsaved;
     }
 
     /// <summary>
@@ -214,31 +345,49 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     public bool TryApplySettings(out string message)
     {
-        if (!int.TryParse(KeepDigits(PortText), NumberStyles.Integer, CultureInfo.InvariantCulture, out int port) || port <= 0 || port > 65535)
+        int port = ClampOrDefault(PortText, k_MinimumPort, k_MaximumPort, CodexMonitorDefaults.Port);
+        int refreshInterval = ClampOrDefault(
+            RefreshIntervalText,
+            CodexMonitorDefaults.MinimumRefreshIntervalMinutes,
+            CodexMonitorDefaults.MaximumRefreshIntervalMinutes,
+            CodexMonitorDefaults.RefreshIntervalMinutes);
+
+        m_SuppressDirtyTracking = true;
+        try
         {
-            message = "Port must be between 1 and 65535.";
-            StatusMessage = message;
-            return false;
+            PortText = port.ToString(CultureInfo.InvariantCulture);
+            RefreshIntervalText = refreshInterval.ToString(CultureInfo.InvariantCulture);
+            LiteMonitorDir = LiteMonitorDir.Trim();
+            TrafficMonitorDir = TrafficMonitorDir.Trim();
+        }
+        finally
+        {
+            m_SuppressDirtyTracking = false;
         }
 
-        if (!int.TryParse(KeepDigits(RefreshIntervalText), NumberStyles.Integer, CultureInfo.InvariantCulture, out int refreshInterval) ||
-            refreshInterval < CodexMonitorDefaults.MinimumRefreshIntervalMinutes ||
-            refreshInterval > CodexMonitorDefaults.MaximumRefreshIntervalMinutes)
-        {
-            message = $"Refresh interval must be between {CodexMonitorDefaults.MinimumRefreshIntervalMinutes} and {CodexMonitorDefaults.MaximumRefreshIntervalMinutes} minutes.";
-            StatusMessage = message;
-            return false;
-        }
-
-        m_Settings.LiteMonitorDir = LiteMonitorDir.Trim();
-        m_Settings.TrafficMonitorDir = TrafficMonitorDir.Trim();
+        m_Settings.LiteMonitorDir = LiteMonitorDir;
+        m_Settings.TrafficMonitorDir = TrafficMonitorDir;
         m_Settings.Port = port;
         m_Settings.RefreshIntervalMinutes = refreshInterval;
         m_Settings.StartWithWindows = StartWithWindows;
         m_Settings.ThemeMode = ThemeMode;
-        message = "Settings saved.";
-        StatusMessage = message;
+        CaptureSnapshot(SettingsStatus.Saved);
+        message = "Changes saved";
         return true;
+    }
+
+    /// <summary>
+    /// Parses digits from raw input and clamps to the range, falling back to a default when empty.
+    /// </summary>
+    private static int ClampOrDefault(string rawText, int minimum, int maximum, int fallback)
+    {
+        string digits = KeepDigits(rawText);
+        if (!int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        {
+            return fallback;
+        }
+
+        return Math.Clamp(value, minimum, maximum);
     }
 
     /// <summary>
@@ -251,12 +400,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             : $"Service: Error on {CodexMonitorDefaults.Host}:{port} - {error}";
 
         SourceDisplay = $"Source: {FormatSource(response)}";
-        UpdatedAtDisplay = FormatUpdatedAt(response?.UpdatedAt);
 
         if (response == null)
         {
             PlanDisplay = "None";
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            UpdatedAtDisplay = FormatUpdatedAt(null);
             FiveHourQuota.UpdateUnavailable();
             WeeklyQuota.UpdateUnavailable();
             return;
@@ -266,7 +415,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             PlanDisplay = "None";
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
-            StatusMessage = $"Codex usage unavailable{FormatResponseError(response)}";
+            UpdatedAtDisplay = $"Codex usage unavailable{FormatResponseError(response)}";
             FiveHourQuota.UpdateUnavailable();
             WeeklyQuota.UpdateUnavailable();
             return;
@@ -274,7 +423,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
         PlanDisplay = FormatPlan(response.PlanType);
         PlanBadgeBrush = s_PlanBadgeActiveBrush;
-        StatusMessage = string.Empty;
+        UpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
         FiveHourQuota.Update(response.Limits.FiveHour);
         WeeklyQuota.Update(response.Limits.Weekly);
     }
@@ -294,14 +443,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     {
         LoadSettings(m_Settings);
         SetPage(k_SettingsPageName);
-    }
-
-    /// <summary>
-    /// Sets a short user-visible operation message.
-    /// </summary>
-    public void SetMessage(string message)
-    {
-        StatusMessage = message;
     }
 
     /// <summary>
@@ -359,7 +500,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
 
         LiteMonitorDir = detected;
-        StatusMessage = "LiteMonitor folder detected.";
     }
 
     /// <summary>
@@ -375,7 +515,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
 
         TrafficMonitorDir = detected;
-        StatusMessage = "TrafficMonitor folder detected.";
     }
 
     /// <summary>
@@ -386,7 +525,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         IsModalOpen = true;
         try
         {
-            StatusMessage = message;
             System.Windows.MessageBox.Show(message, CodexMonitorDefaults.AppName, MessageBoxButton.OK, MessageBoxImage.Information);
         }
         finally

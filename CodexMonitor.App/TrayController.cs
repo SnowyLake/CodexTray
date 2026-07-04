@@ -248,7 +248,7 @@ internal sealed class TrayController : IDisposable
             string targetPath = LiteMonitorPluginInstaller.Install(m_Settings.LiteMonitorDir, m_Settings.Port);
             m_SettingsStore.Save(m_Settings);
             RefreshPopupStatus();
-            m_PopupViewModel?.SetMessage($"Installed LiteMonitor plugin: {targetPath}");
+            ShowInformation($"Installed LiteMonitor plugin:\n{targetPath}");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
@@ -277,7 +277,7 @@ internal sealed class TrayController : IDisposable
             string targetPath = TrafficMonitorPluginInstaller.Install(m_Settings.TrafficMonitorDir, m_Settings.Port);
             m_SettingsStore.Save(m_Settings);
             RefreshPopupStatus();
-            m_PopupViewModel?.SetMessage($"Installed TrafficMonitor plugin: {targetPath}");
+            ShowInformation($"Installed TrafficMonitor plugin:\n{targetPath}");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
@@ -370,15 +370,19 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Shows a warning in the popup or a fallback message box.
+    /// Shows a warning message box.
     /// </summary>
-    private void ShowWarning(string message)
+    private static void ShowWarning(string message)
     {
-        m_PopupViewModel?.SetMessage(message);
-        if (m_TrayPopupWindow?.IsVisible != true)
-        {
-            Forms.MessageBox.Show(message, CodexMonitorDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Warning);
-        }
+        Forms.MessageBox.Show(message, CodexMonitorDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Warning);
+    }
+
+    /// <summary>
+    /// Shows an informational message box.
+    /// </summary>
+    private static void ShowInformation(string message)
+    {
+        Forms.MessageBox.Show(message, CodexMonitorDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Information);
     }
 
     /// <summary>
