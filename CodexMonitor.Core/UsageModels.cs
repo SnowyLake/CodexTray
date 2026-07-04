@@ -6,6 +6,8 @@ public static class CodexMonitorDefaults
 {
     public const string Host = "127.0.0.1";
     public const int Port = 17890;
+    public const int MinimumPort = 1;
+    public const int MaximumPort = 65535;
     public const int RefreshIntervalMinutes = 1;
     public const int MinimumRefreshIntervalMinutes = 1;
     public const int MaximumRefreshIntervalMinutes = 1440;
@@ -44,7 +46,7 @@ public static class CodexMonitorDefaults
     /// </summary>
     private static int NormalizePort(int port)
     {
-        return port is > 0 and <= 65535 ? port : Port;
+        return port >= MinimumPort && port <= MaximumPort ? port : Port;
     }
 
     /// <summary>

@@ -441,9 +441,9 @@
                             </StackPanel>
                             <local:NumericUpDown Grid.Column="1"
                                                  VerticalAlignment="Center"
-                                                 Minimum="1"
-                                                 Maximum="1440"
-                                                 DefaultValue="1"
+                                                 Minimum="{x:Static core:CodexMonitorDefaults.MinimumRefreshIntervalMinutes}"
+                                                 Maximum="{x:Static core:CodexMonitorDefaults.MaximumRefreshIntervalMinutes}"
+                                                 DefaultValue="{x:Static core:CodexMonitorDefaults.RefreshIntervalMinutes}"
                                                  Value="{Binding RefreshIntervalText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
                         </Grid>
 
@@ -558,9 +558,9 @@
                             </StackPanel>
                             <local:NumericUpDown Grid.Column="1"
                                                  VerticalAlignment="Center"
-                                                 Minimum="1"
-                                                 Maximum="65535"
-                                                 DefaultValue="17890"
+                                                 Minimum="{x:Static core:CodexMonitorDefaults.MinimumPort}"
+                                                 Maximum="{x:Static core:CodexMonitorDefaults.MaximumPort}"
+                                                 DefaultValue="{x:Static core:CodexMonitorDefaults.Port}"
                                                  Value="{Binding PortText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
                         </Grid>
                     </StackPanel>

@@ -43,9 +43,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private static readonly Media.Brush s_PlanBadgeActiveBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_PlanBadgeInactiveBrush = new Media.SolidColorBrush(Media.Color.FromRgb(107, 122, 117));
 
-    private const int k_MinimumPort = 1;
-    private const int k_MaximumPort = 65535;
-
     private readonly AppSettings m_Settings;
     private string m_CurrentPage = k_HomePageName;
     private string m_PlanDisplay = "None";
@@ -345,7 +342,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     public bool TryApplySettings(out string message)
     {
-        int port = ClampOrDefault(PortText, k_MinimumPort, k_MaximumPort, CodexMonitorDefaults.Port);
+        int port = ClampOrDefault(PortText, CodexMonitorDefaults.MinimumPort, CodexMonitorDefaults.MaximumPort, CodexMonitorDefaults.Port);
         int refreshInterval = ClampOrDefault(
             RefreshIntervalText,
             CodexMonitorDefaults.MinimumRefreshIntervalMinutes,

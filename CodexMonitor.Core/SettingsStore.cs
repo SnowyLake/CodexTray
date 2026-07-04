@@ -27,7 +27,7 @@ public sealed class AppSettings
     /// </summary>
     public AppSettings Normalize()
     {
-        if (Port <= 0 || Port > 65535)
+        if (Port < CodexMonitorDefaults.MinimumPort || Port > CodexMonitorDefaults.MaximumPort)
         {
             Port = CodexMonitorDefaults.Port;
         }
