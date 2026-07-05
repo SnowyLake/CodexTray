@@ -22,6 +22,10 @@ public sealed class AppSettings
 
     public string ThemeMode { get; set; } = ThemeModeSystem;
 
+    public bool AcrylicEnabled { get; set; } = CodexMonitorDefaults.AcrylicEnabled;
+
+    public int AcrylicOpacityPercent { get; set; } = CodexMonitorDefaults.AcrylicOpacityPercent;
+
     /// <summary>
     /// Creates a normalized copy of settings values.
     /// </summary>
@@ -36,6 +40,12 @@ public sealed class AppSettings
             RefreshIntervalMinutes > CodexMonitorDefaults.MaximumRefreshIntervalMinutes)
         {
             RefreshIntervalMinutes = CodexMonitorDefaults.RefreshIntervalMinutes;
+        }
+
+        if (AcrylicOpacityPercent < CodexMonitorDefaults.MinimumAcrylicOpacityPercent ||
+            AcrylicOpacityPercent > CodexMonitorDefaults.MaximumAcrylicOpacityPercent)
+        {
+            AcrylicOpacityPercent = CodexMonitorDefaults.AcrylicOpacityPercent;
         }
 
         LiteMonitorDir = LiteMonitorDir.Trim();

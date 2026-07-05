@@ -220,7 +220,8 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Border Margin="0"
+    <Border x:Name="RootBorder"
+            Margin="0"
             Padding="24,22,24,20"
             CornerRadius="0"
             Background="{DynamicResource ApplicationBackgroundBrush}"
@@ -447,6 +448,23 @@
                                                  Value="{Binding RefreshIntervalText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
                         </Grid>
 
+                        <Grid Margin="0,0,0,20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Start with Windows"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <CheckBox Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      IsChecked="{Binding StartWithWindows}"
+                                      ToolTip="Start with Windows" />
+                        </Grid>
+
+                        <!-- Appearance -->
+                        <TextBlock Text="Appearance"
+                                   Style="{StaticResource SettingsSectionHeaderStyle}" />
+
                         <Grid Margin="0,0,0,16">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -461,17 +479,57 @@
                                       Style="{StaticResource SettingsComboBoxStyle}" />
                         </Grid>
 
-                        <Grid Margin="0,0,0,20">
+                        <Grid Margin="0,0,0,16">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Start with Windows"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Acrylic blur"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Text="Translucent blurred window background"
+                                           Style="{StaticResource SettingsRowMetaStyle}" />
+                            </StackPanel>
                             <CheckBox Grid.Column="1"
                                       VerticalAlignment="Center"
-                                      IsChecked="{Binding StartWithWindows}"
-                                      ToolTip="Start with Windows" />
+                                      IsChecked="{Binding AcrylicEnabled}"
+                                      ToolTip="Acrylic blur" />
+                        </Grid>
+
+                        <Grid Margin="0,0,0,16"
+                              Visibility="{Binding AcrylicEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="140" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Opacity"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Text="Background opacity percent"
+                                           Style="{StaticResource SettingsRowMetaStyle}" />
+                            </StackPanel>
+                            <Grid Grid.Column="1"
+                                  VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="40" />
+                                </Grid.ColumnDefinitions>
+                                <Slider VerticalAlignment="Center"
+                                        Minimum="{Binding AcrylicOpacityMinimum, Mode=OneTime}"
+                                        Maximum="{Binding AcrylicOpacityMaximum, Mode=OneTime}"
+                                        IsSnapToTickEnabled="True"
+                                        TickFrequency="1"
+                                        Value="{Binding AcrylicOpacityPercent, Mode=TwoWay}" />
+                                <TextBlock Grid.Column="1"
+                                           Margin="8,0,0,0"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Right"
+                                           Text="{Binding AcrylicOpacityDisplay}"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                           FontSize="12" />
+                            </Grid>
                         </Grid>
 
                         <!-- Plugins -->

@@ -56,6 +56,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_RefreshIntervalText = CodexMonitorDefaults.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture);
     private string m_ThemeMode = AppSettings.ThemeModeSystem;
     private bool m_StartWithWindows;
+    private bool m_AcrylicEnabled = CodexMonitorDefaults.AcrylicEnabled;
+    private int m_AcrylicOpacityPercent = CodexMonitorDefaults.AcrylicOpacityPercent;
     private bool m_IsRefreshing;
     private bool m_IsModalOpen;
 
@@ -68,6 +70,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_SnapshotRefreshIntervalText = string.Empty;
     private string m_SnapshotThemeMode = AppSettings.ThemeModeSystem;
     private bool m_SnapshotStartWithWindows;
+    private bool m_SnapshotAcrylicEnabled = CodexMonitorDefaults.AcrylicEnabled;
+    private int m_SnapshotAcrylicOpacityPercent = CodexMonitorDefaults.AcrylicOpacityPercent;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -238,6 +242,38 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool AcrylicEnabled
+    {
+        get => m_AcrylicEnabled;
+        set
+        {
+            if (SetField(ref m_AcrylicEnabled, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
+    }
+
+    public int AcrylicOpacityPercent
+    {
+        get => m_AcrylicOpacityPercent;
+        set
+        {
+            int clamped = Math.Clamp(value, CodexMonitorDefaults.MinimumAcrylicOpacityPercent, CodexMonitorDefaults.MaximumAcrylicOpacityPercent);
+            if (SetField(ref m_AcrylicOpacityPercent, clamped))
+            {
+                OnPropertyChanged(nameof(AcrylicOpacityDisplay));
+                EvaluateDirtyState();
+            }
+        }
+    }
+
+    public string AcrylicOpacityDisplay => $"{m_AcrylicOpacityPercent}%";
+
+    public int AcrylicOpacityMinimum => CodexMonitorDefaults.MinimumAcrylicOpacityPercent;
+
+    public int AcrylicOpacityMaximum => CodexMonitorDefaults.MaximumAcrylicOpacityPercent;
+
     public bool IsHomeVisible => m_CurrentPage == k_HomePageName;
 
     public bool IsSettingsVisible => m_CurrentPage == k_SettingsPageName;
@@ -292,6 +328,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             RefreshIntervalText = settings.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture);
             ThemeMode = settings.ThemeMode;
             StartWithWindows = settings.StartWithWindows;
+            AcrylicEnabled = settings.AcrylicEnabled;
+            AcrylicOpacityPercent = settings.AcrylicOpacityPercent;
         }
         finally
         {
@@ -312,6 +350,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         m_SnapshotRefreshIntervalText = m_RefreshIntervalText;
         m_SnapshotThemeMode = m_ThemeMode;
         m_SnapshotStartWithWindows = m_StartWithWindows;
+        m_SnapshotAcrylicEnabled = m_AcrylicEnabled;
+        m_SnapshotAcrylicOpacityPercent = m_AcrylicOpacityPercent;
         m_SettingsBaseline = baseline;
         SettingsStatus = baseline;
     }
@@ -332,7 +372,9 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             m_PortText == m_SnapshotPortText &&
             m_RefreshIntervalText == m_SnapshotRefreshIntervalText &&
             m_ThemeMode == m_SnapshotThemeMode &&
-            m_StartWithWindows == m_SnapshotStartWithWindows;
+            m_StartWithWindows == m_SnapshotStartWithWindows &&
+            m_AcrylicEnabled == m_SnapshotAcrylicEnabled &&
+            m_AcrylicOpacityPercent == m_SnapshotAcrylicOpacityPercent;
 
         SettingsStatus = matchesSnapshot ? m_SettingsBaseline : SettingsStatus.Unsaved;
     }
@@ -348,7 +390,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             CodexMonitorDefaults.MinimumRefreshIntervalMinutes,
             CodexMonitorDefaults.MaximumRefreshIntervalMinutes,
             CodexMonitorDefaults.RefreshIntervalMinutes);
-
         m_SuppressDirtyTracking = true;
         try
         {
@@ -368,6 +409,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         m_Settings.RefreshIntervalMinutes = refreshInterval;
         m_Settings.StartWithWindows = StartWithWindows;
         m_Settings.ThemeMode = ThemeMode;
+        m_Settings.AcrylicEnabled = AcrylicEnabled;
+        m_Settings.AcrylicOpacityPercent = AcrylicOpacityPercent;
         CaptureSnapshot(SettingsStatus.Saved);
         message = "Changes saved";
         return true;

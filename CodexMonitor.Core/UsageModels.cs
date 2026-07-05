@@ -11,6 +11,10 @@ public static class CodexMonitorDefaults
     public const int RefreshIntervalMinutes = 1;
     public const int MinimumRefreshIntervalMinutes = 1;
     public const int MaximumRefreshIntervalMinutes = 1440;
+    public const bool AcrylicEnabled = true;
+    public const int AcrylicOpacityPercent = 80;
+    public const int MinimumAcrylicOpacityPercent = 10;
+    public const int MaximumAcrylicOpacityPercent = 100;
     public const string AppName = "CodexMonitor";
     public const string SettingsFileName = "settings.json";
     public const string StartupRunValueName = "CodexMonitorTray";
