@@ -65,6 +65,11 @@
 
             <!-- ============ Settings: native Fluent controls ============ -->
             <!-- Only layout tweaks; templates stay Fluent so inputs work. -->
+            <Thickness x:Key="SettingsSectionHeaderMargin">0,0,0,10</Thickness>
+            <Thickness x:Key="SettingsRowMargin">0,0,0,16</Thickness>
+            <Thickness x:Key="SettingsSectionEndMargin">0,0,0,20</Thickness>
+            <Thickness x:Key="SettingsLastRowMargin">0,0,0,8</Thickness>
+
             <Style x:Key="SettingsTextBoxStyle"
                    BasedOn="{StaticResource {x:Type TextBox}}"
                    TargetType="{x:Type TextBox}">
@@ -105,7 +110,7 @@
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
                 <Setter Property="FontSize" Value="12" />
                 <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="Margin" Value="0,0,0,10" />
+                <Setter Property="Margin" Value="{StaticResource SettingsSectionHeaderMargin}" />
             </Style>
 
             <Style x:Key="SettingsRowTitleStyle" TargetType="{x:Type TextBlock}">
@@ -428,7 +433,7 @@
                         <TextBlock Text="General"
                                    Style="{StaticResource SettingsSectionHeaderStyle}" />
 
-                        <Grid Margin="0,0,0,16">
+                        <Grid Margin="{StaticResource SettingsRowMargin}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
@@ -448,7 +453,7 @@
                                                  Value="{Binding RefreshIntervalText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
                         </Grid>
 
-                        <Grid Margin="0,0,0,20">
+                        <Grid Margin="{StaticResource SettingsSectionEndMargin}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -465,7 +470,7 @@
                         <TextBlock Text="Appearance"
                                    Style="{StaticResource SettingsSectionHeaderStyle}" />
 
-                        <Grid Margin="0,0,0,16">
+                        <Grid Margin="{StaticResource SettingsRowMargin}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
@@ -479,7 +484,7 @@
                                       Style="{StaticResource SettingsComboBoxStyle}" />
                         </Grid>
 
-                        <Grid Margin="0,0,0,16">
+                        <Grid Margin="{StaticResource SettingsRowMargin}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -497,7 +502,7 @@
                                       ToolTip="Acrylic blur" />
                         </Grid>
 
-                        <Grid Margin="0,0,0,16"
+                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
                               Visibility="{Binding AcrylicEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -536,7 +541,7 @@
                         <TextBlock Text="Plugins"
                                    Style="{StaticResource SettingsSectionHeaderStyle}" />
 
-                        <StackPanel Margin="0,0,0,16">
+                        <StackPanel Margin="{StaticResource SettingsRowMargin}">
                             <TextBlock Text="LiteMonitor folder"
                                        Margin="0,0,0,6"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
@@ -567,7 +572,7 @@
                             </Grid>
                         </StackPanel>
 
-                        <StackPanel Margin="0,0,0,20">
+                        <StackPanel Margin="{StaticResource SettingsSectionEndMargin}">
                             <TextBlock Text="TrafficMonitor folder"
                                        Margin="0,0,0,6"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
@@ -602,7 +607,7 @@
                         <TextBlock Text="Advanced"
                                    Style="{StaticResource SettingsSectionHeaderStyle}" />
 
-                        <Grid Margin="0,0,0,8">
+                        <Grid Margin="{StaticResource SettingsLastRowMargin}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
