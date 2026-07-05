@@ -66,8 +66,9 @@
             <!-- ============ Settings: native Fluent controls ============ -->
             <!-- Only layout tweaks; templates stay Fluent so inputs work. -->
             <Thickness x:Key="SettingsSectionHeaderMargin">0,0,0,10</Thickness>
-            <Thickness x:Key="SettingsRowMargin">0,0,0,16</Thickness>
-            <Thickness x:Key="SettingsSectionEndMargin">0,0,0,20</Thickness>
+            <Thickness x:Key="SettingsRowMargin">0,0,0,6</Thickness>
+            <Thickness x:Key="SettingsSectionEndMargin">0,0,0,6</Thickness>
+            <Thickness x:Key="SettingsSectionDividerMargin">0,0,0,10</Thickness>
             <Thickness x:Key="SettingsLastRowMargin">0,0,0,8</Thickness>
 
             <Style x:Key="SettingsTextBoxStyle"
@@ -106,6 +107,18 @@
                 <Setter Property="Foreground" Value="#FFFFFF" />
             </Style>
 
+            <Style x:Key="SettingsRowGridStyle" TargetType="{x:Type Grid}">
+                <Setter Property="Margin" Value="{StaticResource SettingsRowMargin}" />
+                <Setter Property="MinHeight" Value="34" />
+            </Style>
+
+            <Style x:Key="SettingsSectionDividerStyle" TargetType="{x:Type Border}">
+                <Setter Property="Height" Value="1" />
+                <Setter Property="Margin" Value="{StaticResource SettingsSectionDividerMargin}" />
+                <Setter Property="Background" Value="{DynamicResource SurfaceStrokeColorDefaultBrush}" />
+                <Setter Property="Opacity" Value="0.65" />
+            </Style>
+
             <Style x:Key="SettingsSectionHeaderStyle" TargetType="{x:Type TextBlock}">
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
                 <Setter Property="FontSize" Value="12" />
@@ -118,12 +131,6 @@
                 <Setter Property="FontSize" Value="13.5" />
                 <Setter Property="FontWeight" Value="Medium" />
                 <Setter Property="VerticalAlignment" Value="Center" />
-            </Style>
-
-            <Style x:Key="SettingsRowMetaStyle" TargetType="{x:Type TextBlock}">
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
-                <Setter Property="FontSize" Value="12" />
-                <Setter Property="TextWrapping" Value="Wrap" />
             </Style>
 
             <!-- Segmented nav tab -->
@@ -433,44 +440,45 @@
                         <TextBlock Text="General"
                                    Style="{StaticResource SettingsSectionHeaderStyle}" />
 
-                        <Grid Margin="{StaticResource SettingsRowMargin}">
+                        <Grid ToolTip="Unit: minutes"
+                              Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Refresh interval"
-                                           Style="{StaticResource SettingsRowTitleStyle}" />
-                                <TextBlock Margin="0,4,0,0"
-                                           Text="Minutes between updates"
-                                           Style="{StaticResource SettingsRowMetaStyle}" />
-                            </StackPanel>
+                            <TextBlock Text="Refresh interval"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
                             <local:NumericUpDown Grid.Column="1"
                                                  VerticalAlignment="Center"
+                                                 ToolTip="Unit: minutes"
                                                  Minimum="{x:Static core:CodexMonitorDefaults.MinimumRefreshIntervalMinutes}"
                                                  Maximum="{x:Static core:CodexMonitorDefaults.MaximumRefreshIntervalMinutes}"
                                                  DefaultValue="{x:Static core:CodexMonitorDefaults.RefreshIntervalMinutes}"
                                                  Value="{Binding RefreshIntervalText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
                         </Grid>
 
-                        <Grid Margin="{StaticResource SettingsSectionEndMargin}">
+                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
+                              Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Start with Windows"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
+                                      HorizontalAlignment="Right"
                                       VerticalAlignment="Center"
                                       IsChecked="{Binding StartWithWindows}"
                                       ToolTip="Start with Windows" />
                         </Grid>
 
+                        <Border Style="{StaticResource SettingsSectionDividerStyle}" />
+
                         <!-- Appearance -->
                         <TextBlock Text="Appearance"
                                    Style="{StaticResource SettingsSectionHeaderStyle}" />
 
-                        <Grid Margin="{StaticResource SettingsRowMargin}">
+                        <Grid Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
@@ -484,37 +492,29 @@
                                       Style="{StaticResource SettingsComboBoxStyle}" />
                         </Grid>
 
-                        <Grid Margin="{StaticResource SettingsRowMargin}">
+                        <Grid Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Acrylic blur"
-                                           Style="{StaticResource SettingsRowTitleStyle}" />
-                                <TextBlock Margin="0,4,0,0"
-                                           Text="Translucent blurred window background"
-                                           Style="{StaticResource SettingsRowMetaStyle}" />
-                            </StackPanel>
+                            <TextBlock Text="Acrylic blur"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
+                                      HorizontalAlignment="Right"
                                       VerticalAlignment="Center"
                                       IsChecked="{Binding AcrylicEnabled}"
                                       ToolTip="Acrylic blur" />
                         </Grid>
 
                         <Grid Margin="{StaticResource SettingsSectionEndMargin}"
+                              Style="{StaticResource SettingsRowGridStyle}"
                               Visibility="{Binding AcrylicEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Opacity"
-                                           Style="{StaticResource SettingsRowTitleStyle}" />
-                                <TextBlock Margin="0,4,0,0"
-                                           Text="Background opacity percent"
-                                           Style="{StaticResource SettingsRowMetaStyle}" />
-                            </StackPanel>
+                            <TextBlock Text="Opacity"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
                             <Grid Grid.Column="1"
                                   VerticalAlignment="Center">
                                 <Grid.ColumnDefinitions>
@@ -536,6 +536,8 @@
                                            FontSize="12" />
                             </Grid>
                         </Grid>
+
+                        <Border Style="{StaticResource SettingsSectionDividerStyle}" />
 
                         <!-- Plugins -->
                         <TextBlock Text="Plugins"
@@ -603,24 +605,25 @@
                             </Grid>
                         </StackPanel>
 
+                        <Border Style="{StaticResource SettingsSectionDividerStyle}" />
+
                         <!-- Advanced -->
                         <TextBlock Text="Advanced"
                                    Style="{StaticResource SettingsSectionHeaderStyle}" />
 
-                        <Grid Margin="{StaticResource SettingsLastRowMargin}">
+                        <Grid Margin="{StaticResource SettingsLastRowMargin}"
+                              ToolTip="{Binding ServiceStatus}"
+                              Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="HTTP port"
-                                           Style="{StaticResource SettingsRowTitleStyle}" />
-                                <TextBlock Margin="0,4,0,0"
-                                           Text="{Binding ServiceStatus}"
-                                           Style="{StaticResource SettingsRowMetaStyle}" />
-                            </StackPanel>
+                            <TextBlock Text="HTTP port"
+                                       ToolTip="{Binding ServiceStatus}"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
                             <local:NumericUpDown Grid.Column="1"
                                                  VerticalAlignment="Center"
+                                                 ToolTip="{Binding ServiceStatus}"
                                                  Minimum="{x:Static core:CodexMonitorDefaults.MinimumPort}"
                                                  Maximum="{x:Static core:CodexMonitorDefaults.MaximumPort}"
                                                  DefaultValue="{x:Static core:CodexMonitorDefaults.Port}"
