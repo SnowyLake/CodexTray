@@ -4,6 +4,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:core="clr-namespace:CodexMonitor.Core;assembly=CodexMonitor.Core"
         xmlns:local="clr-namespace:CodexMonitor.App"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Title="{x:Static core:CodexMonitorDefaults.AppName}"
         Width="410"
         Height="588"
@@ -23,6 +24,8 @@
             </ResourceDictionary.MergedDictionaries>
 
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+            <sys:Int32 x:Key="ToolTipInitialShowDelay">120</sys:Int32>
+            <sys:Int32 x:Key="ToolTipShowDuration">6000</sys:Int32>
 
             <Style TargetType="{x:Type ToolTip}">
                 <Setter Property="FontFamily" Value="Segoe UI" />
@@ -39,6 +42,8 @@
                 <Setter Property="FontSize" Value="16" />
                 <Setter Property="Cursor" Value="Hand" />
                 <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
+                <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="{x:Type Button}">
@@ -77,6 +82,8 @@
                 <Setter Property="Height" Value="34" />
                 <Setter Property="FontSize" Value="13" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
+                <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
             </Style>
 
             <Style x:Key="SettingsComboBoxStyle"
@@ -85,6 +92,8 @@
                 <Setter Property="Height" Value="34" />
                 <Setter Property="FontSize" Value="13" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
+                <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
             </Style>
 
             <Style x:Key="SettingsGlyphButtonStyle"
@@ -98,6 +107,8 @@
                 <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
                 <Setter Property="FontSize" Value="15" />
                 <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
+                <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
             </Style>
 
             <Style x:Key="SettingsPrimaryButtonStyle"
@@ -110,6 +121,8 @@
             <Style x:Key="SettingsRowGridStyle" TargetType="{x:Type Grid}">
                 <Setter Property="Margin" Value="{StaticResource SettingsRowMargin}" />
                 <Setter Property="MinHeight" Value="34" />
+                <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
+                <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
             </Style>
 
             <Style x:Key="SettingsSectionDividerStyle" TargetType="{x:Type Border}">
@@ -131,6 +144,8 @@
                 <Setter Property="FontSize" Value="13.5" />
                 <Setter Property="FontWeight" Value="Medium" />
                 <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
+                <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
             </Style>
 
             <!-- Segmented nav tab -->
@@ -145,6 +160,8 @@
                 <Setter Property="FontSize" Value="13" />
                 <Setter Property="Cursor" Value="Hand" />
                 <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
+                <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="{x:Type Button}">
@@ -450,6 +467,8 @@
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <local:NumericUpDown Grid.Column="1"
                                                  VerticalAlignment="Center"
+                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                                  ToolTip="Unit: minutes"
                                                  Minimum="{x:Static core:CodexMonitorDefaults.MinimumRefreshIntervalMinutes}"
                                                  Maximum="{x:Static core:CodexMonitorDefaults.MaximumRefreshIntervalMinutes}"
@@ -468,6 +487,8 @@
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
                                       VerticalAlignment="Center"
+                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding StartWithWindows}"
                                       ToolTip="Start with Windows" />
                         </Grid>
@@ -502,6 +523,8 @@
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
                                       VerticalAlignment="Center"
+                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding AcrylicEnabled}"
                                       ToolTip="Acrylic blur" />
                         </Grid>
@@ -623,6 +646,8 @@
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <local:NumericUpDown Grid.Column="1"
                                                  VerticalAlignment="Center"
+                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                                  ToolTip="{Binding ServiceStatus}"
                                                  Minimum="{x:Static core:CodexMonitorDefaults.MinimumPort}"
                                                  Maximum="{x:Static core:CodexMonitorDefaults.MaximumPort}"
