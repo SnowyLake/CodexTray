@@ -198,14 +198,31 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public bool IsDetectingLiteMonitor
     {
         get => m_IsDetectingLiteMonitor;
-        set => SetField(ref m_IsDetectingLiteMonitor, value);
+        set
+        {
+            if (SetField(ref m_IsDetectingLiteMonitor, value))
+            {
+                OnPropertyChanged(nameof(IsLiteMonitorActionsEnabled));
+            }
+        }
     }
 
     public bool IsDetectingTrafficMonitor
     {
         get => m_IsDetectingTrafficMonitor;
-        set => SetField(ref m_IsDetectingTrafficMonitor, value);
+        set
+        {
+            if (SetField(ref m_IsDetectingTrafficMonitor, value))
+            {
+                OnPropertyChanged(nameof(IsTrafficMonitorActionsEnabled));
+            }
+        }
     }
+
+    // Plugin row actions are disabled while an auto detect is running to avoid racing the detected path.
+    public bool IsLiteMonitorActionsEnabled => !m_IsDetectingLiteMonitor;
+
+    public bool IsTrafficMonitorActionsEnabled => !m_IsDetectingTrafficMonitor;
 
     public string PortText
     {

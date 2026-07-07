@@ -138,25 +138,45 @@
             </Style>
 
             <Style x:Key="SettingsGlyphButtonStyle"
-                   BasedOn="{StaticResource {x:Type Button}}"
                    TargetType="{x:Type Button}">
-                <Setter Property="Width" Value="40" />
+                <Setter Property="Width" Value="36" />
                 <Setter Property="Height" Value="34" />
                 <Setter Property="MinWidth" Value="0" />
-                <Setter Property="Margin" Value="8,0,0,0" />
+                <Setter Property="Margin" Value="4,0,0,0" />
                 <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
                 <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
                 <Setter Property="FontSize" Value="15" />
                 <Setter Property="Cursor" Value="Hand" />
                 <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
                 <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
-            </Style>
-
-            <Style x:Key="SettingsPrimaryButtonStyle"
-                   BasedOn="{StaticResource SettingsGlyphButtonStyle}"
-                   TargetType="{x:Type Button}">
-                <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.AccentColorBrushKey}}" />
-                <Setter Property="Foreground" Value="#FFFFFF" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type Button}">
+                            <Border x:Name="Bg"
+                                    Background="{TemplateBinding Background}"
+                                    CornerRadius="6"
+                                    SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bg" Property="Background"
+                                            Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Bg" Property="Background"
+                                            Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
             <Style x:Key="SettingsRowGridStyle" TargetType="{x:Type Grid}">
@@ -636,17 +656,20 @@
                                     Command="{Binding BrowseLiteMonitorCommand}"
                                     Content="&#xE8B7;"
                                     ToolTip="Browse"
+                                    IsEnabled="{Binding IsLiteMonitorActionsEnabled}"
                                     Style="{StaticResource SettingsGlyphButtonStyle}" />
                             <Button Grid.Column="2"
                                     Command="{Binding AutoDetectLiteMonitorCommand}"
                                     Content="&#xE721;"
-                                    ToolTip="Detect"
+                                    ToolTip="Auto detect"
+                                    IsEnabled="{Binding IsLiteMonitorActionsEnabled}"
                                     Style="{StaticResource SettingsGlyphButtonStyle}" />
                             <Button Grid.Column="3"
-                                    Command="{Binding InstallLiteMonitorPluginCommand}"
-                                    Content="&#xE896;"
-                                    ToolTip="Install"
-                                    Style="{StaticResource SettingsPrimaryButtonStyle}" />
+                                     Command="{Binding InstallLiteMonitorPluginCommand}"
+                                     Content="&#xE896;"
+                                     ToolTip="Setup"
+                                     IsEnabled="{Binding IsLiteMonitorActionsEnabled}"
+                                     Style="{StaticResource SettingsGlyphButtonStyle}" />
                         </Grid>
 
                         <Grid Margin="{StaticResource SettingsSectionEndMargin}">
@@ -678,17 +701,20 @@
                                     Command="{Binding BrowseTrafficMonitorCommand}"
                                     Content="&#xE8B7;"
                                     ToolTip="Browse"
+                                    IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
                                     Style="{StaticResource SettingsGlyphButtonStyle}" />
                             <Button Grid.Column="2"
                                     Command="{Binding AutoDetectTrafficMonitorCommand}"
                                     Content="&#xE721;"
-                                    ToolTip="Detect"
+                                    ToolTip="Auto detect"
+                                    IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
                                     Style="{StaticResource SettingsGlyphButtonStyle}" />
                             <Button Grid.Column="3"
-                                    Command="{Binding InstallTrafficMonitorPluginCommand}"
-                                    Content="&#xE896;"
-                                    ToolTip="Install"
-                                    Style="{StaticResource SettingsPrimaryButtonStyle}" />
+                                     Command="{Binding InstallTrafficMonitorPluginCommand}"
+                                     Content="&#xE896;"
+                                     ToolTip="Setup"
+                                     IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
+                                     Style="{StaticResource SettingsGlyphButtonStyle}" />
                         </Grid>
 
                         <Border Style="{StaticResource SettingsSectionDividerStyle}" />
