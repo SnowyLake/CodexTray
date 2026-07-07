@@ -16,8 +16,8 @@ internal static class Program
     private static async Task<int> Main()
     {
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
-        await RunAsync("uses countdown label for same-day weekly reset", TestWeeklyCountdownLabelAsync);
-        await RunAsync("uses countdown label for next-day weekly reset", TestNextDayWeeklyCountdownLabelAsync);
+        await RunAsync("uses countdown label for same-day seven day reset", TestSevenDayCountdownLabelAsync);
+        await RunAsync("uses countdown label for next-day seven day reset", TestNextDaySevenDayCountdownLabelAsync);
         await RunAsync("returns unavailable response without OAuth credentials", TestEmptyResponseAsync);
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
@@ -55,8 +55,8 @@ internal static class Program
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
         long reset5H = now.AddHours(2).AddMinutes(5).ToUnixTimeSeconds();
-        long resetWeekly = now.AddDays(3).AddHours(4).ToUnixTimeSeconds();
-        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetWeekly, 12.0, 34.0, out HttpClient client);
+        long resetSevenDay = now.AddDays(3).AddHours(4).ToUnixTimeSeconds();
+        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 12.0, 34.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
@@ -64,47 +64,47 @@ internal static class Program
         AssertTrue(response.Available, "response should be available");
         AssertEqual(12, response.Limits.FiveHour.UsedPercent, "five hour used percent");
         AssertEqual(88, response.Limits.FiveHour.RemainingPercent, "five hour remaining percent");
-        AssertEqual(34, response.Limits.Weekly.UsedPercent, "weekly used percent");
-        AssertEqual(66, response.Limits.Weekly.RemainingPercent, "weekly remaining percent");
+        AssertEqual(34, response.Limits.SevenDay.UsedPercent, "seven day used percent");
+        AssertEqual(66, response.Limits.SevenDay.RemainingPercent, "seven day remaining percent");
         AssertEqual("chatgpt", response.PlanType, "plan type");
         AssertEqual("88% [2h 05m]", response.Display.Codex5H, "five hour display");
-        AssertEqual("66% [3d 04h]", response.Display.CodexWeekly, "weekly display");
+        AssertEqual("66% [3d 04h]", response.Display.Codex7D, "seven day display");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests weekly countdown labels on the current day.
+    /// Tests seven day countdown labels on the current day.
     /// </summary>
-    private static Task TestWeeklyCountdownLabelAsync()
+    private static Task TestSevenDayCountdownLabelAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
         long reset5H = now.AddHours(1).ToUnixTimeSeconds();
-        long resetWeekly = now.AddHours(3).ToUnixTimeSeconds();
-        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetWeekly, 20.0, 40.0, out HttpClient client);
+        long resetSevenDay = now.AddHours(3).ToUnixTimeSeconds();
+        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
 
-        AssertEqual("60% [0d 03h]", response.Display.CodexWeekly, "weekly countdown display");
+        AssertEqual("60% [0d 03h]", response.Display.Codex7D, "seven day countdown display");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests weekly countdown labels on the next day even when below twenty four hours.
+    /// Tests seven day countdown labels on the next day even when below twenty four hours.
     /// </summary>
-    private static Task TestNextDayWeeklyCountdownLabelAsync()
+    private static Task TestNextDaySevenDayCountdownLabelAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 23, 0, 0, TimeSpan.FromHours(8));
         long reset5H = now.AddHours(1).ToUnixTimeSeconds();
-        DateTimeOffset resetWeekly = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
-        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetWeekly.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
+        DateTimeOffset resetSevenDay = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
+        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
 
-        AssertEqual("60% [0d 03h]", response.Display.CodexWeekly, "weekly next-day countdown display");
+        AssertEqual("60% [0d 03h]", response.Display.Codex7D, "seven day next-day countdown display");
         return Task.CompletedTask;
     }
 
@@ -166,9 +166,9 @@ internal static class Program
         AssertTrue(response.Available, "official response should be available");
         AssertEqual("official_api", response.Source, "official source");
         AssertEqual(75, response.Limits.FiveHour.RemainingPercent, "official five hour remaining percent");
-        AssertEqual(60, response.Limits.Weekly.RemainingPercent, "official weekly remaining percent");
+        AssertEqual(60, response.Limits.SevenDay.RemainingPercent, "official seven day remaining percent");
         AssertEqual("75% [1h 15m]", response.Display.Codex5H, "official five hour display");
-        AssertEqual("60% [2d 12h]", response.Display.CodexWeekly, "official weekly display");
+        AssertEqual("60% [2d 12h]", response.Display.Codex7D, "official seven day display");
         return Task.CompletedTask;
     }
 
@@ -197,7 +197,7 @@ internal static class Program
 
         string usageText = await client.GetStringAsync($"http://{CodexMonitorDefaults.Host}:{server.Port}{CodexMonitorDefaults.UsageTextEndpointPath}");
         AssertTrue(usageText.Contains("90% [1h 00m]", StringComparison.Ordinal), "text endpoint should include five hour display");
-        AssertTrue(usageText.Contains("80% [2d 00h]", StringComparison.Ordinal), "text endpoint should include weekly display");
+        AssertTrue(usageText.Contains("80% [2d 00h]", StringComparison.Ordinal), "text endpoint should include seven day display");
     }
 
     /// <summary>
@@ -212,8 +212,8 @@ internal static class Program
         string targetPath = LiteMonitorPluginInstaller.Install(temp.Path, 17998);
         AssertTrue(File.Exists(targetPath), "plugin file should exist");
         string content = File.ReadAllText(targetPath);
-        AssertTrue(content.Contains("\"format_val\": \"     {{codex_5h_display}}\"", StringComparison.Ordinal), "plugin content should include five hour padding");
-        AssertTrue(content.Contains("\"format_val\": \" {{codex_weekly_display}}\"", StringComparison.Ordinal), "plugin content should include weekly padding");
+        AssertTrue(content.Contains("\"format_val\": \" {{codex_5h_display}}\"", StringComparison.Ordinal), "plugin content should include five hour padding");
+        AssertTrue(content.Contains("\"format_val\": \" {{codex_7d_display}}\"", StringComparison.Ordinal), "plugin content should include seven day padding");
         AssertTrue(content.Contains($"http://{CodexMonitorDefaults.Host}:17998{CodexMonitorDefaults.UsageEndpointPath}", StringComparison.Ordinal), "plugin content should include bridge URL");
         return Task.CompletedTask;
     }
@@ -312,7 +312,7 @@ internal static class Program
     /// <summary>
     /// Creates a collector backed by fake OAuth credentials and a fixed official quota response.
     /// </summary>
-    private static CodexMonitorCollector CreateOfficialCollector(string codexRoot, DateTimeOffset now, long reset5H, long resetWeekly, double primaryUsed, double secondaryUsed, out HttpClient client)
+    private static CodexMonitorCollector CreateOfficialCollector(string codexRoot, DateTimeOffset now, long reset5H, long resetSevenDay, double primaryUsed, double secondaryUsed, out HttpClient client)
     {
         File.WriteAllText(Path.Combine(codexRoot, "auth.json"), JsonSerializer.Serialize(new
         {
@@ -338,7 +338,7 @@ internal static class Program
                 {
                     used_percent = secondaryUsed,
                     limit_window_seconds = 604800,
-                    reset_at = resetWeekly,
+                    reset_at = resetSevenDay,
                 },
             },
         });

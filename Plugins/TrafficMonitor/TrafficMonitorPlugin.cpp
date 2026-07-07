@@ -18,7 +18,7 @@ constexpr wchar_t k_ConfigSection[] = L"CodexMonitor";
 constexpr wchar_t k_ConfigUsageUrlKey[] = L"UsageUrl";
 constexpr wchar_t k_OptionsWindowClassName[] = L"CodexMonitorOptionsWindow";
 constexpr int k_OptionsUrlEditId = 1001;
-constexpr size_t k_DisplayLabelWidth = 12;
+constexpr size_t k_DisplayLabelWidth = 8;
 constexpr wchar_t k_FallbackValue[] = L"None";
 
 HMODULE g_Module = nullptr;
@@ -26,7 +26,7 @@ HMODULE g_Module = nullptr;
 struct UsageValues
 {
     std::wstring fiveHour;
-    std::wstring weekly;
+    std::wstring sevenDay;
 };
 
 struct OptionsDialogState
@@ -485,8 +485,8 @@ bool FetchUsageValues(UsageValues& values)
     }
 
     values.fiveHour = TrimString(text.substr(0, separator));
-    values.weekly = TrimString(text.substr(separator + 1));
-    return !values.fiveHour.empty() && !values.weekly.empty();
+    values.sevenDay = TrimString(text.substr(separator + 1));
+    return !values.fiveHour.empty() && !values.sevenDay.empty();
 }
 
 class CodexUsageItem final : public IPluginItem
@@ -567,8 +567,8 @@ class CodexMonitorPlugin final : public ITMPlugin
 public:
     /// Creates the TrafficMonitor plugin singleton.
     CodexMonitorPlugin()
-        : m_FiveHourItem(L"Codex 5h", L"CodexMonitor5H", L"Codex 5h", L"     100% [4h 59m]"),
-          m_WeeklyItem(L"Codex Weekly", L"CodexMonitorWeekly", L"Codex Weekly", L" 100% [6d 23h]"),
+        : m_FiveHourItem(L"Codex 5-Hour", L"CodexMonitor5H", L"Codex-5H", L" 100% [4h 59m]"),
+          m_SevenDayItem(L"Codex 7-Day", L"CodexMonitor7D", L"Codex-7D", L" 100% [6d 23h]"),
           m_Tooltip(L"CodexMonitor waiting for data")
     {
     }
@@ -581,7 +581,7 @@ public:
         case 0:
             return &m_FiveHourItem;
         case 1:
-            return &m_WeeklyItem;
+            return &m_SevenDayItem;
         default:
             return nullptr;
         }
@@ -594,14 +594,14 @@ public:
         if (!FetchUsageValues(values))
         {
             m_FiveHourItem.SetFallback();
-            m_WeeklyItem.SetFallback();
+            m_SevenDayItem.SetFallback();
             m_Tooltip = L"CodexMonitor bridge unavailable";
             return;
         }
 
         m_FiveHourItem.SetValue(values.fiveHour);
-        m_WeeklyItem.SetValue(values.weekly);
-        m_Tooltip = L"Codex 5h: " + values.fiveHour + L"\nCodex Weekly: " + values.weekly;
+        m_SevenDayItem.SetValue(values.sevenDay);
+        m_Tooltip = L"Codex 5-Hour: " + values.fiveHour + L"\nCodex 7-Day: " + values.sevenDay;
     }
 
     /// Shows plugin options for editing the backend URL.
@@ -637,7 +637,7 @@ public:
         case TMI_NAME:
             return L"Codex Monitor";
         case TMI_DESCRIPTION:
-            return L"Displays Codex 5 hour and weekly quota from CodexMonitor.";
+            return L"Displays Codex 5-Hour and 7-Day quota from CodexMonitor.";
         case TMI_AUTHOR:
             return L"SnowyLake";
         case TMI_COPYRIGHT:
@@ -659,7 +659,7 @@ public:
 
 private:
     CodexUsageItem m_FiveHourItem;
-    CodexUsageItem m_WeeklyItem;
+    CodexUsageItem m_SevenDayItem;
     std::wstring m_Tooltip;
 };
 

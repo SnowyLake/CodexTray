@@ -209,7 +209,7 @@ public sealed class LightweightHttpServer : IDisposable
     /// </summary>
     private static Task WriteUsageTextAsync(NetworkStream stream, UsageResponse response, CancellationToken cancellationToken)
     {
-        string body = string.Join(Environment.NewLine, response.Display.Codex5H, response.Display.CodexWeekly);
+        string body = string.Join(Environment.NewLine, response.Display.Codex5H, response.Display.Codex7D);
         return WriteResponseAsync(stream, 200, "OK", "text/plain; charset=utf-8", body, cancellationToken);
     }
 

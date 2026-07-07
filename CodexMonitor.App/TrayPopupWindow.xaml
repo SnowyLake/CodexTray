@@ -366,7 +366,7 @@
                                      Style="{StaticResource QuotaProgressBarStyle}" />
                     </StackPanel>
 
-                    <!-- Weekly -->
+                    <!-- Seven day -->
                     <StackPanel>
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -379,7 +379,7 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding WeeklyQuota.Title}"
+                                <TextBlock Text="{Binding SevenDayQuota.Title}"
                                            VerticalAlignment="Center"
                                            Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                            FontSize="13.5"
@@ -390,13 +390,13 @@
                                            Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                            FontSize="13.5" />
                                 <TextBlock Grid.Column="2"
-                                           Text="{Binding WeeklyQuota.ResetText}"
+                                           Text="{Binding SevenDayQuota.ResetText}"
                                            VerticalAlignment="Center"
                                            Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                            FontSize="13.5" />
                             </Grid>
                             <TextBlock Grid.Column="1"
-                                       Text="{Binding WeeklyQuota.PercentText}"
+                                       Text="{Binding SevenDayQuota.PercentText}"
                                        VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                        FontSize="14"
@@ -404,8 +404,8 @@
                         </Grid>
                         <ProgressBar Margin="0,9,0,0"
                                      Maximum="100"
-                                     Value="{Binding WeeklyQuota.RemainingPercent, Mode=OneWay}"
-                                     Foreground="{Binding WeeklyQuota.AccentBrush}"
+                                     Value="{Binding SevenDayQuota.RemainingPercent, Mode=OneWay}"
+                                     Foreground="{Binding SevenDayQuota.AccentBrush}"
                                      Style="{StaticResource QuotaProgressBarStyle}" />
                     </StackPanel>
                 </StackPanel>

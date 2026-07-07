@@ -100,8 +100,8 @@ public sealed class UsageLimits
     [JsonPropertyName("five_hour")]
     public UsageLimit FiveHour { get; set; } = new() { Name = "five_hour" };
 
-    [JsonPropertyName("weekly")]
-    public UsageLimit Weekly { get; set; } = new() { Name = "weekly" };
+    [JsonPropertyName("seven_day")]
+    public UsageLimit SevenDay { get; set; } = new() { Name = "seven_day" };
 }
 
 public sealed class UsageLimit
@@ -136,8 +136,8 @@ public sealed class UsageDisplay
     [JsonPropertyName("codex_5h")]
     public string Codex5H { get; set; } = "unavailable";
 
-    [JsonPropertyName("codex_weekly")]
-    public string CodexWeekly { get; set; } = "unavailable";
+    [JsonPropertyName("codex_7d")]
+    public string Codex7D { get; set; } = "unavailable";
 
     [JsonPropertyName("summary")]
     public string Summary { get; set; } = "Codex unavailable";

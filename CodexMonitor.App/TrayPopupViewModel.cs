@@ -85,9 +85,9 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public event EventHandler? ExitRequested;
 
-    public QuotaViewModel FiveHourQuota { get; } = new("5 hours");
+    public QuotaViewModel FiveHourQuota { get; } = new("5-Hour");
 
-    public QuotaViewModel WeeklyQuota { get; } = new("Weekly");
+    public QuotaViewModel SevenDayQuota { get; } = new("7-Day");
 
     public ICommand ShowHomeCommand { get; }
 
@@ -447,7 +447,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
             UpdatedAtDisplay = FormatUpdatedAt(null);
             FiveHourQuota.UpdateUnavailable();
-            WeeklyQuota.UpdateUnavailable();
+            SevenDayQuota.UpdateUnavailable();
             return;
         }
 
@@ -457,7 +457,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
             UpdatedAtDisplay = $"Codex usage unavailable{FormatResponseError(response)}";
             FiveHourQuota.UpdateUnavailable();
-            WeeklyQuota.UpdateUnavailable();
+            SevenDayQuota.UpdateUnavailable();
             return;
         }
 
@@ -465,7 +465,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         PlanBadgeBrush = s_PlanBadgeActiveBrush;
         UpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
         FiveHourQuota.Update(response.Limits.FiveHour);
-        WeeklyQuota.Update(response.Limits.Weekly);
+        SevenDayQuota.Update(response.Limits.SevenDay);
     }
 
     /// <summary>

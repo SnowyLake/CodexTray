@@ -16,7 +16,7 @@
 
 `CodexMonitor` 是一个 Windows 托盘小工具, 用来把 Codex 额度显示到 LiteMonitor 或 TrafficMonitor.
 
-它会在后台读取当前机器上的 Codex 登录信息, 获取 5 小时额度和 Weekly 额度, 然后把结果提供给监控器插件显示. 启动后程序会常驻系统托盘, 不需要一直打开窗口.
+它会在后台读取当前机器上的 Codex 登录信息, 获取 5-Hour 额度和 7-Day 额度, 然后把结果提供给监控器插件显示. 启动后程序会常驻系统托盘, 不需要一直打开窗口.
 
 适合已经在使用 LiteMonitor 或 TrafficMonitor, 并且希望在任务栏里直接看到 Codex 剩余额度的用户.
 
@@ -26,8 +26,8 @@
 
 ## 主要功能
 
-- 显示 Codex 5 小时额度剩余百分比和到期倒计时.
-- 显示 Codex Weekly 额度剩余百分比和到期倒计时.
+- 显示 Codex 5-Hour 额度剩余百分比和到期倒计时.
+- 显示 Codex 7-Day 额度剩余百分比和到期倒计时.
 - 默认每 5 分钟自动刷新一次额度.
 - 支持在设置窗口里修改刷新间隔.
 - 支持点击 `Refresh Now` 立刻刷新.
@@ -76,10 +76,10 @@
 
 额度到期倒计时显示规则:
 
-- 5 小时额度字段值使用 `88% [2h 45m]` 格式.
-- Weekly 额度字段值使用 `66% [3d 04h]` 格式.
+- 5-Hour 额度字段值使用 `88% [2h 45m]` 格式.
+- 7-Day 额度字段值使用 `66% [3d 04h]` 格式.
 - 分钟或小时小于 10 时保留两位数字, 例如 `05m` 和 `04h`.
-- JSON 接口的 `display.codex_5h` 和 `display.codex_weekly` 返回纯额度值. TrafficMonitor 原生插件读取 `/codex-monitor.txt` 的两行文本值. 两个插件都保留宿主自己的 label, 并在 value 前按 `Codex Weekly` 的宽度补空格.
+- JSON 接口的 `display.codex_5h` 和 `display.codex_7d` 返回纯额度值. TrafficMonitor 原生插件读取 `/codex-monitor.txt` 的两行文本值. 两个插件都保留宿主自己的 label, 并在 value 前按 `Codex 7-Day` 的宽度补空格.
 
 ## 安全与隐私
 

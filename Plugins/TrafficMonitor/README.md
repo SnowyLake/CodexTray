@@ -9,7 +9,7 @@
 
 ## 概览
 
-这个目录包含 CodexMonitor 的 TrafficMonitor 原生插件源码. 插件实现 TrafficMonitor 的 `ITMPlugin` 和 `IPluginItem` 接口, 提供 `Codex 5h` 和 `Codex Weekly` 两个显示项.
+这个目录包含 CodexMonitor 的 TrafficMonitor 原生插件源码. 插件实现 TrafficMonitor 的 `ITMPlugin` 和 `IPluginItem` 接口, 提供 `Codex 5-Hour` 和 `Codex 7-Day` 两个显示项.
 
 插件会请求本机 CodexMonitor 桥接服务的 `/codex-monitor.txt` 接口, 并读取两行文本值.
 

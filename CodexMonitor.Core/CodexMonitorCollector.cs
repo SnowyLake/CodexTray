@@ -7,8 +7,8 @@ namespace CodexMonitor.Core;
 
 public sealed class CodexMonitorCollector
 {
-    private const string k_FiveHourDisplayLabel = "Codex 5h";
-    private const string k_WeeklyDisplayLabel = "Codex Weekly";
+    private const string k_FiveHourDisplayLabel = "Codex 5-Hour";
+    private const string k_SevenDayDisplayLabel = "Codex 7-Day";
 
     private static readonly HttpClient s_HttpClient = new()
     {
@@ -105,16 +105,16 @@ public sealed class CodexMonitorCollector
         JsonElement primary = GetObjectProperty(rateLimit, "primary_window");
         JsonElement secondary = GetObjectProperty(rateLimit, "secondary_window");
         UsageLimit fiveHour = BuildOfficialLimit("five_hour", primary, now);
-        UsageLimit weekly = BuildOfficialLimit("weekly", secondary, now);
+        UsageLimit sevenDay = BuildOfficialLimit("seven_day", secondary, now);
         fiveHour.ResetLabel = FormatFiveHourResetLabel(fiveHour.ResetsAt, now);
-        weekly.ResetLabel = FormatWeeklyResetLabel(weekly.ResetsAt, now);
+        sevenDay.ResetLabel = FormatSevenDayResetLabel(sevenDay.ResetsAt, now);
 
         if (primary.ValueKind != JsonValueKind.Object && secondary.ValueKind != JsonValueKind.Object)
         {
             return CreateEmptyResponse(codexDirectory, now, "Codex usage API did not return rate_limit windows");
         }
 
-        UsageDisplay display = BuildDisplay(fiveHour, weekly);
+        UsageDisplay display = BuildDisplay(fiveHour, sevenDay);
         return new UsageResponse
         {
             Available = true,
@@ -127,7 +127,7 @@ public sealed class CodexMonitorCollector
             Limits = new UsageLimits
             {
                 FiveHour = fiveHour,
-                Weekly = weekly,
+                SevenDay = sevenDay,
             },
             Display = display,
         };
@@ -136,15 +136,15 @@ public sealed class CodexMonitorCollector
     /// <summary>
     /// Builds all display strings for monitor plugins.
     /// </summary>
-    private static UsageDisplay BuildDisplay(UsageLimit fiveHour, UsageLimit weekly)
+    private static UsageDisplay BuildDisplay(UsageLimit fiveHour, UsageLimit sevenDay)
     {
         string codex5HDisplay = $"{fiveHour.RemainingPercent}% [{fiveHour.ResetLabel}]";
-        string codexWeeklyDisplay = $"{weekly.RemainingPercent}% [{weekly.ResetLabel}]";
+        string codex7DDisplay = $"{sevenDay.RemainingPercent}% [{sevenDay.ResetLabel}]";
         return new UsageDisplay
         {
             Codex5H = codex5HDisplay,
-            CodexWeekly = codexWeeklyDisplay,
-            Summary = $"{k_FiveHourDisplayLabel}: {codex5HDisplay} | {k_WeeklyDisplayLabel}: {codexWeeklyDisplay}",
+            Codex7D = codex7DDisplay,
+            Summary = $"{k_FiveHourDisplayLabel}: {codex5HDisplay} | {k_SevenDayDisplayLabel}: {codex7DDisplay}",
         };
     }
 
@@ -218,7 +218,7 @@ public sealed class CodexMonitorCollector
             Limits = new UsageLimits
             {
                 FiveHour = BuildOfficialLimit("five_hour", default, now),
-                Weekly = BuildOfficialLimit("weekly", default, now),
+                SevenDay = BuildOfficialLimit("seven_day", default, now),
             },
             Display = new UsageDisplay(),
         };
@@ -253,9 +253,9 @@ public sealed class CodexMonitorCollector
     }
 
     /// <summary>
-    /// Formats the weekly reset as a countdown label.
+    /// Formats the seven day reset as a countdown label.
     /// </summary>
-    private static string FormatWeeklyResetLabel(long epochSeconds, DateTimeOffset now)
+    private static string FormatSevenDayResetLabel(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {

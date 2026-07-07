@@ -27,7 +27,7 @@
         "response_format": "json",
         "extract": {
           "codex_5h_display": "display.codex_5h",
-          "codex_weekly_display": "display.codex_weekly"
+          "codex_7d_display": "display.codex_7d"
         }
       }
     ]
@@ -35,16 +35,16 @@
   "outputs": [
     {
       "key": "codex_5h",
-      "label": "Codex 5h",
-      "short_label": "Codex 5h",
-      "format_val": "     {{codex_5h_display}}",
+      "label": "Codex 5-Hour",
+      "short_label": "Codex-5H",
+      "format_val": " {{codex_5h_display}}",
       "unit": ""
     },
     {
-      "key": "codex_weekly",
-      "label": "Codex Weekly",
-      "short_label": "Codex Weekly",
-      "format_val": " {{codex_weekly_display}}",
+      "key": "codex_7d",
+      "label": "Codex 7-Day",
+      "short_label": "Codex-7D",
+      "format_val": " {{codex_7d_display}}",
       "unit": ""
     }
   ]
