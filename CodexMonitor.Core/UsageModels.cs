@@ -12,6 +12,7 @@ public static class CodexMonitorDefaults
     public const int MinimumRefreshIntervalMinutes = 1;
     public const int MaximumRefreshIntervalMinutes = 1440;
     public const bool AcrylicEnabled = true;
+    public const bool ShowResetTimeInPlugins = true;
     public const int AcrylicOpacityPercent = 80;
     public const int MinimumAcrylicOpacityPercent = 10;
     public const int MaximumAcrylicOpacityPercent = 100;

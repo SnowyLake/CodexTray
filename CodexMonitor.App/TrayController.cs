@@ -378,7 +378,8 @@ internal sealed class TrayController : IDisposable
 
         try
         {
-            UsageResponse response = await Task.Run(() => m_Collector.Collect()).ConfigureAwait(true);
+            bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
+            UsageResponse response = await Task.Run(() => m_Collector.Collect(showResetTimeInPlugins)).ConfigureAwait(true);
             m_UsageCache.Update(response);
             RefreshPopupStatus();
         }

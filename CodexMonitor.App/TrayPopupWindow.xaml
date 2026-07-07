@@ -713,6 +713,25 @@
                                       Style="{StaticResource IconButtonStyle}" />
                         </Grid>
 
+                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
+                              ToolTip="Append reset countdown after the percentage in monitor plugins"
+                              Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="140" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Show reset time"
+                                       ToolTip="Append reset countdown after the percentage in monitor plugins"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <CheckBox Grid.Column="1"
+                                      HorizontalAlignment="Right"
+                                      VerticalAlignment="Center"
+                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                      IsChecked="{Binding ShowResetTimeInPlugins}"
+                                      ToolTip="Append reset countdown after the percentage in monitor plugins" />
+                        </Grid>
+
                         <Border Style="{StaticResource SettingsSectionDividerStyle}" />
 
                         <!-- Advanced -->

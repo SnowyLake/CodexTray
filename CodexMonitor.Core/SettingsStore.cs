@@ -26,6 +26,8 @@ public sealed class AppSettings
 
     public int AcrylicOpacityPercent { get; set; } = CodexMonitorDefaults.AcrylicOpacityPercent;
 
+    public bool ShowResetTimeInPlugins { get; set; } = CodexMonitorDefaults.ShowResetTimeInPlugins;
+
     /// <summary>
     /// Creates a normalized copy of settings values.
     /// </summary>

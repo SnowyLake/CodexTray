@@ -30,17 +30,17 @@ public sealed class CodexMonitorCollector
     /// <summary>
     /// Collects the latest Codex monitor response from the default Codex directory.
     /// </summary>
-    public UsageResponse Collect()
+    public UsageResponse Collect(bool showResetTimeInPlugins = true)
     {
-        return Collect(GetDefaultCodexDirectory());
+        return Collect(GetDefaultCodexDirectory(), showResetTimeInPlugins);
     }
 
     /// <summary>
     /// Collects the latest Codex monitor response from a Codex directory.
     /// </summary>
-    public UsageResponse Collect(string codexDirectory)
+    public UsageResponse Collect(string codexDirectory, bool showResetTimeInPlugins = true)
     {
-        return CollectOfficialUsage(codexDirectory);
+        return CollectOfficialUsage(codexDirectory, showResetTimeInPlugins);
     }
 
     /// <summary>
@@ -54,7 +54,7 @@ public sealed class CodexMonitorCollector
     /// <summary>
     /// Collects Codex usage from the official ChatGPT quota endpoint.
     /// </summary>
-    private UsageResponse CollectOfficialUsage(string codexDirectory)
+    private UsageResponse CollectOfficialUsage(string codexDirectory, bool showResetTimeInPlugins)
     {
         DateTimeOffset now = m_NowProvider();
         string authPath = Path.Combine(codexDirectory, "auth.json");
@@ -88,7 +88,7 @@ public sealed class CodexMonitorCollector
             }
 
             using JsonDocument document = JsonDocument.Parse(body);
-            return BuildOfficialResponse(codexDirectory, authPath, document.RootElement, now);
+            return BuildOfficialResponse(codexDirectory, authPath, document.RootElement, now, showResetTimeInPlugins);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
         {
@@ -99,7 +99,7 @@ public sealed class CodexMonitorCollector
     /// <summary>
     /// Builds a usage response from the official quota endpoint JSON.
     /// </summary>
-    private UsageResponse BuildOfficialResponse(string codexDirectory, string authPath, JsonElement root, DateTimeOffset now)
+    private UsageResponse BuildOfficialResponse(string codexDirectory, string authPath, JsonElement root, DateTimeOffset now, bool showResetTimeInPlugins)
     {
         JsonElement rateLimit = GetObjectProperty(root, "rate_limit");
         JsonElement primary = GetObjectProperty(rateLimit, "primary_window");
@@ -114,7 +114,7 @@ public sealed class CodexMonitorCollector
             return CreateEmptyResponse(codexDirectory, now, "Codex usage API did not return rate_limit windows");
         }
 
-        UsageDisplay display = BuildDisplay(fiveHour, sevenDay);
+        UsageDisplay display = BuildDisplay(fiveHour, sevenDay, showResetTimeInPlugins);
         return new UsageResponse
         {
             Available = true,
@@ -136,16 +136,26 @@ public sealed class CodexMonitorCollector
     /// <summary>
     /// Builds all display strings for monitor plugins.
     /// </summary>
-    private static UsageDisplay BuildDisplay(UsageLimit fiveHour, UsageLimit sevenDay)
+    private static UsageDisplay BuildDisplay(UsageLimit fiveHour, UsageLimit sevenDay, bool showResetTimeInPlugins)
     {
-        string codex5HDisplay = $"{fiveHour.RemainingPercent}% {fiveHour.ResetLabel}";
-        string codex7DDisplay = $"{sevenDay.RemainingPercent}% {sevenDay.ResetLabel}";
+        string codex5HDisplay = FormatDisplayValue(fiveHour, showResetTimeInPlugins);
+        string codex7DDisplay = FormatDisplayValue(sevenDay, showResetTimeInPlugins);
         return new UsageDisplay
         {
             Codex5H = codex5HDisplay,
             Codex7D = codex7DDisplay,
             Summary = $"{k_FiveHourDisplayLabel}: {codex5HDisplay} | {k_SevenDayDisplayLabel}: {codex7DDisplay}",
         };
+    }
+
+    /// <summary>
+    /// Formats a plugin display value, optionally appending the reset time suffix.
+    /// </summary>
+    private static string FormatDisplayValue(UsageLimit limit, bool showResetTimeInPlugins)
+    {
+        return showResetTimeInPlugins
+            ? $"{limit.RemainingPercent}% {limit.ResetLabel}"
+            : $"{limit.RemainingPercent}%";
     }
 
     /// <summary>

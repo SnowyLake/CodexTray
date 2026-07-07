@@ -20,6 +20,7 @@ internal static class Program
         await RunAsync("uses countdown label for next-day seven day reset", TestNextDaySevenDayCountdownLabelAsync);
         await RunAsync("returns unavailable response without OAuth credentials", TestEmptyResponseAsync);
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
+        await RunAsync("omits reset suffix when disabled", TestDisplayWithoutResetSuffixAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
         await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
@@ -169,6 +170,26 @@ internal static class Program
         AssertEqual(60, response.Limits.SevenDay.RemainingPercent, "official seven day remaining percent");
         AssertEqual("75% 1h15m", response.Display.Codex5H, "official five hour display");
         AssertEqual("60% 2d12h", response.Display.Codex7D, "official seven day display");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests that plugin display values drop the reset suffix when the option is disabled.
+    /// </summary>
+    private static Task TestDisplayWithoutResetSuffixAsync()
+    {
+        using TempDirectory temp = new();
+        DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
+        long reset5H = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
+        long resetSevenDay = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
+        CodexMonitorCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 25.0, 40.0, out HttpClient client);
+        using HttpClient _ = client;
+
+        UsageResponse response = collector.Collect(temp.Path, showResetTimeInPlugins: false);
+
+        AssertEqual("75%", response.Display.Codex5H, "five hour display without reset suffix");
+        AssertEqual("60%", response.Display.Codex7D, "seven day display without reset suffix");
+        AssertEqual("1h15m", response.Limits.FiveHour.ResetLabel, "reset label remains available for the panel");
         return Task.CompletedTask;
     }
 
