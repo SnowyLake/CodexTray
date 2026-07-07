@@ -72,6 +72,37 @@
                 </Style.Triggers>
             </Style>
 
+            <!-- Rotating refresh glyph used while home refresh runs -->
+            <Style x:Key="RefreshSpinnerGlyphStyle" TargetType="{x:Type TextBlock}">
+                <Setter Property="Text" Value="&#xE72C;" />
+                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+                <Setter Property="RenderTransform">
+                    <Setter.Value>
+                        <RotateTransform Angle="0" />
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsRefreshing}" Value="True">
+                        <DataTrigger.EnterActions>
+                            <BeginStoryboard Name="RefreshSpinStoryboard">
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetProperty="(TextBlock.RenderTransform).(RotateTransform.Angle)"
+                                                     From="0"
+                                                     To="360"
+                                                     Duration="0:0:0.9"
+                                                     RepeatBehavior="Forever" />
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </DataTrigger.EnterActions>
+                        <DataTrigger.ExitActions>
+                            <StopStoryboard BeginStoryboardName="RefreshSpinStoryboard" />
+                        </DataTrigger.ExitActions>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
             <!-- Icon button (shared: home refresh + settings save) -->
             <!-- Subtle icon button: constant Primary glyph, background fills on hover/press -->
             <Style x:Key="IconButtonStyle" TargetType="{x:Type Button}">
@@ -327,10 +358,10 @@
                         <Button Grid.Column="1"
                                 VerticalAlignment="Center"
                                 Command="{Binding RefreshCommand}"
-                                Content="&#xE72C;"
-                                FontFamily="Segoe MDL2 Assets"
                                 ToolTip="Refresh"
-                                Style="{StaticResource IconButtonStyle}" />
+                                Style="{StaticResource IconButtonStyle}">
+                            <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
+                        </Button>
                     </Grid>
                     <TextBlock Text="{Binding UpdatedAtDisplay}"
                                Margin="2,6,0,0"
