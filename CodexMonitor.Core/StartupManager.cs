@@ -23,6 +23,11 @@ public static class StartupManager
     /// </summary>
     public static void SetEnabled(string executablePath, bool enabled)
     {
+        if (enabled && string.IsNullOrWhiteSpace(executablePath))
+        {
+            throw new InvalidOperationException("Unable to resolve the executable path for startup registration.");
+        }
+
         using RegistryKey key = Registry.CurrentUser.CreateSubKey(k_RunKeyPath, true) ?? throw new InvalidOperationException("Unable to open HKCU Run key.");
         if (enabled)
         {

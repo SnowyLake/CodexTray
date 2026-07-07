@@ -51,6 +51,7 @@ internal sealed class TrayController : IDisposable
         ConfigureRefreshTimer();
         _ = RefreshUsageAsync();
         StartSignalListener();
+        SyncStartupRegistration();
         if (!settingsExists)
         {
             m_SettingsStore.Save(m_Settings);
@@ -58,6 +59,25 @@ internal sealed class TrayController : IDisposable
         }
 
         _ = AutoDetectMissingPluginPathsAsync();
+    }
+
+    /// <summary>
+    /// Re-registers startup when settings request it but the Run key no longer matches the current exe.
+    /// </summary>
+    private void SyncStartupRegistration()
+    {
+        if (!m_Settings.StartWithWindows)
+        {
+            return;
+        }
+
+        string executablePath = Environment.ProcessPath ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(executablePath) || StartupManager.IsEnabled(executablePath))
+        {
+            return;
+        }
+
+        StartupManager.SetEnabled(executablePath, true);
     }
 
     /// <summary>
