@@ -28,6 +28,8 @@ internal sealed class TrayController : IDisposable
     private TrayPopupViewModel? m_PopupViewModel;
     private int m_IsRefreshing;
     private bool m_IsExiting;
+    private bool m_StartupDetectingLiteMonitor;
+    private bool m_StartupDetectingTrafficMonitor;
 
     /// <summary>
     /// Creates the tray controller and starts background work.
@@ -70,6 +72,10 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
+        m_StartupDetectingLiteMonitor = detectLite;
+        m_StartupDetectingTrafficMonitor = detectTraffic;
+        ApplyStartupDetectingState();
+
         (string liteResult, string trafficResult) = await Task.Run(() =>
         {
             string lite = detectLite ? LiteMonitorLocator.AutoDetect() : m_Settings.LiteMonitorDir;
@@ -87,8 +93,25 @@ internal sealed class TrayController : IDisposable
             m_Settings.TrafficMonitorDir = string.IsNullOrWhiteSpace(trafficResult) ? CodexMonitorDefaults.PluginPathNone : trafficResult;
         }
 
+        m_StartupDetectingLiteMonitor = false;
+        m_StartupDetectingTrafficMonitor = false;
         m_SettingsStore.Save(m_Settings);
         m_PopupViewModel?.LoadSettings(m_Settings);
+        ApplyStartupDetectingState();
+    }
+
+    /// <summary>
+    /// Reflects the startup auto detect progress on the popup spinners when the popup exists.
+    /// </summary>
+    private void ApplyStartupDetectingState()
+    {
+        if (m_PopupViewModel == null)
+        {
+            return;
+        }
+
+        m_PopupViewModel.IsDetectingLiteMonitor = m_StartupDetectingLiteMonitor;
+        m_PopupViewModel.IsDetectingTrafficMonitor = m_StartupDetectingTrafficMonitor;
     }
 
     /// <summary>
@@ -223,6 +246,7 @@ internal sealed class TrayController : IDisposable
         m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
         m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
         m_PopupViewModel.ExitRequested += (_, _) => ExitApplication();
+        ApplyStartupDetectingState();
         m_TrayPopupWindow = new TrayPopupWindow(m_PopupViewModel);
         m_TrayPopupWindow.Closed += (_, _) =>
         {

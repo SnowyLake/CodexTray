@@ -621,7 +621,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private static string FormatPluginPath(string? directory)
     {
         string value = PluginPathOrEmpty(directory);
-        return $"Path: {(value.Length == 0 ? "Not set" : value)}";
+        return $"Path: {(value.Length == 0 ? CodexMonitorDefaults.PluginPathNone : value)}";
     }
 
     /// <summary>
