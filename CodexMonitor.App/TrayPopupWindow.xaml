@@ -150,9 +150,9 @@
             <!-- ============ Settings: native Fluent controls ============ -->
             <!-- Only layout tweaks; templates stay Fluent so inputs work. -->
             <Thickness x:Key="SettingsSectionHeaderMargin">0,0,0,10</Thickness>
+            <Thickness x:Key="SettingsSectionHeaderSpacedMargin">0,28,0,10</Thickness>
             <Thickness x:Key="SettingsRowMargin">0,0,0,6</Thickness>
             <Thickness x:Key="SettingsSectionEndMargin">0,0,0,6</Thickness>
-            <Thickness x:Key="SettingsSectionDividerMargin">0,0,0,10</Thickness>
             <Thickness x:Key="SettingsLastRowMargin">0,0,0,8</Thickness>
 
             <Style x:Key="SettingsTextBoxStyle"
@@ -182,18 +182,18 @@
                 <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
             </Style>
 
-            <Style x:Key="SettingsSectionDividerStyle" TargetType="{x:Type Border}">
-                <Setter Property="Height" Value="1" />
-                <Setter Property="Margin" Value="{StaticResource SettingsSectionDividerMargin}" />
-                <Setter Property="Background" Value="{DynamicResource SurfaceStrokeColorDefaultBrush}" />
-                <Setter Property="Opacity" Value="0.65" />
-            </Style>
-
             <Style x:Key="SettingsSectionHeaderStyle" TargetType="{x:Type TextBlock}">
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
                 <Setter Property="FontSize" Value="12" />
                 <Setter Property="FontWeight" Value="SemiBold" />
                 <Setter Property="Margin" Value="{StaticResource SettingsSectionHeaderMargin}" />
+            </Style>
+
+            <!-- Header for non-first sections: extra top gap replaces the removed divider -->
+            <Style x:Key="SettingsSectionHeaderSpacedStyle"
+                   BasedOn="{StaticResource SettingsSectionHeaderStyle}"
+                   TargetType="{x:Type TextBlock}">
+                <Setter Property="Margin" Value="{StaticResource SettingsSectionHeaderSpacedMargin}" />
             </Style>
 
             <Style x:Key="SettingsRowTitleStyle" TargetType="{x:Type TextBlock}">
@@ -363,10 +363,19 @@
                             <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
                         </Button>
                     </Grid>
-                    <TextBlock Text="{Binding UpdatedAtDisplay}"
-                               Margin="2,6,0,0"
-                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                               FontSize="12" />
+                    <StackPanel Orientation="Horizontal"
+                                Margin="2,6,0,0"
+                                VerticalAlignment="Center">
+                        <Ellipse Width="7"
+                                 Height="7"
+                                 Margin="0,0,6,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{Binding StatusDotBrush}" />
+                        <TextBlock Text="{Binding UpdatedAtDisplay}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="12" />
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- Quota list -->
@@ -375,7 +384,7 @@
                             Margin="0,24,0,0"
                             Grid.IsSharedSizeScope="True">
                     <TextBlock Text="Usage"
-                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                FontSize="12"
                                FontWeight="SemiBold"
                                Margin="0,0,0,14" />
@@ -411,11 +420,11 @@
                                        FontFamily="Segoe MDL2 Assets"
                                        Margin="0,0,4,0"
                                        VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                        FontSize="10" />
                             <TextBlock Text="{Binding FiveHourQuota.ResetText}"
                                        VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                        FontSize="12" />
                         </StackPanel>
                     </StackPanel>
@@ -451,11 +460,11 @@
                                        FontFamily="Segoe MDL2 Assets"
                                        Margin="0,0,4,0"
                                        VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                        FontSize="10" />
                             <TextBlock Text="{Binding SevenDayQuota.ResetText}"
                                        VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                        FontSize="12" />
                         </StackPanel>
                     </StackPanel>
@@ -544,11 +553,9 @@
                                       ToolTip="Start with Windows" />
                         </Grid>
 
-                        <Border Style="{StaticResource SettingsSectionDividerStyle}" />
-
                         <!-- Appearance -->
                         <TextBlock Text="Appearance"
-                                   Style="{StaticResource SettingsSectionHeaderStyle}" />
+                                   Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
 
                         <Grid Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
@@ -611,11 +618,9 @@
                             </Grid>
                         </Grid>
 
-                        <Border Style="{StaticResource SettingsSectionDividerStyle}" />
-
                         <!-- Plugins -->
                         <TextBlock Text="Plugins"
-                                   Style="{StaticResource SettingsSectionHeaderStyle}" />
+                                   Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
 
                         <Grid Margin="{StaticResource SettingsRowMargin}">
                             <Grid.ColumnDefinitions>
@@ -732,11 +737,9 @@
                                       ToolTip="Append reset countdown after the percentage in monitor plugins" />
                         </Grid>
 
-                        <Border Style="{StaticResource SettingsSectionDividerStyle}" />
-
                         <!-- Advanced -->
                         <TextBlock Text="Advanced"
-                                   Style="{StaticResource SettingsSectionHeaderStyle}" />
+                                   Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
 
                         <Grid Margin="{StaticResource SettingsLastRowMargin}"
                               ToolTip="{Binding ServiceStatus}"

@@ -40,13 +40,14 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_YellowBrush = new Media.SolidColorBrush(Media.Color.FromRgb(226, 176, 54));
     private static readonly Media.Brush s_RedBrush = new Media.SolidColorBrush(Media.Color.FromRgb(224, 91, 77));
-    private static readonly Media.Brush s_PlanBadgeActiveBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
+    private static readonly Media.Brush s_PlanBadgeActiveBrush = s_GreenBrush;
     private static readonly Media.Brush s_PlanBadgeInactiveBrush = new Media.SolidColorBrush(Media.Color.FromRgb(107, 122, 117));
 
     private readonly AppSettings m_Settings;
     private string m_CurrentPage = k_HomePageName;
     private string m_PlanDisplay = "None";
     private Media.Brush m_PlanBadgeBrush = s_PlanBadgeInactiveBrush;
+    private Media.Brush m_StatusDotBrush = s_RedBrush;
     private string m_UpdatedAtDisplay = "Waiting for first refresh";
     private string m_ServiceStatus = "Service: starting";
     private string m_SourceDisplay = "Source: unavailable";
@@ -125,6 +126,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     {
         get => m_PlanBadgeBrush;
         private set => SetField(ref m_PlanBadgeBrush, value);
+    }
+
+    public Media.Brush StatusDotBrush
+    {
+        get => m_StatusDotBrush;
+        private set => SetField(ref m_StatusDotBrush, value);
     }
 
     public string UpdatedAtDisplay
@@ -500,6 +507,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             PlanDisplay = "None";
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            StatusDotBrush = s_RedBrush;
             UpdatedAtDisplay = FormatUpdatedAt(null);
             FiveHourQuota.UpdateUnavailable();
             SevenDayQuota.UpdateUnavailable();
@@ -510,6 +518,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             PlanDisplay = "None";
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            StatusDotBrush = s_RedBrush;
             UpdatedAtDisplay = $"Codex usage unavailable{FormatResponseError(response)}";
             FiveHourQuota.UpdateUnavailable();
             SevenDayQuota.UpdateUnavailable();
@@ -518,6 +527,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
         PlanDisplay = FormatPlan(response.PlanType);
         PlanBadgeBrush = s_PlanBadgeActiveBrush;
+        StatusDotBrush = s_GreenBrush;
         UpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
         FiveHourQuota.Update(response.Limits.FiveHour);
         SevenDayQuota.Update(response.Limits.SevenDay);
