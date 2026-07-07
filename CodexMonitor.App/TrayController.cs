@@ -148,9 +148,12 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void TogglePanel()
     {
-        if (m_TrayPopupWindow?.IsVisible == true)
+        // Clicking the tray icon deactivates the popup first, so a just-hidden popup means the click was a close request.
+        if (m_TrayPopupWindow?.IsVisible == true
+            || (m_TrayPopupWindow != null
+                && DateTime.UtcNow - m_TrayPopupWindow.LastDeactivatedHideUtc < TimeSpan.FromMilliseconds(300)))
         {
-            m_TrayPopupWindow.Hide();
+            m_TrayPopupWindow?.Hide();
             return;
         }
 

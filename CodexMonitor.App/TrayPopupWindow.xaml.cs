@@ -101,6 +101,11 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
+    /// Timestamp of the last hide triggered by losing focus, used to debounce tray icon clicks.
+    /// </summary>
+    public DateTime LastDeactivatedHideUtc { get; private set; }
+
+    /// <summary>
     /// Hides the popup when it loses focus.
     /// </summary>
     protected override void OnDeactivated(EventArgs args)
@@ -111,6 +116,7 @@ internal sealed partial class TrayPopupWindow : Window
             return;
         }
 
+        LastDeactivatedHideUtc = DateTime.UtcNow;
         Hide();
     }
 
