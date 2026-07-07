@@ -27,18 +27,25 @@
             <local:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
             <sys:Int32 x:Key="ToolTipInitialShowDelay">120</sys:Int32>
             <sys:Int32 x:Key="ToolTipShowDuration">6000</sys:Int32>
+            <sys:String x:Key="PluginDetectingText">Detecting...</sys:String>
 
             <Style TargetType="{x:Type ToolTip}">
                 <Setter Property="FontFamily" Value="Segoe UI" />
             </Style>
 
+            <!-- Secondary caption under a settings row title (shared tooltip timing) -->
+            <Style x:Key="SettingsRowSubtitleStyle" TargetType="{x:Type TextBlock}">
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
+                <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
+            </Style>
+
             <!-- Rotating glyph used while plugin auto detect runs -->
-            <Style x:Key="DetectSpinnerStyle" TargetType="{x:Type TextBlock}">
+            <Style x:Key="DetectSpinnerStyle" TargetType="{x:Type TextBlock}" BasedOn="{StaticResource SettingsRowSubtitleStyle}">
                 <Setter Property="Text" Value="&#xE72C;" />
                 <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                <Setter Property="FontSize" Value="12" />
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="VerticalAlignment" Value="Center" />
                 <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
                 <Setter Property="RenderTransform">
                     <Setter.Value>
@@ -614,17 +621,14 @@
                                     <TextBlock Text="{Binding LiteMonitorDirDisplay}"
                                                TextTrimming="CharacterEllipsis"
                                                ToolTip="{Binding LiteMonitorDirDisplay}"
-                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                               FontSize="12"
+                                               Style="{StaticResource SettingsRowSubtitleStyle}"
                                                Visibility="{Binding IsDetectingLiteMonitor, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
                                     <StackPanel Orientation="Horizontal"
                                                 Visibility="{Binding IsDetectingLiteMonitor, Converter={StaticResource BooleanToVisibilityConverter}}">
                                         <TextBlock Style="{StaticResource DetectSpinnerStyle}" />
-                                        <TextBlock Text="Detecting..."
+                                        <TextBlock Text="{StaticResource PluginDetectingText}"
                                                    Margin="6,0,0,0"
-                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                   FontSize="12"
-                                                   VerticalAlignment="Center" />
+                                                   Style="{StaticResource SettingsRowSubtitleStyle}" />
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>
@@ -659,17 +663,14 @@
                                     <TextBlock Text="{Binding TrafficMonitorDirDisplay}"
                                                TextTrimming="CharacterEllipsis"
                                                ToolTip="{Binding TrafficMonitorDirDisplay}"
-                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                               FontSize="12"
+                                               Style="{StaticResource SettingsRowSubtitleStyle}"
                                                Visibility="{Binding IsDetectingTrafficMonitor, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
                                     <StackPanel Orientation="Horizontal"
                                                 Visibility="{Binding IsDetectingTrafficMonitor, Converter={StaticResource BooleanToVisibilityConverter}}">
                                         <TextBlock Style="{StaticResource DetectSpinnerStyle}" />
-                                        <TextBlock Text="Detecting..."
+                                        <TextBlock Text="{StaticResource PluginDetectingText}"
                                                    Margin="6,0,0,0"
-                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                   FontSize="12"
-                                                   VerticalAlignment="Center" />
+                                                   Style="{StaticResource SettingsRowSubtitleStyle}" />
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>
