@@ -149,7 +149,7 @@
 
             <!-- ============ Home ============ -->
             <Thickness x:Key="HomeSectionHeaderMargin">0,0,0,12</Thickness>
-            <Thickness x:Key="HomeSectionHeaderSpacedMargin">0,24,0,10</Thickness>
+            <Thickness x:Key="HomeSectionHeaderSpacedMargin">0,22,0,10</Thickness>
 
             <Style x:Key="HomeSectionHeaderStyle" TargetType="{x:Type TextBlock}">
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
