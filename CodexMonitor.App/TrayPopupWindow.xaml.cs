@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using Controls = System.Windows.Controls;
+using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 using Input = System.Windows.Input;
 
@@ -45,17 +46,19 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
-    /// Shows the popup near the notification area.
+    /// Shows the popup near a visible tray icon or at the work area corner.
     /// </summary>
-    public void ShowNearTray()
+    public void ShowNearTray(Drawing.Point? trayIconPosition)
     {
+        WindowState = WindowState.Normal;
+        new WindowInteropHelper(this).EnsureHandle();
+        PositionNearTray(trayIconPosition);
+
         if (!IsVisible)
         {
             Show();
         }
 
-        WindowState = WindowState.Normal;
-        PositionNearTray();
         Activate();
         ForceForeground();
     }
@@ -147,14 +150,14 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
-    /// Positions the popup near the current screen work area.
+    /// Positions the popup near a visible tray icon or at the work area corner.
     /// </summary>
-    private void PositionNearTray()
+    private void PositionNearTray(Drawing.Point? trayIconPosition)
     {
-        Forms.Screen screen = Forms.Screen.FromPoint(Forms.Control.MousePosition);
+        Forms.Screen screen = Forms.Screen.FromPoint(trayIconPosition ?? Forms.Control.MousePosition);
         double scaleX = 1.0;
         double scaleY = 1.0;
-        PresentationSource? source = PresentationSource.FromVisual(this);
+        HwndSource? source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
         if (source?.CompositionTarget != null)
         {
             Matrix transform = source.CompositionTarget.TransformFromDevice;
@@ -172,6 +175,41 @@ internal sealed partial class TrayPopupWindow : Window
 
         Left = workArea.Right - width - 10;
         Top = workArea.Bottom - height - 10;
+
+        if (trayIconPosition is not { } iconPosition
+            || !screen.Bounds.Contains(iconPosition)
+            || screen.WorkingArea.Contains(iconPosition))
+        {
+            return;
+        }
+
+        double minimumLeft = workArea.Left + 10;
+        double maximumLeft = Math.Max(minimumLeft, workArea.Right - width - 10);
+        double minimumTop = workArea.Top + 10;
+        double maximumTop = Math.Max(minimumTop, workArea.Bottom - height - 10);
+        double centeredLeft = Math.Clamp(iconPosition.X * scaleX - width / 2, minimumLeft, maximumLeft);
+        double centeredTop = Math.Clamp(iconPosition.Y * scaleY - height / 2, minimumTop, maximumTop);
+
+        if (iconPosition.Y < screen.WorkingArea.Top)
+        {
+            Left = centeredLeft;
+            Top = minimumTop;
+        }
+        else if (iconPosition.Y >= screen.WorkingArea.Bottom)
+        {
+            Left = centeredLeft;
+            Top = maximumTop;
+        }
+        else if (iconPosition.X < screen.WorkingArea.Left)
+        {
+            Left = minimumLeft;
+            Top = centeredTop;
+        }
+        else
+        {
+            Left = maximumLeft;
+            Top = centeredTop;
+        }
     }
 
     /// <summary>

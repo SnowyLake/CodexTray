@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Windows.Threading;
+using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 using WpfApplication = System.Windows.Application;
 
@@ -58,7 +59,7 @@ internal sealed class TrayController : IDisposable
         if (!settingsExists)
         {
             m_SettingsStore.Save(m_Settings);
-            m_Dispatcher.BeginInvoke(new Action(ShowPanel));
+            m_Dispatcher.BeginInvoke(new Action(() => ShowPanel()));
         }
 
         _ = AutoDetectMissingPluginPathsAsync();
@@ -155,8 +156,9 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private Forms.NotifyIcon CreateNotifyIcon()
     {
+        Drawing.Point? trayIconPosition = null;
         Forms.ContextMenuStrip menu = new();
-        menu.Items.Add("Open Panel", null, (_, _) => ShowPanel());
+        menu.Items.Add("Open Panel", null, (_, _) => ShowPanel(trayIconPosition));
         menu.Items.Add("Refresh Now", null, async (_, _) => await RefreshUsageAsync());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitApplication());
@@ -168,11 +170,12 @@ internal sealed class TrayController : IDisposable
             Text = CodexMonitorDefaults.AppName,
             Visible = true,
         };
+        notifyIcon.MouseDown += (_, _) => trayIconPosition = Forms.Control.MousePosition;
         notifyIcon.MouseUp += (_, args) =>
         {
             if (args.Button == Forms.MouseButtons.Left)
             {
-                TogglePanel();
+                TogglePanel(trayIconPosition);
             }
         };
         return notifyIcon;
@@ -218,7 +221,7 @@ internal sealed class TrayController : IDisposable
             {
                 if (m_ShowPanelEvent.WaitOne(TimeSpan.FromMilliseconds(500)))
                 {
-                    m_Dispatcher.BeginInvoke(new Action(ShowPanel));
+                    m_Dispatcher.BeginInvoke(new Action(() => ShowPanel()));
                 }
             }
         }, m_SignalCancellation.Token);
@@ -227,7 +230,7 @@ internal sealed class TrayController : IDisposable
     /// <summary>
     /// Toggles the tray popup from the notification icon.
     /// </summary>
-    private void TogglePanel()
+    private void TogglePanel(Drawing.Point? trayIconPosition)
     {
         // Clicking the tray icon deactivates the popup first, so a just-hidden popup means the click was a close request.
         if (m_TrayPopupWindow?.IsVisible == true
@@ -238,18 +241,18 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        ShowPanel();
+        ShowPanel(trayIconPosition);
     }
 
     /// <summary>
     /// Opens the tray popup on the home page.
     /// </summary>
-    private void ShowPanel()
+    private void ShowPanel(Drawing.Point? trayIconPosition = null)
     {
         EnsurePopup();
         m_PopupViewModel?.ShowHome();
         RefreshPopupStatus();
-        m_TrayPopupWindow?.ShowNearTray();
+        m_TrayPopupWindow?.ShowNearTray(trayIconPosition);
         _ = RefreshUsageAsync();
     }
 
