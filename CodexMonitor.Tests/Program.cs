@@ -123,8 +123,8 @@ internal static class Program
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(!response.Available, "response should be unavailable");
-        AssertEqual("unavailable", response.Display.Codex5H, "five hour unavailable display");
-        AssertEqual("Codex unavailable", response.Display.Summary, "summary unavailable display");
+        AssertEqual("N/A", response.Display.Codex5H, "five hour unavailable display");
+        AssertEqual("N/A", response.Display.Summary, "summary unavailable display");
         return Task.CompletedTask;
     }
 
@@ -405,7 +405,7 @@ internal static class Program
 
         AssertTrue(response.Available, "response should be available");
         AssertEqual(0, response.Limits.FiveHour.WindowMinutes, "five hour window should be absent");
-        AssertEqual("unavailable", response.Display.Codex5H, "five hour display should be unavailable");
+        AssertEqual("N/A", response.Display.Codex5H, "five hour display should be unavailable");
         AssertEqual(10080, response.Limits.SevenDay.WindowMinutes, "weekly window duration");
         AssertEqual(42, response.Limits.SevenDay.RemainingPercent, "weekly remaining percent");
         AssertEqual("42% 6d23h", response.Display.Codex7D, "weekly display");

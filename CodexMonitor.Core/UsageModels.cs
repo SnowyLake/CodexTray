@@ -32,6 +32,7 @@ public static class CodexMonitorDefaults
     public const string UsageEndpointPath = "/codex-monitor";
     public const string UsageTextEndpointPath = "/codex-monitor.txt";
     public const string HealthEndpointPath = "/health";
+    public const string UnavailableDisplay = "N/A";
     public static readonly string DefaultBridgeUrl = BuildLoopbackUrl(Port, UsageEndpointPath);
     public static readonly string DefaultBridgeTextUrl = BuildLoopbackUrl(Port, UsageTextEndpointPath);
 
@@ -157,11 +158,11 @@ public sealed class LimitResetCredits
 public sealed class UsageDisplay
 {
     [JsonPropertyName("codex_5h")]
-    public string Codex5H { get; set; } = "unavailable";
+    public string Codex5H { get; set; } = CodexMonitorDefaults.UnavailableDisplay;
 
     [JsonPropertyName("codex_7d")]
-    public string Codex7D { get; set; } = "unavailable";
+    public string Codex7D { get; set; } = CodexMonitorDefaults.UnavailableDisplay;
 
     [JsonPropertyName("summary")]
-    public string Summary { get; set; } = "Codex unavailable";
+    public string Summary { get; set; } = CodexMonitorDefaults.UnavailableDisplay;
 }

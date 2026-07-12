@@ -252,7 +252,7 @@ public sealed class CodexMonitorCollector
     {
         if (limit.WindowMinutes <= 0)
         {
-            return "unavailable";
+            return CodexMonitorDefaults.UnavailableDisplay;
         }
 
         return showResetTimeInPlugins

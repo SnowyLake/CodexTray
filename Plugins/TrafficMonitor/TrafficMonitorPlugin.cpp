@@ -18,7 +18,7 @@ constexpr wchar_t k_ConfigSection[] = L"CodexMonitor";
 constexpr wchar_t k_ConfigUsageUrlKey[] = L"UsageUrl";
 constexpr wchar_t k_OptionsWindowClassName[] = L"CodexMonitorOptionsWindow";
 constexpr int k_OptionsUrlEditId = 1001;
-constexpr wchar_t k_FallbackValue[] = L"None";
+constexpr wchar_t k_FallbackValue[] = L"N/A";
 
 HMODULE g_Module = nullptr;
 
