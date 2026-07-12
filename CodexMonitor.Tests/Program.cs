@@ -20,6 +20,7 @@ internal static class Program
         await RunAsync("uses countdown label for next-day seven day reset", TestNextDaySevenDayCountdownLabelAsync);
         await RunAsync("returns unavailable response without OAuth credentials", TestEmptyResponseAsync);
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
+        await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
         await RunAsync("collects Codex reset credits", TestLimitResetCreditsAsync);
         await RunAsync("omits reset suffix when disabled", TestDisplayWithoutResetSuffixAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
@@ -365,6 +366,49 @@ internal static class Program
         settings.TokenUnit = "万/亿";
         settings.Normalize();
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "legacy Chinese token unit");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests that a weekly window in the primary slot is not mistaken for a five hour window.
+    /// </summary>
+    private static Task TestLoneWeeklyQuotaAsync()
+    {
+        using TempDirectory temp = new();
+        DateTimeOffset now = new(2026, 7, 13, 12, 0, 0, TimeSpan.FromHours(8));
+        File.WriteAllText(Path.Combine(temp.Path, "auth.json"), JsonSerializer.Serialize(new
+        {
+            auth_mode = "chatgpt",
+            tokens = new
+            {
+                access_token = "test-token",
+                account_id = "account-123",
+            },
+        }));
+
+        string body = JsonSerializer.Serialize(new
+        {
+            rate_limit = new
+            {
+                primary_window = new
+                {
+                    used_percent = 58.0,
+                    limit_window_seconds = 604800,
+                    reset_at = now.AddDays(6).AddHours(23).ToUnixTimeSeconds(),
+                },
+            },
+        });
+        using HttpClient client = new(new FakeHttpMessageHandler(body));
+        CodexMonitorCollector collector = new(() => now, client);
+
+        UsageResponse response = collector.Collect(temp.Path);
+
+        AssertTrue(response.Available, "response should be available");
+        AssertEqual(0, response.Limits.FiveHour.WindowMinutes, "five hour window should be absent");
+        AssertEqual("unavailable", response.Display.Codex5H, "five hour display should be unavailable");
+        AssertEqual(10080, response.Limits.SevenDay.WindowMinutes, "weekly window duration");
+        AssertEqual(42, response.Limits.SevenDay.RemainingPercent, "weekly remaining percent");
+        AssertEqual("42% 6d23h", response.Display.Codex7D, "weekly display");
         return Task.CompletedTask;
     }
 

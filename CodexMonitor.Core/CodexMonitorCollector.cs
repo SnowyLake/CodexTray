@@ -7,6 +7,8 @@ namespace CodexMonitor.Core;
 
 public sealed class CodexMonitorCollector
 {
+    private const int k_FiveHourWindowSeconds = 18000;
+    private const int k_SevenDayWindowSeconds = 604800;
     private const string k_FiveHourDisplayLabel = "Codex 5-Hour";
     private const string k_SevenDayDisplayLabel = "Codex 7-Day";
     private const string k_ResetCreditsEndpoint = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
@@ -111,8 +113,21 @@ public sealed class CodexMonitorCollector
         JsonElement rateLimit = GetObjectProperty(root, "rate_limit");
         JsonElement primary = GetObjectProperty(rateLimit, "primary_window");
         JsonElement secondary = GetObjectProperty(rateLimit, "secondary_window");
-        UsageLimit fiveHour = BuildOfficialLimit("five_hour", primary, now);
-        UsageLimit sevenDay = BuildOfficialLimit("seven_day", secondary, now);
+        UsageLimit fiveHour = BuildOfficialLimit("five_hour", default, now);
+        UsageLimit sevenDay = BuildOfficialLimit("seven_day", default, now);
+        foreach (JsonElement window in new[] { primary, secondary })
+        {
+            switch (GetInt32Property(window, "limit_window_seconds", 0))
+            {
+                case k_FiveHourWindowSeconds:
+                    fiveHour = BuildOfficialLimit("five_hour", window, now);
+                    break;
+                case k_SevenDayWindowSeconds:
+                    sevenDay = BuildOfficialLimit("seven_day", window, now);
+                    break;
+            }
+        }
+
         fiveHour.ResetLabel = useAbsoluteResetTime
             ? FormatFiveHourResetClock(fiveHour.ResetsAt, now)
             : FormatFiveHourResetLabel(fiveHour.ResetsAt, now);
@@ -235,6 +250,11 @@ public sealed class CodexMonitorCollector
     /// </summary>
     private static string FormatDisplayValue(UsageLimit limit, bool showResetTimeInPlugins)
     {
+        if (limit.WindowMinutes <= 0)
+        {
+            return "unavailable";
+        }
+
         return showResetTimeInPlugins
             ? $"{limit.RemainingPercent}% {limit.ResetLabel}"
             : $"{limit.RemainingPercent}%";

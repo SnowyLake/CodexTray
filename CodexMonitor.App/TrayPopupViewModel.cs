@@ -1154,6 +1154,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         /// </summary>
         public void Update(UsageLimit limit)
         {
+            if (limit.WindowMinutes <= 0)
+            {
+                UpdateUnavailable();
+                return;
+            }
+
             int remaining = Math.Max(0, Math.Min(100, limit.RemainingPercent));
             RemainingPercent = remaining;
             PercentText = $"{remaining}%";
@@ -1167,7 +1173,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         public void UpdateUnavailable()
         {
             RemainingPercent = 0;
-            PercentText = "0%";
+            PercentText = "N/A";
             ResetText = "unknown";
             AccentBrush = s_RedBrush;
         }
