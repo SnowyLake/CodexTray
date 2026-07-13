@@ -247,12 +247,11 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Opens the tray popup on the home page.
+    /// Shows the tray popup.
     /// </summary>
     private void ShowPanel(Drawing.Point? trayIconPosition = null)
     {
         EnsurePopup();
-        m_PopupViewModel?.ShowHome();
         RefreshPopupStatus();
         m_TrayPopupWindow?.ShowNearTray(trayIconPosition);
         _ = RefreshUsageAsync();
