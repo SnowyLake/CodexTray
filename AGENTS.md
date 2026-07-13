@@ -74,7 +74,7 @@ Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessi
 - 修改 Token Cost 解析或定价结构时, 同步检查 `Resources/model-pricing.json` 和对应测试.
 - 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
 - 本地服务必须保持仅监听 `127.0.0.1`. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token.
-- `Scripts/Publish-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数或清理逻辑优先修改共享脚本. `Scripts/Restart-App.ps1` 只重启当前发布输出中的程序, 不执行发布.
+- `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. `Scripts/Restart-App.ps1` 只重启当前发布输出中的程序, 不执行发布.
 
 ## 构建与输出
 
@@ -106,13 +106,13 @@ dotnet run --project .\CodexTray.Tests\CodexTray.Tests.csproj
 .\Scripts\Build-TrafficMonitorPlugin.ps1
 ```
 
-发布 App:
+发布 App 并重启已发布程序:
 
 ```powershell
 .\Scripts\Publish-App.ps1 -NoPause
 ```
 
-重启当前发布输出中的预览程序:
+不重新发布, 只重启当前发布输出中的预览程序:
 
 ```powershell
 .\Scripts\Restart-App.ps1 -NoPause

@@ -72,6 +72,40 @@ function Remove-PathWithRetry {
     }
 }
 
+function Stop-CodexTrayApp {
+    $processes = foreach ($appProcessName in @("CodexTray", "CodexTray.App")) {
+        Get-Process -Name $appProcessName -ErrorAction SilentlyContinue
+    }
+    if (-not $processes) {
+        Write-Host "No running CodexTray process found."
+        return
+    }
+
+    foreach ($process in $processes) {
+        Write-Host "Stopping process $($process.Id): $($process.Path)"
+        Stop-Process -Id $process.Id -Force -ErrorAction Stop
+        Wait-Process -Id $process.Id -ErrorAction SilentlyContinue
+        Write-Host "Process $($process.Id) stopped."
+    }
+}
+
+function Start-CodexTrayApp {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AppPath
+    )
+
+    if (-not (Test-Path -LiteralPath $AppPath)) {
+        throw "Published executable not found: $AppPath"
+    }
+
+    $process = Start-Process -FilePath $AppPath -WindowStyle Hidden -PassThru
+    Write-Host ""
+    Write-Host "Started CodexTray."
+    Write-Host "Process: $($process.Id)"
+    Write-Host "Path:    $AppPath"
+}
+
 function Wait-BeforeExit {
     param(
         [switch]$NoPause
