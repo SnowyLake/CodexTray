@@ -1,0 +1,222 @@
+using CodexTray.Core;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Windows.Input;
+
+namespace CodexTray.App;
+
+internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
+{
+    private string m_Name;
+    private string m_Provider;
+    private string m_BaseUrl;
+    private string m_ApiKey;
+    private string m_UserId;
+    private string m_BalanceDisplay = "N/A";
+    private string m_UsedDisplay = "N/A";
+    private string m_PlanName = string.Empty;
+    private string m_StatusText = "Waiting for refresh";
+    private bool m_IsEditing;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public event EventHandler? Changed;
+
+    public string Id { get; }
+
+    public string[] ProviderOptions { get; } =
+    [
+        ApiMonitorSettings.DeepSeekProvider,
+        ApiMonitorSettings.NewApiProvider,
+    ];
+
+    public ICommand ToggleEditingCommand { get; }
+
+    public string Name
+    {
+        get => m_Name;
+        set
+        {
+            if (SetField(ref m_Name, value))
+            {
+                OnPropertyChanged(nameof(DisplayName));
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    public string Provider
+    {
+        get => m_Provider;
+        set
+        {
+            string normalized = value == ApiMonitorSettings.NewApiProvider
+                ? ApiMonitorSettings.NewApiProvider
+                : ApiMonitorSettings.DeepSeekProvider;
+            string previousProvider = m_Provider;
+            if (!SetField(ref m_Provider, normalized))
+            {
+                return;
+            }
+
+            if (m_Name == previousProvider)
+            {
+                Name = normalized;
+            }
+
+            if (m_BaseUrl.Length == 0 || m_BaseUrl == "https://api.deepseek.com")
+            {
+                BaseUrl = normalized == ApiMonitorSettings.DeepSeekProvider ? "https://api.deepseek.com" : string.Empty;
+            }
+
+            OnPropertyChanged(nameof(IsNewApi));
+            OnPropertyChanged(nameof(DisplayName));
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public string BaseUrl
+    {
+        get => m_BaseUrl;
+        set
+        {
+            if (SetField(ref m_BaseUrl, value))
+            {
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    public string ApiKey
+    {
+        get => m_ApiKey;
+        set
+        {
+            if (SetField(ref m_ApiKey, value))
+            {
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    public string UserId
+    {
+        get => m_UserId;
+        set
+        {
+            if (SetField(ref m_UserId, value))
+            {
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    public bool IsNewApi => m_Provider == ApiMonitorSettings.NewApiProvider;
+
+    public string DisplayName => string.IsNullOrWhiteSpace(m_Name) ? m_Provider : m_Name.Trim();
+
+    public string BalanceDisplay
+    {
+        get => m_BalanceDisplay;
+        private set => SetField(ref m_BalanceDisplay, value);
+    }
+
+    public string UsedDisplay
+    {
+        get => m_UsedDisplay;
+        private set => SetField(ref m_UsedDisplay, value);
+    }
+
+    public string PlanName
+    {
+        get => m_PlanName;
+        private set
+        {
+            if (SetField(ref m_PlanName, value))
+            {
+                OnPropertyChanged(nameof(HasPlanName));
+            }
+        }
+    }
+
+    public bool HasPlanName => m_PlanName.Length > 0;
+
+    public bool IsEditing
+    {
+        get => m_IsEditing;
+        private set => SetField(ref m_IsEditing, value);
+    }
+
+    public string StatusText
+    {
+        get => m_StatusText;
+        private set => SetField(ref m_StatusText, value);
+    }
+
+    /// <summary>
+    /// Creates an editable API monitor view model.
+    /// </summary>
+    public ApiMonitorViewModel(ApiMonitorSettings settings, bool isEditing = false)
+    {
+        Id = settings.Id;
+        m_Name = settings.Name;
+        m_Provider = settings.Provider;
+        m_BaseUrl = settings.BaseUrl;
+        m_ApiKey = settings.ApiKey;
+        m_UserId = settings.UserId;
+        m_IsEditing = isEditing;
+        ToggleEditingCommand = new RelayCommand(_ => IsEditing = !IsEditing);
+    }
+
+    /// <summary>
+    /// Creates a persisted settings snapshot from current fields.
+    /// </summary>
+    public ApiMonitorSettings ToSettings()
+    {
+        return new ApiMonitorSettings
+        {
+            Id = Id,
+            Name = Name,
+            Provider = Provider,
+            BaseUrl = BaseUrl,
+            ApiKey = ApiKey,
+            UserId = UserId,
+        }.Normalize();
+    }
+
+    /// <summary>
+    /// Updates the card with a completed usage query.
+    /// </summary>
+    public void Update(ApiUsageResult result)
+    {
+        BalanceDisplay = result.BalanceDisplay;
+        UsedDisplay = result.UsedDisplay;
+        PlanName = result.PlanName;
+        StatusText = result.Available
+            ? $"Updated {result.UpdatedAt:HH:mm}"
+            : result.Error;
+    }
+
+    /// <summary>
+    /// Sets a field and raises property change notification when needed.
+    /// </summary>
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+        {
+            return false;
+        }
+
+        field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
+
+    /// <summary>
+    /// Raises a property change notification.
+    /// </summary>
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}

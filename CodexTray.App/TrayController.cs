@@ -19,6 +19,7 @@ internal sealed class TrayController : IDisposable
     private readonly Dispatcher m_Dispatcher;
     private readonly SettingsStore m_SettingsStore;
     private readonly CodexTrayCollector m_Collector;
+    private readonly ApiUsageCollector m_ApiUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
     private readonly UsageCache m_UsageCache = new();
     private readonly Forms.NotifyIcon m_NotifyIcon;
@@ -44,6 +45,7 @@ internal sealed class TrayController : IDisposable
         m_Dispatcher = dispatcher;
         m_SettingsStore = new SettingsStore();
         m_Collector = new CodexTrayCollector();
+        m_ApiUsageCollector = new ApiUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
         m_AppIcon = LoadApplicationIcon();
         bool settingsExists = m_SettingsStore.Exists();
@@ -269,6 +271,7 @@ internal sealed class TrayController : IDisposable
         m_PopupViewModel = new TrayPopupViewModel(m_Settings);
         m_PopupViewModel.RefreshRequested += async (_, _) => await RefreshUsageAsync();
         m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
+        m_PopupViewModel.ApiMonitorsChanged += (_, _) => m_SettingsStore.Save(m_Settings);
         m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
         m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
         m_PopupViewModel.ExitRequested += (_, _) => ExitApplication();
@@ -409,6 +412,9 @@ internal sealed class TrayController : IDisposable
             UsageResponse response = await Task.Run(() => m_Collector.Collect(showResetTimeInPlugins, useAbsoluteResetTime)).ConfigureAwait(true);
             m_UsageCache.Update(response);
             RefreshPopupStatus();
+            ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
+            IReadOnlyList<ApiUsageResult> apiUsage = await m_ApiUsageCollector.CollectAsync(apiMonitors).ConfigureAwait(true);
+            m_PopupViewModel?.UpdateApiUsage(apiUsage);
             TokenCostStatistics? tokenCost;
             try
             {
@@ -429,6 +435,22 @@ internal sealed class TrayController : IDisposable
 
             Interlocked.Exchange(ref m_IsRefreshing, 0);
         }
+    }
+
+    /// <summary>
+    /// Copies an API monitor before an asynchronous refresh.
+    /// </summary>
+    private static ApiMonitorSettings CloneApiMonitor(ApiMonitorSettings monitor)
+    {
+        return new ApiMonitorSettings
+        {
+            Id = monitor.Id,
+            Name = monitor.Name,
+            Provider = monitor.Provider,
+            BaseUrl = monitor.BaseUrl,
+            ApiKey = monitor.ApiKey,
+            UserId = monitor.UserId,
+        };
     }
 
     /// <summary>

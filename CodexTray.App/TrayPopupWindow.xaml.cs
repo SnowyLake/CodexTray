@@ -137,6 +137,28 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
+    /// Loads a masked API credential into a card password box.
+    /// </summary>
+    private void LoadApiKeyPasswordBox(object sender, RoutedEventArgs args)
+    {
+        if (sender is Controls.PasswordBox { DataContext: ApiMonitorViewModel monitor } passwordBox)
+        {
+            passwordBox.Password = monitor.ApiKey;
+        }
+    }
+
+    /// <summary>
+    /// Saves a masked API credential when its password box loses focus.
+    /// </summary>
+    private void SaveApiKeyPasswordBox(object sender, Input.KeyboardFocusChangedEventArgs args)
+    {
+        if (sender is Controls.PasswordBox { DataContext: ApiMonitorViewModel monitor } passwordBox)
+        {
+            monitor.ApiKey = passwordBox.Password;
+        }
+    }
+
+    /// <summary>
     /// Opens the token cost item selection menu below its button.
     /// </summary>
     private void OpenTokenCostItemsMenu(object sender, RoutedEventArgs args)

@@ -1,4 +1,5 @@
 using CodexTray.Core;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
@@ -37,6 +38,7 @@ internal sealed record TokenCostDisplay(string Cost, string Tokens);
 internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 {
     private const string k_HomePageName = "Home";
+    private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
 
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
@@ -101,6 +103,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public event EventHandler? SaveSettingsRequested;
 
+    public event EventHandler? ApiMonitorsChanged;
+
     public event EventHandler? InstallLiteMonitorPluginRequested;
 
     public event EventHandler? InstallTrafficMonitorPluginRequested;
@@ -112,6 +116,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public QuotaViewModel SevenDayQuota { get; } = new("7-Day");
 
     public ICommand ShowHomeCommand { get; }
+
+    public ICommand ShowApiCommand { get; }
 
     public ICommand ShowSettingsCommand { get; }
 
@@ -132,6 +138,16 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public ICommand AutoDetectTrafficMonitorCommand { get; }
 
     public ICommand ExitCommand { get; }
+
+    public ICommand AddApiMonitorCommand { get; }
+
+    public ICommand RemoveApiMonitorCommand { get; }
+
+    public ICommand MoveApiMonitorUpCommand { get; }
+
+    public ICommand MoveApiMonitorDownCommand { get; }
+
+    public ObservableCollection<ApiMonitorViewModel> ApiMonitors { get; } = [];
 
     public string PlanDisplay
     {
@@ -495,11 +511,19 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public bool IsHomeVisible => m_CurrentPage == k_HomePageName;
 
+    public bool IsApiVisible => m_CurrentPage == k_ApiPageName;
+
     public bool IsSettingsVisible => m_CurrentPage == k_SettingsPageName;
 
     public bool IsHomeSelected => m_CurrentPage == k_HomePageName;
 
+    public bool IsApiSelected => m_CurrentPage == k_ApiPageName;
+
     public bool IsSettingsSelected => m_CurrentPage == k_SettingsPageName;
+
+    public bool IsApiEmpty => ApiMonitors.Count == 0;
+
+    public string ApiMonitorStatusText => $"{ApiMonitors.Count} API{(ApiMonitors.Count == 1 ? string.Empty : "s")} monitored";
 
     public bool IsRefreshing
     {
@@ -520,7 +544,9 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     {
         m_Settings = settings;
         LoadSettings(settings);
+        LoadApiMonitors(settings.ApiMonitors);
         ShowHomeCommand = new RelayCommand(_ => ShowHome());
+        ShowApiCommand = new RelayCommand(_ => ShowApi());
         ShowSettingsCommand = new RelayCommand(_ => ShowSettings());
         RefreshCommand = new RelayCommand(_ => RefreshRequested?.Invoke(this, EventArgs.Empty));
         SaveSettingsCommand = new RelayCommand(_ => SaveSettingsRequested?.Invoke(this, EventArgs.Empty));
@@ -531,6 +557,10 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         AutoDetectLiteMonitorCommand = new RelayCommand(async _ => await DetectLiteMonitorAsync(showNotFound: true));
         AutoDetectTrafficMonitorCommand = new RelayCommand(async _ => await DetectTrafficMonitorAsync(showNotFound: true));
         ExitCommand = new RelayCommand(_ => ExitRequested?.Invoke(this, EventArgs.Empty));
+        AddApiMonitorCommand = new RelayCommand(_ => AddApiMonitor());
+        RemoveApiMonitorCommand = new RelayCommand(RemoveApiMonitor);
+        MoveApiMonitorUpCommand = new RelayCommand(parameter => MoveApiMonitor(parameter, -1));
+        MoveApiMonitorDownCommand = new RelayCommand(parameter => MoveApiMonitor(parameter, 1));
     }
 
     /// <summary>
@@ -789,6 +819,14 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Shows the API monitoring page inside the tray popup.
+    /// </summary>
+    public void ShowApi()
+    {
+        SetPage(k_ApiPageName);
+    }
+
+    /// <summary>
     /// Shows the settings page inside the tray popup.
     /// </summary>
     public void ShowSettings()
@@ -809,9 +847,133 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
         m_CurrentPage = pageName;
         OnPropertyChanged(nameof(IsHomeVisible));
+        OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsHomeSelected));
+        OnPropertyChanged(nameof(IsApiSelected));
         OnPropertyChanged(nameof(IsSettingsSelected));
+    }
+
+    /// <summary>
+    /// Loads persisted API monitor cards.
+    /// </summary>
+    private void LoadApiMonitors(IEnumerable<ApiMonitorSettings> settings)
+    {
+        ApiMonitors.Clear();
+        foreach (ApiMonitorSettings monitorSettings in settings)
+        {
+            ApiMonitorViewModel monitor = new(monitorSettings);
+            monitor.Changed += HandleApiMonitorChanged;
+            ApiMonitors.Add(monitor);
+        }
+
+        NotifyApiMonitorCountChanged();
+    }
+
+    /// <summary>
+    /// Adds a default DeepSeek API monitor card.
+    /// </summary>
+    private void AddApiMonitor()
+    {
+        ApiMonitorViewModel monitor = new(new ApiMonitorSettings(), isEditing: true);
+        monitor.Changed += HandleApiMonitorChanged;
+        ApiMonitors.Add(monitor);
+        SaveApiMonitors();
+    }
+
+    /// <summary>
+    /// Removes an API monitor card after confirmation.
+    /// </summary>
+    private void RemoveApiMonitor(object? parameter)
+    {
+        if (parameter is not ApiMonitorViewModel monitor ||
+            !ShowModalConfirmation($"Delete the {monitor.Name} API monitor?"))
+        {
+            return;
+        }
+
+        monitor.Changed -= HandleApiMonitorChanged;
+        ApiMonitors.Remove(monitor);
+        SaveApiMonitors();
+    }
+
+    /// <summary>
+    /// Moves an API monitor card by one position.
+    /// </summary>
+    private void MoveApiMonitor(object? parameter, int offset)
+    {
+        if (parameter is not ApiMonitorViewModel monitor)
+        {
+            return;
+        }
+
+        int oldIndex = ApiMonitors.IndexOf(monitor);
+        int newIndex = oldIndex + offset;
+        if (oldIndex < 0 || newIndex < 0 || newIndex >= ApiMonitors.Count)
+        {
+            return;
+        }
+
+        ApiMonitors.Move(oldIndex, newIndex);
+        SaveApiMonitors();
+    }
+
+    /// <summary>
+    /// Persists a changed API monitor field.
+    /// </summary>
+    private void HandleApiMonitorChanged(object? sender, EventArgs args)
+    {
+        SaveApiMonitors();
+    }
+
+    /// <summary>
+    /// Copies API monitor cards into application settings and requests persistence.
+    /// </summary>
+    private void SaveApiMonitors()
+    {
+        m_Settings.ApiMonitors = ApiMonitors.Select(monitor => monitor.ToSettings()).ToList();
+        NotifyApiMonitorCountChanged();
+        ApiMonitorsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Updates API monitor count properties after a collection change.
+    /// </summary>
+    private void NotifyApiMonitorCountChanged()
+    {
+        OnPropertyChanged(nameof(IsApiEmpty));
+        OnPropertyChanged(nameof(ApiMonitorStatusText));
+    }
+
+    /// <summary>
+    /// Applies query results to matching API monitor cards.
+    /// </summary>
+    public void UpdateApiUsage(IReadOnlyList<ApiUsageResult> results)
+    {
+        Dictionary<string, ApiUsageResult> byId = results.ToDictionary(result => result.MonitorId, StringComparer.Ordinal);
+        foreach (ApiMonitorViewModel monitor in ApiMonitors)
+        {
+            if (byId.TryGetValue(monitor.Id, out ApiUsageResult? result))
+            {
+                monitor.Update(result);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Shows a modal confirmation message without triggering popup auto hide.
+    /// </summary>
+    private bool ShowModalConfirmation(string message)
+    {
+        IsModalOpen = true;
+        try
+        {
+            return System.Windows.MessageBox.Show(message, CodexTrayDefaults.AppName, MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+        }
+        finally
+        {
+            IsModalOpen = false;
+        }
     }
 
     /// <summary>

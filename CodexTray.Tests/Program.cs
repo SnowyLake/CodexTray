@@ -30,6 +30,8 @@ internal static class Program
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
         await RunAsync("repairs missing settings fields", TestSettingsStoreRepairsMissingFieldsAsync);
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
+        await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
+        await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
@@ -326,6 +328,7 @@ internal static class Program
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
         AssertEqual(TokenCostItem.All, settings.TokenCostItems, "default token cost items");
+        AssertEqual(0, settings.ApiMonitors.Count, "default API monitors");
 
         string repairedJson = File.ReadAllText(store.SettingsPath);
         using JsonDocument document = JsonDocument.Parse(repairedJson);
@@ -335,6 +338,7 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenCostItems), out _), "repaired settings should include token cost items");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
         return Task.CompletedTask;
     }
@@ -367,6 +371,65 @@ internal static class Program
         settings.Normalize();
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "legacy Chinese token unit");
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests API monitor persistence in the shared settings file.
+    /// </summary>
+    private static Task TestApiMonitorSettingsAsync()
+    {
+        using TempDirectory temp = new();
+        SettingsStore store = new(temp.Path);
+        AppSettings settings = new()
+        {
+            ApiMonitors =
+            [
+                new ApiMonitorSettings
+                {
+                    Name = "Personal DeepSeek",
+                    ApiKey = "deepseek-secret-token",
+                },
+            ],
+        };
+
+        store.Save(settings);
+
+        string json = File.ReadAllText(store.SettingsPath);
+        AssertTrue(json.Contains("deepseek-secret-token", StringComparison.Ordinal), "settings should contain the API key");
+        AppSettings loaded = store.Load();
+        AssertEqual("deepseek-secret-token", loaded.ApiMonitors.Single().ApiKey, "saved API key");
+        AssertEqual("Personal DeepSeek", loaded.ApiMonitors.Single().Name, "API monitor name");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests DeepSeek CNY balance and NewAPI USD quota parsing.
+    /// </summary>
+    private static async Task TestApiUsageCollectorAsync()
+    {
+        using HttpClient client = new(new ApiUsageHttpMessageHandler());
+        ApiUsageCollector collector = new(client);
+        ApiMonitorSettings deepSeek = new()
+        {
+            Id = "deepseek",
+            BaseUrl = "https://deepseek.example/v1",
+            ApiKey = "deepseek-key",
+        };
+        ApiMonitorSettings newApi = new()
+        {
+            Id = "newapi",
+            Provider = ApiMonitorSettings.NewApiProvider,
+            BaseUrl = "https://newapi.example",
+            ApiKey = "newapi-token",
+            UserId = "42",
+        };
+
+        IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync([deepSeek, newApi]);
+
+        AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
+        AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
+        AssertEqual("$5.00", results[1].UsedDisplay, "NewAPI used USD quota");
+        AssertEqual("default", results[1].PlanName, "NewAPI group");
     }
 
     /// <summary>
@@ -632,5 +695,57 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         return Task.FromResult(Send(request, cancellationToken));
+    }
+}
+
+internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
+{
+    /// <summary>
+    /// Returns fixed DeepSeek and NewAPI account responses.
+    /// </summary>
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        string host = request.RequestUri?.Host ?? string.Empty;
+        if (request.Headers.Authorization?.Scheme != "Bearer")
+        {
+            throw new InvalidOperationException("missing API authorization header");
+        }
+
+        string body;
+        if (host == "deepseek.example")
+        {
+            AssertRequest(request, "/user/balance", "deepseek-key");
+            body = "{\"is_available\":true,\"balance_infos\":[{\"currency\":\"USD\",\"total_balance\":\"15.00\"},{\"currency\":\"CNY\",\"total_balance\":\"110.00\"}]}";
+        }
+        else if (host == "newapi.example")
+        {
+            AssertRequest(request, "/api/user/self", "newapi-token");
+            if (!request.Headers.TryGetValues("New-Api-User", out IEnumerable<string>? userIds) || userIds.Single() != "42")
+            {
+                throw new InvalidOperationException("missing NewAPI user header");
+            }
+
+            body = "{\"success\":true,\"data\":{\"group\":\"default\",\"quota\":5000000,\"used_quota\":2500000}}";
+        }
+        else
+        {
+            throw new InvalidOperationException("unexpected API usage host");
+        }
+
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        });
+    }
+
+    /// <summary>
+    /// Validates a monitored API request path and credential.
+    /// </summary>
+    private static void AssertRequest(HttpRequestMessage request, string path, string token)
+    {
+        if (request.RequestUri?.AbsolutePath != path || request.Headers.Authorization?.Parameter != token)
+        {
+            throw new InvalidOperationException("invalid API usage request");
+        }
     }
 }
