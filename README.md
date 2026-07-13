@@ -4,128 +4,89 @@
 
 - [概览](#概览)
 - [效果展示](#效果展示)
-- [主要功能](#主要功能)
-- [安装使用](#安装使用)
-- [托盘菜单](#托盘菜单)
-- [额度刷新](#额度刷新)
-- [安全与隐私](#安全与隐私)
+- [功能](#功能)
+- [安装](#安装)
+- [使用](#使用)
+- [插件支持](#插件支持)
+- [数据与隐私](#数据与隐私)
 - [常见问题](#常见问题)
-- [开发](#开发)
 
 ## 概览
 
-`CodexMonitor` 是一个 Windows 托盘小工具, 用来把 Codex 额度显示到 LiteMonitor 或 TrafficMonitor.
+`CodexMonitor` 是一个适用于 Windows x64 的托盘应用. 它读取当前 Windows 用户的 Codex 登录信息, 从 ChatGPT 官方接口获取 5-Hour 和 7-Day 额度, 并通过本地服务把额度提供给 LiteMonitor 与 TrafficMonitor 插件.
 
-它会在后台读取当前机器上的 Codex 登录信息, 获取 5-Hour 额度和 7-Day 额度, 然后把结果提供给监控器插件显示. 启动后程序会常驻系统托盘, 不需要一直打开窗口.
-
-适合已经在使用 LiteMonitor 或 TrafficMonitor, 并且希望在任务栏里直接看到 Codex 剩余额度的用户.
+应用还会统计本机 Codex 会话的 token 用量, 按模型价格估算 API 等价成本. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
 
 ## 效果展示
 
 ![CodexMonitor showcase](Docs/showcase.png)
 
-## 主要功能
+## 功能
 
-- 显示 Codex 5-Hour 额度剩余百分比和到期倒计时.
-- 显示 Codex 7-Day 额度剩余百分比和到期倒计时.
-- 默认每 5 分钟自动刷新一次额度.
-- 支持在设置窗口里修改刷新间隔.
-- 支持点击 `Refresh Now` 立刻刷新.
-- 支持一键安装 LiteMonitor 插件配置.
-- 支持一键安装 TrafficMonitor 原生插件.
-- 支持自动检测 LiteMonitor 和 TrafficMonitor 路径.
-- 支持随 Windows 开机自启动.
-- 支持托盘菜单快速打开设置, 安装插件, 重启服务, 退出程序.
+- 显示 Codex 计划状态, 5-Hour 与 7-Day 剩余额度和重置时间.
+- 显示可用 Reset Credits 数量及最近到期时间.
+- 统计 Today, Yesterday, Week, Month, Last 7 Days 和 Last 30 Days 的 token 用量与 API 等价成本.
+- 支持选择 Token Cost 项目和中英文 token 数量单位.
+- 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
+- 支持 `System`, `Light`, `Dark` 主题, Acrylic blur 和透明度设置.
+- 自动检测 LiteMonitor 与 TrafficMonitor 安装目录, 并一键安装对应插件.
+- 支持插件中显示或隐藏额度重置时间, 以及倒计时或绝对时间格式.
+- 支持随 Windows 启动, 自定义本地 HTTP 端口和单实例运行.
 
-## 安装使用
+## 安装
 
-1. 打开项目的 GitHub Releases 页面.
-2. 下载 `CodexMonitor-vX.Y.Z-win-x64.zip`.
-3. 解压后运行发布目录里的 `CodexMonitor.exe`.
-4. 首次启动会打开设置窗口.
-5. 确认 LiteMonitor 或 TrafficMonitor 路径正确, 然后点击对应的安装插件按钮.
-6. 重启对应监控器, 或在插件页面重载插件.
+1. 从 [GitHub Releases](https://github.com/SnowyLake/CodexMonitor/releases) 下载 `CodexMonitor-vX.Y.Z-win-x64.zip`.
+2. 解压完整目录, 不要只复制 `CodexMonitor.exe`.
+3. 确认系统已安装 [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0).
+4. 运行 `CodexMonitor.exe`.
 
-如果已经登录过 Codex, 通常不需要额外配置账号. 如果程序无法读取额度, 请先确认本机 Codex 可以正常使用.
+发布包中的 `Resources` 保存图标和模型价格, `Plugins` 保存 LiteMonitor 与 TrafficMonitor 插件文件. 缺少这些目录时, 部分界面或插件安装功能将不可用.
 
-从 Release zip 解压时, 发布目录会包含 `Resources` 和 `Plugins` 模板目录. TrafficMonitor 插件如果从源码运行, 需要先构建原生 DLL:
+## 使用
 
-```powershell
-.\Scripts\Build-TrafficMonitorPlugin.ps1
-```
+首次启动时, 应用会保存默认设置并打开主面板. 之后应用常驻 Windows 系统托盘.
 
-## 托盘菜单
+- 左键单击托盘图标: 打开或隐藏主面板.
+- 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
+- Home 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
+- Settings 页: 调整刷新, 显示, 自启动, 插件目录和 HTTP 端口设置.
 
-程序启动后会出现在 Windows 系统托盘. 关闭设置窗口不会退出程序.
+再次运行 `CodexMonitor.exe` 不会启动第二个实例, 而是通知已有实例打开主面板.
 
-托盘右键菜单包含:
+## 插件支持
 
-- `Open Settings`: 打开设置窗口.
-- `Install LiteMonitor Plugin`: 安装或覆盖 LiteMonitor 插件配置.
-- `Install TrafficMonitor Plugin`: 安装或覆盖 TrafficMonitor 插件 DLL 和配置.
-- `Open LiteMonitor Folder`: 打开当前 LiteMonitor 目录.
-- `Open TrafficMonitor Folder`: 打开当前 TrafficMonitor 目录.
-- `Restart Service`: 重启本地服务.
-- `Exit`: 退出程序.
+CodexMonitor 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监控器, 使用 `Browse` 手动选择目录或 `Auto detect` 自动定位, 然后点击 `Setup` 安装插件. 安装完成后重启对应监控器或重新加载插件.
 
-## 额度刷新
+LiteMonitor 显示 `Codex 5-Hour` 和 `Codex 7-Day` 两项, 从 JSON 接口读取数据. TrafficMonitor 原生插件显示同样两项, 从两行文本接口读取数据. 插件默认保留宿主自己的 label 和布局.
 
-默认刷新间隔是 5 分钟. 你可以在设置窗口里修改 `Refresh interval (minutes)`.
+如果修改了 CodexMonitor 的 HTTP 端口, 请重新执行 `Setup`, 让插件配置同步到新端口.
 
-点击 `Refresh Now` 会立即刷新一次额度, 并同步更新设置窗口和监控器插件读取到的数据.
+## 数据与隐私
 
-额度到期倒计时显示规则:
-
-- 5-Hour 额度字段值使用 `88% 2h45m` 格式.
-- 7-Day 额度字段值使用 `66% 3d04h` 格式.
-- 分钟或小时小于 10 时保留两位数字, 例如 `05m` 和 `04h`.
-- JSON 接口的 `display.codex_5h` 和 `display.codex_7d` 返回纯额度值. TrafficMonitor 原生插件读取 `/codex-monitor.txt` 的两行文本值. 两个插件都保留宿主自己的 label, value 不再补空格对齐, 由宿主自行排布.
-
-## 安全与隐私
-
-`CodexMonitor` 只在本机运行, 默认只监听 `127.0.0.1`.
-
-程序会读取本机 Codex 登录信息来请求官方额度数据. 这些 token 不会显示在 LiteMonitor 中, 也不会通过本地接口返回.
-
-程序设置保存在 `CodexMonitor.exe` 同级目录下的 `settings.json`.
-
-请不要把自己的 Codex 登录文件, 设置文件, 或调试日志上传到公开位置.
+- 额度和 Reset Credits 来自 ChatGPT 官方接口. 应用读取 `~/.codex/auth.json` 中的 Codex OAuth 凭据.
+- Token Cost 来自本机 `~/.codex/sessions` 与 `~/.codex/archived_sessions` 日志, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本.
+- 本地 HTTP 服务默认仅监听 `127.0.0.1:17890`, 不向局域网开放.
+- OAuth token 不会写入日志, 插件配置或本地 HTTP 响应.
+- 应用设置保存在 `CodexMonitor.exe` 同级目录的 `settings.json`.
 
 ## 常见问题
 
-### 为什么 LiteMonitor 或 TrafficMonitor 里没有变化
+### 为什么额度显示 N/A
 
-先确认 `CodexMonitor.exe` 正在运行, 然后在设置窗口点击 `Refresh Now`. 如果仍然没有变化, 重新安装对应插件并重启对应监控器.
+请确认当前 Windows 用户已登录 Codex, `~/.codex/auth.json` 存在且凭据有效, 并且网络可以访问 ChatGPT.
+
+### 为什么 Token Cost 显示 N/A
+
+请确认发布目录包含 `Resources/model-pricing.json`, 并且当前用户存在 Codex session 日志. 未收录价格的模型可以统计 token, 但无法计算成本.
+
+### 为什么 LiteMonitor 或 TrafficMonitor 没有更新
+
+请确认 CodexMonitor 正在运行, 在托盘菜单中点击 `Refresh Now`, 再检查监控器路径并重新执行 `Setup`. 如果修改过 HTTP 端口, 必须重新安装插件配置.
 
 ### 为什么找不到 LiteMonitor 或 TrafficMonitor
 
-如果没有保存过路径, 程序会在本机磁盘里搜索 `LiteMonitor.exe` 和 `TrafficMonitor.exe`. 搜索可能需要一点时间. 也可以在设置窗口中手动选择对应路径.
+自动检测会搜索本机磁盘中的 `LiteMonitor.exe` 或 `TrafficMonitor.exe`. 也可以使用 `Browse` 直接选择包含对应可执行文件的目录.
 
-### 为什么额度显示不可用
+### 为什么托盘图标没有直接显示在任务栏
 
-通常是本机没有可用的 Codex 登录信息, 或当前网络无法请求额度接口. 先确认 Codex 本身能正常使用, 再点击 `Refresh Now`.
-
-### 可以只复制单个 exe 吗
-
-不建议. 程序主体仍然发布为单文件 `CodexMonitor.exe`, 但 `Resources` 和 `Plugins` 目录会作为外部资源随包发布, 这样托盘图标和插件模板才能正常读取.
-
-## 开发
-
-当前工程是 C#/.NET Windows 托盘应用.
-
-- `CodexMonitor.Core`: 额度采集, 缓存, 本地服务, 设置存储, LiteMonitor 和 TrafficMonitor 插件安装.
-- `CodexMonitor.App`: WinForms 托盘应用和设置窗口.
-- `CodexMonitor.Tests`: C# 测试运行器.
-- `Plugins/LiteMonitor`: LiteMonitor 插件定义.
-- `Plugins/TrafficMonitor`: TrafficMonitor 插件源码和构建脚本.
-- `Scripts`: 发布, 重启, release 打包脚本.
-- `Builds`: 本地构建和发布产物目录, 不提交生成内容.
-  - `Builds/Output/win-x64`: 本地发布和重启预览输出.
-  - `Builds/Release/vX.Y.Z`: 正式 release 的版本化目录和 zip.
-
-开发验证命令:
-
-```powershell
-dotnet build .\CodexMonitor.sln -m:1
-dotnet run --project .\CodexMonitor.Tests\CodexMonitor.Tests.csproj
-```
+Windows 负责管理托盘图标的可见区域. 请在系统托盘展开区或 Windows 的任务栏设置中调整 CodexMonitor 的显示状态.
