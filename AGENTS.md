@@ -129,13 +129,14 @@ dotnet run --project .\CodexTray.Tests\CodexTray.Tests.csproj
 4. 执行 `.\Scripts\Package-Release.ps1 -Version X.Y.Z -NoPause`.
 5. 确认 `Builds/Release/vX.Y.Z/CodexTray-vX.Y.Z-win-x64.zip` 存在.
 6. 在已推送的最终发布提交上创建 annotated tag `vX.Y.Z`, 再推送 tag.
-7. 使用以下命令创建 GitHub Release 并上传 zip:
+7. 获取上一个版本 tag, 检查从该 tag 到 `vX.Y.Z` 之间的 commit 和实际变更. 由 AI 合并同类改动, 去除仅用于发布, 格式化或内部维护且不影响用户的噪声, 编写准确, 面向用户的 Markdown Release Notes. 不直接复制 commit 列表, 不使用 `--generate-notes`, 不写入未在 diff 中确认的内容. 将结果保存到 `Builds/Release/vX.Y.Z/release-notes.md`.
+8. 使用以下命令创建 GitHub Release 并上传 zip:
 
 ```powershell
 gh release create vX.Y.Z `
   "Builds\Release\vX.Y.Z\CodexTray-vX.Y.Z-win-x64.zip" `
   --title "CodexTray vX.Y.Z" `
-  --notes "Release vX.Y.Z." `
+  --notes-file "Builds\Release\vX.Y.Z\release-notes.md" `
   --verify-tag
 ```
 
