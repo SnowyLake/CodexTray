@@ -18,7 +18,6 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     private string m_UserId;
     private string m_BalanceDisplay = "N/A";
     private string m_UsedDisplay = "N/A";
-    private string m_PlanName = string.Empty;
     private string m_StatusText = "Waiting for refresh";
     private Media.Brush m_StatusDotBrush = s_RedBrush;
     private bool m_IsEditing;
@@ -132,20 +131,6 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         private set => SetField(ref m_UsedDisplay, value);
     }
 
-    public string PlanName
-    {
-        get => m_PlanName;
-        private set
-        {
-            if (SetField(ref m_PlanName, value))
-            {
-                OnPropertyChanged(nameof(HasPlanName));
-            }
-        }
-    }
-
-    public bool HasPlanName => m_PlanName.Length > 0;
-
     public bool IsEditing
     {
         get => m_IsEditing;
@@ -202,7 +187,6 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     {
         BalanceDisplay = result.BalanceDisplay;
         UsedDisplay = result.UsedDisplay;
-        PlanName = result.PlanName;
         StatusText = result.Available
             ? $"Updated {result.UpdatedAt:HH:mm}"
             : result.Error;

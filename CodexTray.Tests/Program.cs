@@ -429,7 +429,6 @@ internal static class Program
         AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
         AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
         AssertEqual("$5.00", results[1].UsedDisplay, "NewAPI used USD quota");
-        AssertEqual("default", results[1].PlanName, "NewAPI group");
     }
 
     /// <summary>

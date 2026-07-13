@@ -845,7 +845,7 @@
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="Balance"
+                                                    <TextBlock Text="Balance:"
                                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                FontSize="12" />
                                                     <TextBlock Grid.Column="1"
@@ -857,7 +857,7 @@
                                                     <StackPanel Grid.Column="2"
                                                                 Orientation="Horizontal"
                                                                 Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                        <TextBlock Text="Used"
+                                                        <TextBlock Text="Used:"
                                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                    FontSize="12" />
                                                         <TextBlock Margin="8,0,0,0"
@@ -867,11 +867,6 @@
                                                                    FontWeight="SemiBold" />
                                                     </StackPanel>
                                                 </Grid>
-                                                <TextBlock Margin="0,5,0,0"
-                                                           Text="{Binding PlanName}"
-                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                           FontSize="12"
-                                                           Visibility="{Binding HasPlanName, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                             </StackPanel>
 
                                             <StackPanel Visibility="{Binding IsEditing, Converter={StaticResource BooleanToVisibilityConverter}}">

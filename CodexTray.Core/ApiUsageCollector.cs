@@ -9,7 +9,6 @@ public sealed record ApiUsageResult(
     bool Available,
     string BalanceDisplay,
     string UsedDisplay,
-    string PlanName,
     string Error,
     DateTimeOffset UpdatedAt);
 
@@ -121,7 +120,7 @@ public sealed class ApiUsageCollector
                 : string.Empty;
             if (decimal.TryParse(rawValue, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value))
             {
-                return new ApiUsageResult(monitorId, true, $"¥{value:0.00}", string.Empty, string.Empty, string.Empty, now);
+                return new ApiUsageResult(monitorId, true, $"¥{value:0.00}", string.Empty, string.Empty, now);
             }
         }
 
@@ -143,13 +142,11 @@ public sealed class ApiUsageCollector
             return Unavailable(monitorId, message, now);
         }
 
-        string planName = data.TryGetProperty("group", out JsonElement group) ? group.GetString() ?? string.Empty : string.Empty;
         return new ApiUsageResult(
             monitorId,
             true,
             $"${quota / 500000m:0.00}",
             $"${usedQuota / 500000m:0.00}",
-            planName,
             string.Empty,
             now);
     }
@@ -207,6 +204,6 @@ public sealed class ApiUsageCollector
     /// </summary>
     private static ApiUsageResult Unavailable(string monitorId, string error, DateTimeOffset now)
     {
-        return new ApiUsageResult(monitorId, false, "N/A", "N/A", string.Empty, error, now);
+        return new ApiUsageResult(monitorId, false, "N/A", "N/A", error, now);
     }
 }
