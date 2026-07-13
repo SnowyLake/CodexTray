@@ -144,6 +144,8 @@ gh release create vX.Y.Z `
   --verify-tag
 ```
 
+13. GitHub Release 创建并核验成功后, 使用 `git switch develop` 切回 `develop`, 再确认工作区干净且 `develop` 与 `origin/develop` 同步.
+
 版本输入支持 `X.Y.Z`, `vX.Y.Z` 和 SemVer 后缀. tag 与版本目录固定使用规范化后的 `v<version>`.
 
 如果 tag 或 release 已存在, 停止并报告状态, 不覆盖 tag. 只有用户明确同意时才能使用 `gh release upload --clobber`. 如果 push 被 non-fast-forward 拒绝, 停止并让用户决定 rebase 或 merge.
