@@ -1,12 +1,7 @@
-namespace CodexMonitor.Core;
+namespace CodexTray.Core;
 
 public static class TrafficMonitorPluginInstaller
 {
-    private const string k_FallbackPluginConfig = """
-[CodexMonitor]
-UsageUrl=http://127.0.0.1:17890/codex-monitor
-""";
-
     /// <summary>
     /// Installs the TrafficMonitor plugin DLL and local configuration into the selected directory.
     /// </summary>
@@ -21,10 +16,10 @@ UsageUrl=http://127.0.0.1:17890/codex-monitor
         string pluginDirectory = Path.Combine(trafficMonitorDirectory, "plugins");
         Directory.CreateDirectory(pluginDirectory);
 
-        string targetPath = Path.Combine(pluginDirectory, CodexMonitorDefaults.TrafficMonitorPluginFileName);
+        string targetPath = Path.Combine(pluginDirectory, CodexTrayDefaults.TrafficMonitorPluginFileName);
         File.Copy(sourcePath, targetPath, true);
 
-        string configPath = Path.Combine(pluginDirectory, CodexMonitorDefaults.TrafficMonitorPluginConfigFileName);
+        string configPath = Path.Combine(pluginDirectory, CodexTrayDefaults.TrafficMonitorPluginConfigFileName);
         File.WriteAllText(configPath, BuildPluginConfig(port));
         return targetPath;
     }
@@ -34,8 +29,7 @@ UsageUrl=http://127.0.0.1:17890/codex-monitor
     /// </summary>
     private static string BuildPluginConfig(int port)
     {
-        int normalizedPort = port is > 0 and <= 65535 ? port : CodexMonitorDefaults.Port;
-        string bridgeUrl = $"http://127.0.0.1:{normalizedPort}{CodexMonitorDefaults.UsageEndpointPath}";
+        string bridgeUrl = CodexTrayDefaults.BuildBridgeTextUrl(port);
         return SetUsageUrl(ReadTemplateConfig(), bridgeUrl);
     }
 
@@ -70,8 +64,13 @@ UsageUrl=http://127.0.0.1:17890/codex-monitor
     /// </summary>
     private static string ReadTemplateConfig()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "Plugins", "TrafficMonitor", CodexMonitorDefaults.TrafficMonitorPluginConfigFileName);
-        return File.Exists(templatePath) ? File.ReadAllText(templatePath) : k_FallbackPluginConfig;
+        string templatePath = Path.Combine(AppContext.BaseDirectory, CodexTrayDefaults.PluginsDirectoryName, CodexTrayDefaults.TrafficMonitorPluginSubdirectory, CodexTrayDefaults.TrafficMonitorPluginConfigFileName);
+        if (!File.Exists(templatePath))
+        {
+            throw new FileNotFoundException($"TrafficMonitor plugin config template was not found: {templatePath}");
+        }
+
+        return File.ReadAllText(templatePath);
     }
 
     /// <summary>
@@ -92,7 +91,7 @@ UsageUrl=http://127.0.0.1:17890/codex-monitor
             }
         }
 
-        throw new FileNotFoundException($"TrafficMonitor plugin DLL was not found. Run Scripts\\Build-TrafficMonitorPlugin.ps1 first, then install {CodexMonitorDefaults.TrafficMonitorPluginFileName}.");
+        throw new FileNotFoundException($"TrafficMonitor plugin DLL was not found. Run Scripts\\Build-TrafficMonitorPlugin.ps1 first, then install {CodexTrayDefaults.TrafficMonitorPluginFileName}.");
     }
 
     /// <summary>
@@ -113,13 +112,17 @@ UsageUrl=http://127.0.0.1:17890/codex-monitor
     /// </summary>
     private static IEnumerable<string> EnumeratePluginBinaryCandidates()
     {
+        string pluginsDirectory = CodexTrayDefaults.PluginsDirectoryName;
+        string trafficMonitorSubdirectory = CodexTrayDefaults.TrafficMonitorPluginSubdirectory;
+        string pluginFileName = CodexTrayDefaults.TrafficMonitorPluginFileName;
+
         string baseDirectory = AppContext.BaseDirectory;
-        yield return Path.Combine(baseDirectory, "Plugins", "TrafficMonitor", CodexMonitorDefaults.TrafficMonitorPluginFileName);
-        yield return Path.Combine(baseDirectory, CodexMonitorDefaults.TrafficMonitorPluginFileName);
+        yield return Path.Combine(baseDirectory, pluginsDirectory, trafficMonitorSubdirectory, pluginFileName);
+        yield return Path.Combine(baseDirectory, pluginFileName);
 
         string currentDirectory = Directory.GetCurrentDirectory();
-        yield return Path.Combine(currentDirectory, "Plugins", "TrafficMonitor", CodexMonitorDefaults.TrafficMonitorPluginFileName);
-        yield return Path.Combine(currentDirectory, "Plugins", "TrafficMonitor", "Builds", "x64", "Release", CodexMonitorDefaults.TrafficMonitorPluginFileName);
-        yield return Path.Combine(currentDirectory, "Plugins", "TrafficMonitor", "Builds", "x64", "Debug", CodexMonitorDefaults.TrafficMonitorPluginFileName);
+        yield return Path.Combine(currentDirectory, pluginsDirectory, trafficMonitorSubdirectory, pluginFileName);
+        yield return Path.Combine(currentDirectory, pluginsDirectory, trafficMonitorSubdirectory, "Builds", "x64", "Release", pluginFileName);
+        yield return Path.Combine(currentDirectory, pluginsDirectory, trafficMonitorSubdirectory, "Builds", "x64", "Debug", pluginFileName);
     }
 }

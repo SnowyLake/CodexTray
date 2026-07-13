@@ -1,7 +1,7 @@
 using Microsoft.Win32;
 using System.Runtime.Versioning;
 
-namespace CodexMonitor.Core;
+namespace CodexTray.Core;
 
 [SupportedOSPlatform("windows")]
 public static class StartupManager
@@ -14,7 +14,7 @@ public static class StartupManager
     public static bool IsEnabled(string executablePath)
     {
         using RegistryKey? key = Registry.CurrentUser.OpenSubKey(k_RunKeyPath, false);
-        string? value = key?.GetValue(CodexMonitorDefaults.StartupRunValueName) as string;
+        string? value = key?.GetValue(CodexTrayDefaults.StartupRunValueName) as string;
         return string.Equals(NormalizeRunValue(value), Quote(executablePath), StringComparison.OrdinalIgnoreCase);
     }
 
@@ -23,14 +23,19 @@ public static class StartupManager
     /// </summary>
     public static void SetEnabled(string executablePath, bool enabled)
     {
+        if (enabled && string.IsNullOrWhiteSpace(executablePath))
+        {
+            throw new InvalidOperationException("Unable to resolve the executable path for startup registration.");
+        }
+
         using RegistryKey key = Registry.CurrentUser.CreateSubKey(k_RunKeyPath, true) ?? throw new InvalidOperationException("Unable to open HKCU Run key.");
         if (enabled)
         {
-            key.SetValue(CodexMonitorDefaults.StartupRunValueName, Quote(executablePath));
+            key.SetValue(CodexTrayDefaults.StartupRunValueName, Quote(executablePath));
             return;
         }
 
-        key.DeleteValue(CodexMonitorDefaults.StartupRunValueName, false);
+        key.DeleteValue(CodexTrayDefaults.StartupRunValueName, false);
     }
 
     /// <summary>

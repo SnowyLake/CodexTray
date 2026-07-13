@@ -44,5 +44,5 @@ if ($LASTEXITCODE -ne 0) {
     throw "TrafficMonitor plugin build failed with exit code $LASTEXITCODE."
 }
 
-$outputPath = Join-Path $pluginRoot "Builds\$Platform\$Configuration\CodexMonitor.dll"
+$outputPath = Join-Path $pluginRoot "Builds\$Platform\$Configuration\CodexTray.dll"
 Write-Host "Plugin DLL: $outputPath"

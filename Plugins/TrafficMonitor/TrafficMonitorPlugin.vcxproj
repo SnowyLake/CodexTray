@@ -35,7 +35,7 @@
   <PropertyGroup>
     <OutDir>$(ProjectDir)Builds\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(ProjectDir)obj\$(MSBuildProjectName)\$(Platform)\$(Configuration)\</IntDir>
-    <TargetName>CodexMonitor</TargetName>
+    <TargetName>CodexTray</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>

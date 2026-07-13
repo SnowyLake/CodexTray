@@ -1,28 +1,28 @@
-namespace CodexMonitor.Core;
+namespace CodexTray.Core;
 
-public static class TrafficMonitorLocator
+internal static class MonitorLocator
 {
     /// <summary>
-    /// Returns true when a directory looks like a TrafficMonitor installation.
+    /// Returns true when a directory contains the target monitor executable.
     /// </summary>
-    public static bool IsTrafficMonitorDirectory(string? directory)
+    public static bool IsMonitorDirectory(string? directory, string executableName)
     {
         if (string.IsNullOrWhiteSpace(directory))
         {
             return false;
         }
 
-        return File.Exists(Path.Combine(directory, "TrafficMonitor.exe"));
+        return File.Exists(Path.Combine(directory, executableName));
     }
 
     /// <summary>
-    /// Attempts to find a TrafficMonitor installation directory.
+    /// Attempts to find a monitor installation directory.
     /// </summary>
-    public static string AutoDetect(string? savedDirectory = null)
+    public static string AutoDetect(string executableName, string? savedDirectory = null)
     {
-        foreach (string candidate in EnumerateCandidates(savedDirectory))
+        foreach (string candidate in EnumerateCandidates(executableName, savedDirectory))
         {
-            if (IsTrafficMonitorDirectory(candidate))
+            if (IsMonitorDirectory(candidate, executableName))
             {
                 return candidate;
             }
@@ -32,9 +32,9 @@ public static class TrafficMonitorLocator
     }
 
     /// <summary>
-    /// Enumerates likely TrafficMonitor installation directories.
+    /// Enumerates likely monitor installation directories.
     /// </summary>
-    private static IEnumerable<string> EnumerateCandidates(string? savedDirectory)
+    private static IEnumerable<string> EnumerateCandidates(string executableName, string? savedDirectory)
     {
         if (!string.IsNullOrWhiteSpace(savedDirectory))
         {
@@ -43,7 +43,7 @@ public static class TrafficMonitorLocator
 
         foreach (string directory in EnumerateSearchRoots())
         {
-            foreach (string match in FindTrafficMonitorExe(directory))
+            foreach (string match in FindExecutable(directory, executableName))
             {
                 yield return Path.GetDirectoryName(match) ?? string.Empty;
             }
@@ -79,9 +79,9 @@ public static class TrafficMonitorLocator
     }
 
     /// <summary>
-    /// Finds TrafficMonitor.exe below a root directory.
+    /// Finds a target executable below a root directory.
     /// </summary>
-    private static IEnumerable<string> FindTrafficMonitorExe(string root)
+    private static IEnumerable<string> FindExecutable(string root, string executableName)
     {
         EnumerationOptions options = new()
         {
@@ -93,7 +93,7 @@ public static class TrafficMonitorLocator
         IEnumerator<string> files;
         try
         {
-            files = Directory.EnumerateFiles(root, "TrafficMonitor.exe", options).Take(3).GetEnumerator();
+            files = Directory.EnumerateFiles(root, executableName, options).Take(3).GetEnumerator();
         }
         catch (IOException)
         {

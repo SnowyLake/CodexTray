@@ -1,4 +1,4 @@
-namespace CodexMonitor.Core;
+namespace CodexTray.Core;
 
 public sealed class UsageCache
 {

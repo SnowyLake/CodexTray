@@ -1,4 +1,4 @@
-namespace CodexMonitor.App;
+namespace CodexTray.App;
 
 internal static class ApplicationConfiguration
 {

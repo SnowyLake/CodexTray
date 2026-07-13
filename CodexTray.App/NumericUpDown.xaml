@@ -1,0 +1,105 @@
+<UserControl x:Class="CodexTray.App.NumericUpDown"
+             x:ClassModifier="internal"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:CodexTray.App"
+             x:Name="Root">
+    <UserControl.Resources>
+        <SolidColorBrush x:Key="SpinnerGlyphBrush" Color="{DynamicResource TextFillColorSecondary}" />
+
+        <!-- Numeric text box: complete template, no Fluent clear button. -->
+        <Style x:Key="NumericFieldTextBoxStyle" TargetType="{x:Type TextBox}">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="10,0,4,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="CaretBrush" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="local:NumericInput.IsEnabled" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TextBox}">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Margin="{TemplateBinding Padding}"
+                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Spinner up/down repeat button. -->
+        <Style x:Key="SpinnerButtonStyle" TargetType="{x:Type RepeatButton}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{StaticResource SpinnerGlyphBrush}" />
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="8" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type RepeatButton}">
+                        <Border x:Name="SpinChrome"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SpinChrome" Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="SpinChrome" Property="Background" Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Border x:Name="FieldChrome"
+            Height="34"
+            Background="{DynamicResource ControlFillColorDefaultBrush}"
+            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="4">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBox x:Name="PART_TextBox"
+                     Grid.Column="0"
+                     VerticalAlignment="Stretch"
+                     Text="{Binding Value, ElementName=Root, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                     Style="{StaticResource NumericFieldTextBoxStyle}" />
+
+            <Grid Grid.Column="1"
+                  Width="22"
+                  Margin="0,2,3,2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <RepeatButton x:Name="PART_Up"
+                              Grid.Row="0"
+                              Content="&#xE70E;"
+                              ToolTip="Increase"
+                              Style="{StaticResource SpinnerButtonStyle}" />
+                <RepeatButton x:Name="PART_Down"
+                              Grid.Row="1"
+                              Content="&#xE70D;"
+                              ToolTip="Decrease"
+                              Style="{StaticResource SpinnerButtonStyle}" />
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

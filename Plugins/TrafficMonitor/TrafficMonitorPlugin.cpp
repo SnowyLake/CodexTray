@@ -12,21 +12,20 @@
 
 namespace TrafficMonitorPlugin
 {
-constexpr wchar_t k_DefaultUsageUrl[] = L"http://127.0.0.1:17890/codex-monitor";
-constexpr wchar_t k_ConfigFileName[] = L"CodexMonitor.ini";
-constexpr wchar_t k_ConfigSection[] = L"CodexMonitor";
+constexpr wchar_t k_DefaultUsageUrl[] = L"http://127.0.0.1:17890/codex-tray.txt";
+constexpr wchar_t k_ConfigFileName[] = L"CodexTray.ini";
+constexpr wchar_t k_ConfigSection[] = L"CodexTray";
 constexpr wchar_t k_ConfigUsageUrlKey[] = L"UsageUrl";
-constexpr wchar_t k_OptionsWindowClassName[] = L"CodexMonitorOptionsWindow";
+constexpr wchar_t k_OptionsWindowClassName[] = L"CodexTrayOptionsWindow";
 constexpr int k_OptionsUrlEditId = 1001;
-constexpr size_t k_DisplayLabelWidth = 12;
-constexpr wchar_t k_FallbackValue[] = L"None";
+constexpr wchar_t k_FallbackValue[] = L"N/A";
 
 HMODULE g_Module = nullptr;
 
 struct UsageValues
 {
     std::wstring fiveHour;
-    std::wstring weekly;
+    std::wstring sevenDay;
 };
 
 struct OptionsDialogState
@@ -244,7 +243,7 @@ void AcceptOptionsDialog(HWND window, OptionsDialogState* state)
     std::wstring url = TrimString(GetWindowTextString(state->editControl));
     if (!IsValidUsageUrl(url))
     {
-        MessageBoxW(window, L"Enter a valid HTTP or HTTPS backend URL.", L"Codex Monitor", MB_ICONWARNING | MB_OK);
+        MessageBoxW(window, L"Enter a valid HTTP or HTTPS backend URL.", L"CodexTray", MB_ICONWARNING | MB_OK);
         SetFocus(state->editControl);
         return;
     }
@@ -335,7 +334,7 @@ bool ShowUsageUrlOptionsDialog(HWND owner, std::wstring& url)
 
     if (!RegisterOptionsWindowClass())
     {
-        MessageBoxW(owner, L"Unable to open the Codex Monitor options dialog.", L"Codex Monitor", MB_ICONERROR | MB_OK);
+        MessageBoxW(owner, L"Unable to open the CodexTray options dialog.", L"CodexTray", MB_ICONERROR | MB_OK);
         return false;
     }
 
@@ -346,7 +345,7 @@ bool ShowUsageUrlOptionsDialog(HWND owner, std::wstring& url)
     HWND window = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
         k_OptionsWindowClassName,
-        L"Codex Monitor Options",
+        L"CodexTray Options",
         WS_CAPTION | WS_SYSMENU | WS_POPUP,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
@@ -358,7 +357,7 @@ bool ShowUsageUrlOptionsDialog(HWND owner, std::wstring& url)
         &state);
     if (window == nullptr)
     {
-        MessageBoxW(owner, L"Unable to open the Codex Monitor options dialog.", L"Codex Monitor", MB_ICONERROR | MB_OK);
+        MessageBoxW(owner, L"Unable to open the CodexTray options dialog.", L"CodexTray", MB_ICONERROR | MB_OK);
         return false;
     }
 
@@ -396,85 +395,6 @@ bool ShowUsageUrlOptionsDialog(HWND owner, std::wstring& url)
     return state.accepted;
 }
 
-/// Decodes a JSON string escape sequence into a byte string.
-void AppendJsonEscape(std::string& output, char escaped)
-{
-    switch (escaped)
-    {
-    case '"':
-        output.push_back('"');
-        break;
-    case '\\':
-        output.push_back('\\');
-        break;
-    case '/':
-        output.push_back('/');
-        break;
-    case 'b':
-        output.push_back('\b');
-        break;
-    case 'f':
-        output.push_back('\f');
-        break;
-    case 'n':
-        output.push_back('\n');
-        break;
-    case 'r':
-        output.push_back('\r');
-        break;
-    case 't':
-        output.push_back('\t');
-        break;
-    default:
-        output.push_back(escaped);
-        break;
-    }
-}
-
-/// Extracts a simple UTF-8 JSON string property from a response body.
-bool ExtractJsonString(const std::string& json, const char* key, std::string& value)
-{
-    std::string quotedKey = std::string("\"") + key + "\"";
-    size_t keyPosition = json.find(quotedKey);
-    if (keyPosition == std::string::npos)
-    {
-        return false;
-    }
-
-    size_t colonPosition = json.find(':', keyPosition + quotedKey.size());
-    if (colonPosition == std::string::npos)
-    {
-        return false;
-    }
-
-    size_t quotePosition = json.find('"', colonPosition + 1);
-    if (quotePosition == std::string::npos)
-    {
-        return false;
-    }
-
-    std::string result;
-    for (size_t index = quotePosition + 1; index < json.size(); index++)
-    {
-        char current = json[index];
-        if (current == '"')
-        {
-            value = result;
-            return true;
-        }
-
-        if (current == '\\' && index + 1 < json.size())
-        {
-            AppendJsonEscape(result, json[++index]);
-            continue;
-        }
-
-        result.push_back(current);
-    }
-
-    return false;
-}
-
 /// Fetches a URL with WinHTTP and returns the response body.
 bool FetchUrl(const std::wstring& url, std::string& body)
 {
@@ -502,7 +422,7 @@ bool FetchUrl(const std::wstring& url, std::string& body)
         requestPath = L"/";
     }
 
-    WinHttpHandle session(WinHttpOpen(L"CodexMonitor/TrafficMonitorPlugin 1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+    WinHttpHandle session(WinHttpOpen(L"CodexTray/TrafficMonitorPlugin 1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     if (session == nullptr)
     {
         return false;
@@ -556,17 +476,16 @@ bool FetchUsageValues(UsageValues& values)
         return false;
     }
 
-    std::string fiveHour;
-    std::string weekly;
-    if (!ExtractJsonString(body, "codex_5h", fiveHour) ||
-        !ExtractJsonString(body, "codex_weekly", weekly))
+    std::wstring text = Utf8ToWide(body);
+    size_t separator = text.find(L'\n');
+    if (separator == std::wstring::npos)
     {
         return false;
     }
 
-    values.fiveHour = Utf8ToWide(fiveHour);
-    values.weekly = Utf8ToWide(weekly);
-    return !values.fiveHour.empty() && !values.weekly.empty();
+    values.fiveHour = TrimString(text.substr(0, separator));
+    values.sevenDay = TrimString(text.substr(separator + 1));
+    return !values.fiveHour.empty() && !values.sevenDay.empty();
 }
 
 class CodexUsageItem final : public IPluginItem
@@ -581,7 +500,7 @@ public:
     /// Updates the displayed item value.
     void SetValue(std::wstring value)
     {
-        m_Value = value.empty() ? k_FallbackValue : BuildValueText(value);
+        m_Value = value.empty() ? k_FallbackValue : std::move(value);
     }
 
     /// Updates the displayed item value to the fallback text.
@@ -621,20 +540,6 @@ public:
     }
 
 private:
-    /// Builds the value text with label-relative padding.
-    std::wstring BuildValueText(const std::wstring& value) const
-    {
-        std::wstring text;
-        if (m_Label.size() < k_DisplayLabelWidth)
-        {
-            text.append(k_DisplayLabelWidth - m_Label.size(), L' ');
-        }
-
-        text.push_back(L' ');
-        text += value;
-        return text;
-    }
-
     std::wstring m_Name;
     std::wstring m_Id;
     std::wstring m_Label;
@@ -642,14 +547,14 @@ private:
     std::wstring m_Value;
 };
 
-class CodexMonitorPlugin final : public ITMPlugin
+class CodexTrayPlugin final : public ITMPlugin
 {
 public:
     /// Creates the TrafficMonitor plugin singleton.
-    CodexMonitorPlugin()
-        : m_FiveHourItem(L"Codex 5h", L"CodexMonitor5H", L"Codex 5h", L"     100% [4h 59m]"),
-          m_WeeklyItem(L"Codex Weekly", L"CodexMonitorWeekly", L"Codex Weekly", L" 100% [6d 23h]"),
-          m_Tooltip(L"CodexMonitor waiting for data")
+    CodexTrayPlugin()
+        : m_FiveHourItem(L"Codex 5-Hour", L"CodexTray5H", L"Codex-5H", L"100% 4h59m"),
+          m_SevenDayItem(L"Codex 7-Day", L"CodexTray7D", L"Codex-7D", L"100% 6d23h"),
+          m_Tooltip(L"CodexTray waiting for data")
     {
     }
 
@@ -661,27 +566,27 @@ public:
         case 0:
             return &m_FiveHourItem;
         case 1:
-            return &m_WeeklyItem;
+            return &m_SevenDayItem;
         default:
             return nullptr;
         }
     }
 
-    /// Refreshes display data from the local CodexMonitor service.
+    /// Refreshes display data from the local CodexTray service.
     void DataRequired() override
     {
         UsageValues values;
         if (!FetchUsageValues(values))
         {
             m_FiveHourItem.SetFallback();
-            m_WeeklyItem.SetFallback();
-            m_Tooltip = L"CodexMonitor bridge unavailable";
+            m_SevenDayItem.SetFallback();
+            m_Tooltip = L"CodexTray bridge unavailable";
             return;
         }
 
         m_FiveHourItem.SetValue(values.fiveHour);
-        m_WeeklyItem.SetValue(values.weekly);
-        m_Tooltip = L"Codex 5h: " + values.fiveHour + L"\nCodex Weekly: " + values.weekly;
+        m_SevenDayItem.SetValue(values.sevenDay);
+        m_Tooltip = L"Codex 5-Hour: " + values.fiveHour + L"\nCodex 7-Day: " + values.sevenDay;
     }
 
     /// Shows plugin options for editing the backend URL.
@@ -701,11 +606,11 @@ public:
 
         if (!WriteUsageUrl(updatedUrl))
         {
-            MessageBoxW(static_cast<HWND>(hParent), L"Unable to save Codex Monitor options.", L"Codex Monitor", MB_ICONERROR | MB_OK);
+            MessageBoxW(static_cast<HWND>(hParent), L"Unable to save CodexTray options.", L"CodexTray", MB_ICONERROR | MB_OK);
             return OR_OPTION_UNCHANGED;
         }
 
-        m_Tooltip = L"CodexMonitor backend URL updated";
+        m_Tooltip = L"CodexTray backend URL updated";
         return OR_OPTION_CHANGED;
     }
 
@@ -715,9 +620,9 @@ public:
         switch (index)
         {
         case TMI_NAME:
-            return L"Codex Monitor";
+            return L"CodexTray";
         case TMI_DESCRIPTION:
-            return L"Displays Codex 5 hour and weekly quota from CodexMonitor.";
+            return L"Displays Codex 5-Hour and 7-Day quota from CodexTray.";
         case TMI_AUTHOR:
             return L"SnowyLake";
         case TMI_COPYRIGHT:
@@ -739,14 +644,14 @@ public:
 
 private:
     CodexUsageItem m_FiveHourItem;
-    CodexUsageItem m_WeeklyItem;
+    CodexUsageItem m_SevenDayItem;
     std::wstring m_Tooltip;
 };
 
 /// Returns the plugin singleton instance.
-CodexMonitorPlugin& GetPluginInstance()
+CodexTrayPlugin& GetPluginInstance()
 {
-    static CodexMonitorPlugin plugin;
+    static CodexTrayPlugin plugin;
     return plugin;
 }
 }

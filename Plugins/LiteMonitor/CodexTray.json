@@ -1,0 +1,77 @@
+{
+  "id": "CodexTray",
+  "meta": {
+    "name": "CodexTray",
+    "version": "1.0.0",
+    "author": "SnowyLake",
+    "description": "显示 OpenAI Codex 5 小时额度和一周额度的剩余百分比与重置时间"
+  },
+  "inputs": [
+    {
+      "key": "bridge_url",
+      "label": "桥接服务地址",
+      "type": "text",
+      "default": "http://127.0.0.1:17890/codex-tray",
+      "placeholder": "http://127.0.0.1:17890/codex-tray",
+      "scope": "global"
+    }
+  ],
+  "execution": {
+    "type": "chain",
+    "interval": 10,
+    "steps": [
+      {
+        "id": "fetch_codex_tray",
+        "url": "{{bridge_url}}",
+        "method": "GET",
+        "response_format": "json",
+        "extract": {
+          "codex_5h_display": "display.codex_5h",
+          "codex_7d_display": "display.codex_7d",
+          "codex_5h_remaining": "limits.five_hour.remaining_percent",
+          "codex_7d_remaining": "limits.seven_day.remaining_percent"
+        },
+        "process": [
+          {
+            "var": "codex_5h_color",
+            "source": "codex_5h_remaining",
+            "function": "threshold_switch",
+            "value_map": {
+              "0": "2",
+              "20": "1",
+              "50": "0"
+            }
+          },
+          {
+            "var": "codex_7d_color",
+            "source": "codex_7d_remaining",
+            "function": "threshold_switch",
+            "value_map": {
+              "0": "2",
+              "20": "1",
+              "50": "0"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "key": "codex_5h",
+      "label": "Codex 5-Hour",
+      "short_label": "Codex-5H",
+      "format_val": "{{codex_5h_display}}",
+      "unit": "",
+      "color": "{{codex_5h_color}}"
+    },
+    {
+      "key": "codex_7d",
+      "label": "Codex 7-Day",
+      "short_label": "Codex-7D",
+      "format_val": "{{codex_7d_display}}",
+      "unit": "",
+      "color": "{{codex_7d_color}}"
+    }
+  ]
+}

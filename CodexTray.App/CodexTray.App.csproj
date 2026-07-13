@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodexTray.Core\CodexTray.Core.csproj" />
+    <Content Include="..\Resources\icon.ico" Link="Resources\icon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\Resources\icon.png" Link="Resources\icon.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\Resources\model-pricing.json" Link="Resources\model-pricing.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\Plugins\LiteMonitor\CodexTray.json" Link="Plugins\LiteMonitor\CodexTray.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\Plugins\TrafficMonitor\CodexTray.ini" Link="Plugins\TrafficMonitor\CodexTray.ini" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\Plugins\TrafficMonitor\Builds\x64\Release\CodexTray.dll" Link="Plugins\TrafficMonitor\CodexTray.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Condition="Exists('..\Plugins\TrafficMonitor\Builds\x64\Release\CodexTray.dll')" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <AssemblyName>CodexTray</AssemblyName>
+    <RootNamespace>CodexTray.App</RootNamespace>
+    <ApplicationIcon>..\Resources\icon.ico</ApplicationIcon>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+    <GenerateApplicationConfiguration>false</GenerateApplicationConfiguration>
+  </PropertyGroup>
+
+</Project>

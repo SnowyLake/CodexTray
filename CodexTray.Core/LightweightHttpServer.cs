@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 
-namespace CodexMonitor.Core;
+namespace CodexTray.Core;
 
 public sealed class LightweightHttpServer : IDisposable
 {
@@ -22,12 +22,10 @@ public sealed class LightweightHttpServer : IDisposable
 
     public bool IsRunning { get; private set; }
 
-    public UsageResponse? LastResponse { get; private set; }
-
     public string? LastError { get; private set; }
 
     /// <summary>
-    /// Creates a loopback HTTP server for Codex monitor data.
+    /// Creates a loopback HTTP server for Codex usage data.
     /// </summary>
     public LightweightHttpServer(UsageCache usageCache, int port)
     {
@@ -47,7 +45,7 @@ public sealed class LightweightHttpServer : IDisposable
         }
 
         m_Cancellation = new CancellationTokenSource();
-        m_Listener = new TcpListener(IPAddress.Loopback, Port);
+        m_Listener = new TcpListener(IPAddress.Parse(CodexTrayDefaults.Host), Port);
         m_Listener.Start();
         Port = ((IPEndPoint)m_Listener.LocalEndpoint).Port;
         IsRunning = true;
@@ -157,20 +155,27 @@ public sealed class LightweightHttpServer : IDisposable
             return;
         }
 
-        if (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith(CodexTrayDefaults.HealthEndpointPath, StringComparison.OrdinalIgnoreCase))
         {
             await WriteJsonAsync(stream, 200, new { ok = true }, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        if (!path.StartsWith(CodexMonitorDefaults.UsageEndpointPath, StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith(CodexTrayDefaults.UsageTextEndpointPath, StringComparison.OrdinalIgnoreCase))
+        {
+            UsageResponse textResponse = m_UsageCache.Get() ?? CreatePendingResponse();
+            LastError = null;
+            await WriteUsageTextAsync(stream, textResponse, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (!path.StartsWith(CodexTrayDefaults.UsageEndpointPath, StringComparison.OrdinalIgnoreCase))
         {
             await WriteResponseAsync(stream, 404, "Not Found", "application/json; charset=utf-8", "{\"error\":\"not_found\"}", cancellationToken).ConfigureAwait(false);
             return;
         }
 
         UsageResponse response = m_UsageCache.Get() ?? CreatePendingResponse();
-        LastResponse = response;
         LastError = null;
 
         await WriteJsonAsync(stream, 200, response, cancellationToken).ConfigureAwait(false);
@@ -196,7 +201,16 @@ public sealed class LightweightHttpServer : IDisposable
     private static Task WriteJsonAsync(NetworkStream stream, int statusCode, object value, CancellationToken cancellationToken)
     {
         string body = JsonSerializer.Serialize(value, s_JsonOptions);
-        return WriteResponseAsync(stream, statusCode, GetReasonPhrase(statusCode), "application/json; charset=utf-8", body, cancellationToken);
+        return WriteResponseAsync(stream, statusCode, "OK", "application/json; charset=utf-8", body, cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes the compact text response used by the native TrafficMonitor plugin.
+    /// </summary>
+    private static Task WriteUsageTextAsync(NetworkStream stream, UsageResponse response, CancellationToken cancellationToken)
+    {
+        string body = string.Join(Environment.NewLine, response.Display.Codex5H, response.Display.Codex7D);
+        return WriteResponseAsync(stream, 200, "OK", "text/plain; charset=utf-8", body, cancellationToken);
     }
 
     /// <summary>
@@ -209,20 +223,6 @@ public sealed class LightweightHttpServer : IDisposable
         byte[] headerBytes = Encoding.ASCII.GetBytes(headers);
         await stream.WriteAsync(headerBytes, cancellationToken).ConfigureAwait(false);
         await stream.WriteAsync(bodyBytes, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Gets a simple HTTP reason phrase.
-    /// </summary>
-    private static string GetReasonPhrase(int statusCode)
-    {
-        return statusCode switch
-        {
-            200 => "OK",
-            404 => "Not Found",
-            405 => "Method Not Allowed",
-            _ => "OK",
-        };
     }
 
     /// <summary>

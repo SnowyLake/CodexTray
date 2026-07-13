@@ -2,7 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace CodexMonitor.Core;
+namespace CodexTray.Core;
 
 public static class LiteMonitorPluginInstaller
 {
@@ -12,64 +12,10 @@ public static class LiteMonitorPluginInstaller
         WriteIndented = true,
     };
 
-    private const string k_FallbackPluginJson = """
-{
-  "id": "CodexMonitor",
-  "meta": {
-    "name": "Codex Monitor",
-    "version": "1.0.0",
-    "author": "SnowyLake",
-    "description": "显示 OpenAI Codex 5 小时额度和一周额度的剩余百分比与重置时间"
-  },
-  "inputs": [
-    {
-      "key": "bridge_url",
-      "label": "桥接服务地址",
-      "type": "text",
-      "default": "http://127.0.0.1:17890/codex-monitor",
-      "placeholder": "http://127.0.0.1:17890/codex-monitor",
-      "scope": "global"
-    }
-  ],
-  "execution": {
-    "type": "chain",
-    "interval": 60,
-    "steps": [
-      {
-        "id": "fetch_codex_monitor",
-        "url": "{{bridge_url}}",
-        "method": "GET",
-        "response_format": "json",
-        "extract": {
-          "codex_5h_display": "display.codex_5h",
-          "codex_weekly_display": "display.codex_weekly"
-        }
-      }
-    ]
-  },
-  "outputs": [
-    {
-      "key": "codex_5h",
-      "label": "Codex 5h",
-      "short_label": "Codex 5h",
-      "format_val": "     {{codex_5h_display}}",
-      "unit": ""
-    },
-    {
-      "key": "codex_weekly",
-      "label": "Codex Weekly",
-      "short_label": "Codex Weekly",
-      "format_val": " {{codex_weekly_display}}",
-      "unit": ""
-    }
-  ]
-}
-""";
-
     /// <summary>
     /// Installs the LiteMonitor plugin JSON into the selected directory.
     /// </summary>
-    public static string Install(string liteMonitorDirectory, int port = CodexMonitorDefaults.Port)
+    public static string Install(string liteMonitorDirectory, int port = CodexTrayDefaults.Port)
     {
         if (!LiteMonitorLocator.IsLiteMonitorDirectory(liteMonitorDirectory))
         {
@@ -84,7 +30,7 @@ public static class LiteMonitorPluginInstaller
 
         string pluginDirectory = Path.Combine(resourcesDirectory, "plugins");
         Directory.CreateDirectory(pluginDirectory);
-        string targetPath = Path.Combine(pluginDirectory, CodexMonitorDefaults.PluginFileName);
+        string targetPath = Path.Combine(pluginDirectory, CodexTrayDefaults.PluginFileName);
         File.WriteAllText(targetPath, BuildPluginJson(port));
         return targetPath;
     }
@@ -94,8 +40,7 @@ public static class LiteMonitorPluginInstaller
     /// </summary>
     private static string BuildPluginJson(int port)
     {
-        int normalizedPort = port is > 0 and <= 65535 ? port : CodexMonitorDefaults.Port;
-        string bridgeUrl = $"http://127.0.0.1:{normalizedPort}{CodexMonitorDefaults.UsageEndpointPath}";
+        string bridgeUrl = CodexTrayDefaults.BuildBridgeUrl(port);
         JsonNode root = JsonNode.Parse(ReadTemplateJson()) ?? throw new InvalidOperationException("LiteMonitor plugin template is empty.");
         JsonArray inputs = root["inputs"]?.AsArray() ?? throw new InvalidOperationException("LiteMonitor plugin template has no inputs.");
         bool bridgeInputUpdated = false;
@@ -129,7 +74,12 @@ public static class LiteMonitorPluginInstaller
     /// </summary>
     private static string ReadTemplateJson()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "Plugins", "LiteMonitor", CodexMonitorDefaults.PluginFileName);
-        return File.Exists(templatePath) ? File.ReadAllText(templatePath) : k_FallbackPluginJson;
+        string templatePath = Path.Combine(AppContext.BaseDirectory, CodexTrayDefaults.PluginsDirectoryName, CodexTrayDefaults.LiteMonitorPluginSubdirectory, CodexTrayDefaults.PluginFileName);
+        if (!File.Exists(templatePath))
+        {
+            throw new FileNotFoundException($"LiteMonitor plugin template was not found: {templatePath}");
+        }
+
+        return File.ReadAllText(templatePath);
     }
 }
