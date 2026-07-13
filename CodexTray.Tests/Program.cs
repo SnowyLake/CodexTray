@@ -32,6 +32,7 @@ internal static class Program
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
         await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
+        await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
@@ -429,6 +430,23 @@ internal static class Program
         AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
         AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
         AssertEqual("$5.00", results[1].UsedDisplay, "NewAPI used USD quota");
+    }
+
+    /// <summary>
+    /// Tests all-success, partial-failure, and all-failure API refresh summaries.
+    /// </summary>
+    private static Task TestApiUsageSummaryAsync()
+    {
+        DateTimeOffset updatedAt = new(2026, 7, 14, 22, 22, 22, TimeSpan.FromHours(8));
+        ApiUsageResult available = new("available", true, "$1.00", string.Empty, string.Empty, updatedAt);
+        ApiUsageResult unavailable = new("unavailable", false, "N/A", "N/A", "Request failed", updatedAt.AddSeconds(1));
+
+        AssertEqual(ApiUsageRefreshStatus.AllAvailable, ApiUsageCollector.Summarize([available]).Status, "all API refreshes should be available");
+        ApiUsageSummary partial = ApiUsageCollector.Summarize([available, unavailable]);
+        AssertEqual(ApiUsageRefreshStatus.PartiallyAvailable, partial.Status, "mixed API refreshes should be partial");
+        AssertEqual(1, partial.ErrorCount, "partial API refresh error count");
+        AssertEqual(ApiUsageRefreshStatus.Unavailable, ApiUsageCollector.Summarize([unavailable]).Status, "all failed API refreshes should be unavailable");
+        return Task.CompletedTask;
     }
 
     /// <summary>

@@ -21,10 +21,13 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     private string m_StatusText = "Waiting for refresh";
     private Media.Brush m_StatusDotBrush = s_RedBrush;
     private bool m_IsEditing;
+    private bool m_IsPending;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public event EventHandler? Changed;
+
+    public event EventHandler? EditingSaved;
 
     public string Id { get; }
 
@@ -137,6 +140,12 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         private set => SetField(ref m_IsEditing, value);
     }
 
+    public bool IsPending
+    {
+        get => m_IsPending;
+        private set => SetField(ref m_IsPending, value);
+    }
+
     public string StatusText
     {
         get => m_StatusText;
@@ -152,7 +161,7 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     /// <summary>
     /// Creates an editable API monitor view model.
     /// </summary>
-    public ApiMonitorViewModel(ApiMonitorSettings settings, bool isEditing = false)
+    public ApiMonitorViewModel(ApiMonitorSettings settings, bool isEditing = false, bool isPending = false)
     {
         Id = settings.Id;
         m_Name = settings.Name;
@@ -161,7 +170,8 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         m_ApiKey = settings.ApiKey;
         m_UserId = settings.UserId;
         m_IsEditing = isEditing;
-        ToggleEditingCommand = new RelayCommand(_ => IsEditing = !IsEditing);
+        m_IsPending = isPending;
+        ToggleEditingCommand = new RelayCommand(_ => ToggleEditing());
     }
 
     /// <summary>
@@ -191,6 +201,21 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             ? $"Updated {result.UpdatedAt:HH:mm}"
             : result.Error;
         StatusDotBrush = result.Available ? s_GreenBrush : s_RedBrush;
+    }
+
+    /// <summary>
+    /// Toggles editing and commits a pending monitor when editing is saved.
+    /// </summary>
+    private void ToggleEditing()
+    {
+        IsEditing = !IsEditing;
+        if (IsEditing)
+        {
+            return;
+        }
+
+        IsPending = false;
+        EditingSaved?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>

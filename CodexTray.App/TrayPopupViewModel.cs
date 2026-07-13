@@ -80,6 +80,10 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private bool m_IsModalOpen;
     private bool m_IsDetectingLiteMonitor;
     private bool m_IsDetectingTrafficMonitor;
+    private ApiUsageRefreshStatus? m_ApiUsageStatus;
+    private int m_ApiUsageErrorCount;
+    private int m_ApiUsageMonitorCount;
+    private DateTimeOffset? m_ApiUsageUpdatedAt;
 
     private SettingsStatus m_SettingsStatus = SettingsStatus.Clean;
     private SettingsStatus m_SettingsBaseline = SettingsStatus.Clean;
@@ -523,7 +527,38 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public bool IsApiEmpty => ApiMonitors.Count == 0;
 
-    public string ApiMonitorStatusText => $"{ApiMonitors.Count} API{(ApiMonitors.Count == 1 ? string.Empty : "s")} monitored";
+    private int MonitoredApiCount => ApiMonitors.Count(monitor => !monitor.IsPending);
+
+    public bool HasApiMonitorStatus => m_ApiUsageStatus != null;
+
+    public Media.Brush ApiMonitorStatusDotBrush => m_ApiUsageStatus switch
+    {
+        ApiUsageRefreshStatus.AllAvailable => s_GreenBrush,
+        ApiUsageRefreshStatus.PartiallyAvailable => s_YellowBrush,
+        _ => s_RedBrush,
+    };
+
+    public string ApiMonitorStatusText
+    {
+        get
+        {
+            if (m_ApiUsageStatus is not ApiUsageRefreshStatus status)
+            {
+                return string.Empty;
+            }
+
+            int apiCount = m_ApiUsageMonitorCount;
+            string apiLabel = apiCount == 1 ? "API" : "APIs";
+            string updatedStatus = $"{apiCount} {apiLabel} {FormatUpdatedAt(m_ApiUsageUpdatedAt?.ToString("O", CultureInfo.InvariantCulture))}";
+            string errorLabel = m_ApiUsageErrorCount == 1 ? "API" : "APIs";
+            return status switch
+            {
+                ApiUsageRefreshStatus.AllAvailable => updatedStatus,
+                ApiUsageRefreshStatus.PartiallyAvailable => $"{updatedStatus}, {m_ApiUsageErrorCount} {errorLabel} Update Error",
+                _ => $"{m_ApiUsageErrorCount} {errorLabel} Update Error",
+            };
+        }
+    }
 
     public bool IsRefreshing
     {
@@ -864,6 +899,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             ApiMonitorViewModel monitor = new(monitorSettings);
             monitor.Changed += HandleApiMonitorChanged;
+            monitor.EditingSaved += HandleApiMonitorSaved;
             ApiMonitors.Add(monitor);
         }
 
@@ -875,10 +911,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     private void AddApiMonitor()
     {
-        ApiMonitorViewModel monitor = new(new ApiMonitorSettings(), isEditing: true);
+        ApiMonitorViewModel monitor = new(new ApiMonitorSettings(), isEditing: true, isPending: true);
         monitor.Changed += HandleApiMonitorChanged;
+        monitor.EditingSaved += HandleApiMonitorSaved;
         ApiMonitors.Add(monitor);
-        SaveApiMonitors();
+        NotifyApiMonitorCountChanged();
     }
 
     /// <summary>
@@ -892,9 +929,15 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             return;
         }
 
+        bool wasPending = monitor.IsPending;
         monitor.Changed -= HandleApiMonitorChanged;
+        monitor.EditingSaved -= HandleApiMonitorSaved;
         ApiMonitors.Remove(monitor);
         SaveApiMonitors();
+        if (!wasPending)
+        {
+            RefreshRequested?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>
@@ -923,7 +966,21 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     private void HandleApiMonitorChanged(object? sender, EventArgs args)
     {
+        if (sender is ApiMonitorViewModel { IsPending: true })
+        {
+            return;
+        }
+
         SaveApiMonitors();
+    }
+
+    /// <summary>
+    /// Persists a confirmed API monitor and refreshes its usage.
+    /// </summary>
+    private void HandleApiMonitorSaved(object? sender, EventArgs args)
+    {
+        SaveApiMonitors();
+        RefreshRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -931,7 +988,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     private void SaveApiMonitors()
     {
-        m_Settings.ApiMonitors = ApiMonitors.Select(monitor => monitor.ToSettings()).ToList();
+        m_Settings.ApiMonitors = ApiMonitors.Where(monitor => !monitor.IsPending).Select(monitor => monitor.ToSettings()).ToList();
         NotifyApiMonitorCountChanged();
         ApiMonitorsChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -942,7 +999,29 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private void NotifyApiMonitorCountChanged()
     {
         OnPropertyChanged(nameof(IsApiEmpty));
+        NotifyApiMonitorStatusChanged();
+    }
+
+    /// <summary>
+    /// Clears the API refresh summary when no complete result is available.
+    /// </summary>
+    private void ResetApiMonitorStatus()
+    {
+        m_ApiUsageStatus = null;
+        m_ApiUsageErrorCount = 0;
+        m_ApiUsageMonitorCount = 0;
+        m_ApiUsageUpdatedAt = null;
+        NotifyApiMonitorStatusChanged();
+    }
+
+    /// <summary>
+    /// Raises change notifications for the API refresh summary.
+    /// </summary>
+    private void NotifyApiMonitorStatusChanged()
+    {
         OnPropertyChanged(nameof(ApiMonitorStatusText));
+        OnPropertyChanged(nameof(ApiMonitorStatusDotBrush));
+        OnPropertyChanged(nameof(HasApiMonitorStatus));
     }
 
     /// <summary>
@@ -951,13 +1030,33 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public void UpdateApiUsage(IReadOnlyList<ApiUsageResult> results)
     {
         Dictionary<string, ApiUsageResult> byId = results.ToDictionary(result => result.MonitorId, StringComparer.Ordinal);
+        List<ApiUsageResult> monitorResults = [];
         foreach (ApiMonitorViewModel monitor in ApiMonitors)
         {
+            if (monitor.IsPending)
+            {
+                continue;
+            }
+
             if (byId.TryGetValue(monitor.Id, out ApiUsageResult? result))
             {
                 monitor.Update(result);
+                monitorResults.Add(result);
             }
         }
+
+        if (monitorResults.Count != MonitoredApiCount || monitorResults.Count == 0)
+        {
+            ResetApiMonitorStatus();
+            return;
+        }
+
+        ApiUsageSummary summary = ApiUsageCollector.Summarize(monitorResults);
+        m_ApiUsageStatus = summary.Status;
+        m_ApiUsageErrorCount = summary.ErrorCount;
+        m_ApiUsageMonitorCount = monitorResults.Count;
+        m_ApiUsageUpdatedAt = summary.LatestAvailableUpdatedAt;
+        NotifyApiMonitorStatusChanged();
     }
 
     /// <summary>

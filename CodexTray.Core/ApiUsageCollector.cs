@@ -12,6 +12,18 @@ public sealed record ApiUsageResult(
     string Error,
     DateTimeOffset UpdatedAt);
 
+public enum ApiUsageRefreshStatus
+{
+    AllAvailable,
+    PartiallyAvailable,
+    Unavailable,
+}
+
+public sealed record ApiUsageSummary(
+    ApiUsageRefreshStatus Status,
+    int ErrorCount,
+    DateTimeOffset? LatestAvailableUpdatedAt);
+
 public sealed class ApiUsageCollector
 {
     private static readonly HttpClient s_HttpClient = new()
@@ -35,6 +47,42 @@ public sealed class ApiUsageCollector
     public ApiUsageCollector(HttpClient httpClient)
     {
         m_HttpClient = httpClient;
+    }
+
+    /// <summary>
+    /// Summarizes the availability of one completed API usage refresh.
+    /// </summary>
+    public static ApiUsageSummary Summarize(IReadOnlyList<ApiUsageResult> results)
+    {
+        if (results.Count == 0)
+        {
+            throw new ArgumentException("At least one API usage result is required.", nameof(results));
+        }
+
+        int availableCount = 0;
+        int errorCount = 0;
+        DateTimeOffset? latestAvailableUpdatedAt = null;
+        foreach (ApiUsageResult result in results)
+        {
+            if (!result.Available)
+            {
+                errorCount++;
+                continue;
+            }
+
+            availableCount++;
+            if (latestAvailableUpdatedAt == null || result.UpdatedAt > latestAvailableUpdatedAt)
+            {
+                latestAvailableUpdatedAt = result.UpdatedAt;
+            }
+        }
+
+        ApiUsageRefreshStatus status = errorCount == 0
+            ? ApiUsageRefreshStatus.AllAvailable
+            : availableCount == 0
+                ? ApiUsageRefreshStatus.Unavailable
+                : ApiUsageRefreshStatus.PartiallyAvailable;
+        return new ApiUsageSummary(status, errorCount, latestAvailableUpdatedAt);
     }
 
     /// <summary>

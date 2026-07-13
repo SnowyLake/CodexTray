@@ -752,10 +752,20 @@
                             </Button>
                         </StackPanel>
                     </Grid>
-                    <TextBlock Margin="2,6,0,0"
-                               Text="{Binding ApiMonitorStatusText}"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                               FontSize="12" />
+                    <StackPanel Margin="2,6,0,0"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Ellipse Width="7"
+                                 Height="7"
+                                 Margin="0,0,6,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{Binding ApiMonitorStatusDotBrush}"
+                                 Visibility="{Binding HasApiMonitorStatus, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <TextBlock Text="{Binding ApiMonitorStatusText}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="12" />
+                    </StackPanel>
                 </StackPanel>
 
                 <ScrollViewer Grid.Row="1"
@@ -784,18 +794,35 @@
                                                 <Grid>
                                                     <Grid.RowDefinitions>
                                                         <RowDefinition Height="Auto" />
-                                                        <RowDefinition Height="Auto" />
                                                     </Grid.RowDefinitions>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Row="0"
-                                                               Text="{Binding DisplayName}"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                               FontSize="15"
-                                                               FontWeight="SemiBold" />
+                                                    <Grid Grid.Row="0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Ellipse Width="7"
+                                                                 Height="7"
+                                                                 Margin="0,0,6,0"
+                                                                 VerticalAlignment="Center"
+                                                                 Fill="{Binding StatusDotBrush}"
+                                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                                 ToolTip="{Binding StatusText}" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding DisplayName}"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                                   FontSize="15"
+                                                                   FontWeight="SemiBold"
+                                                                   ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                                   ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                                   ToolTip="{Binding StatusText}" />
+                                                    </Grid>
                                                     <StackPanel Grid.Row="0"
                                                                 Grid.Column="1"
                                                                 VerticalAlignment="Center"
@@ -820,22 +847,6 @@
                                                                 Content="&#xE713;"
                                                                 ToolTip="Settings"
                                                                 Style="{StaticResource IconButtonStyle}" />
-                                                    </StackPanel>
-                                                    <StackPanel Grid.Row="1"
-                                                                Grid.ColumnSpan="2"
-                                                                Margin="0,4,0,0"
-                                                                Orientation="Horizontal">
-                                                        <Ellipse Width="7"
-                                                                 Height="7"
-                                                                 Margin="0,0,6,0"
-                                                                 VerticalAlignment="Center"
-                                                                 Fill="{Binding StatusDotBrush}" />
-                                                        <TextBlock Text="{Binding StatusText}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   VerticalAlignment="Center"
-                                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                                                                   FontSize="11"
-                                                                   ToolTip="{Binding StatusText}" />
                                                     </StackPanel>
                                                 </Grid>
 
