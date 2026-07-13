@@ -1360,6 +1360,51 @@
                             Style="{StaticResource SettingsTabButtonStyle}" />
                 </StackPanel>
             </Grid>
+
+            <!-- In-window modal -->
+            <Grid Grid.RowSpan="2"
+                  Panel.ZIndex="1"
+                  Visibility="{Binding IsInAppDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border Background="Transparent" />
+                <Border Width="300"
+                        MaxHeight="460"
+                        Padding="20"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource ApplicationBackgroundBrush}"
+                        BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                    <StackPanel>
+                        <TextBlock Text="{Binding InAppDialogTitle}"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   TextWrapping="Wrap" />
+                        <ScrollViewer MaxHeight="260"
+                                      Margin="0,12,0,0"
+                                      VerticalScrollBarVisibility="Auto">
+                            <TextBlock Text="{Binding InAppDialogMessage}"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="13"
+                                       TextWrapping="Wrap" />
+                        </ScrollViewer>
+                        <StackPanel Margin="0,20,0,0"
+                                    HorizontalAlignment="Right"
+                                    Orientation="Horizontal">
+                            <Button Command="{Binding DismissInAppDialogCommand}"
+                                    Content="{Binding InAppDialogSecondaryButtonText}"
+                                    Margin="0,0,8,0"
+                                    MinWidth="76"
+                                    Visibility="{Binding HasInAppDialogSecondaryButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Command="{Binding ConfirmInAppDialogCommand}"
+                                    Content="{Binding InAppDialogPrimaryButtonText}"
+                                    IsDefault="True"
+                                    MinWidth="76" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
         </Grid>
     </Border>
 </Window>

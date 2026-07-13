@@ -197,7 +197,10 @@ internal sealed class TrayController : IDisposable
         catch (SocketException exception)
         {
             m_NotifyIcon.Text = $"{CodexTrayDefaults.AppName} service failed";
-            Forms.MessageBox.Show($"Unable to start {CodexTrayDefaults.AppName} service on port {m_Settings.Port}.\n\n{exception.Message}", CodexTrayDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Warning);
+            PresentInAppDialog(new InAppDialogRequest(
+                "Service unavailable",
+                $"Unable to start {CodexTrayDefaults.AppName} service on port {m_Settings.Port}.\n\n{exception.Message}",
+                "OK"));
         }
     }
 
@@ -234,6 +237,11 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void TogglePanel(Drawing.Point? trayIconPosition)
     {
+        if (m_PopupViewModel?.IsModalOpen == true)
+        {
+            return;
+        }
+
         // Clicking the tray icon deactivates the popup first, so a just-hidden popup means the click was a close request.
         if (m_TrayPopupWindow?.IsVisible == true
             || (m_TrayPopupWindow != null
@@ -258,6 +266,19 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
+    /// Shows an in-window dialog, opening the tray panel when needed.
+    /// </summary>
+    private void PresentInAppDialog(InAppDialogRequest request)
+    {
+        if (m_TrayPopupWindow?.IsVisible != true)
+        {
+            ShowPanel();
+        }
+
+        m_PopupViewModel?.ShowInAppDialog(request);
+    }
+
+    /// <summary>
     /// Creates the WPF tray popup and wires application callbacks.
     /// </summary>
     private void EnsurePopup()
@@ -271,6 +292,7 @@ internal sealed class TrayController : IDisposable
         m_PopupViewModel.RefreshRequested += async (_, _) => await RefreshUsageAsync();
         m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
         m_PopupViewModel.ApiMonitorsChanged += (_, _) => m_SettingsStore.Save(m_Settings);
+        m_PopupViewModel.InAppDialogRequested += PresentInAppDialog;
         m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
         m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
         m_PopupViewModel.ExitRequested += (_, _) => ExitApplication();
@@ -503,19 +525,19 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Shows a warning message box.
+    /// Shows a warning in the tray panel.
     /// </summary>
-    private static void ShowWarning(string message)
+    private void ShowWarning(string message)
     {
-        Forms.MessageBox.Show(message, CodexTrayDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Warning);
+        PresentInAppDialog(new InAppDialogRequest("Warning", message, "OK"));
     }
 
     /// <summary>
-    /// Shows an informational message box.
+    /// Shows an informational message in the tray panel.
     /// </summary>
-    private static void ShowInformation(string message)
+    private void ShowInformation(string message)
     {
-        Forms.MessageBox.Show(message, CodexTrayDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Information);
+        PresentInAppDialog(new InAppDialogRequest("Plugin installed", message, "OK"));
     }
 
     /// <summary>

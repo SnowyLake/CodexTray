@@ -5,7 +5,6 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Windows;
 using System.Windows.Input;
 using Forms = System.Windows.Forms;
 using Media = System.Windows.Media;
@@ -34,6 +33,13 @@ internal enum SettingsStatus
 }
 
 internal sealed record TokenCostDisplay(string Cost, string Tokens);
+
+internal sealed record InAppDialogRequest(
+    string Title,
+    string Message,
+    string PrimaryButtonText,
+    string? SecondaryButtonText = null,
+    Action? PrimaryAction = null);
 
 internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 {
@@ -77,13 +83,19 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private bool m_ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
     private bool m_UseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
     private bool m_IsRefreshing;
-    private bool m_IsModalOpen;
+    private bool m_IsInAppDialogOpen;
+    private bool m_IsNativeModalOpen;
     private bool m_IsDetectingLiteMonitor;
     private bool m_IsDetectingTrafficMonitor;
     private ApiUsageRefreshStatus? m_ApiUsageStatus;
     private int m_ApiUsageErrorCount;
     private int m_ApiUsageMonitorCount;
     private DateTimeOffset? m_ApiUsageUpdatedAt;
+    private string m_InAppDialogTitle = string.Empty;
+    private string m_InAppDialogMessage = string.Empty;
+    private string m_InAppDialogPrimaryButtonText = "OK";
+    private string m_InAppDialogSecondaryButtonText = string.Empty;
+    private Action? m_InAppDialogPrimaryAction;
 
     private SettingsStatus m_SettingsStatus = SettingsStatus.Clean;
     private SettingsStatus m_SettingsBaseline = SettingsStatus.Clean;
@@ -114,6 +126,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public event EventHandler? InstallTrafficMonitorPluginRequested;
 
     public event EventHandler? ExitRequested;
+
+    public event Action<InAppDialogRequest>? InAppDialogRequested;
 
     public QuotaViewModel FiveHourQuota { get; } = new("5-Hour");
 
@@ -150,6 +164,10 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public ICommand MoveApiMonitorUpCommand { get; }
 
     public ICommand MoveApiMonitorDownCommand { get; }
+
+    public ICommand ConfirmInAppDialogCommand { get; }
+
+    public ICommand DismissInAppDialogCommand { get; }
 
     public ObservableCollection<ApiMonitorViewModel> ApiMonitors { get; } = [];
 
@@ -566,11 +584,51 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         set => SetField(ref m_IsRefreshing, value);
     }
 
-    public bool IsModalOpen
+    public bool IsModalOpen => m_IsInAppDialogOpen || m_IsNativeModalOpen;
+
+    public bool IsInAppDialogOpen
     {
-        get => m_IsModalOpen;
-        private set => SetField(ref m_IsModalOpen, value);
+        get => m_IsInAppDialogOpen;
+        private set
+        {
+            if (SetField(ref m_IsInAppDialogOpen, value))
+            {
+                OnPropertyChanged(nameof(IsModalOpen));
+            }
+        }
     }
+
+    public string InAppDialogTitle
+    {
+        get => m_InAppDialogTitle;
+        private set => SetField(ref m_InAppDialogTitle, value);
+    }
+
+    public string InAppDialogMessage
+    {
+        get => m_InAppDialogMessage;
+        private set => SetField(ref m_InAppDialogMessage, value);
+    }
+
+    public string InAppDialogPrimaryButtonText
+    {
+        get => m_InAppDialogPrimaryButtonText;
+        private set => SetField(ref m_InAppDialogPrimaryButtonText, value);
+    }
+
+    public string InAppDialogSecondaryButtonText
+    {
+        get => m_InAppDialogSecondaryButtonText;
+        private set
+        {
+            if (SetField(ref m_InAppDialogSecondaryButtonText, value))
+            {
+                OnPropertyChanged(nameof(HasInAppDialogSecondaryButton));
+            }
+        }
+    }
+
+    public bool HasInAppDialogSecondaryButton => m_InAppDialogSecondaryButtonText.Length > 0;
 
     /// <summary>
     /// Creates a view model for the WPF tray popup.
@@ -596,6 +654,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         RemoveApiMonitorCommand = new RelayCommand(RemoveApiMonitor);
         MoveApiMonitorUpCommand = new RelayCommand(parameter => MoveApiMonitor(parameter, -1));
         MoveApiMonitorDownCommand = new RelayCommand(parameter => MoveApiMonitor(parameter, 1));
+        ConfirmInAppDialogCommand = new RelayCommand(_ => ConfirmInAppDialog());
+        DismissInAppDialogCommand = new RelayCommand(_ => DismissInAppDialog());
     }
 
     /// <summary>
@@ -919,16 +979,28 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Removes an API monitor card after confirmation.
+    /// Requests confirmation before removing an API monitor card.
     /// </summary>
     private void RemoveApiMonitor(object? parameter)
     {
-        if (parameter is not ApiMonitorViewModel monitor ||
-            !ShowModalConfirmation($"Delete the {monitor.Name} API monitor?"))
+        if (parameter is not ApiMonitorViewModel monitor)
         {
             return;
         }
 
+        InAppDialogRequested?.Invoke(new InAppDialogRequest(
+            "Delete API monitor?",
+            $"Delete the {monitor.Name} API monitor?",
+            "Delete",
+            "Cancel",
+            () => DeleteApiMonitor(monitor)));
+    }
+
+    /// <summary>
+    /// Removes a confirmed API monitor card.
+    /// </summary>
+    private void DeleteApiMonitor(ApiMonitorViewModel monitor)
+    {
         bool wasPending = monitor.IsPending;
         monitor.Changed -= HandleApiMonitorChanged;
         monitor.EditingSaved -= HandleApiMonitorSaved;
@@ -1060,19 +1132,40 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Shows a modal confirmation message without triggering popup auto hide.
+    /// Opens an in-window dialog requested by the tray controller.
     /// </summary>
-    private bool ShowModalConfirmation(string message)
+    public void ShowInAppDialog(InAppDialogRequest request)
     {
-        IsModalOpen = true;
-        try
+        InAppDialogTitle = request.Title;
+        InAppDialogMessage = request.Message;
+        InAppDialogPrimaryButtonText = request.PrimaryButtonText;
+        InAppDialogSecondaryButtonText = request.SecondaryButtonText ?? string.Empty;
+        m_InAppDialogPrimaryAction = request.PrimaryAction;
+        IsInAppDialogOpen = true;
+    }
+
+    /// <summary>
+    /// Confirms the active in-window dialog.
+    /// </summary>
+    private void ConfirmInAppDialog()
+    {
+        Action? primaryAction = m_InAppDialogPrimaryAction;
+        DismissInAppDialog();
+        primaryAction?.Invoke();
+    }
+
+    /// <summary>
+    /// Dismisses the active in-window dialog.
+    /// </summary>
+    public void DismissInAppDialog()
+    {
+        if (!m_IsInAppDialogOpen)
         {
-            return System.Windows.MessageBox.Show(message, CodexTrayDefaults.AppName, MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+            return;
         }
-        finally
-        {
-            IsModalOpen = false;
-        }
+
+        m_InAppDialogPrimaryAction = null;
+        IsInAppDialogOpen = false;
     }
 
     /// <summary>
@@ -1080,7 +1173,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     private void BrowseMonitorFolder(string description, string currentPath, Action<string> updatePath)
     {
-        IsModalOpen = true;
+        SetNativeModalOpen(true);
         try
         {
             using Forms.FolderBrowserDialog dialog = new()
@@ -1096,8 +1189,22 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
         finally
         {
-            IsModalOpen = false;
+            SetNativeModalOpen(false);
         }
+    }
+
+    /// <summary>
+    /// Updates modal state while a native folder picker is open.
+    /// </summary>
+    private void SetNativeModalOpen(bool isOpen)
+    {
+        if (m_IsNativeModalOpen == isOpen)
+        {
+            return;
+        }
+
+        m_IsNativeModalOpen = isOpen;
+        OnPropertyChanged(nameof(IsModalOpen));
     }
 
     /// <summary>
@@ -1120,7 +1227,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
                 LiteMonitorDir = CodexTrayDefaults.PluginPathNone;
                 if (showNotFound)
                 {
-                    ShowModalMessage("LiteMonitor was not found.");
+                    InAppDialogRequested?.Invoke(new InAppDialogRequest("LiteMonitor not found", "LiteMonitor was not found.", "OK"));
                 }
 
                 return;
@@ -1154,7 +1261,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
                 TrafficMonitorDir = CodexTrayDefaults.PluginPathNone;
                 if (showNotFound)
                 {
-                    ShowModalMessage("TrafficMonitor was not found.");
+                    InAppDialogRequested?.Invoke(new InAppDialogRequest("TrafficMonitor not found", "TrafficMonitor was not found.", "OK"));
                 }
 
                 return;
@@ -1186,22 +1293,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         return string.Equals(value, CodexTrayDefaults.PluginPathNone, StringComparison.OrdinalIgnoreCase)
             ? string.Empty
             : value;
-    }
-
-    /// <summary>
-    /// Shows a WPF message box without triggering popup auto hide.
-    /// </summary>
-    private void ShowModalMessage(string message)
-    {
-        IsModalOpen = true;
-        try
-        {
-            System.Windows.MessageBox.Show(message, CodexTrayDefaults.AppName, MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        finally
-        {
-            IsModalOpen = false;
-        }
     }
 
     /// <summary>
