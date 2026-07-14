@@ -362,7 +362,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Formats the seven day reset as a countdown label.
     /// </summary>
-    private static string FormatSevenDayResetLabel(long epochSeconds, DateTimeOffset now)
+    internal static string FormatSevenDayResetLabel(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {
@@ -390,7 +390,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Formats the seven day reset as an absolute local month-day label.
     /// </summary>
-    private static string FormatSevenDayResetDate(long epochSeconds, DateTimeOffset now)
+    internal static string FormatSevenDayResetDate(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {

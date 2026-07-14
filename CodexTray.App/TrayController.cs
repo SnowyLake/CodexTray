@@ -434,7 +434,7 @@ internal sealed class TrayController : IDisposable
             m_UsageCache.Update(response);
             RefreshPopupStatus();
             ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
-            IReadOnlyList<ApiUsageResult> apiUsage = await m_ApiUsageCollector.CollectAsync(apiMonitors).ConfigureAwait(true);
+            IReadOnlyList<ApiUsageResult> apiUsage = await m_ApiUsageCollector.CollectAsync(apiMonitors, useAbsoluteResetTime).ConfigureAwait(true);
             m_PopupViewModel?.UpdateApiUsage(apiUsage);
             TokenCostStatistics? tokenCost;
             try
@@ -471,6 +471,7 @@ internal sealed class TrayController : IDisposable
             BaseUrl = monitor.BaseUrl,
             ApiKey = monitor.ApiKey,
             UserId = monitor.UserId,
+            GrokOAuthSource = monitor.GrokOAuthSource,
         };
     }
 

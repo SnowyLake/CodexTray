@@ -16,6 +16,7 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     private string m_BaseUrl;
     private string m_ApiKey;
     private string m_UserId;
+    private string m_GrokOAuthSource;
     private string m_BalanceDisplay = "N/A";
     private string m_UsedDisplay = "N/A";
     private string m_StatusText = "Waiting for refresh";
@@ -35,6 +36,13 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     [
         ApiMonitorSettings.DeepSeekProvider,
         ApiMonitorSettings.NewApiProvider,
+        ApiMonitorSettings.GrokProvider,
+    ];
+
+    public string[] GrokOAuthSourceOptions { get; } =
+    [
+        ApiMonitorSettings.GrokBuildOAuthSource,
+        ApiMonitorSettings.OpenCodeOAuthSource,
     ];
 
     public ICommand ToggleEditingCommand { get; }
@@ -57,9 +65,12 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         get => m_Provider;
         set
         {
-            string normalized = value == ApiMonitorSettings.NewApiProvider
-                ? ApiMonitorSettings.NewApiProvider
-                : ApiMonitorSettings.DeepSeekProvider;
+            string normalized = value switch
+            {
+                ApiMonitorSettings.NewApiProvider => ApiMonitorSettings.NewApiProvider,
+                ApiMonitorSettings.GrokProvider => ApiMonitorSettings.GrokProvider,
+                _ => ApiMonitorSettings.DeepSeekProvider,
+            };
             string previousProvider = m_Provider;
             if (!SetField(ref m_Provider, normalized))
             {
@@ -77,6 +88,10 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             }
 
             OnPropertyChanged(nameof(IsNewApi));
+            OnPropertyChanged(nameof(IsGrok));
+            OnPropertyChanged(nameof(HasSecondaryDisplay));
+            OnPropertyChanged(nameof(PrimaryDisplayLabel));
+            OnPropertyChanged(nameof(SecondaryDisplayLabel));
             OnPropertyChanged(nameof(DisplayName));
             Changed?.Invoke(this, EventArgs.Empty);
         }
@@ -118,7 +133,30 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         }
     }
 
+    public string GrokOAuthSource
+    {
+        get => m_GrokOAuthSource;
+        set
+        {
+            string normalized = string.Equals(value, ApiMonitorSettings.OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
+                ? ApiMonitorSettings.OpenCodeOAuthSource
+                : ApiMonitorSettings.GrokBuildOAuthSource;
+            if (SetField(ref m_GrokOAuthSource, normalized))
+            {
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
     public bool IsNewApi => m_Provider == ApiMonitorSettings.NewApiProvider;
+
+    public bool IsGrok => m_Provider == ApiMonitorSettings.GrokProvider;
+
+    public bool HasSecondaryDisplay => IsNewApi || IsGrok;
+
+    public string PrimaryDisplayLabel => IsGrok ? "Remaining:" : "Balance:";
+
+    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : "Used:";
 
     public string DisplayName => string.IsNullOrWhiteSpace(m_Name) ? m_Provider : m_Name.Trim();
 
@@ -169,6 +207,7 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         m_BaseUrl = settings.BaseUrl;
         m_ApiKey = settings.ApiKey;
         m_UserId = settings.UserId;
+        m_GrokOAuthSource = settings.GrokOAuthSource;
         m_IsEditing = isEditing;
         m_IsPending = isPending;
         ToggleEditingCommand = new RelayCommand(_ => ToggleEditing());
@@ -187,6 +226,7 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             BaseUrl = BaseUrl,
             ApiKey = ApiKey,
             UserId = UserId,
+            GrokOAuthSource = GrokOAuthSource,
         }.Normalize();
     }
 

@@ -32,6 +32,7 @@ internal static class Program
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
         await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
+        await RunAsync("parses Grok billing protobuf", TestGrokUsageCollectorAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
@@ -390,6 +391,12 @@ internal static class Program
                     Name = "Personal DeepSeek",
                     ApiKey = "deepseek-secret-token",
                 },
+                new ApiMonitorSettings
+                {
+                    Name = "OpenCode Grok",
+                    Provider = ApiMonitorSettings.GrokProvider,
+                    GrokOAuthSource = ApiMonitorSettings.OpenCodeOAuthSource,
+                },
             ],
         };
 
@@ -398,8 +405,11 @@ internal static class Program
         string json = File.ReadAllText(store.SettingsPath);
         AssertTrue(json.Contains("deepseek-secret-token", StringComparison.Ordinal), "settings should contain the API key");
         AppSettings loaded = store.Load();
-        AssertEqual("deepseek-secret-token", loaded.ApiMonitors.Single().ApiKey, "saved API key");
-        AssertEqual("Personal DeepSeek", loaded.ApiMonitors.Single().Name, "API monitor name");
+        ApiMonitorSettings deepSeek = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.DeepSeekProvider);
+        ApiMonitorSettings grok = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.GrokProvider);
+        AssertEqual("deepseek-secret-token", deepSeek.ApiKey, "saved API key");
+        AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
+        AssertEqual(ApiMonitorSettings.OpenCodeOAuthSource, grok.GrokOAuthSource, "saved Grok OAuth source");
         return Task.CompletedTask;
     }
 
@@ -430,6 +440,50 @@ internal static class Program
         AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
         AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
         AssertEqual("$5.00", results[1].UsedDisplay, "NewAPI used USD quota");
+    }
+
+    /// <summary>
+    /// Tests protobuf parsing for Grok's consumed percentage and reset timestamp.
+    /// </summary>
+    private static Task TestGrokUsageCollectorAsync()
+    {
+        const long resetAt = 1_802_592_000;
+        List<byte> payload =
+        [
+            0x0D,
+            0x00,
+            0x00,
+            0x2A,
+            0x42,
+            0x28,
+        ];
+        payload.AddRange(EncodeVarint(resetAt));
+        List<byte> response = [0, 0, 0, 0, (byte)payload.Count];
+        response.AddRange(payload);
+
+        GrokUsageSnapshot snapshot = GrokUsageCollector.ParseGrpcWebResponse([.. response], DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
+
+        AssertEqual(42.5, snapshot.UsedPercent, "Grok used percentage");
+        AssertEqual(resetAt, snapshot.ResetsAt, "Grok reset timestamp");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Encodes a positive integer in protobuf varint form.
+    /// </summary>
+    private static byte[] EncodeVarint(long value)
+    {
+        List<byte> bytes = [];
+        ulong remaining = (ulong)value;
+        do
+        {
+            byte next = (byte)(remaining & 0x7F);
+            remaining >>= 7;
+            bytes.Add(remaining == 0 ? next : (byte)(next | 0x80));
+        }
+        while (remaining != 0);
+
+        return [.. bytes];
     }
 
     /// <summary>

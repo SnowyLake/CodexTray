@@ -21,6 +21,12 @@ public sealed class ApiMonitorSettings
 
     public const string NewApiProvider = "NewAPI";
 
+    public const string GrokProvider = "Grok";
+
+    public const string GrokBuildOAuthSource = "Grok Build";
+
+    public const string OpenCodeOAuthSource = "OpenCode";
+
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
     public string Name { get; set; } = DeepSeekProvider;
@@ -33,19 +39,27 @@ public sealed class ApiMonitorSettings
 
     public string UserId { get; set; } = string.Empty;
 
+    public string GrokOAuthSource { get; set; } = GrokBuildOAuthSource;
+
     /// <summary>
     /// Normalizes one persisted API monitor configuration.
     /// </summary>
     public ApiMonitorSettings Normalize()
     {
         Id = string.IsNullOrWhiteSpace(Id) ? Guid.NewGuid().ToString("N") : Id.Trim();
-        Provider = string.Equals(Provider?.Trim(), NewApiProvider, StringComparison.OrdinalIgnoreCase)
-            ? NewApiProvider
-            : DeepSeekProvider;
+        Provider = Provider?.Trim() switch
+        {
+            string value when string.Equals(value, NewApiProvider, StringComparison.OrdinalIgnoreCase) => NewApiProvider,
+            string value when string.Equals(value, GrokProvider, StringComparison.OrdinalIgnoreCase) => GrokProvider,
+            _ => DeepSeekProvider,
+        };
         Name = string.IsNullOrWhiteSpace(Name) ? Provider : Name.Trim();
         BaseUrl = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
         ApiKey = (ApiKey ?? string.Empty).Trim();
         UserId = (UserId ?? string.Empty).Trim();
+        GrokOAuthSource = string.Equals(GrokOAuthSource?.Trim(), OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
+            ? OpenCodeOAuthSource
+            : GrokBuildOAuthSource;
         return this;
     }
 }

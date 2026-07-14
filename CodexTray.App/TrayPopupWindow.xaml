@@ -856,7 +856,7 @@
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="Balance:"
+                                                    <TextBlock Text="{Binding PrimaryDisplayLabel}"
                                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                FontSize="12" />
                                                     <TextBlock Grid.Column="1"
@@ -866,8 +866,8 @@
                                                                FontSize="13" />
                                                     <StackPanel Grid.Column="2"
                                                                 Orientation="Horizontal"
-                                                                Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                        <TextBlock Text="Used:"
+                                                                Visibility="{Binding HasSecondaryDisplay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                        <TextBlock Text="{Binding SecondaryDisplayLabel}"
                                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                    FontSize="12" />
                                                         <TextBlock Margin="8,0,0,0"
@@ -884,7 +884,7 @@
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="API settings"
+                                                    <TextBlock Text="Provider settings"
                                                                VerticalAlignment="Center"
                                                                Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                                                FontSize="15"
@@ -920,29 +920,45 @@
                                                 <TextBox Text="{Binding Name}"
                                                          Style="{StaticResource SettingsTextBoxStyle}" />
 
-                                                <TextBlock Margin="0,12,0,5"
-                                                           Text="Base URL"
-                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                           FontSize="12" />
-                                                <TextBox Text="{Binding BaseUrl}"
-                                                         Style="{StaticResource SettingsTextBoxStyle}" />
-
-                                                <TextBlock Margin="0,10,0,5"
-                                                           Text="API key / access token"
-                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                           FontSize="12" />
-                                                <TextBox Text="{Binding ApiKey}"
-                                                         Style="{StaticResource SettingsTextBoxStyle}" />
-
-                                                <StackPanel Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                    <TextBlock Margin="0,10,0,5"
-                                                               Text="User ID"
+                                                <StackPanel Visibility="{Binding IsGrok, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <TextBlock Margin="0,12,0,5"
+                                                               Text="OAuth source"
                                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                FontSize="12" />
-                                                    <TextBox Text="{Binding UserId}"
-                                                             Style="{StaticResource SettingsTextBoxStyle}" />
+                                                    <ComboBox ItemsSource="{Binding GrokOAuthSourceOptions}"
+                                                              SelectedItem="{Binding GrokOAuthSource}"
+                                                              Style="{StaticResource SettingsComboBoxStyle}" />
+                                                    <TextBlock Margin="0,8,0,0"
+                                                               Text="Reads the local OAuth session. Tokens are not stored here."
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12"
+                                                               TextWrapping="Wrap" />
                                                 </StackPanel>
 
+                                                <StackPanel Visibility="{Binding IsGrok, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                                    <TextBlock Margin="0,12,0,5"
+                                                               Text="Base URL"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12" />
+                                                    <TextBox Text="{Binding BaseUrl}"
+                                                             Style="{StaticResource SettingsTextBoxStyle}" />
+
+                                                    <TextBlock Margin="0,10,0,5"
+                                                               Text="API key / access token"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12" />
+                                                    <TextBox Text="{Binding ApiKey}"
+                                                             Style="{StaticResource SettingsTextBoxStyle}" />
+
+                                                    <StackPanel Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                        <TextBlock Margin="0,10,0,5"
+                                                                   Text="User ID"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                   FontSize="12" />
+                                                        <TextBox Text="{Binding UserId}"
+                                                                 Style="{StaticResource SettingsTextBoxStyle}" />
+                                                    </StackPanel>
+                                                </StackPanel>
                                             </StackPanel>
                                         </Grid>
                                     </Border>
@@ -1033,14 +1049,14 @@
                                       ToolTip="Start with Windows" />
                         </Grid>
 
-                        <Grid ToolTip="Show reset as absolute time (5-Hour as HH:mm, 7-Day as MM-dd) instead of a countdown"
+                        <Grid ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day and Grok as MM-dd) instead of a countdown"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Use absolute time"
-                                       ToolTip="Show reset as absolute time (5-Hour as HH:mm, 7-Day as MM-dd) instead of a countdown"
+                            <TextBlock Text="Resets use absolute time"
+                                       ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day and Grok as MM-dd) instead of a countdown"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -1048,7 +1064,7 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding UseAbsoluteResetTime}"
-                                      ToolTip="Show reset as absolute time (5-Hour as HH:mm, 7-Day as MM-dd) instead of a countdown" />
+                                      ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day and Grok as MM-dd) instead of a countdown" />
                         </Grid>
 
                         <Grid Style="{StaticResource SettingsRowGridStyle}">

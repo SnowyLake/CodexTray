@@ -32,6 +32,7 @@ public sealed class ApiUsageCollector
     };
 
     private readonly HttpClient m_HttpClient;
+    private readonly GrokUsageCollector m_GrokUsageCollector;
 
     /// <summary>
     /// Creates an API usage collector with the shared HTTP client.
@@ -47,6 +48,7 @@ public sealed class ApiUsageCollector
     public ApiUsageCollector(HttpClient httpClient)
     {
         m_HttpClient = httpClient;
+        m_GrokUsageCollector = new GrokUsageCollector(httpClient);
     }
 
     /// <summary>
@@ -88,18 +90,23 @@ public sealed class ApiUsageCollector
     /// <summary>
     /// Queries every configured API monitor in parallel.
     /// </summary>
-    public async Task<IReadOnlyList<ApiUsageResult>> CollectAsync(IEnumerable<ApiMonitorSettings> monitors, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ApiUsageResult>> CollectAsync(IEnumerable<ApiMonitorSettings> monitors, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
     {
-        Task<ApiUsageResult>[] queries = monitors.Select(monitor => CollectOneAsync(monitor, cancellationToken)).ToArray();
+        Task<ApiUsageResult>[] queries = monitors.Select(monitor => CollectOneAsync(monitor, useAbsoluteResetTime, cancellationToken)).ToArray();
         return await Task.WhenAll(queries).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Queries one supported API monitor.
     /// </summary>
-    private async Task<ApiUsageResult> CollectOneAsync(ApiMonitorSettings monitor, CancellationToken cancellationToken)
+    private async Task<ApiUsageResult> CollectOneAsync(ApiMonitorSettings monitor, bool useAbsoluteResetTime, CancellationToken cancellationToken)
     {
         DateTimeOffset now = DateTimeOffset.Now;
+        if (monitor.Provider == ApiMonitorSettings.GrokProvider)
+        {
+            return await CollectGrokAsync(monitor, now, useAbsoluteResetTime, cancellationToken).ConfigureAwait(false);
+        }
+
         if (monitor.ApiKey.Length == 0)
         {
             return Unavailable(monitor.Id, "Enter an API key", now);
@@ -144,6 +151,32 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
+    /// Queries Grok Build billing with the selected locally stored OAuth session.
+    /// </summary>
+    private async Task<ApiUsageResult> CollectGrokAsync(ApiMonitorSettings monitor, DateTimeOffset now, bool useAbsoluteResetTime, CancellationToken cancellationToken)
+    {
+        try
+        {
+            GrokUsageSnapshot snapshot = await m_GrokUsageCollector
+                .CollectAsync(monitor.GrokOAuthSource, cancellationToken)
+                .ConfigureAwait(false);
+            return new ApiUsageResult(
+                monitor.Id,
+                true,
+                FormatGrokRemainingPercent(snapshot.UsedPercent),
+                useAbsoluteResetTime
+                    ? CodexTrayCollector.FormatSevenDayResetDate(snapshot.ResetsAt, now)
+                    : CodexTrayCollector.FormatSevenDayResetLabel(snapshot.ResetsAt, now),
+                string.Empty,
+                now);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
+        {
+            return Unavailable(monitor.Id, exception is TaskCanceledException ? "Request timed out" : exception.Message, now);
+        }
+    }
+
+    /// <summary>
     /// Parses a DeepSeek balance response.
     /// </summary>
     private static ApiUsageResult ParseDeepSeek(string monitorId, JsonElement root, DateTimeOffset now)
@@ -173,6 +206,16 @@ public sealed class ApiUsageCollector
         }
 
         return Unavailable(monitorId, "CNY balance data is missing", now);
+    }
+
+    /// <summary>
+    /// Formats Grok's remaining allowance percentage for compact card display.
+    /// </summary>
+    private static string FormatGrokRemainingPercent(double usedPercent)
+    {
+        double remainingPercent = Math.Clamp(100 - usedPercent, 0, 100);
+        string format = Math.Abs(remainingPercent % 1) < 0.001 ? "0" : "0.#";
+        return $"{remainingPercent.ToString(format, CultureInfo.InvariantCulture)}%";
     }
 
     /// <summary>
