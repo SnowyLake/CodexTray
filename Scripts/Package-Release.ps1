@@ -35,6 +35,18 @@ function Get-NormalizedVersion {
 }
 
 $normalizedVersion = Get-NormalizedVersion $Version
+$releaseVersion = $normalizedVersion.Substring(1)
+$projectXml = [xml](Get-Content -LiteralPath $projectPath -Raw)
+$projectVersionNode = $projectXml.SelectSingleNode("/Project/PropertyGroup/Version")
+if ($null -eq $projectVersionNode) {
+    throw "Project version is missing from $projectPath."
+}
+
+$projectVersion = $projectVersionNode.InnerText.Trim()
+if ($projectVersion -ne $releaseVersion) {
+    throw "Project version $projectVersion does not match requested release version $releaseVersion."
+}
+
 $releaseRoot = Join-Path $releaseBaseRoot $normalizedVersion
 $packageName = "CodexTray-$normalizedVersion-$runtime.zip"
 $stagingDir = Join-Path $releaseRoot "CodexTray-$normalizedVersion-$runtime"
