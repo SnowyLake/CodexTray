@@ -1,8 +1,10 @@
 using CodexTray.Core;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Windows.Input;
@@ -46,6 +48,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private const string k_HomePageName = "Home";
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
+    private const string k_AboutPageName = "About";
+    private const string k_RepositoryUrl = "https://github.com/SnowyLake/CodexTray";
 
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_YellowBrush = new Media.SolidColorBrush(Media.Color.FromRgb(226, 176, 54));
@@ -138,6 +142,10 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public ICommand ShowApiCommand { get; }
 
     public ICommand ShowSettingsCommand { get; }
+
+    public ICommand ShowAboutCommand { get; }
+
+    public ICommand OpenRepositoryCommand { get; }
 
     public ICommand RefreshCommand { get; }
 
@@ -537,11 +545,16 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public bool IsSettingsVisible => m_CurrentPage == k_SettingsPageName;
 
+    public bool IsAboutVisible => m_CurrentPage == k_AboutPageName;
+
     public bool IsHomeSelected => m_CurrentPage == k_HomePageName;
 
     public bool IsApiSelected => m_CurrentPage == k_ApiPageName;
 
     public bool IsSettingsSelected => m_CurrentPage == k_SettingsPageName;
+
+    public string AppVersion => typeof(TrayPopupViewModel).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
 
     public bool IsApiEmpty => ApiMonitors.Count == 0;
 
@@ -641,6 +654,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         ShowHomeCommand = new RelayCommand(_ => ShowHome());
         ShowApiCommand = new RelayCommand(_ => ShowApi());
         ShowSettingsCommand = new RelayCommand(_ => ShowSettings());
+        ShowAboutCommand = new RelayCommand(_ => ShowAbout());
+        OpenRepositoryCommand = new RelayCommand(_ => OpenUrl(k_RepositoryUrl));
         RefreshCommand = new RelayCommand(_ => RefreshRequested?.Invoke(this, EventArgs.Empty));
         SaveSettingsCommand = new RelayCommand(_ => SaveSettingsRequested?.Invoke(this, EventArgs.Empty));
         InstallLiteMonitorPluginCommand = new RelayCommand(_ => InstallLiteMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
@@ -926,8 +941,20 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     public void ShowSettings()
     {
-        LoadSettings(m_Settings);
+        if (!IsAboutVisible)
+        {
+            LoadSettings(m_Settings);
+        }
+
         SetPage(k_SettingsPageName);
+    }
+
+    /// <summary>
+    /// Shows the about page inside the tray popup.
+    /// </summary>
+    public void ShowAbout()
+    {
+        SetPage(k_AboutPageName);
     }
 
     /// <summary>
@@ -944,9 +971,25 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsHomeVisible));
         OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
+        OnPropertyChanged(nameof(IsAboutVisible));
         OnPropertyChanged(nameof(IsHomeSelected));
         OnPropertyChanged(nameof(IsApiSelected));
         OnPropertyChanged(nameof(IsSettingsSelected));
+    }
+
+    /// <summary>
+    /// Opens an external URL in the default browser.
+    /// </summary>
+    private void OpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            InAppDialogRequested?.Invoke(new InAppDialogRequest("Unable to open link", exception.Message, "OK"));
+        }
     }
 
     /// <summary>

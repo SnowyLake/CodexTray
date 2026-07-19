@@ -1345,13 +1345,136 @@
                                                  DefaultValue="{x:Static core:CodexTrayDefaults.Port}"
                                                  Value="{Binding PortText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
                         </Grid>
+
+                        <!-- About -->
+                        <TextBlock Text="About"
+                                   Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
+
+                        <Grid Margin="{StaticResource SettingsLastRowMargin}"
+                              Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding AppVersion, StringFormat=CodexTray · Version {0}}"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <Button Grid.Column="1"
+                                    Command="{Binding ShowAboutCommand}"
+                                    Content="&#xE72A;"
+                                    ToolTip="Open About"
+                                    Style="{StaticResource IconButtonStyle}" />
+                        </Grid>
                     </StackPanel>
                 </ScrollViewer>
 
             </Grid>
 
+            <!-- ===================== ABOUT ===================== -->
+            <Grid Grid.Row="0"
+                  Visibility="{Binding IsAboutVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="About"
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                               FontSize="26"
+                               FontWeight="Medium"
+                               VerticalAlignment="Center" />
+                    <Button Grid.Column="1"
+                            Command="{Binding ShowSettingsCommand}"
+                            Content="&#xE72B;"
+                            ToolTip="Back to Settings"
+                            Style="{StaticResource IconButtonStyle}" />
+                </Grid>
+
+                <Grid Grid.Row="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Margin="0,30,0,0">
+                        <Border Width="82"
+                                Height="82"
+                                HorizontalAlignment="Center"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="20">
+                            <Image Width="72"
+                                   Height="72"
+                                   Source="pack://siteoforigin:,,,/Resources/icon.png" />
+                        </Border>
+                        <TextBlock Margin="0,16,0,0"
+                                   Text="CodexTray"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="22"
+                                   FontWeight="SemiBold" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Text="{Binding AppVersion, StringFormat=Version {0}}"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="13" />
+                        <TextBlock Margin="18,12,18,28"
+                                   Text="A lightweight Windows tray monitor for Codex usage and API balances."
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="13" />
+
+                        <StackPanel HorizontalAlignment="Center"
+                                    Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center"
+                                       FontSize="13">
+                                <Hyperlink Command="{Binding OpenRepositoryCommand}"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                           ToolTip="Open GitHub repository">
+                                    <Hyperlink.TextDecorations>
+                                        <TextDecorationCollection>
+                                            <TextDecoration Location="Underline"
+                                                            PenOffset="2"
+                                                            PenOffsetUnit="Pixel"
+                                                            PenThicknessUnit="Pixel">
+                                                <TextDecoration.Pen>
+                                                    <Pen Brush="{DynamicResource TextFillColorSecondaryBrush}"
+                                                         Thickness="1">
+                                                        <Pen.DashStyle>
+                                                            <DashStyle Dashes="1,2" />
+                                                        </Pen.DashStyle>
+                                                    </Pen>
+                                                </TextDecoration.Pen>
+                                            </TextDecoration>
+                                        </TextDecorationCollection>
+                                    </Hyperlink.TextDecorations>
+                                    <Run Text="GitHub Repository" />
+                                    <Run Text=" &#xE8A7;"
+                                         FontFamily="Segoe MDL2 Assets"
+                                         FontSize="12" />
+                                </Hyperlink>
+                            </TextBlock>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="1"
+                               Text="MIT License · Copyright © 2026 SnowyLake"
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                               FontSize="11.5" />
+                </Grid>
+            </Grid>
+
             <!-- Footer -->
-            <Grid Grid.Row="1" Margin="0,18,0,0">
+            <Grid Grid.Row="1"
+                  Margin="0,18,0,0"
+                  Visibility="{Binding IsAboutVisible, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
