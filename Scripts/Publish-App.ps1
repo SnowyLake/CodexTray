@@ -9,14 +9,16 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptRoot
 $projectPath = Join-Path $repoRoot "CodexTray.App\CodexTray.App.csproj"
 $publishDir = Join-Path $repoRoot "Builds\Output\win-x64"
-$appFileName = "CodexTray.exe"
+$appPath = Join-Path $publishDir "CodexTray.exe"
 . (Join-Path $scriptRoot "Publish-Shared.ps1")
 
 function Invoke-AppPublish {
+    Stop-CodexTrayApp
     Invoke-CodexTrayPublish -RepoRoot $repoRoot -ProjectPath $projectPath -OutputPath $publishDir -Clean
+    Start-CodexTrayApp -AppPath $appPath
     Write-Host ""
     Write-Host "Publish completed."
-    Write-Host "Executable: $(Join-Path $publishDir $appFileName)"
+    Write-Host "Executable: $appPath"
 }
 
 $exitCode = 0
@@ -25,7 +27,7 @@ try {
 }
 catch {
     Write-Host ""
-    Write-Host "Publish failed."
+    Write-Host "Publish workflow failed."
     Write-Host $_.Exception.Message
     $exitCode = 1
 }

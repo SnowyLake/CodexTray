@@ -23,6 +23,8 @@
 
 Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`, 使用 `Resources/model-pricing.json` 计算 token 总量和 API 等价成本, 再显示在 WPF 主面板.
 
+API 监控也是独立链路: `ApiUsageCollector` 查询 DeepSeek 与 NewAPI, 并委托 `GrokUsageCollector` 使用 Grok Build 或 OpenCode 的本地 OAuth session 查询 Grok 用量. API 监控结果只显示在 WPF 主面板, 不进入插件 HTTP 响应.
+
 ## 架构与数据流
 
 ### 应用生命周期
@@ -30,7 +32,7 @@ Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessi
 1. `CodexTray.App/Program.cs` 使用 mutex 保证单实例. 后续进程通过 `TrayShowPanel` event 通知已有实例打开面板后退出.
 2. `CodexTray.App/App.cs` 创建 WPF application host, `TrayController` 管理托盘, 设置, 定时刷新, 插件安装和本地服务.
 3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
-4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Home/Settings 两页. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
+4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Home/APIs/Settings 三页. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
 
 ### 额度与插件链路
 
@@ -42,17 +44,25 @@ Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessi
    - `/health`: 返回本地服务健康状态.
 4. `LiteMonitorPluginInstaller` 和 `TrafficMonitorPluginInstaller` 从发布目录读取模板, 写入当前端口后安装到监控器目录.
 
+### API 监控链路
+
+1. `AppSettings.ApiMonitors` 保存 API 卡片顺序与 provider 配置. `TrayPopupViewModel` 负责增删, 排序和持久化卡片.
+2. `ApiUsageCollector` 并行刷新所有卡片. DeepSeek 使用 `/user/balance`, NewAPI 使用 `/api/user/self` 并发送 `New-Api-User` header.
+3. `GrokUsageCollector` 从 Grok Build 的 `auth.json` 或 OpenCode 的 `auth.json` 读取 xAI OAuth access token, 请求 Grok billing gRPC-web 接口并解析剩余额度和重置时间.
+4. `TrayController` 将结果交给 `TrayPopupViewModel` 更新单卡片状态与 APIs 页汇总状态. 这些结果不写入 `UsageCache`.
+
 ### 设置边界
 
 - 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults`.
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
 - 主题支持 `System`, `Light`, `Dark`. Acrylic 默认开启, 透明度默认 80%, 范围为 10% 到 100%.
+- API provider 支持 `DeepSeek`, `NewAPI`, `Grok`. DeepSeek 与 NewAPI 的凭据以明文保存在 `settings.json`, Grok 只保存 OAuth source 选择.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
 
 ## 目录结构
 
-- `CodexTray.Core`: 官方额度采集, Token Cost 统计, 缓存, HTTP 服务, 设置存储, 监控器定位与插件安装, Windows 自启动.
-- `CodexTray.App`: WPF 托盘应用, Home/Settings 弹窗, ViewModel, 命令和自定义数值输入控件.
+- `CodexTray.Core`: 官方额度采集, API 余额与用量采集, Token Cost 统计, 缓存, HTTP 服务, 设置存储, 监控器定位与插件安装, Windows 自启动.
+- `CodexTray.App`: WPF 托盘应用, Home/APIs/Settings 弹窗, ViewModel, 命令和自定义数值输入控件.
 - `CodexTray.Tests`: 自包含 C# 测试运行器.
 - `Plugins/LiteMonitor`: LiteMonitor JSON 模板 `CodexTray.json`.
 - `Plugins/TrafficMonitor`: TrafficMonitor 原生插件源码与 `CodexTray.ini` 模板. 原生构建输出位于 `Plugins/TrafficMonitor/Builds/**`.
@@ -72,20 +82,24 @@ Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessi
 - LiteMonitor 模板文件名保持为 `Plugins/LiteMonitor/CodexTray.json`. TrafficMonitor 模板文件名保持为 `Plugins/TrafficMonitor/CodexTray.ini`.
 - 修改插件字段, HTTP 路径或显示格式时, 同步检查两个插件模板, `TrafficMonitorPlugin.cpp`, `CodexTray.Tests/Program.cs` 和 README 的相关说明.
 - 修改 Token Cost 解析或定价结构时, 同步检查 `Resources/model-pricing.json` 和对应测试.
+- 修改 API provider, 请求字段或凭据来源时, 同步检查 `ApiUsageCollector`, `GrokUsageCollector`, `ApiMonitorSettings`, `ApiMonitorViewModel`, `TrayPopupWindow.xaml`, 对应测试和 README 的用户说明.
 - 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
-- 本地服务必须保持仅监听 `127.0.0.1`. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token.
-- `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数或清理逻辑优先修改共享脚本.
+- 本地服务必须保持仅监听 `127.0.0.1`. API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.
+- `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. `Scripts/Restart-App.ps1` 只重启当前发布输出中的程序, 不执行发布.
 
 ## 构建与输出
 
 - `bin` 和 `obj` 使用项目默认位置.
 - 不提交 `bin`, `obj`, `Builds` 或 `Plugins/TrafficMonitor/Builds` 下的生成文件.
 - App 发布为 `net9.0-windows`, `win-x64`, 单文件, framework-dependent 应用.
+- `Scripts/Publish-App.ps1` 清理已有发布输出时必须保留 `settings.json`.
 - `Resources` 和插件模板作为外部文件复制到发布目录.
 - 只有 `Plugins/TrafficMonitor/Builds/x64/Release/CodexTray.dll` 已存在时, App 发布才会复制 TrafficMonitor DLL.
 - `Directory.Build.targets` 排除 `Builds/**` 下的 `.cs`, 防止发布产物被 SDK 默认编译项重新纳入编译.
 
 ## 验证工作流
+
+- 每次涉及需要重新编译的代码或 XAML 改动完成后, 必须在最终验证步骤自动执行 `Scripts/Publish-App.ps1 -NoPause`, 并确认发布成功且发布目录中的程序已启动.
 
 构建全部项目:
 
@@ -105,13 +119,13 @@ dotnet run --project .\CodexTray.Tests\CodexTray.Tests.csproj
 .\Scripts\Build-TrafficMonitorPlugin.ps1
 ```
 
-发布 App:
+发布 App 并重启已发布程序:
 
 ```powershell
 .\Scripts\Publish-App.ps1 -NoPause
 ```
 
-修改托盘应用并通过构建与测试后, 发布并重启预览程序:
+不重新发布, 只重启当前发布输出中的预览程序:
 
 ```powershell
 .\Scripts\Restart-App.ps1 -NoPause
@@ -143,6 +157,8 @@ gh release create vX.Y.Z `
   --notes-file "Builds\Release\vX.Y.Z\release-notes.md" `
   --verify-tag
 ```
+
+13. GitHub Release 创建并核验成功后, 使用 `git switch develop` 切回 `develop`, 再确认工作区干净且 `develop` 与 `origin/develop` 同步.
 
 版本输入支持 `X.Y.Z`, `vX.Y.Z` 和 SemVer 后缀. tag 与版本目录固定使用规范化后的 `v<version>`.
 

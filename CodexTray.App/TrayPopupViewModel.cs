@@ -1,10 +1,10 @@
 using CodexTray.Core;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Windows;
 using System.Windows.Input;
 using Forms = System.Windows.Forms;
 using Media = System.Windows.Media;
@@ -34,9 +34,17 @@ internal enum SettingsStatus
 
 internal sealed record TokenCostDisplay(string Cost, string Tokens);
 
+internal sealed record InAppDialogRequest(
+    string Title,
+    string Message,
+    string PrimaryButtonText,
+    string? SecondaryButtonText = null,
+    Action? PrimaryAction = null);
+
 internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 {
     private const string k_HomePageName = "Home";
+    private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
 
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
@@ -48,7 +56,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     private readonly AppSettings m_Settings;
     private string m_CurrentPage = k_HomePageName;
-    private string m_PlanDisplay = "None";
+    private string m_PlanDisplay = "UNKNOWN";
     private Media.Brush m_PlanBadgeBrush = s_PlanBadgeInactiveBrush;
     private Media.Brush m_StatusDotBrush = s_RedBrush;
     private string m_UpdatedAtDisplay = "Waiting for first refresh";
@@ -75,9 +83,19 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private bool m_ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
     private bool m_UseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
     private bool m_IsRefreshing;
-    private bool m_IsModalOpen;
+    private bool m_IsInAppDialogOpen;
+    private bool m_IsNativeModalOpen;
     private bool m_IsDetectingLiteMonitor;
     private bool m_IsDetectingTrafficMonitor;
+    private ApiUsageRefreshStatus? m_ApiUsageStatus;
+    private int m_ApiUsageErrorCount;
+    private int m_ApiUsageMonitorCount;
+    private DateTimeOffset? m_ApiUsageUpdatedAt;
+    private string m_InAppDialogTitle = string.Empty;
+    private string m_InAppDialogMessage = string.Empty;
+    private string m_InAppDialogPrimaryButtonText = "OK";
+    private string m_InAppDialogSecondaryButtonText = string.Empty;
+    private Action? m_InAppDialogPrimaryAction;
 
     private SettingsStatus m_SettingsStatus = SettingsStatus.Clean;
     private SettingsStatus m_SettingsBaseline = SettingsStatus.Clean;
@@ -101,17 +119,23 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public event EventHandler? SaveSettingsRequested;
 
+    public event EventHandler? ApiMonitorsChanged;
+
     public event EventHandler? InstallLiteMonitorPluginRequested;
 
     public event EventHandler? InstallTrafficMonitorPluginRequested;
 
     public event EventHandler? ExitRequested;
 
+    public event Action<InAppDialogRequest>? InAppDialogRequested;
+
     public QuotaViewModel FiveHourQuota { get; } = new("5-Hour");
 
     public QuotaViewModel SevenDayQuota { get; } = new("7-Day");
 
     public ICommand ShowHomeCommand { get; }
+
+    public ICommand ShowApiCommand { get; }
 
     public ICommand ShowSettingsCommand { get; }
 
@@ -132,6 +156,20 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public ICommand AutoDetectTrafficMonitorCommand { get; }
 
     public ICommand ExitCommand { get; }
+
+    public ICommand AddApiMonitorCommand { get; }
+
+    public ICommand RemoveApiMonitorCommand { get; }
+
+    public ICommand MoveApiMonitorUpCommand { get; }
+
+    public ICommand MoveApiMonitorDownCommand { get; }
+
+    public ICommand ConfirmInAppDialogCommand { get; }
+
+    public ICommand DismissInAppDialogCommand { get; }
+
+    public ObservableCollection<ApiMonitorViewModel> ApiMonitors { get; } = [];
 
     public string PlanDisplay
     {
@@ -495,11 +533,50 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public bool IsHomeVisible => m_CurrentPage == k_HomePageName;
 
+    public bool IsApiVisible => m_CurrentPage == k_ApiPageName;
+
     public bool IsSettingsVisible => m_CurrentPage == k_SettingsPageName;
 
     public bool IsHomeSelected => m_CurrentPage == k_HomePageName;
 
+    public bool IsApiSelected => m_CurrentPage == k_ApiPageName;
+
     public bool IsSettingsSelected => m_CurrentPage == k_SettingsPageName;
+
+    public bool IsApiEmpty => ApiMonitors.Count == 0;
+
+    private int MonitoredApiCount => ApiMonitors.Count(monitor => !monitor.IsPending);
+
+    public bool HasApiMonitorStatus => m_ApiUsageStatus != null;
+
+    public Media.Brush ApiMonitorStatusDotBrush => m_ApiUsageStatus switch
+    {
+        ApiUsageRefreshStatus.AllAvailable => s_GreenBrush,
+        ApiUsageRefreshStatus.PartiallyAvailable => s_YellowBrush,
+        _ => s_RedBrush,
+    };
+
+    public string ApiMonitorStatusText
+    {
+        get
+        {
+            if (m_ApiUsageStatus is not ApiUsageRefreshStatus status)
+            {
+                return string.Empty;
+            }
+
+            int apiCount = m_ApiUsageMonitorCount;
+            string apiLabel = apiCount == 1 ? "API" : "APIs";
+            string updatedStatus = $"{apiCount} {apiLabel} {FormatUpdatedAt(m_ApiUsageUpdatedAt?.ToString("O", CultureInfo.InvariantCulture))}";
+            string errorLabel = m_ApiUsageErrorCount == 1 ? "API" : "APIs";
+            return status switch
+            {
+                ApiUsageRefreshStatus.AllAvailable => updatedStatus,
+                ApiUsageRefreshStatus.PartiallyAvailable => $"{updatedStatus}, {m_ApiUsageErrorCount} {errorLabel} Update Error",
+                _ => $"{m_ApiUsageErrorCount} {errorLabel} Update Error",
+            };
+        }
+    }
 
     public bool IsRefreshing
     {
@@ -507,11 +584,51 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         set => SetField(ref m_IsRefreshing, value);
     }
 
-    public bool IsModalOpen
+    public bool IsModalOpen => m_IsInAppDialogOpen || m_IsNativeModalOpen;
+
+    public bool IsInAppDialogOpen
     {
-        get => m_IsModalOpen;
-        private set => SetField(ref m_IsModalOpen, value);
+        get => m_IsInAppDialogOpen;
+        private set
+        {
+            if (SetField(ref m_IsInAppDialogOpen, value))
+            {
+                OnPropertyChanged(nameof(IsModalOpen));
+            }
+        }
     }
+
+    public string InAppDialogTitle
+    {
+        get => m_InAppDialogTitle;
+        private set => SetField(ref m_InAppDialogTitle, value);
+    }
+
+    public string InAppDialogMessage
+    {
+        get => m_InAppDialogMessage;
+        private set => SetField(ref m_InAppDialogMessage, value);
+    }
+
+    public string InAppDialogPrimaryButtonText
+    {
+        get => m_InAppDialogPrimaryButtonText;
+        private set => SetField(ref m_InAppDialogPrimaryButtonText, value);
+    }
+
+    public string InAppDialogSecondaryButtonText
+    {
+        get => m_InAppDialogSecondaryButtonText;
+        private set
+        {
+            if (SetField(ref m_InAppDialogSecondaryButtonText, value))
+            {
+                OnPropertyChanged(nameof(HasInAppDialogSecondaryButton));
+            }
+        }
+    }
+
+    public bool HasInAppDialogSecondaryButton => m_InAppDialogSecondaryButtonText.Length > 0;
 
     /// <summary>
     /// Creates a view model for the WPF tray popup.
@@ -520,7 +637,9 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     {
         m_Settings = settings;
         LoadSettings(settings);
+        LoadApiMonitors(settings.ApiMonitors);
         ShowHomeCommand = new RelayCommand(_ => ShowHome());
+        ShowApiCommand = new RelayCommand(_ => ShowApi());
         ShowSettingsCommand = new RelayCommand(_ => ShowSettings());
         RefreshCommand = new RelayCommand(_ => RefreshRequested?.Invoke(this, EventArgs.Empty));
         SaveSettingsCommand = new RelayCommand(_ => SaveSettingsRequested?.Invoke(this, EventArgs.Empty));
@@ -531,6 +650,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         AutoDetectLiteMonitorCommand = new RelayCommand(async _ => await DetectLiteMonitorAsync(showNotFound: true));
         AutoDetectTrafficMonitorCommand = new RelayCommand(async _ => await DetectTrafficMonitorAsync(showNotFound: true));
         ExitCommand = new RelayCommand(_ => ExitRequested?.Invoke(this, EventArgs.Empty));
+        AddApiMonitorCommand = new RelayCommand(_ => AddApiMonitor());
+        RemoveApiMonitorCommand = new RelayCommand(RemoveApiMonitor);
+        MoveApiMonitorUpCommand = new RelayCommand(parameter => MoveApiMonitor(parameter, -1));
+        MoveApiMonitorDownCommand = new RelayCommand(parameter => MoveApiMonitor(parameter, 1));
+        ConfirmInAppDialogCommand = new RelayCommand(_ => ConfirmInAppDialog());
+        DismissInAppDialogCommand = new RelayCommand(_ => DismissInAppDialog());
     }
 
     /// <summary>
@@ -688,7 +813,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
         if (response == null)
         {
-            PlanDisplay = "None";
+            PlanDisplay = "UNKNOWN";
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
             StatusDotBrush = s_RedBrush;
             UpdatedAtDisplay = FormatUpdatedAt(null);
@@ -700,7 +825,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
         if (!response.Available)
         {
-            PlanDisplay = "None";
+            PlanDisplay = "UNKNOWN";
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
             StatusDotBrush = s_RedBrush;
             UpdatedAtDisplay = $"Error{FormatResponseError(response)}";
@@ -789,6 +914,14 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Shows the API monitoring page inside the tray popup.
+    /// </summary>
+    public void ShowApi()
+    {
+        SetPage(k_ApiPageName);
+    }
+
+    /// <summary>
     /// Shows the settings page inside the tray popup.
     /// </summary>
     public void ShowSettings()
@@ -809,9 +942,230 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
         m_CurrentPage = pageName;
         OnPropertyChanged(nameof(IsHomeVisible));
+        OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsHomeSelected));
+        OnPropertyChanged(nameof(IsApiSelected));
         OnPropertyChanged(nameof(IsSettingsSelected));
+    }
+
+    /// <summary>
+    /// Loads persisted API monitor cards.
+    /// </summary>
+    private void LoadApiMonitors(IEnumerable<ApiMonitorSettings> settings)
+    {
+        ApiMonitors.Clear();
+        foreach (ApiMonitorSettings monitorSettings in settings)
+        {
+            ApiMonitorViewModel monitor = new(monitorSettings);
+            monitor.Changed += HandleApiMonitorChanged;
+            monitor.EditingSaved += HandleApiMonitorSaved;
+            ApiMonitors.Add(monitor);
+        }
+
+        NotifyApiMonitorCountChanged();
+    }
+
+    /// <summary>
+    /// Adds a default DeepSeek API monitor card.
+    /// </summary>
+    private void AddApiMonitor()
+    {
+        ApiMonitorViewModel monitor = new(new ApiMonitorSettings(), isEditing: true, isPending: true);
+        monitor.Changed += HandleApiMonitorChanged;
+        monitor.EditingSaved += HandleApiMonitorSaved;
+        ApiMonitors.Add(monitor);
+        NotifyApiMonitorCountChanged();
+    }
+
+    /// <summary>
+    /// Requests confirmation before removing an API monitor card.
+    /// </summary>
+    private void RemoveApiMonitor(object? parameter)
+    {
+        if (parameter is not ApiMonitorViewModel monitor)
+        {
+            return;
+        }
+
+        InAppDialogRequested?.Invoke(new InAppDialogRequest(
+            "Delete API monitor?",
+            $"Delete the {monitor.Name} API monitor?",
+            "Delete",
+            "Cancel",
+            () => DeleteApiMonitor(monitor)));
+    }
+
+    /// <summary>
+    /// Removes a confirmed API monitor card.
+    /// </summary>
+    private void DeleteApiMonitor(ApiMonitorViewModel monitor)
+    {
+        bool wasPending = monitor.IsPending;
+        monitor.Changed -= HandleApiMonitorChanged;
+        monitor.EditingSaved -= HandleApiMonitorSaved;
+        ApiMonitors.Remove(monitor);
+        SaveApiMonitors();
+        if (!wasPending)
+        {
+            RefreshRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Moves an API monitor card by one position.
+    /// </summary>
+    private void MoveApiMonitor(object? parameter, int offset)
+    {
+        if (parameter is not ApiMonitorViewModel monitor)
+        {
+            return;
+        }
+
+        int oldIndex = ApiMonitors.IndexOf(monitor);
+        int newIndex = oldIndex + offset;
+        if (oldIndex < 0 || newIndex < 0 || newIndex >= ApiMonitors.Count)
+        {
+            return;
+        }
+
+        ApiMonitors.Move(oldIndex, newIndex);
+        SaveApiMonitors();
+    }
+
+    /// <summary>
+    /// Persists a changed API monitor field.
+    /// </summary>
+    private void HandleApiMonitorChanged(object? sender, EventArgs args)
+    {
+        if (sender is ApiMonitorViewModel { IsPending: true })
+        {
+            return;
+        }
+
+        SaveApiMonitors();
+    }
+
+    /// <summary>
+    /// Persists a confirmed API monitor and refreshes its usage.
+    /// </summary>
+    private void HandleApiMonitorSaved(object? sender, EventArgs args)
+    {
+        SaveApiMonitors();
+        RefreshRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Copies API monitor cards into application settings and requests persistence.
+    /// </summary>
+    private void SaveApiMonitors()
+    {
+        m_Settings.ApiMonitors = ApiMonitors.Where(monitor => !monitor.IsPending).Select(monitor => monitor.ToSettings()).ToList();
+        NotifyApiMonitorCountChanged();
+        ApiMonitorsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Updates API monitor count properties after a collection change.
+    /// </summary>
+    private void NotifyApiMonitorCountChanged()
+    {
+        OnPropertyChanged(nameof(IsApiEmpty));
+        NotifyApiMonitorStatusChanged();
+    }
+
+    /// <summary>
+    /// Clears the API refresh summary when no complete result is available.
+    /// </summary>
+    private void ResetApiMonitorStatus()
+    {
+        m_ApiUsageStatus = null;
+        m_ApiUsageErrorCount = 0;
+        m_ApiUsageMonitorCount = 0;
+        m_ApiUsageUpdatedAt = null;
+        NotifyApiMonitorStatusChanged();
+    }
+
+    /// <summary>
+    /// Raises change notifications for the API refresh summary.
+    /// </summary>
+    private void NotifyApiMonitorStatusChanged()
+    {
+        OnPropertyChanged(nameof(ApiMonitorStatusText));
+        OnPropertyChanged(nameof(ApiMonitorStatusDotBrush));
+        OnPropertyChanged(nameof(HasApiMonitorStatus));
+    }
+
+    /// <summary>
+    /// Applies query results to matching API monitor cards.
+    /// </summary>
+    public void UpdateApiUsage(IReadOnlyList<ApiUsageResult> results)
+    {
+        Dictionary<string, ApiUsageResult> byId = results.ToDictionary(result => result.MonitorId, StringComparer.Ordinal);
+        List<ApiUsageResult> monitorResults = [];
+        foreach (ApiMonitorViewModel monitor in ApiMonitors)
+        {
+            if (monitor.IsPending)
+            {
+                continue;
+            }
+
+            if (byId.TryGetValue(monitor.Id, out ApiUsageResult? result))
+            {
+                monitor.Update(result);
+                monitorResults.Add(result);
+            }
+        }
+
+        if (monitorResults.Count != MonitoredApiCount || monitorResults.Count == 0)
+        {
+            ResetApiMonitorStatus();
+            return;
+        }
+
+        ApiUsageSummary summary = ApiUsageCollector.Summarize(monitorResults);
+        m_ApiUsageStatus = summary.Status;
+        m_ApiUsageErrorCount = summary.ErrorCount;
+        m_ApiUsageMonitorCount = monitorResults.Count;
+        m_ApiUsageUpdatedAt = summary.LatestAvailableUpdatedAt;
+        NotifyApiMonitorStatusChanged();
+    }
+
+    /// <summary>
+    /// Opens an in-window dialog requested by the tray controller.
+    /// </summary>
+    public void ShowInAppDialog(InAppDialogRequest request)
+    {
+        InAppDialogTitle = request.Title;
+        InAppDialogMessage = request.Message;
+        InAppDialogPrimaryButtonText = request.PrimaryButtonText;
+        InAppDialogSecondaryButtonText = request.SecondaryButtonText ?? string.Empty;
+        m_InAppDialogPrimaryAction = request.PrimaryAction;
+        IsInAppDialogOpen = true;
+    }
+
+    /// <summary>
+    /// Confirms the active in-window dialog.
+    /// </summary>
+    private void ConfirmInAppDialog()
+    {
+        Action? primaryAction = m_InAppDialogPrimaryAction;
+        DismissInAppDialog();
+        primaryAction?.Invoke();
+    }
+
+    /// <summary>
+    /// Dismisses the active in-window dialog.
+    /// </summary>
+    public void DismissInAppDialog()
+    {
+        if (!m_IsInAppDialogOpen)
+        {
+            return;
+        }
+
+        m_InAppDialogPrimaryAction = null;
+        IsInAppDialogOpen = false;
     }
 
     /// <summary>
@@ -819,7 +1173,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     private void BrowseMonitorFolder(string description, string currentPath, Action<string> updatePath)
     {
-        IsModalOpen = true;
+        SetNativeModalOpen(true);
         try
         {
             using Forms.FolderBrowserDialog dialog = new()
@@ -835,8 +1189,22 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
         finally
         {
-            IsModalOpen = false;
+            SetNativeModalOpen(false);
         }
+    }
+
+    /// <summary>
+    /// Updates modal state while a native folder picker is open.
+    /// </summary>
+    private void SetNativeModalOpen(bool isOpen)
+    {
+        if (m_IsNativeModalOpen == isOpen)
+        {
+            return;
+        }
+
+        m_IsNativeModalOpen = isOpen;
+        OnPropertyChanged(nameof(IsModalOpen));
     }
 
     /// <summary>
@@ -859,7 +1227,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
                 LiteMonitorDir = CodexTrayDefaults.PluginPathNone;
                 if (showNotFound)
                 {
-                    ShowModalMessage("LiteMonitor was not found.");
+                    InAppDialogRequested?.Invoke(new InAppDialogRequest("LiteMonitor not found", "LiteMonitor was not found.", "OK"));
                 }
 
                 return;
@@ -893,7 +1261,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
                 TrafficMonitorDir = CodexTrayDefaults.PluginPathNone;
                 if (showNotFound)
                 {
-                    ShowModalMessage("TrafficMonitor was not found.");
+                    InAppDialogRequested?.Invoke(new InAppDialogRequest("TrafficMonitor not found", "TrafficMonitor was not found.", "OK"));
                 }
 
                 return;
@@ -928,22 +1296,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Shows a WPF message box without triggering popup auto hide.
-    /// </summary>
-    private void ShowModalMessage(string message)
-    {
-        IsModalOpen = true;
-        try
-        {
-            System.Windows.MessageBox.Show(message, CodexTrayDefaults.AppName, MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        finally
-        {
-            IsModalOpen = false;
-        }
-    }
-
-    /// <summary>
     /// Formats the usage source for display.
     /// </summary>
     private static string FormatSource(UsageResponse? response)
@@ -967,16 +1319,16 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     private static string FormatPlan(string? planType)
     {
-        string normalized = (planType ?? string.Empty).Trim().Replace("-", "_", StringComparison.Ordinal).ToLowerInvariant();
+        string normalized = (planType ?? string.Empty).Trim().Replace("-", "_", StringComparison.Ordinal).Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant();
         return normalized switch
         {
-            "free" => "Free",
-            "go" => "Go",
-            "plus" => "Plus",
-            "pro" or "pro_5x" or "pro5x" => "Pro5x",
-            "pro_20x" or "pro20x" => "Pro20x",
-            "chatgpt" => "Plus",
-            _ => "Unknown",
+            "free" => "FREE",
+            "go" => "GO",
+            "plus" => "PLUS",
+            "pro_lite" or "prolite" or "pro_5x" or "pro5x" => "PRO",
+            "pro" or "pro_20x" or "pro20x" => "PRO MAX",
+            "chatgpt" => "PLUS",
+            _ => "UNKNOWN",
         };
     }
 

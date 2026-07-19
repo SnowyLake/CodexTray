@@ -15,6 +15,55 @@ public enum TokenCostItem
     All = Today | Yesterday | Week | Month | SevenDay | ThirtyDay,
 }
 
+public sealed class ApiMonitorSettings
+{
+    public const string DeepSeekProvider = "DeepSeek";
+
+    public const string NewApiProvider = "NewAPI";
+
+    public const string GrokProvider = "Grok";
+
+    public const string GrokBuildOAuthSource = "Grok Build";
+
+    public const string OpenCodeOAuthSource = "OpenCode";
+
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    public string Name { get; set; } = DeepSeekProvider;
+
+    public string Provider { get; set; } = DeepSeekProvider;
+
+    public string BaseUrl { get; set; } = "https://api.deepseek.com";
+
+    public string ApiKey { get; set; } = string.Empty;
+
+    public string UserId { get; set; } = string.Empty;
+
+    public string GrokOAuthSource { get; set; } = GrokBuildOAuthSource;
+
+    /// <summary>
+    /// Normalizes one persisted API monitor configuration.
+    /// </summary>
+    public ApiMonitorSettings Normalize()
+    {
+        Id = string.IsNullOrWhiteSpace(Id) ? Guid.NewGuid().ToString("N") : Id.Trim();
+        Provider = Provider?.Trim() switch
+        {
+            string value when string.Equals(value, NewApiProvider, StringComparison.OrdinalIgnoreCase) => NewApiProvider,
+            string value when string.Equals(value, GrokProvider, StringComparison.OrdinalIgnoreCase) => GrokProvider,
+            _ => DeepSeekProvider,
+        };
+        Name = string.IsNullOrWhiteSpace(Name) ? Provider : Name.Trim();
+        BaseUrl = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
+        ApiKey = (ApiKey ?? string.Empty).Trim();
+        UserId = (UserId ?? string.Empty).Trim();
+        GrokOAuthSource = string.Equals(GrokOAuthSource?.Trim(), OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
+            ? OpenCodeOAuthSource
+            : GrokBuildOAuthSource;
+        return this;
+    }
+}
+
 public sealed class AppSettings
 {
     public const string ThemeModeSystem = "System";
@@ -51,6 +100,8 @@ public sealed class AppSettings
 
     public bool UseAbsoluteResetTime { get; set; } = CodexTrayDefaults.UseAbsoluteResetTime;
 
+    public List<ApiMonitorSettings> ApiMonitors { get; set; } = [];
+
     /// <summary>
     /// Creates a normalized copy of settings values.
     /// </summary>
@@ -78,6 +129,18 @@ public sealed class AppSettings
         ThemeMode = NormalizeThemeMode(ThemeMode);
         TokenUnit = NormalizeTokenUnit(TokenUnit);
         TokenCostItems &= TokenCostItem.All;
+        ApiMonitors ??= [];
+        HashSet<string> monitorIds = new(StringComparer.Ordinal);
+        foreach (ApiMonitorSettings monitor in ApiMonitors)
+        {
+            monitor.Normalize();
+            if (!monitorIds.Add(monitor.Id))
+            {
+                monitor.Id = Guid.NewGuid().ToString("N");
+                monitorIds.Add(monitor.Id);
+            }
+        }
+
         return this;
     }
 
@@ -174,7 +237,8 @@ public sealed class SettingsStore
     public void Save(AppSettings settings)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-        string json = JsonSerializer.Serialize(settings.Normalize(), s_JsonOptions);
+        settings.Normalize();
+        string json = JsonSerializer.Serialize(settings, s_JsonOptions);
         File.WriteAllText(SettingsPath, json);
     }
 }

@@ -129,6 +129,13 @@ internal sealed partial class TrayPopupWindow : Window
     protected override void OnKeyDown(Input.KeyEventArgs args)
     {
         base.OnKeyDown(args);
+        if (args.Key == Input.Key.Escape && DataContext is TrayPopupViewModel { IsInAppDialogOpen: true } viewModel)
+        {
+            viewModel.DismissInAppDialog();
+            args.Handled = true;
+            return;
+        }
+
         if (args.Key == Input.Key.Escape)
         {
             Hide();

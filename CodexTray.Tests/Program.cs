@@ -30,6 +30,10 @@ internal static class Program
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
         await RunAsync("repairs missing settings fields", TestSettingsStoreRepairsMissingFieldsAsync);
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
+        await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
+        await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
+        await RunAsync("parses Grok billing protobuf", TestGrokUsageCollectorAsync);
+        await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
@@ -71,7 +75,7 @@ internal static class Program
         AssertEqual(88, response.Limits.FiveHour.RemainingPercent, "five hour remaining percent");
         AssertEqual(34, response.Limits.SevenDay.UsedPercent, "seven day used percent");
         AssertEqual(66, response.Limits.SevenDay.RemainingPercent, "seven day remaining percent");
-        AssertEqual("chatgpt", response.PlanType, "plan type");
+        AssertEqual("pro", response.PlanType, "plan type");
         AssertEqual("88% 2h05m", response.Display.Codex5H, "five hour display");
         AssertEqual("66% 3d04h", response.Display.Codex7D, "seven day display");
         return Task.CompletedTask;
@@ -170,6 +174,7 @@ internal static class Program
 
         AssertTrue(response.Available, "official response should be available");
         AssertEqual("official_api", response.Source, "official source");
+        AssertEqual("unknown", response.PlanType, "missing plan type");
         AssertEqual(75, response.Limits.FiveHour.RemainingPercent, "official five hour remaining percent");
         AssertEqual(60, response.Limits.SevenDay.RemainingPercent, "official seven day remaining percent");
         AssertEqual("75% 1h15m", response.Display.Codex5H, "official five hour display");
@@ -326,6 +331,7 @@ internal static class Program
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
         AssertEqual(TokenCostItem.All, settings.TokenCostItems, "default token cost items");
+        AssertEqual(0, settings.ApiMonitors.Count, "default API monitors");
 
         string repairedJson = File.ReadAllText(store.SettingsPath);
         using JsonDocument document = JsonDocument.Parse(repairedJson);
@@ -335,6 +341,7 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenCostItems), out _), "repaired settings should include token cost items");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
         return Task.CompletedTask;
     }
@@ -366,6 +373,134 @@ internal static class Program
         settings.TokenUnit = "万/亿";
         settings.Normalize();
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "legacy Chinese token unit");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests API monitor persistence in the shared settings file.
+    /// </summary>
+    private static Task TestApiMonitorSettingsAsync()
+    {
+        using TempDirectory temp = new();
+        SettingsStore store = new(temp.Path);
+        AppSettings settings = new()
+        {
+            ApiMonitors =
+            [
+                new ApiMonitorSettings
+                {
+                    Name = "Personal DeepSeek",
+                    ApiKey = "deepseek-secret-token",
+                },
+                new ApiMonitorSettings
+                {
+                    Name = "OpenCode Grok",
+                    Provider = ApiMonitorSettings.GrokProvider,
+                    GrokOAuthSource = ApiMonitorSettings.OpenCodeOAuthSource,
+                },
+            ],
+        };
+
+        store.Save(settings);
+
+        string json = File.ReadAllText(store.SettingsPath);
+        AssertTrue(json.Contains("deepseek-secret-token", StringComparison.Ordinal), "settings should contain the API key");
+        AppSettings loaded = store.Load();
+        ApiMonitorSettings deepSeek = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.DeepSeekProvider);
+        ApiMonitorSettings grok = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.GrokProvider);
+        AssertEqual("deepseek-secret-token", deepSeek.ApiKey, "saved API key");
+        AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
+        AssertEqual(ApiMonitorSettings.OpenCodeOAuthSource, grok.GrokOAuthSource, "saved Grok OAuth source");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests DeepSeek CNY balance and NewAPI USD quota parsing.
+    /// </summary>
+    private static async Task TestApiUsageCollectorAsync()
+    {
+        using HttpClient client = new(new ApiUsageHttpMessageHandler());
+        ApiUsageCollector collector = new(client);
+        ApiMonitorSettings deepSeek = new()
+        {
+            Id = "deepseek",
+            BaseUrl = "https://deepseek.example/v1",
+            ApiKey = "deepseek-key",
+        };
+        ApiMonitorSettings newApi = new()
+        {
+            Id = "newapi",
+            Provider = ApiMonitorSettings.NewApiProvider,
+            BaseUrl = "https://newapi.example",
+            ApiKey = "newapi-token",
+            UserId = "42",
+        };
+
+        IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync([deepSeek, newApi]);
+
+        AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
+        AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
+        AssertEqual("$5.00", results[1].UsedDisplay, "NewAPI used USD quota");
+    }
+
+    /// <summary>
+    /// Tests protobuf parsing for Grok's consumed percentage and reset timestamp.
+    /// </summary>
+    private static Task TestGrokUsageCollectorAsync()
+    {
+        const long resetAt = 1_802_592_000;
+        List<byte> payload =
+        [
+            0x0D,
+            0x00,
+            0x00,
+            0x2A,
+            0x42,
+            0x28,
+        ];
+        payload.AddRange(EncodeVarint(resetAt));
+        List<byte> response = [0, 0, 0, 0, (byte)payload.Count];
+        response.AddRange(payload);
+
+        GrokUsageSnapshot snapshot = GrokUsageCollector.ParseGrpcWebResponse([.. response], DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
+
+        AssertEqual(42.5, snapshot.UsedPercent, "Grok used percentage");
+        AssertEqual(resetAt, snapshot.ResetsAt, "Grok reset timestamp");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Encodes a positive integer in protobuf varint form.
+    /// </summary>
+    private static byte[] EncodeVarint(long value)
+    {
+        List<byte> bytes = [];
+        ulong remaining = (ulong)value;
+        do
+        {
+            byte next = (byte)(remaining & 0x7F);
+            remaining >>= 7;
+            bytes.Add(remaining == 0 ? next : (byte)(next | 0x80));
+        }
+        while (remaining != 0);
+
+        return [.. bytes];
+    }
+
+    /// <summary>
+    /// Tests all-success, partial-failure, and all-failure API refresh summaries.
+    /// </summary>
+    private static Task TestApiUsageSummaryAsync()
+    {
+        DateTimeOffset updatedAt = new(2026, 7, 14, 22, 22, 22, TimeSpan.FromHours(8));
+        ApiUsageResult available = new("available", true, "$1.00", string.Empty, string.Empty, updatedAt);
+        ApiUsageResult unavailable = new("unavailable", false, "N/A", "N/A", "Request failed", updatedAt.AddSeconds(1));
+
+        AssertEqual(ApiUsageRefreshStatus.AllAvailable, ApiUsageCollector.Summarize([available]).Status, "all API refreshes should be available");
+        ApiUsageSummary partial = ApiUsageCollector.Summarize([available, unavailable]);
+        AssertEqual(ApiUsageRefreshStatus.PartiallyAvailable, partial.Status, "mixed API refreshes should be partial");
+        AssertEqual(1, partial.ErrorCount, "partial API refresh error count");
+        AssertEqual(ApiUsageRefreshStatus.Unavailable, ApiUsageCollector.Summarize([unavailable]).Status, "all failed API refreshes should be unavailable");
         return Task.CompletedTask;
     }
 
@@ -512,6 +647,7 @@ internal static class Program
 
         string body = JsonSerializer.Serialize(new
         {
+            plan_type = "pro",
             rate_limit = new
             {
                 primary_window = new
@@ -632,5 +768,57 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         return Task.FromResult(Send(request, cancellationToken));
+    }
+}
+
+internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
+{
+    /// <summary>
+    /// Returns fixed DeepSeek and NewAPI account responses.
+    /// </summary>
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        string host = request.RequestUri?.Host ?? string.Empty;
+        if (request.Headers.Authorization?.Scheme != "Bearer")
+        {
+            throw new InvalidOperationException("missing API authorization header");
+        }
+
+        string body;
+        if (host == "deepseek.example")
+        {
+            AssertRequest(request, "/user/balance", "deepseek-key");
+            body = "{\"is_available\":true,\"balance_infos\":[{\"currency\":\"USD\",\"total_balance\":\"15.00\"},{\"currency\":\"CNY\",\"total_balance\":\"110.00\"}]}";
+        }
+        else if (host == "newapi.example")
+        {
+            AssertRequest(request, "/api/user/self", "newapi-token");
+            if (!request.Headers.TryGetValues("New-Api-User", out IEnumerable<string>? userIds) || userIds.Single() != "42")
+            {
+                throw new InvalidOperationException("missing NewAPI user header");
+            }
+
+            body = "{\"success\":true,\"data\":{\"group\":\"default\",\"quota\":5000000,\"used_quota\":2500000}}";
+        }
+        else
+        {
+            throw new InvalidOperationException("unexpected API usage host");
+        }
+
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        });
+    }
+
+    /// <summary>
+    /// Validates a monitored API request path and credential.
+    /// </summary>
+    private static void AssertRequest(HttpRequestMessage request, string path, string token)
+    {
+        if (request.RequestUri?.AbsolutePath != path || request.Headers.Authorization?.Parameter != token)
+        {
+            throw new InvalidOperationException("invalid API usage request");
+        }
     }
 }

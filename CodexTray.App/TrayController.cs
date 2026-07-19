@@ -19,6 +19,7 @@ internal sealed class TrayController : IDisposable
     private readonly Dispatcher m_Dispatcher;
     private readonly SettingsStore m_SettingsStore;
     private readonly CodexTrayCollector m_Collector;
+    private readonly ApiUsageCollector m_ApiUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
     private readonly UsageCache m_UsageCache = new();
     private readonly Forms.NotifyIcon m_NotifyIcon;
@@ -44,6 +45,7 @@ internal sealed class TrayController : IDisposable
         m_Dispatcher = dispatcher;
         m_SettingsStore = new SettingsStore();
         m_Collector = new CodexTrayCollector();
+        m_ApiUsageCollector = new ApiUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
         m_AppIcon = LoadApplicationIcon();
         bool settingsExists = m_SettingsStore.Exists();
@@ -195,7 +197,10 @@ internal sealed class TrayController : IDisposable
         catch (SocketException exception)
         {
             m_NotifyIcon.Text = $"{CodexTrayDefaults.AppName} service failed";
-            Forms.MessageBox.Show($"Unable to start {CodexTrayDefaults.AppName} service on port {m_Settings.Port}.\n\n{exception.Message}", CodexTrayDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Warning);
+            PresentInAppDialog(new InAppDialogRequest(
+                "Service unavailable",
+                $"Unable to start {CodexTrayDefaults.AppName} service on port {m_Settings.Port}.\n\n{exception.Message}",
+                "OK"));
         }
     }
 
@@ -232,6 +237,11 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void TogglePanel(Drawing.Point? trayIconPosition)
     {
+        if (m_PopupViewModel?.IsModalOpen == true)
+        {
+            return;
+        }
+
         // Clicking the tray icon deactivates the popup first, so a just-hidden popup means the click was a close request.
         if (m_TrayPopupWindow?.IsVisible == true
             || (m_TrayPopupWindow != null
@@ -245,15 +255,27 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Opens the tray popup on the home page.
+    /// Shows the tray popup.
     /// </summary>
     private void ShowPanel(Drawing.Point? trayIconPosition = null)
     {
         EnsurePopup();
-        m_PopupViewModel?.ShowHome();
         RefreshPopupStatus();
         m_TrayPopupWindow?.ShowNearTray(trayIconPosition);
         _ = RefreshUsageAsync();
+    }
+
+    /// <summary>
+    /// Shows an in-window dialog, opening the tray panel when needed.
+    /// </summary>
+    private void PresentInAppDialog(InAppDialogRequest request)
+    {
+        if (m_TrayPopupWindow?.IsVisible != true)
+        {
+            ShowPanel();
+        }
+
+        m_PopupViewModel?.ShowInAppDialog(request);
     }
 
     /// <summary>
@@ -269,6 +291,8 @@ internal sealed class TrayController : IDisposable
         m_PopupViewModel = new TrayPopupViewModel(m_Settings);
         m_PopupViewModel.RefreshRequested += async (_, _) => await RefreshUsageAsync();
         m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
+        m_PopupViewModel.ApiMonitorsChanged += (_, _) => m_SettingsStore.Save(m_Settings);
+        m_PopupViewModel.InAppDialogRequested += PresentInAppDialog;
         m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
         m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
         m_PopupViewModel.ExitRequested += (_, _) => ExitApplication();
@@ -409,6 +433,9 @@ internal sealed class TrayController : IDisposable
             UsageResponse response = await Task.Run(() => m_Collector.Collect(showResetTimeInPlugins, useAbsoluteResetTime)).ConfigureAwait(true);
             m_UsageCache.Update(response);
             RefreshPopupStatus();
+            ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
+            IReadOnlyList<ApiUsageResult> apiUsage = await m_ApiUsageCollector.CollectAsync(apiMonitors, useAbsoluteResetTime).ConfigureAwait(true);
+            m_PopupViewModel?.UpdateApiUsage(apiUsage);
             TokenCostStatistics? tokenCost;
             try
             {
@@ -429,6 +456,23 @@ internal sealed class TrayController : IDisposable
 
             Interlocked.Exchange(ref m_IsRefreshing, 0);
         }
+    }
+
+    /// <summary>
+    /// Copies an API monitor before an asynchronous refresh.
+    /// </summary>
+    private static ApiMonitorSettings CloneApiMonitor(ApiMonitorSettings monitor)
+    {
+        return new ApiMonitorSettings
+        {
+            Id = monitor.Id,
+            Name = monitor.Name,
+            Provider = monitor.Provider,
+            BaseUrl = monitor.BaseUrl,
+            ApiKey = monitor.ApiKey,
+            UserId = monitor.UserId,
+            GrokOAuthSource = monitor.GrokOAuthSource,
+        };
     }
 
     /// <summary>
@@ -482,19 +526,19 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Shows a warning message box.
+    /// Shows a warning in the tray panel.
     /// </summary>
-    private static void ShowWarning(string message)
+    private void ShowWarning(string message)
     {
-        Forms.MessageBox.Show(message, CodexTrayDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Warning);
+        PresentInAppDialog(new InAppDialogRequest("Warning", message, "OK"));
     }
 
     /// <summary>
-    /// Shows an informational message box.
+    /// Shows an informational message in the tray panel.
     /// </summary>
-    private static void ShowInformation(string message)
+    private void ShowInformation(string message)
     {
-        Forms.MessageBox.Show(message, CodexTrayDefaults.AppName, Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Information);
+        PresentInAppDialog(new InAppDialogRequest("Plugin installed", message, "OK"));
     }
 
     /// <summary>

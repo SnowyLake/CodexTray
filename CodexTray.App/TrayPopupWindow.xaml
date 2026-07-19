@@ -295,6 +295,28 @@
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
+            <Style x:Key="ApiTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0,0,4,0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                <Setter Property="FontSize" Value="16" />
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                    </Trigger>
+                    <Trigger Property="IsPressed" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                    </Trigger>
+                    <DataTrigger Binding="{Binding IsApiSelected}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
 
             <!-- Quota progress bar -->
             <Style x:Key="QuotaProgressBarStyle" TargetType="{x:Type ProgressBar}">
@@ -696,6 +718,257 @@
 
             </Grid>
 
+            <!-- ===================== APIs ===================== -->
+            <Grid Grid.Row="0"
+                  Visibility="{Binding IsApiVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="APIs"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="26"
+                                   FontWeight="Medium"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal">
+                            <Button VerticalAlignment="Center"
+                                    Command="{Binding AddApiMonitorCommand}"
+                                    Content="&#xE710;"
+                                    ToolTip="Add API"
+                                    Style="{StaticResource IconButtonStyle}" />
+                            <Button VerticalAlignment="Center"
+                                    Command="{Binding RefreshCommand}"
+                                    ToolTip="Refresh"
+                                    Style="{StaticResource IconButtonStyle}">
+                                <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                    <StackPanel Margin="2,6,0,0"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Ellipse Width="7"
+                                 Height="7"
+                                 Margin="0,0,6,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{Binding ApiMonitorStatusDotBrush}"
+                                 Visibility="{Binding HasApiMonitorStatus, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <TextBlock Text="{Binding ApiMonitorStatusText}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="12" />
+                    </StackPanel>
+                </StackPanel>
+
+                <ScrollViewer Grid.Row="1"
+                              Margin="0,24,-8,0"
+                              Padding="0,0,8,0"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Margin="0,36,0,20"
+                                   Text="No APIs are monitored yet."
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="13"
+                                   Visibility="{Binding IsApiEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                        <ItemsControl ItemsSource="{Binding ApiMonitors}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,12"
+                                            Padding="14"
+                                            CornerRadius="10"
+                                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1">
+                                        <Grid>
+                                            <StackPanel Visibility="{Binding IsEditing, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                                <Grid>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" />
+                                                    </Grid.RowDefinitions>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Grid Grid.Row="0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Ellipse Width="7"
+                                                                 Height="7"
+                                                                 Margin="0,0,6,0"
+                                                                 VerticalAlignment="Center"
+                                                                 Fill="{Binding StatusDotBrush}"
+                                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                                 ToolTip="{Binding StatusText}" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding DisplayName}"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                                   FontSize="15"
+                                                                   FontWeight="SemiBold"
+                                                                   ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                                   ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                                   ToolTip="{Binding StatusText}" />
+                                                    </Grid>
+                                                    <StackPanel Grid.Row="0"
+                                                                Grid.Column="1"
+                                                                VerticalAlignment="Center"
+                                                                Orientation="Horizontal">
+                                                        <Button Width="30"
+                                                                Height="30"
+                                                                Command="{Binding DataContext.MoveApiMonitorUpCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="&#xE74A;"
+                                                                ToolTip="Move up"
+                                                                Style="{StaticResource IconButtonStyle}" />
+                                                        <Button Width="30"
+                                                                Height="30"
+                                                                Command="{Binding DataContext.MoveApiMonitorDownCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="&#xE74B;"
+                                                                ToolTip="Move down"
+                                                                Style="{StaticResource IconButtonStyle}" />
+                                                        <Button Width="30"
+                                                                Height="30"
+                                                                Command="{Binding ToggleEditingCommand}"
+                                                                Content="&#xE713;"
+                                                                ToolTip="Settings"
+                                                                Style="{StaticResource IconButtonStyle}" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <Grid Margin="0,14,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding PrimaryDisplayLabel}"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12" />
+                                                    <TextBlock Grid.Column="1"
+                                                               Margin="8,0,0,0"
+                                                               Text="{Binding BalanceDisplay}"
+                                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                               FontSize="13" />
+                                                    <StackPanel Grid.Column="2"
+                                                                Orientation="Horizontal"
+                                                                Visibility="{Binding HasSecondaryDisplay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                        <TextBlock Text="{Binding SecondaryDisplayLabel}"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                   FontSize="12" />
+                                                        <TextBlock Margin="8,0,0,0"
+                                                                   Text="{Binding UsedDisplay}"
+                                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                                   FontSize="13" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </StackPanel>
+
+                                            <StackPanel Visibility="{Binding IsEditing, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="Provider settings"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                               FontSize="15"
+                                                               FontWeight="SemiBold" />
+                                                    <StackPanel Grid.Column="1"
+                                                                Orientation="Horizontal">
+                                                        <Button Width="30"
+                                                                Height="30"
+                                                                Command="{Binding DataContext.RemoveApiMonitorCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="&#xE74D;"
+                                                                Style="{StaticResource IconButtonStyle}" />
+                                                        <Button Width="30"
+                                                                Height="30"
+                                                                Command="{Binding ToggleEditingCommand}"
+                                                                Content="&#xE73E;"
+                                                                Style="{StaticResource IconButtonStyle}" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <TextBlock Margin="0,12,0,5"
+                                                           Text="Provider"
+                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                           FontSize="12" />
+                                                <ComboBox ItemsSource="{Binding ProviderOptions}"
+                                                          SelectedItem="{Binding Provider}"
+                                                          Style="{StaticResource SettingsComboBoxStyle}" />
+
+                                                <TextBlock Margin="0,10,0,5"
+                                                           Text="Display name"
+                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                           FontSize="12" />
+                                                <TextBox Text="{Binding Name}"
+                                                         Style="{StaticResource SettingsTextBoxStyle}" />
+
+                                                <StackPanel Visibility="{Binding IsGrok, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <TextBlock Margin="0,12,0,5"
+                                                               Text="OAuth source"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12" />
+                                                    <ComboBox ItemsSource="{Binding GrokOAuthSourceOptions}"
+                                                              SelectedItem="{Binding GrokOAuthSource}"
+                                                              Style="{StaticResource SettingsComboBoxStyle}" />
+                                                    <TextBlock Margin="0,8,0,0"
+                                                               Text="Reads the local OAuth session. Tokens are not stored here."
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12"
+                                                               TextWrapping="Wrap" />
+                                                </StackPanel>
+
+                                                <StackPanel Visibility="{Binding IsGrok, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                                    <TextBlock Margin="0,12,0,5"
+                                                               Text="Base URL"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12" />
+                                                    <TextBox Text="{Binding BaseUrl}"
+                                                             Style="{StaticResource SettingsTextBoxStyle}" />
+
+                                                    <TextBlock Margin="0,10,0,5"
+                                                               Text="API key / access token"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12" />
+                                                    <TextBox Text="{Binding ApiKey}"
+                                                             Style="{StaticResource SettingsTextBoxStyle}" />
+
+                                                    <StackPanel Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                        <TextBlock Margin="0,10,0,5"
+                                                                   Text="User ID"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                   FontSize="12" />
+                                                        <TextBox Text="{Binding UserId}"
+                                                                 Style="{StaticResource SettingsTextBoxStyle}" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
             <!-- ===================== SETTINGS ===================== -->
             <Grid Grid.Row="0"
                   Visibility="{Binding IsSettingsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -776,14 +1049,14 @@
                                       ToolTip="Start with Windows" />
                         </Grid>
 
-                        <Grid ToolTip="Show reset as absolute time (5-Hour as HH:mm, 7-Day as MM-dd) instead of a countdown"
+                        <Grid ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day and Grok as MM-dd) instead of a countdown"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Use absolute time"
-                                       ToolTip="Show reset as absolute time (5-Hour as HH:mm, 7-Day as MM-dd) instead of a countdown"
+                            <TextBlock Text="Resets use absolute time"
+                                       ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day and Grok as MM-dd) instead of a countdown"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -791,7 +1064,7 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding UseAbsoluteResetTime}"
-                                      ToolTip="Show reset as absolute time (5-Hour as HH:mm, 7-Day as MM-dd) instead of a countdown" />
+                                      ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day and Grok as MM-dd) instead of a countdown" />
                         </Grid>
 
                         <Grid Style="{StaticResource SettingsRowGridStyle}">
@@ -1090,11 +1363,60 @@
                             Content="&#xE80F;"
                             ToolTip="Home"
                             Style="{StaticResource HomeTabButtonStyle}" />
+                    <Button Command="{Binding ShowApiCommand}"
+                            Content="&#xE774;"
+                            ToolTip="APIs"
+                            Style="{StaticResource ApiTabButtonStyle}" />
                     <Button Command="{Binding ShowSettingsCommand}"
                             Content="&#xE713;"
                             ToolTip="Settings"
                             Style="{StaticResource SettingsTabButtonStyle}" />
                 </StackPanel>
+            </Grid>
+
+            <!-- In-window modal -->
+            <Grid Grid.RowSpan="2"
+                  Panel.ZIndex="1"
+                  Visibility="{Binding IsInAppDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border Background="Transparent" />
+                <Border Width="300"
+                        MaxHeight="460"
+                        Padding="20"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource ApplicationBackgroundBrush}"
+                        BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                    <StackPanel>
+                        <TextBlock Text="{Binding InAppDialogTitle}"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   TextWrapping="Wrap" />
+                        <ScrollViewer MaxHeight="260"
+                                      Margin="0,12,0,0"
+                                      VerticalScrollBarVisibility="Auto">
+                            <TextBlock Text="{Binding InAppDialogMessage}"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="13"
+                                       TextWrapping="Wrap" />
+                        </ScrollViewer>
+                        <StackPanel Margin="0,20,0,0"
+                                    HorizontalAlignment="Right"
+                                    Orientation="Horizontal">
+                            <Button Command="{Binding DismissInAppDialogCommand}"
+                                    Content="{Binding InAppDialogSecondaryButtonText}"
+                                    Margin="0,0,8,0"
+                                    MinWidth="76"
+                                    Visibility="{Binding HasInAppDialogSecondaryButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Command="{Binding ConfirmInAppDialogCommand}"
+                                    Content="{Binding InAppDialogPrimaryButtonText}"
+                                    IsDefault="True"
+                                    MinWidth="76" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
             </Grid>
         </Grid>
     </Border>

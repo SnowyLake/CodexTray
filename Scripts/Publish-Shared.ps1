@@ -21,8 +21,10 @@ function Invoke-CodexTrayPublish {
     Write-Host "Project: $ProjectPath"
     Write-Host "Output:  $OutputPath"
     if ($Clean -and (Test-Path -LiteralPath $OutputPath)) {
-        Remove-PathWithRetry $OutputPath
-        Write-Host "Removed previous publish directory."
+        Get-ChildItem -LiteralPath $OutputPath -Force |
+            Where-Object Name -ne "settings.json" |
+            ForEach-Object { Remove-PathWithRetry $_.FullName }
+        Write-Host "Cleaned previous publish output and preserved settings.json."
     }
 
     Push-Location $RepoRoot
@@ -68,6 +70,40 @@ function Remove-PathWithRetry {
             Start-Sleep -Milliseconds 500
         }
     }
+}
+
+function Stop-CodexTrayApp {
+    $processes = foreach ($appProcessName in @("CodexTray", "CodexTray.App")) {
+        Get-Process -Name $appProcessName -ErrorAction SilentlyContinue
+    }
+    if (-not $processes) {
+        Write-Host "No running CodexTray process found."
+        return
+    }
+
+    foreach ($process in $processes) {
+        Write-Host "Stopping process $($process.Id): $($process.Path)"
+        Stop-Process -Id $process.Id -Force -ErrorAction Stop
+        Wait-Process -Id $process.Id -ErrorAction SilentlyContinue
+        Write-Host "Process $($process.Id) stopped."
+    }
+}
+
+function Start-CodexTrayApp {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AppPath
+    )
+
+    if (-not (Test-Path -LiteralPath $AppPath)) {
+        throw "Published executable not found: $AppPath"
+    }
+
+    $process = Start-Process -FilePath $AppPath -WindowStyle Hidden -PassThru
+    Write-Host ""
+    Write-Host "Started CodexTray."
+    Write-Host "Process: $($process.Id)"
+    Write-Host "Path:    $AppPath"
 }
 
 function Wait-BeforeExit {
