@@ -68,6 +68,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_SourceDisplay = "Source: unavailable";
     private string m_ResetCreditsDisplay = "N/A";
     private string m_ResetCreditsResetTime = "N/A";
+    private bool m_IsResetCreditsVisible;
     private string m_LiteMonitorDir = string.Empty;
     private string m_TrafficMonitorDir = string.Empty;
     private string m_PortText = CodexTrayDefaults.Port.ToString(CultureInfo.InvariantCulture);
@@ -249,6 +250,21 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         get => m_ResetCreditsResetTime;
         private set => SetField(ref m_ResetCreditsResetTime, value);
     }
+
+    public bool IsResetCreditsVisible
+    {
+        get => m_IsResetCreditsVisible;
+        private set
+        {
+            if (SetField(ref m_IsResetCreditsVisible, value))
+            {
+                OnPropertyChanged(nameof(IsUsageVisible));
+            }
+        }
+    }
+
+    public bool IsUsageVisible =>
+        FiveHourQuota.IsAvailable || SevenDayQuota.IsAvailable || IsResetCreditsVisible;
 
     public string LiteMonitorDir
     {
@@ -842,6 +858,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             FiveHourQuota.UpdateUnavailable();
             SevenDayQuota.UpdateUnavailable();
             UpdateResetCredits(null);
+            NotifyUsageVisibilityChanged();
             return;
         }
 
@@ -854,6 +871,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             FiveHourQuota.UpdateUnavailable();
             SevenDayQuota.UpdateUnavailable();
             UpdateResetCredits(null);
+            NotifyUsageVisibilityChanged();
             return;
         }
 
@@ -864,6 +882,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         FiveHourQuota.Update(response.Limits.FiveHour);
         SevenDayQuota.Update(response.Limits.SevenDay);
         UpdateResetCredits(response.ResetCredits);
+        NotifyUsageVisibilityChanged();
     }
 
     /// <summary>
@@ -875,12 +894,22 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             ResetCreditsDisplay = $"{resetCredits.AvailableCount} Available";
             ResetCreditsResetTime = resetCredits.NearestExpiryLocal;
+            IsResetCreditsVisible = true;
         }
         else
         {
             ResetCreditsDisplay = "N/A";
             ResetCreditsResetTime = "N/A";
+            IsResetCreditsVisible = false;
         }
+    }
+
+    /// <summary>
+    /// Notifies listeners that Usage section visibility may have changed.
+    /// </summary>
+    private void NotifyUsageVisibilityChanged()
+    {
+        OnPropertyChanged(nameof(IsUsageVisible));
     }
 
     /// <summary>
@@ -1486,6 +1515,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         private string m_PercentText = "0%";
         private string m_ResetText = "unknown";
         private Media.Brush m_AccentBrush = s_GreenBrush;
+        private bool m_IsAvailable;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -1519,6 +1549,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             private set => SetField(ref m_AccentBrush, value);
         }
 
+        public bool IsAvailable
+        {
+            get => m_IsAvailable;
+            private set => SetField(ref m_IsAvailable, value);
+        }
+
         /// <summary>
         /// Creates a quota display model.
         /// </summary>
@@ -1543,6 +1579,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             PercentText = $"{remaining}%";
             ResetText = string.IsNullOrWhiteSpace(limit.ResetLabel) ? "unknown" : limit.ResetLabel;
             AccentBrush = GetAccentBrush(remaining);
+            IsAvailable = true;
         }
 
         /// <summary>
@@ -1554,6 +1591,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             PercentText = "N/A";
             ResetText = "unknown";
             AccentBrush = s_RedBrush;
+            IsAvailable = false;
         }
 
         /// <summary>

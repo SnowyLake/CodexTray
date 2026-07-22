@@ -425,10 +425,12 @@
                     <StackPanel VerticalAlignment="Top"
                                 Grid.IsSharedSizeScope="True">
                     <TextBlock Text="Usage"
-                               Style="{StaticResource HomeSectionHeaderStyle}" />
+                               Style="{StaticResource HomeSectionHeaderStyle}"
+                               Visibility="{Binding IsUsageVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                     <!-- 5 hour -->
-                    <StackPanel Margin="0,0,0,20">
+                    <StackPanel Margin="0,0,0,20"
+                                Visibility="{Binding FiveHourQuota.IsAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -478,7 +480,7 @@
                     </StackPanel>
 
                     <!-- Seven day -->
-                    <StackPanel>
+                    <StackPanel Visibility="{Binding SevenDayQuota.IsAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -527,7 +529,8 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <StackPanel Margin="0,20,0,0">
+                    <StackPanel Margin="0,20,0,0"
+                                Visibility="{Binding IsResetCreditsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
