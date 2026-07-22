@@ -1,4 +1,5 @@
 using CodexTray.Core;
+using Microsoft.Data.Sqlite;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
@@ -36,6 +37,8 @@ internal static class Program
         await RunAsync("parses Grok billing protobuf", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
         await RunAsync("refreshes expired OpenCode OAuth", TestOpenCodeOAuthRefreshAsync);
+        await RunAsync("parses Cursor usage-summary JSON", TestCursorUsageCollectorAsync);
+        await RunAsync("refreshes expired Cursor OAuth", TestCursorOAuthRefreshAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
@@ -402,6 +405,13 @@ internal static class Program
                     Provider = ApiMonitorSettings.GrokProvider,
                     GrokOAuthSource = ApiMonitorSettings.OpenCodeOAuthSource,
                 },
+                new ApiMonitorSettings
+                {
+                    Name = "Local Cursor",
+                    Provider = ApiMonitorSettings.CursorProvider,
+                    BaseUrl = "https://should-clear.example",
+                    ApiKey = "cursor-should-not-persist",
+                },
             ],
         };
 
@@ -409,12 +419,17 @@ internal static class Program
 
         string json = File.ReadAllText(store.SettingsPath);
         AssertTrue(json.Contains("deepseek-secret-token", StringComparison.Ordinal), "settings should contain the API key");
+        AssertTrue(!json.Contains("cursor-should-not-persist", StringComparison.Ordinal), "settings should not contain Cursor tokens");
         AppSettings loaded = store.Load();
         ApiMonitorSettings deepSeek = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.DeepSeekProvider);
         ApiMonitorSettings grok = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.GrokProvider);
+        ApiMonitorSettings cursor = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.CursorProvider);
         AssertEqual("deepseek-secret-token", deepSeek.ApiKey, "saved API key");
         AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
         AssertEqual(ApiMonitorSettings.OpenCodeOAuthSource, grok.GrokOAuthSource, "saved Grok OAuth source");
+        AssertEqual(string.Empty, cursor.BaseUrl, "Cursor base URL should be cleared");
+        AssertEqual(string.Empty, cursor.ApiKey, "Cursor API key should be cleared");
+        AssertEqual("Local Cursor", cursor.Name, "Cursor monitor name");
         return Task.CompletedTask;
     }
 
@@ -559,6 +574,74 @@ internal static class Program
     }
 
     /// <summary>
+    /// Tests Cursor usage-summary parsing for consumed percentage and billing cycle end.
+    /// </summary>
+    private static Task TestCursorUsageCollectorAsync()
+    {
+        const long resetAt = 1_802_592_000;
+        string json = CreateCursorUsageSummaryJson(10, 12, 0, DateTimeOffset.FromUnixTimeSeconds(resetAt));
+        CursorUsageSnapshot snapshot = CursorUsageCollector.ParseUsageSummary(
+            json,
+            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
+
+        AssertEqual(10, snapshot.TotalUsedPercent, "Cursor total used percentage");
+        AssertEqual(12, snapshot.FirstPartyUsedPercent, "Cursor first-party used percentage");
+        AssertEqual(0, snapshot.ApiUsedPercent, "Cursor API used percentage");
+        AssertEqual(resetAt, snapshot.ResetsAt, "Cursor reset timestamp");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests that an expired Cursor token is refreshed and written back to state.vscdb.
+    /// </summary>
+    private static async Task TestCursorOAuthRefreshAsync()
+    {
+        using TempDirectory temp = new();
+        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
+        string dbPath = Path.Combine(temp.Path, "state.vscdb");
+        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
+        try
+        {
+            string oldAccess = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddMinutes(-10));
+            string newAccess = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
+            CreateCursorStateDatabase(dbPath, oldAccess, "cursor-refresh");
+
+            string usageJson = CreateCursorUsageSummaryJson(12.5, 20, 5, DateTimeOffset.FromUnixTimeSeconds(1_802_592_000));
+            using HttpClient client = new(new CursorOAuthRefreshHttpMessageHandler(
+                oldAccess,
+                newAccess,
+                "cursor-refresh",
+                "rotated-cursor-refresh",
+                usageJson));
+            CursorUsageCollector collector = new(client);
+            CursorUsageSnapshot snapshot = await collector.CollectAsync();
+
+            AssertEqual(12.5, snapshot.TotalUsedPercent, "refreshed Cursor total used percentage");
+            AssertEqual(20, snapshot.FirstPartyUsedPercent, "refreshed Cursor first-party used percentage");
+            AssertEqual(5, snapshot.ApiUsedPercent, "refreshed Cursor API used percentage");
+            AssertEqual(1_802_592_000, snapshot.ResetsAt, "refreshed Cursor reset timestamp");
+
+            string? writtenAccess;
+            string? writtenRefresh;
+            using (SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString()))
+            {
+                connection.Open();
+                writtenAccess = ReadCursorStateValue(connection, "cursorAuth/accessToken");
+                writtenRefresh = ReadCursorStateValue(connection, "cursorAuth/refreshToken");
+            }
+
+            SqliteConnection.ClearAllPools();
+            AssertEqual(newAccess, writtenAccess, "Cursor access token write-back");
+            AssertEqual("rotated-cursor-refresh", writtenRefresh, "Cursor refresh token write-back");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
+        }
+    }
+
+    /// <summary>
     /// Builds a minimal gRPC-web billing body for Grok collector tests.
     /// </summary>
     private static byte[] CreateGrokBillingResponse(float usedPercent, long resetAt)
@@ -577,6 +660,95 @@ internal static class Program
         List<byte> response = [0, 0, 0, 0, (byte)payload.Count];
         response.AddRange(payload);
         return [.. response];
+    }
+
+    /// <summary>
+    /// Builds a redacted Cursor usage-summary fixture for parser tests.
+    /// </summary>
+    private static string CreateCursorUsageSummaryJson(
+        double totalUsedPercent,
+        double firstPartyUsedPercent,
+        double apiUsedPercent,
+        DateTimeOffset billingCycleEnd)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            billingCycleEnd = billingCycleEnd.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
+            individualUsage = new
+            {
+                plan = new
+                {
+                    totalPercentUsed = totalUsedPercent,
+                    autoPercentUsed = firstPartyUsedPercent,
+                    apiPercentUsed = apiUsedPercent,
+                },
+            },
+        });
+    }
+
+    /// <summary>
+    /// Builds an unsigned JWT carrying only the claims CursorUsageCollector reads.
+    /// </summary>
+    private static string CreateTestJwt(string subject, DateTimeOffset expiresAt)
+    {
+        static string Encode(object value)
+        {
+            string json = JsonSerializer.Serialize(value);
+            return Convert.ToBase64String(Encoding.UTF8.GetBytes(json))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+        }
+
+        return $"{Encode(new { alg = "none", typ = "JWT" })}.{Encode(new { sub = subject, exp = expiresAt.ToUnixTimeSeconds() })}.sig";
+    }
+
+    /// <summary>
+    /// Creates a minimal Cursor state.vscdb with access and refresh tokens.
+    /// </summary>
+    private static void CreateCursorStateDatabase(string dbPath, string accessToken, string refreshToken)
+    {
+        using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString());
+        connection.Open();
+        using (SqliteCommand create = connection.CreateCommand())
+        {
+            create.CommandText = "CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);";
+            create.ExecuteNonQuery();
+        }
+
+        UpsertCursorStateValue(connection, "cursorAuth/accessToken", accessToken);
+        UpsertCursorStateValue(connection, "cursorAuth/refreshToken", refreshToken);
+        UpsertCursorStateValue(connection, "unrelated/keep", "keep-me");
+    }
+
+    /// <summary>
+    /// Inserts or replaces one Cursor state.vscdb ItemTable value for tests.
+    /// </summary>
+    private static void UpsertCursorStateValue(SqliteConnection connection, string key, string value)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "INSERT OR REPLACE INTO ItemTable (key, value) VALUES ($key, $value);";
+        command.Parameters.AddWithValue("$key", key);
+        command.Parameters.AddWithValue("$value", value);
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Reads one Cursor state.vscdb ItemTable value for assertions.
+    /// </summary>
+    private static string? ReadCursorStateValue(SqliteConnection connection, string key)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT value FROM ItemTable WHERE key = $key LIMIT 1;";
+        command.Parameters.AddWithValue("$key", key);
+        object? value = command.ExecuteScalar();
+        return value switch
+        {
+            null or DBNull => null,
+            byte[] bytes => Encoding.UTF8.GetString(bytes),
+            string text => text,
+            _ => Convert.ToString(value, CultureInfo.InvariantCulture),
+        };
     }
 
     /// <summary>
@@ -946,6 +1118,97 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
         }
 
         throw new InvalidOperationException($"unexpected Grok request URI: {requestUri}");
+    }
+}
+
+internal sealed class CursorOAuthRefreshHttpMessageHandler : HttpMessageHandler
+{
+    private const string k_UsageEndpoint = "https://cursor.com/api/usage-summary";
+    private const string k_TokenEndpoint = "https://api2.cursor.sh/oauth/token";
+    private readonly string m_OldAccessToken;
+    private readonly string m_NewAccessToken;
+    private readonly string m_ExpectedRefreshToken;
+    private readonly string m_RotatedRefreshToken;
+    private readonly string m_UsageBody;
+
+    /// <summary>
+    /// Creates a handler that refreshes Cursor OAuth tokens and then serves usage-summary.
+    /// </summary>
+    public CursorOAuthRefreshHttpMessageHandler(
+        string oldAccessToken,
+        string newAccessToken,
+        string expectedRefreshToken,
+        string rotatedRefreshToken,
+        string usageBody)
+    {
+        m_OldAccessToken = oldAccessToken;
+        m_NewAccessToken = newAccessToken;
+        m_ExpectedRefreshToken = expectedRefreshToken;
+        m_RotatedRefreshToken = rotatedRefreshToken;
+        m_UsageBody = usageBody;
+    }
+
+    /// <summary>
+    /// Handles Cursor OAuth refresh and usage-summary requests for collector tests.
+    /// </summary>
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        string? requestUri = request.RequestUri?.ToString();
+        if (requestUri == k_TokenEndpoint)
+        {
+            string body = request.Content == null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!body.Contains($"refresh_token={Uri.EscapeDataString(m_ExpectedRefreshToken)}", StringComparison.Ordinal) &&
+                !body.Contains($"refresh_token={m_ExpectedRefreshToken}", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("missing Cursor refresh token");
+            }
+
+            if (!body.Contains("client_id=KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB", StringComparison.Ordinal) &&
+                !body.Contains($"client_id={Uri.EscapeDataString("KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB")}", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("missing Cursor client id");
+            }
+
+            string response = JsonSerializer.Serialize(new
+            {
+                access_token = m_NewAccessToken,
+                refresh_token = m_RotatedRefreshToken,
+                expires_in = 3600,
+            });
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, Encoding.UTF8, "application/json"),
+            };
+        }
+
+        if (requestUri == k_UsageEndpoint)
+        {
+            if (!request.Headers.TryGetValues("Cookie", out IEnumerable<string>? cookies))
+            {
+                throw new InvalidOperationException("missing Cursor session cookie");
+            }
+
+            string cookie = string.Join(';', cookies);
+            if (cookie.Contains(m_OldAccessToken, StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            if (!cookie.Contains(m_NewAccessToken, StringComparison.Ordinal) ||
+                !cookie.Contains("WorkosCursorSessionToken=user_cursor_test%3A%3A", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("unexpected Cursor session cookie");
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(m_UsageBody, Encoding.UTF8, "application/json"),
+            };
+        }
+
+        throw new InvalidOperationException($"unexpected Cursor request URI: {requestUri}");
     }
 }
 

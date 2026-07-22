@@ -18,6 +18,7 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     private string m_UserId;
     private string m_GrokOAuthSource;
     private string m_BalanceDisplay = "N/A";
+    private string m_BalanceTooltip = string.Empty;
     private string m_UsedDisplay = "N/A";
     private string m_StatusText = "Waiting for refresh";
     private Media.Brush m_StatusDotBrush = s_RedBrush;
@@ -35,6 +36,7 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     public string[] ProviderOptions { get; } =
     [
         ApiMonitorSettings.DeepSeekProvider,
+        ApiMonitorSettings.CursorProvider,
         ApiMonitorSettings.GrokProvider,
         ApiMonitorSettings.NewApiProvider,
     ];
@@ -69,6 +71,7 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             {
                 ApiMonitorSettings.NewApiProvider => ApiMonitorSettings.NewApiProvider,
                 ApiMonitorSettings.GrokProvider => ApiMonitorSettings.GrokProvider,
+                ApiMonitorSettings.CursorProvider => ApiMonitorSettings.CursorProvider,
                 _ => ApiMonitorSettings.DeepSeekProvider,
             };
             string previousProvider = m_Provider;
@@ -89,6 +92,8 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
 
             OnPropertyChanged(nameof(IsNewApi));
             OnPropertyChanged(nameof(IsGrok));
+            OnPropertyChanged(nameof(IsCursor));
+            OnPropertyChanged(nameof(IsLocalSessionAuth));
             OnPropertyChanged(nameof(HasSecondaryDisplay));
             OnPropertyChanged(nameof(PrimaryDisplayLabel));
             OnPropertyChanged(nameof(SecondaryDisplayLabel));
@@ -152,11 +157,15 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
 
     public bool IsGrok => m_Provider == ApiMonitorSettings.GrokProvider;
 
-    public bool HasSecondaryDisplay => IsNewApi || IsGrok;
+    public bool IsCursor => m_Provider == ApiMonitorSettings.CursorProvider;
 
-    public string PrimaryDisplayLabel => IsGrok ? "Remaining:" : "Balance:";
+    public bool IsLocalSessionAuth => IsGrok || IsCursor;
 
-    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : "Used:";
+    public bool HasSecondaryDisplay => IsNewApi || IsGrok || IsCursor;
+
+    public string PrimaryDisplayLabel => "Balance:";
+
+    public string SecondaryDisplayLabel => IsGrok || IsCursor ? "Resets:" : "Used:";
 
     public string DisplayName => string.IsNullOrWhiteSpace(m_Name) ? m_Provider : m_Name.Trim();
 
@@ -165,6 +174,14 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         get => m_BalanceDisplay;
         private set => SetField(ref m_BalanceDisplay, value);
     }
+
+    public string BalanceTooltip
+    {
+        get => m_BalanceTooltip;
+        private set => SetField(ref m_BalanceTooltip, value);
+    }
+
+    public bool HasBalanceTooltip => !string.IsNullOrWhiteSpace(m_BalanceTooltip);
 
     public string UsedDisplay
     {
@@ -236,6 +253,8 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     public void Update(ApiUsageResult result)
     {
         BalanceDisplay = result.BalanceDisplay;
+        BalanceTooltip = result.BalanceTooltip;
+        OnPropertyChanged(nameof(HasBalanceTooltip));
         UsedDisplay = result.UsedDisplay;
         StatusText = result.Available
             ? $"Updated {result.UpdatedAt:HH:mm}"

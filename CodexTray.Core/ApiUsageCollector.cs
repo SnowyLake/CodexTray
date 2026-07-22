@@ -10,7 +10,8 @@ public sealed record ApiUsageResult(
     string BalanceDisplay,
     string UsedDisplay,
     string Error,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string BalanceTooltip = "");
 
 public enum ApiUsageRefreshStatus
 {
@@ -33,6 +34,7 @@ public sealed class ApiUsageCollector
 
     private readonly HttpClient m_HttpClient;
     private readonly GrokUsageCollector m_GrokUsageCollector;
+    private readonly CursorUsageCollector m_CursorUsageCollector;
 
     /// <summary>
     /// Creates an API usage collector with the shared HTTP client.
@@ -49,6 +51,7 @@ public sealed class ApiUsageCollector
     {
         m_HttpClient = httpClient;
         m_GrokUsageCollector = new GrokUsageCollector(httpClient);
+        m_CursorUsageCollector = new CursorUsageCollector(httpClient);
     }
 
     /// <summary>
@@ -107,6 +110,11 @@ public sealed class ApiUsageCollector
             return await CollectGrokAsync(monitor, now, useAbsoluteResetTime, cancellationToken).ConfigureAwait(false);
         }
 
+        if (monitor.Provider == ApiMonitorSettings.CursorProvider)
+        {
+            return await CollectCursorAsync(monitor, now, useAbsoluteResetTime, cancellationToken).ConfigureAwait(false);
+        }
+
         if (monitor.ApiKey.Length == 0)
         {
             return Unavailable(monitor.Id, "Enter an API key", now);
@@ -163,12 +171,42 @@ public sealed class ApiUsageCollector
             return new ApiUsageResult(
                 monitor.Id,
                 true,
-                FormatGrokRemainingPercent(snapshot.UsedPercent),
+                FormatRemainingPercent(snapshot.UsedPercent),
                 useAbsoluteResetTime
                     ? CodexTrayCollector.FormatSevenDayResetDate(snapshot.ResetsAt, now)
                     : CodexTrayCollector.FormatSevenDayResetLabel(snapshot.ResetsAt, now),
                 string.Empty,
                 now);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
+        {
+            return Unavailable(monitor.Id, exception is TaskCanceledException ? "Request timed out" : exception.Message, now);
+        }
+    }
+
+    /// <summary>
+    /// Queries Cursor usage with the locally stored IDE OAuth session.
+    /// </summary>
+    private async Task<ApiUsageResult> CollectCursorAsync(ApiMonitorSettings monitor, DateTimeOffset now, bool useAbsoluteResetTime, CancellationToken cancellationToken)
+    {
+        try
+        {
+            CursorUsageSnapshot snapshot = await m_CursorUsageCollector
+                .CollectAsync(cancellationToken)
+                .ConfigureAwait(false);
+            string total = FormatRemainingPercent(snapshot.TotalUsedPercent);
+            string firstParty = FormatRemainingPercent(snapshot.FirstPartyUsedPercent);
+            string api = FormatRemainingPercent(snapshot.ApiUsedPercent);
+            return new ApiUsageResult(
+                monitor.Id,
+                true,
+                $"{total} · {firstParty} · {api}",
+                useAbsoluteResetTime
+                    ? CodexTrayCollector.FormatSevenDayResetDate(snapshot.ResetsAt, now)
+                    : CodexTrayCollector.FormatSevenDayResetLabel(snapshot.ResetsAt, now),
+                string.Empty,
+                now,
+                $"Total: {total}\nFirstParty: {firstParty}\nAPI: {api}");
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {
@@ -209,13 +247,12 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
-    /// Formats Grok's remaining allowance percentage for compact card display.
+    /// Formats a remaining allowance percentage for compact card display.
     /// </summary>
-    private static string FormatGrokRemainingPercent(double usedPercent)
+    private static string FormatRemainingPercent(double usedPercent)
     {
-        double remainingPercent = Math.Clamp(100 - usedPercent, 0, 100);
-        string format = Math.Abs(remainingPercent % 1) < 0.001 ? "0" : "0.#";
-        return $"{remainingPercent.ToString(format, CultureInfo.InvariantCulture)}%";
+        int remainingPercent = (int)Math.Round(Math.Clamp(100 - usedPercent, 0, 100), MidpointRounding.AwayFromZero);
+        return $"{remainingPercent.ToString(CultureInfo.InvariantCulture)}%";
     }
 
     /// <summary>

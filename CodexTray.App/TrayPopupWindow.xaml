@@ -888,7 +888,20 @@
                                                                Margin="8,0,0,0"
                                                                Text="{Binding BalanceDisplay}"
                                                                Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                               FontSize="13" />
+                                                               FontSize="13"
+                                                               ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                               ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="{x:Type TextBlock}">
+                                                                <Setter Property="ToolTip" Value="{x:Null}" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding HasBalanceTooltip}" Value="True">
+                                                                        <Setter Property="ToolTip" Value="{Binding BalanceTooltip}" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
                                                     <StackPanel Grid.Column="2"
                                                                 Orientation="Horizontal"
                                                                 Visibility="{Binding HasSecondaryDisplay, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -960,7 +973,15 @@
                                                                TextWrapping="Wrap" />
                                                 </StackPanel>
 
-                                                <StackPanel Visibility="{Binding IsGrok, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                                <StackPanel Visibility="{Binding IsCursor, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <TextBlock Margin="0,12,0,0"
+                                                               Text="Reads the local Cursor IDE OAuth session from state.vscdb. Tokens are not stored here."
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12"
+                                                               TextWrapping="Wrap" />
+                                                </StackPanel>
+
+                                                <StackPanel Visibility="{Binding IsLocalSessionAuth, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
                                                     <TextBlock Margin="0,12,0,5"
                                                                Text="Base URL"
                                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
@@ -1074,14 +1095,14 @@
                                       ToolTip="Start with Windows" />
                         </Grid>
 
-                        <Grid ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day and Grok as MM-dd) instead of a countdown"
+                        <Grid ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Resets use absolute time"
-                                       ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day and Grok as MM-dd) instead of a countdown"
+                                       ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -1089,7 +1110,7 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding UseAbsoluteResetTime}"
-                                      ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day and Grok as MM-dd) instead of a countdown" />
+                                      ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown" />
                         </Grid>
 
                         <Grid Style="{StaticResource SettingsRowGridStyle}">

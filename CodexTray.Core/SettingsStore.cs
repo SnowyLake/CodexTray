@@ -23,6 +23,8 @@ public sealed class ApiMonitorSettings
 
     public const string GrokProvider = "Grok";
 
+    public const string CursorProvider = "Cursor";
+
     public const string GrokBuildOAuthSource = "Grok Build";
 
     public const string OpenCodeOAuthSource = "OpenCode";
@@ -51,15 +53,25 @@ public sealed class ApiMonitorSettings
         {
             string value when string.Equals(value, NewApiProvider, StringComparison.OrdinalIgnoreCase) => NewApiProvider,
             string value when string.Equals(value, GrokProvider, StringComparison.OrdinalIgnoreCase) => GrokProvider,
+            string value when string.Equals(value, CursorProvider, StringComparison.OrdinalIgnoreCase) => CursorProvider,
             _ => DeepSeekProvider,
         };
         Name = string.IsNullOrWhiteSpace(Name) ? Provider : Name.Trim();
-        BaseUrl = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
-        ApiKey = (ApiKey ?? string.Empty).Trim();
-        UserId = (UserId ?? string.Empty).Trim();
         GrokOAuthSource = string.Equals(GrokOAuthSource?.Trim(), OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
             ? OpenCodeOAuthSource
             : GrokBuildOAuthSource;
+
+        if (Provider is GrokProvider or CursorProvider)
+        {
+            BaseUrl = string.Empty;
+            ApiKey = string.Empty;
+            UserId = string.Empty;
+            return this;
+        }
+
+        BaseUrl = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
+        ApiKey = (ApiKey ?? string.Empty).Trim();
+        UserId = (UserId ?? string.Empty).Trim();
         return this;
     }
 }
