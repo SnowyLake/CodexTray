@@ -571,6 +571,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <TextBlock Text="Today"
@@ -693,6 +694,7 @@
 
                         <TextBlock Grid.Row="5"
                                    Text="Last 30 Days"
+                                   Margin="0,0,0,12"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                    FontSize="13.5"
@@ -700,6 +702,7 @@
                                    Visibility="{Binding ShowThirtyDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <TextBlock Grid.Row="5"
                                    Grid.Column="1"
+                                   Margin="0,0,0,12"
                                    HorizontalAlignment="Right"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
@@ -709,6 +712,26 @@
                                 <MultiBinding StringFormat="{}{0} · {1}">
                                     <Binding Path="ThirtyDayTokenCostDisplay.Cost" />
                                     <Binding Path="ThirtyDayTokenCostDisplay.Tokens" />
+                                </MultiBinding>
+                            </TextBlock.Text>
+                        </TextBlock>
+
+                        <TextBlock Grid.Row="6"
+                                   Text="Total"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="13.5"
+                                   FontWeight="Medium" />
+                        <TextBlock Grid.Row="6"
+                                   Grid.Column="1"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="13.5">
+                            <TextBlock.Text>
+                                <MultiBinding StringFormat="{}{0} · {1}">
+                                    <Binding Path="TotalTokenCostDisplay.Cost" />
+                                    <Binding Path="TotalTokenCostDisplay.Tokens" />
                                 </MultiBinding>
                             </TextBlock.Text>
                         </TextBlock>

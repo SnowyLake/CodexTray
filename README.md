@@ -28,7 +28,7 @@
 
 - 显示 Codex 计划状态, 5-Hour 与 7-Day 剩余额度和重置时间.
 - 显示可用 Reset Credits 数量及最近到期时间.
-- 统计 Today, Yesterday, Week, Month, Last 7 Days 和 Last 30 Days 的 token 用量与 API 等价成本.
+- 统计 Today, Yesterday, Week, Month, Last 7 Days, Last 30 Days 和 Total 的 token 用量与 API 等价成本.
 - 支持选择 Token Cost 项目和中英文 token 数量单位.
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, 以及 Grok 剩余额度和重置时间监控.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.

@@ -81,6 +81,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private TokenCostDisplay m_MonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
     private TokenCostDisplay m_SevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
     private TokenCostDisplay m_ThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private TokenCostDisplay m_TotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
     private bool m_StartWithWindows;
     private bool m_AcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
     private int m_AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
@@ -469,6 +470,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     {
         get => m_ThirtyDayTokenCostDisplay;
         private set => SetField(ref m_ThirtyDayTokenCostDisplay, value);
+    }
+
+    public TokenCostDisplay TotalTokenCostDisplay
+    {
+        get => m_TotalTokenCostDisplay;
+        private set => SetField(ref m_TotalTokenCostDisplay, value);
     }
 
     public bool StartWithWindows
@@ -889,6 +896,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             MonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
             SevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
             ThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+            TotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
             return;
         }
 
@@ -898,6 +906,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         MonthTokenCostDisplay = FormatTokenCost(statistics.Month);
         SevenDayTokenCostDisplay = FormatTokenCost(statistics.SevenDay);
         ThirtyDayTokenCostDisplay = FormatTokenCost(statistics.ThirtyDay);
+        TotalTokenCostDisplay = FormatTokenCost(statistics.Total);
     }
 
     /// <summary>

@@ -23,6 +23,8 @@ public sealed class TokenCostStatistics
     public TokenCostSummary SevenDay { get; init; } = new();
 
     public TokenCostSummary ThirtyDay { get; init; } = new();
+
+    public TokenCostSummary Total { get; init; } = new();
 }
 
 public sealed class TokenCostCollector
@@ -70,10 +72,11 @@ public sealed class TokenCostCollector
         PeriodAccumulator monthPeriod = new();
         PeriodAccumulator sevenDayPeriod = new();
         PeriodAccumulator thirtyDayPeriod = new();
+        PeriodAccumulator totalPeriod = new();
 
         foreach (string path in EnumerateSessionFiles(root))
         {
-            CollectFile(path, today, weekStart, monthStart, pricing, todayPeriod, yesterdayPeriod, weekPeriod, monthPeriod, sevenDayPeriod, thirtyDayPeriod);
+            CollectFile(path, today, weekStart, monthStart, pricing, todayPeriod, yesterdayPeriod, weekPeriod, monthPeriod, sevenDayPeriod, thirtyDayPeriod, totalPeriod);
         }
 
         return new TokenCostStatistics
@@ -84,6 +87,7 @@ public sealed class TokenCostCollector
             Month = monthPeriod.ToSummary(),
             SevenDay = sevenDayPeriod.ToSummary(),
             ThirtyDay = thirtyDayPeriod.ToSummary(),
+            Total = totalPeriod.ToSummary(),
         };
     }
 
@@ -135,7 +139,8 @@ public sealed class TokenCostCollector
         PeriodAccumulator weekPeriod,
         PeriodAccumulator monthPeriod,
         PeriodAccumulator sevenDayPeriod,
-        PeriodAccumulator thirtyDayPeriod)
+        PeriodAccumulator thirtyDayPeriod,
+        PeriodAccumulator totalPeriod)
     {
         string model = "unknown";
         TokenCounts? previous = null;
@@ -249,6 +254,11 @@ public sealed class TokenCostCollector
                 if (eventDate >= today.AddDays(-29) && eventDate <= today)
                 {
                     thirtyDayPeriod.Add(delta.Total, cost);
+                }
+
+                if (eventDate <= today)
+                {
+                    totalPeriod.Add(delta.Total, cost);
                 }
             }
             catch (JsonException)

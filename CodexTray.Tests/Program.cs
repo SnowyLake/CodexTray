@@ -614,6 +614,11 @@ internal static class Program
             "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
             "{\"timestamp\":\"2026-06-30T10:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":40,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
         ]);
+        File.WriteAllLines(Path.Combine(sessions, "older.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            "{\"timestamp\":\"2026-05-01T10:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
+        ]);
 
         using FileStream activeWriter = new(sessionPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
         TokenCostCollector collector = new(pricingPath);
@@ -627,6 +632,8 @@ internal static class Program
         AssertEqual(3520L, statistics.SevenDay.TotalTokens, "seven day total tokens");
         AssertEqual(3560L, statistics.ThirtyDay.TotalTokens, "thirty day total tokens");
         AssertEqual(0.00774m, statistics.ThirtyDay.CostUsd, "thirty day API-equivalent cost");
+        AssertEqual(3660L, statistics.Total.TotalTokens, "historical total tokens");
+        AssertEqual(0.00794m, statistics.Total.CostUsd, "historical API-equivalent cost");
         return Task.CompletedTask;
     }
 
