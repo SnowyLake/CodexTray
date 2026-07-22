@@ -1,4 +1,5 @@
 using CodexTray.Core;
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -33,6 +34,8 @@ internal static class Program
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
         await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
         await RunAsync("parses Grok billing protobuf", TestGrokUsageCollectorAsync);
+        await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
+        await RunAsync("refreshes expired OpenCode OAuth", TestOpenCodeOAuthRefreshAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
@@ -450,24 +453,130 @@ internal static class Program
     private static Task TestGrokUsageCollectorAsync()
     {
         const long resetAt = 1_802_592_000;
+        byte[] response = CreateGrokBillingResponse(42.5f, resetAt);
+        GrokUsageSnapshot snapshot = GrokUsageCollector.ParseGrpcWebResponse(response, DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
+
+        AssertEqual(42.5, snapshot.UsedPercent, "Grok used percentage");
+        AssertEqual(resetAt, snapshot.ResetsAt, "Grok reset timestamp");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests that an expired Grok Build token is refreshed and written back to auth.json.
+    /// </summary>
+    private static async Task TestGrokBuildOAuthRefreshAsync()
+    {
+        using TempDirectory temp = new();
+        string previousGrokHome = Environment.GetEnvironmentVariable("GROK_HOME") ?? string.Empty;
+        Environment.SetEnvironmentVariable("GROK_HOME", temp.Path);
+        try
+        {
+            const string entryKey = "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828";
+            string authPath = Path.Combine(temp.Path, "auth.json");
+            File.WriteAllText(authPath, JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                [entryKey] = new
+                {
+                    key = "old-grok-access",
+                    refresh_token = "grok-refresh",
+                    expires_at = DateTimeOffset.UtcNow.AddMinutes(-10).ToString("o", CultureInfo.InvariantCulture),
+                    email = "keep-me@example.com",
+                },
+            }));
+
+            using HttpClient client = new(new GrokOAuthRefreshHttpMessageHandler(
+                "old-grok-access",
+                "new-grok-access",
+                "grok-refresh",
+                "rotated-grok-refresh",
+                CreateGrokBillingResponse(12.5f, 1_802_592_000)));
+            GrokUsageCollector collector = new(client);
+            GrokUsageSnapshot snapshot = await collector.CollectAsync(ApiMonitorSettings.GrokBuildOAuthSource);
+
+            AssertEqual(12.5, snapshot.UsedPercent, "refreshed Grok Build used percentage");
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(authPath));
+            JsonElement entry = document.RootElement.GetProperty(entryKey);
+            AssertEqual("new-grok-access", entry.GetProperty("key").GetString(), "Grok Build access token write-back");
+            AssertEqual("rotated-grok-refresh", entry.GetProperty("refresh_token").GetString(), "Grok Build refresh token write-back");
+            AssertEqual("keep-me@example.com", entry.GetProperty("email").GetString(), "Grok Build unrelated field preservation");
+            AssertTrue(
+                DateTimeOffset.Parse(entry.GetProperty("expires_at").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) >
+                DateTimeOffset.UtcNow,
+                "Grok Build expires_at should be in the future");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GROK_HOME", string.IsNullOrEmpty(previousGrokHome) ? null : previousGrokHome);
+        }
+    }
+
+    /// <summary>
+    /// Tests that an expired OpenCode token is refreshed and written back to auth.json.
+    /// </summary>
+    private static async Task TestOpenCodeOAuthRefreshAsync()
+    {
+        using TempDirectory temp = new();
+        string previousXdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME") ?? string.Empty;
+        Environment.SetEnvironmentVariable("XDG_DATA_HOME", temp.Path);
+        try
+        {
+            string authDirectory = Path.Combine(temp.Path, "opencode");
+            Directory.CreateDirectory(authDirectory);
+            string authPath = Path.Combine(authDirectory, "auth.json");
+            File.WriteAllText(authPath, JsonSerializer.Serialize(new
+            {
+                anthropic = new { type = "api", key = "keep-other-provider" },
+                xai = new
+                {
+                    type = "oauth",
+                    access = "old-opencode-access",
+                    refresh = "opencode-refresh",
+                    expires = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds(),
+                },
+            }));
+
+            using HttpClient client = new(new GrokOAuthRefreshHttpMessageHandler(
+                "old-opencode-access",
+                "new-opencode-access",
+                "opencode-refresh",
+                "rotated-opencode-refresh",
+                CreateGrokBillingResponse(33f, 1_802_592_000)));
+            GrokUsageCollector collector = new(client);
+            GrokUsageSnapshot snapshot = await collector.CollectAsync(ApiMonitorSettings.OpenCodeOAuthSource);
+
+            AssertEqual(33, snapshot.UsedPercent, "refreshed OpenCode used percentage");
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(authPath));
+            AssertEqual("keep-other-provider", document.RootElement.GetProperty("anthropic").GetProperty("key").GetString(), "OpenCode unrelated provider preservation");
+            JsonElement xai = document.RootElement.GetProperty("xai");
+            AssertEqual("new-opencode-access", xai.GetProperty("access").GetString(), "OpenCode access token write-back");
+            AssertEqual("rotated-opencode-refresh", xai.GetProperty("refresh").GetString(), "OpenCode refresh token write-back");
+            AssertTrue(xai.GetProperty("expires").GetInt64() > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), "OpenCode expires should be in the future");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_DATA_HOME", string.IsNullOrEmpty(previousXdg) ? null : previousXdg);
+        }
+    }
+
+    /// <summary>
+    /// Builds a minimal gRPC-web billing body for Grok collector tests.
+    /// </summary>
+    private static byte[] CreateGrokBillingResponse(float usedPercent, long resetAt)
+    {
+        int bits = BitConverter.SingleToInt32Bits(usedPercent);
         List<byte> payload =
         [
             0x0D,
-            0x00,
-            0x00,
-            0x2A,
-            0x42,
+            (byte)bits,
+            (byte)(bits >> 8),
+            (byte)(bits >> 16),
+            (byte)(bits >> 24),
             0x28,
         ];
         payload.AddRange(EncodeVarint(resetAt));
         List<byte> response = [0, 0, 0, 0, (byte)payload.Count];
         response.AddRange(payload);
-
-        GrokUsageSnapshot snapshot = GrokUsageCollector.ParseGrpcWebResponse([.. response], DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
-
-        AssertEqual(42.5, snapshot.UsedPercent, "Grok used percentage");
-        AssertEqual(resetAt, snapshot.ResetsAt, "Grok reset timestamp");
-        return Task.CompletedTask;
+        return [.. response];
     }
 
     /// <summary>
@@ -759,6 +868,84 @@ internal sealed class TempDirectory : IDisposable
     public void Dispose()
     {
         Directory.Delete(Path, true);
+    }
+}
+
+internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
+{
+    private const string k_BillingEndpoint = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
+    private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
+    private readonly string m_OldAccessToken;
+    private readonly string m_NewAccessToken;
+    private readonly string m_ExpectedRefreshToken;
+    private readonly string m_RotatedRefreshToken;
+    private readonly byte[] m_BillingBody;
+
+    /// <summary>
+    /// Creates a handler that refreshes OAuth tokens and then serves billing usage.
+    /// </summary>
+    public GrokOAuthRefreshHttpMessageHandler(
+        string oldAccessToken,
+        string newAccessToken,
+        string expectedRefreshToken,
+        string rotatedRefreshToken,
+        byte[] billingBody)
+    {
+        m_OldAccessToken = oldAccessToken;
+        m_NewAccessToken = newAccessToken;
+        m_ExpectedRefreshToken = expectedRefreshToken;
+        m_RotatedRefreshToken = rotatedRefreshToken;
+        m_BillingBody = billingBody;
+    }
+
+    /// <summary>
+    /// Handles Grok OAuth refresh and billing requests for collector tests.
+    /// </summary>
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        string? requestUri = request.RequestUri?.ToString();
+        if (requestUri == k_TokenEndpoint)
+        {
+            string body = request.Content == null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!body.Contains($"refresh_token={Uri.EscapeDataString(m_ExpectedRefreshToken)}", StringComparison.Ordinal) &&
+                !body.Contains($"refresh_token={m_ExpectedRefreshToken}", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("missing Grok refresh token");
+            }
+
+            string response = JsonSerializer.Serialize(new
+            {
+                access_token = m_NewAccessToken,
+                refresh_token = m_RotatedRefreshToken,
+                expires_in = 3600,
+            });
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, Encoding.UTF8, "application/json"),
+            };
+        }
+
+        if (requestUri == k_BillingEndpoint)
+        {
+            if (request.Headers.Authorization?.Parameter == m_OldAccessToken)
+            {
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            if (request.Headers.Authorization?.Parameter != m_NewAccessToken)
+            {
+                throw new InvalidOperationException("unexpected Grok access token");
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(m_BillingBody),
+            };
+        }
+
+        throw new InvalidOperationException($"unexpected Grok request URI: {requestUri}");
     }
 }
 

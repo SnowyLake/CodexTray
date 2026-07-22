@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace CodexTray.Core;
 
@@ -11,8 +12,13 @@ public sealed record GrokUsageSnapshot(double UsedPercent, long ResetsAt);
 public sealed class GrokUsageCollector
 {
     private const string k_BillingEndpoint = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
+    private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
+    private const string k_DefaultClientId = "b1a00492-073a-47ea-816f-4c329264a828";
     private const long k_MinimumUnixTimestamp = 1_700_000_000;
     private const long k_MaximumUnixTimestamp = 2_100_000_000;
+    private static readonly TimeSpan s_RefreshBuffer = TimeSpan.FromMinutes(5);
+    private static readonly SemaphoreSlim s_GrokBuildAuthLock = new(1, 1);
+    private static readonly SemaphoreSlim s_OpenCodeAuthLock = new(1, 1);
 
     private readonly HttpClient m_HttpClient;
 
@@ -29,37 +35,16 @@ public sealed class GrokUsageCollector
     /// </summary>
     public async Task<GrokUsageSnapshot> CollectAsync(string oauthSource, CancellationToken cancellationToken = default)
     {
-        if (!TryReadAccessToken(oauthSource, out string accessToken, out string error))
+        string accessToken = await ResolveAccessTokenAsync(oauthSource, forceRefresh: false, cancellationToken).ConfigureAwait(false);
+        try
         {
-            throw new InvalidOperationException(error);
+            return await FetchBillingAsync(accessToken, cancellationToken).ConfigureAwait(false);
         }
-
-        using HttpRequestMessage request = new(HttpMethod.Post, k_BillingEndpoint);
-        using ByteArrayContent content = new([0, 0, 0, 0, 0]);
-        content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc-web+proto");
-        request.Content = content;
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        request.Headers.TryAddWithoutValidation("Origin", "https://grok.com");
-        request.Headers.TryAddWithoutValidation("Referer", "https://grok.com/?_s=usage");
-        request.Headers.TryAddWithoutValidation("x-grpc-web", "1");
-        request.Headers.TryAddWithoutValidation("x-user-agent", "connect-es/2.1.1");
-        request.Headers.Accept.ParseAdd("*/*");
-        request.Headers.UserAgent.ParseAdd("CodexTray");
-
-        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        byte[] responseBody = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        catch (InvalidOperationException exception) when (IsAuthFailure(exception))
         {
-            throw new InvalidOperationException("Grok OAuth token expired or unauthorized. Refresh the selected OAuth source.");
+            accessToken = await ResolveAccessTokenAsync(oauthSource, forceRefresh: true, cancellationToken).ConfigureAwait(false);
+            return await FetchBillingAsync(accessToken, cancellationToken).ConfigureAwait(false);
         }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"Grok billing request failed: HTTP {(int)response.StatusCode}");
-        }
-
-        ValidateGrpcStatus(response.Headers);
-        return ParseGrpcWebResponse(responseBody, DateTimeOffset.UtcNow);
     }
 
     /// <summary>
@@ -97,25 +82,187 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Reads the OAuth access token for the selected source.
+    /// Resolves a usable access token, refreshing and persisting credentials when needed.
     /// </summary>
-    private static bool TryReadAccessToken(string oauthSource, out string accessToken, out string error)
+    private async Task<string> ResolveAccessTokenAsync(string oauthSource, bool forceRefresh, CancellationToken cancellationToken)
     {
         return oauthSource == ApiMonitorSettings.OpenCodeOAuthSource
-            ? TryReadOpenCodeAccessToken(out accessToken, out error)
-            : TryReadGrokBuildAccessToken(out accessToken, out error);
+            ? await ResolveOpenCodeAccessTokenAsync(forceRefresh, cancellationToken).ConfigureAwait(false)
+            : await ResolveGrokBuildAccessTokenAsync(forceRefresh, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Reads a non-expired Grok Build OAuth access token.
+    /// Loads Grok Build credentials and refreshes them when expired or forced.
     /// </summary>
-    private static bool TryReadGrokBuildAccessToken(out string accessToken, out string error)
+    private async Task<string> ResolveGrokBuildAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
-        accessToken = string.Empty;
+        await s_GrokBuildAuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!TryLoadGrokBuildCredential(out GrokBuildCredential credential, out string error))
+            {
+                throw new InvalidOperationException(error);
+            }
+
+            if (!forceRefresh && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken))
+            {
+                return credential.AccessToken;
+            }
+
+            if (string.IsNullOrWhiteSpace(credential.RefreshToken))
+            {
+                throw new InvalidOperationException(forceRefresh
+                    ? "Grok Build OAuth token expired or unauthorized and no refresh token is available. Run grok login."
+                    : "Grok Build OAuth token expired. Run grok login to refresh it.");
+            }
+
+            OAuthTokenRefresh refresh = await RefreshOAuthTokenAsync(credential.RefreshToken, credential.ClientId, cancellationToken)
+                .ConfigureAwait(false);
+            SaveGrokBuildCredential(credential, refresh);
+            return refresh.AccessToken;
+        }
+        finally
+        {
+            s_GrokBuildAuthLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Loads OpenCode credentials and refreshes them when expired or forced.
+    /// </summary>
+    private async Task<string> ResolveOpenCodeAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
+    {
+        await s_OpenCodeAuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!TryLoadOpenCodeCredential(out OpenCodeCredential credential, out string error))
+            {
+                throw new InvalidOperationException(error);
+            }
+
+            if (!forceRefresh && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken))
+            {
+                return credential.AccessToken;
+            }
+
+            if (string.IsNullOrWhiteSpace(credential.RefreshToken))
+            {
+                throw new InvalidOperationException(forceRefresh
+                    ? "OpenCode xAI OAuth token expired or unauthorized and no refresh token is available. Reconnect xAI in OpenCode."
+                    : "OpenCode xAI OAuth token expired. Use Grok in OpenCode to refresh it.");
+            }
+
+            OAuthTokenRefresh refresh = await RefreshOAuthTokenAsync(credential.RefreshToken, k_DefaultClientId, cancellationToken)
+                .ConfigureAwait(false);
+            SaveOpenCodeCredential(credential, refresh);
+            return refresh.AccessToken;
+        }
+        finally
+        {
+            s_OpenCodeAuthLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Requests a new access token from the xAI OAuth token endpoint.
+    /// </summary>
+    private async Task<OAuthTokenRefresh> RefreshOAuthTokenAsync(string refreshToken, string clientId, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, k_TokenEndpoint);
+        request.Content = new FormUrlEncodedContent(
+        [
+            new KeyValuePair<string, string>("grant_type", "refresh_token"),
+            new KeyValuePair<string, string>("client_id", clientId),
+            new KeyValuePair<string, string>("refresh_token", refreshToken),
+        ]);
+
+        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Grok OAuth refresh failed: HTTP {(int)response.StatusCode}. Run the selected OAuth source login again.");
+        }
+
+        using JsonDocument document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("access_token", out JsonElement accessToken) ||
+            accessToken.ValueKind != JsonValueKind.String ||
+            string.IsNullOrWhiteSpace(accessToken.GetString()))
+        {
+            throw new InvalidOperationException("Grok OAuth refresh response did not include an access token.");
+        }
+
+        string? nextRefresh = refreshToken;
+        if (document.RootElement.TryGetProperty("refresh_token", out JsonElement refreshed) &&
+            refreshed.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(refreshed.GetString()))
+        {
+            nextRefresh = refreshed.GetString();
+        }
+
+        string? idToken = null;
+        if (document.RootElement.TryGetProperty("id_token", out JsonElement id) &&
+            id.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(id.GetString()))
+        {
+            idToken = id.GetString();
+        }
+
+        DateTimeOffset expiresAt = DateTimeOffset.UtcNow.AddHours(1);
+        if (document.RootElement.TryGetProperty("expires_in", out JsonElement expiresIn) &&
+            expiresIn.TryGetDouble(out double seconds) &&
+            seconds > 0)
+        {
+            expiresAt = DateTimeOffset.UtcNow.AddSeconds(seconds);
+        }
+        else if (TryGetJwtExpiry(accessToken.GetString()!, out DateTimeOffset jwtExpiry))
+        {
+            expiresAt = jwtExpiry;
+        }
+
+        return new OAuthTokenRefresh(accessToken.GetString()!, nextRefresh!, idToken, expiresAt);
+    }
+
+    /// <summary>
+    /// Sends the Grok billing gRPC-web request for one access token.
+    /// </summary>
+    private async Task<GrokUsageSnapshot> FetchBillingAsync(string accessToken, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, k_BillingEndpoint);
+        using ByteArrayContent content = new([0, 0, 0, 0, 0]);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc-web+proto");
+        request.Content = content;
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.TryAddWithoutValidation("Origin", "https://grok.com");
+        request.Headers.TryAddWithoutValidation("Referer", "https://grok.com/?_s=usage");
+        request.Headers.TryAddWithoutValidation("x-grpc-web", "1");
+        request.Headers.TryAddWithoutValidation("x-user-agent", "connect-es/2.1.1");
+        request.Headers.Accept.ParseAdd("*/*");
+        request.Headers.UserAgent.ParseAdd("CodexTray");
+
+        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        byte[] responseBody = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("Grok OAuth token expired or unauthorized. Refresh the selected OAuth source.");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Grok billing request failed: HTTP {(int)response.StatusCode}");
+        }
+
+        ValidateGrpcStatus(response.Headers);
+        return ParseGrpcWebResponse(responseBody, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// Loads the preferred Grok Build credential entry from auth.json.
+    /// </summary>
+    private static bool TryLoadGrokBuildCredential(out GrokBuildCredential credential, out string error)
+    {
+        credential = default!;
         error = string.Empty;
-        string grokHome = Environment.GetEnvironmentVariable("GROK_HOME") ??
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".grok");
-        string authPath = Path.Combine(grokHome, "auth.json");
+        string authPath = GetGrokBuildAuthPath();
         if (!File.Exists(authPath))
         {
             error = "Grok Build OAuth file was not found. Run grok login first.";
@@ -125,13 +272,14 @@ public sealed class GrokUsageCollector
         try
         {
             using JsonDocument document = JsonDocument.Parse(File.ReadAllText(authPath));
-            JsonElement? fallback = null;
             if (document.RootElement.ValueKind != JsonValueKind.Object)
             {
                 error = "Grok Build OAuth file has an invalid format.";
                 return false;
             }
 
+            string? fallbackKey = null;
+            JsonElement? fallbackEntry = null;
             foreach (JsonProperty entry in document.RootElement.EnumerateObject())
             {
                 if (entry.Value.ValueKind != JsonValueKind.Object ||
@@ -144,18 +292,21 @@ public sealed class GrokUsageCollector
 
                 if (entry.Name.StartsWith("https://auth.x.ai::", StringComparison.Ordinal))
                 {
-                    return TryReadGrokBuildEntry(entry.Value, out accessToken, out error);
+                    credential = CreateGrokBuildCredential(authPath, entry.Name, entry.Value);
+                    return true;
                 }
 
                 if (entry.Name.Contains("/sign-in", StringComparison.Ordinal))
                 {
-                    fallback = entry.Value;
+                    fallbackKey = entry.Name;
+                    fallbackEntry = entry.Value;
                 }
             }
 
-            if (fallback is JsonElement fallbackEntry)
+            if (fallbackKey != null && fallbackEntry is JsonElement fallback)
             {
-                return TryReadGrokBuildEntry(fallbackEntry, out accessToken, out error);
+                credential = CreateGrokBuildCredential(authPath, fallbackKey, fallback);
+                return true;
             }
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -169,30 +320,91 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Validates one Grok Build credential entry before returning its access token.
+    /// Builds one Grok Build credential snapshot from an auth.json entry.
     /// </summary>
-    private static bool TryReadGrokBuildEntry(JsonElement entry, out string accessToken, out string error)
+    private static GrokBuildCredential CreateGrokBuildCredential(string authPath, string entryKey, JsonElement entry)
     {
-        accessToken = entry.GetProperty("key").GetString() ?? string.Empty;
-        error = string.Empty;
-        if (entry.TryGetProperty("expires_at", out JsonElement expiresAt) &&
-            DateTimeOffset.TryParse(expiresAt.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out DateTimeOffset expiry) &&
-            expiry <= DateTimeOffset.UtcNow)
+        string accessToken = entry.GetProperty("key").GetString() ?? string.Empty;
+        string? refreshToken = null;
+        if (entry.TryGetProperty("refresh_token", out JsonElement refresh) &&
+            refresh.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(refresh.GetString()))
         {
-            accessToken = string.Empty;
-            error = "Grok Build OAuth token expired. Run grok login to refresh it.";
-            return false;
+            refreshToken = refresh.GetString();
+        }
+        else if (entry.TryGetProperty("refresh", out JsonElement legacyRefresh) &&
+                 legacyRefresh.ValueKind == JsonValueKind.String &&
+                 !string.IsNullOrWhiteSpace(legacyRefresh.GetString()))
+        {
+            refreshToken = legacyRefresh.GetString();
         }
 
-        return true;
+        DateTimeOffset? expiresAt = null;
+        if (entry.TryGetProperty("expires_at", out JsonElement expiresAtElement) &&
+            DateTimeOffset.TryParse(expiresAtElement.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out DateTimeOffset parsedExpiresAt))
+        {
+            expiresAt = parsedExpiresAt;
+        }
+        else if (entry.TryGetProperty("expires", out JsonElement expiresElement) &&
+                 DateTimeOffset.TryParse(expiresElement.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out DateTimeOffset parsedExpires))
+        {
+            expiresAt = parsedExpires;
+        }
+
+        string clientId = k_DefaultClientId;
+        if (entry.TryGetProperty("oidc_client_id", out JsonElement oidcClientId) &&
+            oidcClientId.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(oidcClientId.GetString()))
+        {
+            clientId = oidcClientId.GetString()!;
+        }
+        else
+        {
+            int separator = entryKey.LastIndexOf("::", StringComparison.Ordinal);
+            if (separator >= 0)
+            {
+                string suffix = entryKey[(separator + 2)..].Trim();
+                if (!string.IsNullOrWhiteSpace(suffix))
+                {
+                    clientId = suffix;
+                }
+            }
+        }
+
+        return new GrokBuildCredential(authPath, entryKey, accessToken, refreshToken, expiresAt, clientId);
     }
 
     /// <summary>
-    /// Reads a non-expired OpenCode xAI OAuth access token.
+    /// Writes refreshed Grok Build tokens back into auth.json without dropping other entries.
     /// </summary>
-    private static bool TryReadOpenCodeAccessToken(out string accessToken, out string error)
+    private static void SaveGrokBuildCredential(GrokBuildCredential credential, OAuthTokenRefresh refresh)
     {
-        accessToken = string.Empty;
+        string text = File.ReadAllText(credential.AuthPath);
+        JsonNode root = JsonNode.Parse(text) ?? throw new InvalidOperationException("Grok Build OAuth file has an invalid format.");
+        if (root is not JsonObject rootObject)
+        {
+            throw new InvalidOperationException("Grok Build OAuth file has an invalid format.");
+        }
+
+        JsonObject entryObject = rootObject[credential.EntryKey] as JsonObject ?? new JsonObject();
+        entryObject["key"] = refresh.AccessToken;
+        entryObject["refresh_token"] = refresh.RefreshToken;
+        if (!string.IsNullOrWhiteSpace(refresh.IdToken))
+        {
+            entryObject["id_token"] = refresh.IdToken;
+        }
+
+        entryObject["expires_at"] = refresh.ExpiresAt.UtcDateTime.ToString("o", CultureInfo.InvariantCulture);
+        rootObject[credential.EntryKey] = entryObject;
+        File.WriteAllText(credential.AuthPath, rootObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    /// <summary>
+    /// Loads the OpenCode xAI OAuth credential from the first available auth.json.
+    /// </summary>
+    private static bool TryLoadOpenCodeCredential(out OpenCodeCredential credential, out string error)
+    {
+        credential = default!;
         error = string.Empty;
         foreach (string authPath in GetOpenCodeAuthPaths())
         {
@@ -215,15 +427,22 @@ public sealed class GrokUsageCollector
                     continue;
                 }
 
-                if (xai.TryGetProperty("expires", out JsonElement expires) &&
-                    expires.TryGetInt64(out long expiryMilliseconds) &&
-                    expiryMilliseconds <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+                string? refreshToken = null;
+                if (xai.TryGetProperty("refresh", out JsonElement refresh) &&
+                    refresh.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(refresh.GetString()))
                 {
-                    error = "OpenCode xAI OAuth token expired. Use Grok in OpenCode to refresh it.";
-                    return false;
+                    refreshToken = refresh.GetString();
                 }
 
-                accessToken = access.GetString() ?? string.Empty;
+                DateTimeOffset? expiresAt = null;
+                if (xai.TryGetProperty("expires", out JsonElement expires) &&
+                    expires.TryGetInt64(out long expiryMilliseconds))
+                {
+                    expiresAt = DateTimeOffset.FromUnixTimeMilliseconds(expiryMilliseconds);
+                }
+
+                credential = new OpenCodeCredential(authPath, access.GetString()!, refreshToken, expiresAt);
                 return true;
             }
             catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -234,6 +453,37 @@ public sealed class GrokUsageCollector
 
         error = "OpenCode xAI OAuth credentials were not found. Connect xAI Grok OAuth in OpenCode first.";
         return false;
+    }
+
+    /// <summary>
+    /// Writes refreshed OpenCode xAI tokens back into auth.json without dropping other providers.
+    /// </summary>
+    private static void SaveOpenCodeCredential(OpenCodeCredential credential, OAuthTokenRefresh refresh)
+    {
+        string text = File.ReadAllText(credential.AuthPath);
+        JsonNode root = JsonNode.Parse(text) ?? throw new InvalidOperationException("OpenCode OAuth file has an invalid format.");
+        if (root is not JsonObject rootObject)
+        {
+            throw new InvalidOperationException("OpenCode OAuth file has an invalid format.");
+        }
+
+        JsonObject xaiObject = rootObject["xai"] as JsonObject ?? new JsonObject();
+        xaiObject["type"] = "oauth";
+        xaiObject["access"] = refresh.AccessToken;
+        xaiObject["refresh"] = refresh.RefreshToken;
+        xaiObject["expires"] = refresh.ExpiresAt.ToUnixTimeMilliseconds();
+        rootObject["xai"] = xaiObject;
+        File.WriteAllText(credential.AuthPath, rootObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    /// <summary>
+    /// Returns the Grok Build authentication file path.
+    /// </summary>
+    private static string GetGrokBuildAuthPath()
+    {
+        string grokHome = Environment.GetEnvironmentVariable("GROK_HOME") ??
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".grok");
+        return Path.Combine(grokHome, "auth.json");
     }
 
     /// <summary>
@@ -255,6 +505,71 @@ public sealed class GrokUsageCollector
         paths.Add(Path.Combine(appData, "opencode", "auth.json"));
         paths.Add(Path.Combine(userProfile, ".local", "share", "opencode", "auth.json"));
         return paths.Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Returns whether credentials should be refreshed before the next billing call.
+    /// </summary>
+    private static bool NeedsRefresh(DateTimeOffset? expiresAt, string accessToken)
+    {
+        DateTimeOffset? effectiveExpiry = expiresAt;
+        if (TryGetJwtExpiry(accessToken, out DateTimeOffset jwtExpiry))
+        {
+            effectiveExpiry = effectiveExpiry is DateTimeOffset stored
+                ? (stored < jwtExpiry ? stored : jwtExpiry)
+                : jwtExpiry;
+        }
+
+        return effectiveExpiry is DateTimeOffset expiry && expiry <= DateTimeOffset.UtcNow + s_RefreshBuffer;
+    }
+
+    /// <summary>
+    /// Reads the JWT exp claim without validating the signature.
+    /// </summary>
+    private static bool TryGetJwtExpiry(string token, out DateTimeOffset expiry)
+    {
+        expiry = default;
+        string[] parts = token.Split('.');
+        if (parts.Length < 2)
+        {
+            return false;
+        }
+
+        try
+        {
+            string payload = parts[1].Replace('-', '+').Replace('_', '/');
+            switch (payload.Length % 4)
+            {
+                case 2:
+                    payload += "==";
+                    break;
+                case 3:
+                    payload += "=";
+                    break;
+            }
+
+            using JsonDocument document = JsonDocument.Parse(Convert.FromBase64String(payload));
+            if (!document.RootElement.TryGetProperty("exp", out JsonElement exp) ||
+                !exp.TryGetInt64(out long seconds))
+            {
+                return false;
+            }
+
+            expiry = DateTimeOffset.FromUnixTimeSeconds(seconds);
+            return true;
+        }
+        catch (Exception exception) when (exception is FormatException or JsonException or ArgumentException or OverflowException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns whether a billing failure should trigger one OAuth refresh retry.
+    /// </summary>
+    private static bool IsAuthFailure(InvalidOperationException exception)
+    {
+        return exception.Message.Contains("expired or unauthorized", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -487,4 +802,20 @@ public sealed class GrokUsageCollector
     private sealed record Fixed32Field(IReadOnlyList<ulong> Path, float Value, int Order);
 
     private sealed record VarintField(IReadOnlyList<ulong> Path, ulong Value);
+
+    private sealed record OAuthTokenRefresh(string AccessToken, string RefreshToken, string? IdToken, DateTimeOffset ExpiresAt);
+
+    private sealed record GrokBuildCredential(
+        string AuthPath,
+        string EntryKey,
+        string AccessToken,
+        string? RefreshToken,
+        DateTimeOffset? ExpiresAt,
+        string ClientId);
+
+    private sealed record OpenCodeCredential(
+        string AuthPath,
+        string AccessToken,
+        string? RefreshToken,
+        DateTimeOffset? ExpiresAt);
 }
