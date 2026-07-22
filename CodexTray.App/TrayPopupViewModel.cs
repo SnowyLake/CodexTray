@@ -67,8 +67,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_ServiceStatus = "Service: starting";
     private string m_SourceDisplay = "Source: unavailable";
     private string m_ResetCreditsDisplay = "N/A";
-    private string m_ResetCreditsResetTime = "N/A";
-    private bool m_IsResetCreditsVisible;
+    private string m_ResetCreditsResetTime = "unknown";
+    private bool m_IsResetCreditsResetTimeVisible = true;
     private string m_LiteMonitorDir = string.Empty;
     private string m_TrafficMonitorDir = string.Empty;
     private string m_PortText = CodexTrayDefaults.Port.ToString(CultureInfo.InvariantCulture);
@@ -251,20 +251,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         private set => SetField(ref m_ResetCreditsResetTime, value);
     }
 
-    public bool IsResetCreditsVisible
+    public bool IsResetCreditsResetTimeVisible
     {
-        get => m_IsResetCreditsVisible;
-        private set
-        {
-            if (SetField(ref m_IsResetCreditsVisible, value))
-            {
-                OnPropertyChanged(nameof(IsUsageVisible));
-            }
-        }
+        get => m_IsResetCreditsResetTimeVisible;
+        private set => SetField(ref m_IsResetCreditsResetTimeVisible, value);
     }
-
-    public bool IsUsageVisible =>
-        FiveHourQuota.IsAvailable || SevenDayQuota.IsAvailable || IsResetCreditsVisible;
 
     public string LiteMonitorDir
     {
@@ -858,7 +849,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             FiveHourQuota.UpdateUnavailable();
             SevenDayQuota.UpdateUnavailable();
             UpdateResetCredits(null);
-            NotifyUsageVisibilityChanged();
             return;
         }
 
@@ -871,7 +861,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             FiveHourQuota.UpdateUnavailable();
             SevenDayQuota.UpdateUnavailable();
             UpdateResetCredits(null);
-            NotifyUsageVisibilityChanged();
             return;
         }
 
@@ -882,7 +871,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         FiveHourQuota.Update(response.Limits.FiveHour);
         SevenDayQuota.Update(response.Limits.SevenDay);
         UpdateResetCredits(response.ResetCredits);
-        NotifyUsageVisibilityChanged();
     }
 
     /// <summary>
@@ -894,22 +882,16 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             ResetCreditsDisplay = $"{resetCredits.AvailableCount} Available";
             ResetCreditsResetTime = resetCredits.NearestExpiryLocal;
-            IsResetCreditsVisible = true;
+            // Hide expiry only after a successful response with no remaining credits.
+            IsResetCreditsResetTimeVisible = resetCredits.AvailableCount > 0;
         }
         else
         {
+            // Request failed / no account: keep the full unavailable row visible.
             ResetCreditsDisplay = "N/A";
-            ResetCreditsResetTime = "N/A";
-            IsResetCreditsVisible = false;
+            ResetCreditsResetTime = "unknown";
+            IsResetCreditsResetTimeVisible = true;
         }
-    }
-
-    /// <summary>
-    /// Notifies listeners that Usage section visibility may have changed.
-    /// </summary>
-    private void NotifyUsageVisibilityChanged()
-    {
-        OnPropertyChanged(nameof(IsUsageVisible));
     }
 
     /// <summary>
@@ -1512,10 +1494,10 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     {
         private string m_Title;
         private int m_RemainingPercent;
-        private string m_PercentText = "0%";
+        private string m_PercentText = "N/A";
         private string m_ResetText = "unknown";
-        private Media.Brush m_AccentBrush = s_GreenBrush;
-        private bool m_IsAvailable;
+        private Media.Brush m_AccentBrush = s_RedBrush;
+        private bool m_IsVisible = true;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -1549,10 +1531,10 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             private set => SetField(ref m_AccentBrush, value);
         }
 
-        public bool IsAvailable
+        public bool IsVisible
         {
-            get => m_IsAvailable;
-            private set => SetField(ref m_IsAvailable, value);
+            get => m_IsVisible;
+            private set => SetField(ref m_IsVisible, value);
         }
 
         /// <summary>
@@ -1570,7 +1552,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             if (limit.WindowMinutes <= 0)
             {
-                UpdateUnavailable();
+                // Successful response with an inactive window: hide this quota row.
+                IsVisible = false;
                 return;
             }
 
@@ -1579,11 +1562,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             PercentText = $"{remaining}%";
             ResetText = string.IsNullOrWhiteSpace(limit.ResetLabel) ? "unknown" : limit.ResetLabel;
             AccentBrush = GetAccentBrush(remaining);
-            IsAvailable = true;
+            IsVisible = true;
         }
 
         /// <summary>
-        /// Updates the quota display for an unavailable response.
+        /// Updates the quota display for a failed or unauthorized response.
         /// </summary>
         public void UpdateUnavailable()
         {
@@ -1591,7 +1574,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             PercentText = "N/A";
             ResetText = "unknown";
             AccentBrush = s_RedBrush;
-            IsAvailable = false;
+            IsVisible = true;
         }
 
         /// <summary>

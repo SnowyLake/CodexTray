@@ -425,12 +425,11 @@
                     <StackPanel VerticalAlignment="Top"
                                 Grid.IsSharedSizeScope="True">
                     <TextBlock Text="Usage"
-                               Style="{StaticResource HomeSectionHeaderStyle}"
-                               Visibility="{Binding IsUsageVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                               Style="{StaticResource HomeSectionHeaderStyle}" />
 
                     <!-- 5 hour -->
                     <StackPanel Margin="0,0,0,20"
-                                Visibility="{Binding FiveHourQuota.IsAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                Visibility="{Binding FiveHourQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -480,7 +479,7 @@
                     </StackPanel>
 
                     <!-- Seven day -->
-                    <StackPanel Visibility="{Binding SevenDayQuota.IsAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Visibility="{Binding SevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -529,8 +528,7 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <StackPanel Margin="0,20,0,0"
-                                Visibility="{Binding IsResetCreditsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Margin="0,20,0,0">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -551,7 +549,8 @@
                         </Grid>
                         <StackPanel Orientation="Horizontal"
                                     HorizontalAlignment="Right"
-                                    Margin="0,5,0,0">
+                                    Margin="0,5,0,0"
+                                    Visibility="{Binding IsResetCreditsResetTimeVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <TextBlock Text="{Binding ResetCreditsResetTime}"
                                        VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
