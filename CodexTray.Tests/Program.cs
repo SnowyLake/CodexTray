@@ -400,6 +400,8 @@ internal static class Program
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
         AssertEqual(TokenCostItem.All, settings.TokenCostItems, "default token cost items");
+        AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
+        AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
         AssertEqual(0, settings.ApiMonitors.Count, "default API monitors");
 
         string repairedJson = File.ReadAllText(store.SettingsPath);
@@ -410,6 +412,8 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenCostItems), out _), "repaired settings should include token cost items");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowWidth), out _), "repaired settings should include window width");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowHeight), out _), "repaired settings should include window height");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
         return Task.CompletedTask;
@@ -427,6 +431,8 @@ internal static class Program
             ThemeMode = "unexpected",
             TokenUnit = AppSettings.TokenUnitChinese,
             TokenCostItems = TokenCostItem.Today | (TokenCostItem)(1 << 10),
+            WindowWidth = 100,
+            WindowHeight = 9999,
         };
 
         settings.Normalize();
@@ -436,6 +442,8 @@ internal static class Program
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "Chinese token unit");
         AssertEqual(TokenCostItem.Today, settings.TokenCostItems, "supported token cost items");
+        AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
+        AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
         settings.TokenUnit = "M/B";
         settings.Normalize();
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "legacy English token unit");

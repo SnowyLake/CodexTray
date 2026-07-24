@@ -7,7 +7,7 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Title="{x:Static core:CodexTrayDefaults.AppName}"
         Width="380"
-        Height="600"
+        Height="605"
         WindowStyle="None"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
@@ -447,7 +447,8 @@
                     <StackPanel VerticalAlignment="Top"
                                 Grid.IsSharedSizeScope="True">
                     <TextBlock Text="Usage"
-                               Style="{StaticResource HomeSectionHeaderStyle}" />
+                               Style="{StaticResource HomeSectionHeaderStyle}"
+                               Visibility="{Binding IsUsageSectionHeaderVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                     <!-- 5 hour -->
                     <StackPanel Margin="0,0,0,20"
@@ -1236,6 +1237,24 @@
                                       ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown" />
                         </Grid>
 
+                        <Grid ToolTip="Hide 5-Hour and 7-Day rows when the account has no active window for that limit"
+                              Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="140" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Hide invalid progress bars"
+                                       ToolTip="Hide 5-Hour and 7-Day rows when the account has no active window for that limit"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <CheckBox Grid.Column="1"
+                                      HorizontalAlignment="Right"
+                                      VerticalAlignment="Center"
+                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                      IsChecked="{Binding HideInvalidProgressBars}"
+                                      ToolTip="Hide 5-Hour and 7-Day rows when the account has no active window for that limit" />
+                        </Grid>
+
                         <Grid Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -1322,6 +1341,44 @@
                                       ItemsSource="{Binding ThemeModeOptions}"
                                       SelectedItem="{Binding ThemeMode, UpdateSourceTrigger=PropertyChanged}"
                                       Style="{StaticResource SettingsComboBoxStyle}" />
+                        </Grid>
+
+                        <Grid ToolTip="Unit: pixels"
+                              Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="140" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Window width"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <local:NumericUpDown Grid.Column="1"
+                                                 VerticalAlignment="Center"
+                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                 ToolTip="Unit: pixels"
+                                                 Minimum="{x:Static core:CodexTrayDefaults.MinimumWindowWidth}"
+                                                 Maximum="{x:Static core:CodexTrayDefaults.MaximumWindowWidth}"
+                                                 DefaultValue="{x:Static core:CodexTrayDefaults.WindowWidth}"
+                                                 Value="{Binding WindowWidthText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Grid ToolTip="Unit: pixels"
+                              Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="140" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Window height"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <local:NumericUpDown Grid.Column="1"
+                                                 VerticalAlignment="Center"
+                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                 ToolTip="Unit: pixels"
+                                                 Minimum="{x:Static core:CodexTrayDefaults.MinimumWindowHeight}"
+                                                 Maximum="{x:Static core:CodexTrayDefaults.MaximumWindowHeight}"
+                                                 DefaultValue="{x:Static core:CodexTrayDefaults.WindowHeight}"
+                                                 Value="{Binding WindowHeightText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
                         </Grid>
 
                         <Grid Style="{StaticResource SettingsRowGridStyle}">

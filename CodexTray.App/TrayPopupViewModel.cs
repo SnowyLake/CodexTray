@@ -94,8 +94,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private bool m_StartWithWindows;
     private bool m_AcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
     private int m_AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
+    private string m_WindowWidthText = CodexTrayDefaults.WindowWidth.ToString(CultureInfo.InvariantCulture);
+    private string m_WindowHeightText = CodexTrayDefaults.WindowHeight.ToString(CultureInfo.InvariantCulture);
     private bool m_ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
     private bool m_UseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
+    private bool m_HideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
     private bool m_IsRefreshing;
     private bool m_IsInAppDialogOpen;
     private bool m_IsNativeModalOpen;
@@ -127,8 +130,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private bool m_SnapshotStartWithWindows;
     private bool m_SnapshotAcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
     private int m_SnapshotAcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
+    private string m_SnapshotWindowWidthText = string.Empty;
+    private string m_SnapshotWindowHeightText = string.Empty;
     private bool m_SnapshotShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
     private bool m_SnapshotUseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
+    private bool m_SnapshotHideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -584,6 +590,30 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
     }
 
+    public string WindowWidthText
+    {
+        get => m_WindowWidthText;
+        set
+        {
+            if (SetField(ref m_WindowWidthText, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
+    }
+
+    public string WindowHeightText
+    {
+        get => m_WindowHeightText;
+        set
+        {
+            if (SetField(ref m_WindowHeightText, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
+    }
+
     public bool ShowResetTimeInPlugins
     {
         get => m_ShowResetTimeInPlugins;
@@ -607,6 +637,21 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             }
         }
     }
+
+    public bool HideInvalidProgressBars
+    {
+        get => m_HideInvalidProgressBars;
+        set
+        {
+            if (SetField(ref m_HideInvalidProgressBars, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
+    }
+
+    public bool IsUsageSectionHeaderVisible =>
+        !m_HideInvalidProgressBars || FiveHourQuota.IsVisible || SevenDayQuota.IsVisible;
 
     public string AcrylicOpacityDisplay => $"{m_AcrylicOpacityPercent}%";
 
@@ -789,8 +834,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             StartWithWindows = settings.StartWithWindows;
             AcrylicEnabled = settings.AcrylicEnabled;
             AcrylicOpacityPercent = settings.AcrylicOpacityPercent;
+            WindowWidthText = settings.WindowWidth.ToString(CultureInfo.InvariantCulture);
+            WindowHeightText = settings.WindowHeight.ToString(CultureInfo.InvariantCulture);
             ShowResetTimeInPlugins = settings.ShowResetTimeInPlugins;
             UseAbsoluteResetTime = settings.UseAbsoluteResetTime;
+            HideInvalidProgressBars = settings.HideInvalidProgressBars;
         }
         finally
         {
@@ -815,8 +863,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         m_SnapshotStartWithWindows = m_StartWithWindows;
         m_SnapshotAcrylicEnabled = m_AcrylicEnabled;
         m_SnapshotAcrylicOpacityPercent = m_AcrylicOpacityPercent;
+        m_SnapshotWindowWidthText = m_WindowWidthText;
+        m_SnapshotWindowHeightText = m_WindowHeightText;
         m_SnapshotShowResetTimeInPlugins = m_ShowResetTimeInPlugins;
         m_SnapshotUseAbsoluteResetTime = m_UseAbsoluteResetTime;
+        m_SnapshotHideInvalidProgressBars = m_HideInvalidProgressBars;
         m_SettingsBaseline = baseline;
         SettingsStatus = baseline;
     }
@@ -842,8 +893,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             m_StartWithWindows == m_SnapshotStartWithWindows &&
             m_AcrylicEnabled == m_SnapshotAcrylicEnabled &&
             m_AcrylicOpacityPercent == m_SnapshotAcrylicOpacityPercent &&
+            m_WindowWidthText == m_SnapshotWindowWidthText &&
+            m_WindowHeightText == m_SnapshotWindowHeightText &&
             m_ShowResetTimeInPlugins == m_SnapshotShowResetTimeInPlugins &&
-            m_UseAbsoluteResetTime == m_SnapshotUseAbsoluteResetTime;
+            m_UseAbsoluteResetTime == m_SnapshotUseAbsoluteResetTime &&
+            m_HideInvalidProgressBars == m_SnapshotHideInvalidProgressBars;
 
         SettingsStatus = matchesSnapshot ? m_SettingsBaseline : SettingsStatus.Unsaved;
     }
@@ -859,11 +913,23 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             CodexTrayDefaults.MinimumRefreshIntervalMinutes,
             CodexTrayDefaults.MaximumRefreshIntervalMinutes,
             CodexTrayDefaults.RefreshIntervalMinutes);
+        int windowWidth = ClampOrDefault(
+            WindowWidthText,
+            CodexTrayDefaults.MinimumWindowWidth,
+            CodexTrayDefaults.MaximumWindowWidth,
+            CodexTrayDefaults.WindowWidth);
+        int windowHeight = ClampOrDefault(
+            WindowHeightText,
+            CodexTrayDefaults.MinimumWindowHeight,
+            CodexTrayDefaults.MaximumWindowHeight,
+            CodexTrayDefaults.WindowHeight);
         m_SuppressDirtyTracking = true;
         try
         {
             PortText = port.ToString(CultureInfo.InvariantCulture);
             RefreshIntervalText = refreshInterval.ToString(CultureInfo.InvariantCulture);
+            WindowWidthText = windowWidth.ToString(CultureInfo.InvariantCulture);
+            WindowHeightText = windowHeight.ToString(CultureInfo.InvariantCulture);
             LiteMonitorDir = LiteMonitorDir.Trim();
             TrafficMonitorDir = TrafficMonitorDir.Trim();
         }
@@ -882,8 +948,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         m_Settings.TokenCostItems = TokenCostItems;
         m_Settings.AcrylicEnabled = AcrylicEnabled;
         m_Settings.AcrylicOpacityPercent = AcrylicOpacityPercent;
+        m_Settings.WindowWidth = windowWidth;
+        m_Settings.WindowHeight = windowHeight;
         m_Settings.ShowResetTimeInPlugins = ShowResetTimeInPlugins;
         m_Settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
+        m_Settings.HideInvalidProgressBars = HideInvalidProgressBars;
         CaptureSnapshot(SettingsStatus.Saved);
         message = "Changes saved";
         return true;
@@ -952,9 +1021,18 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         PlanBadgeBrush = s_PlanBadgeActiveBrush;
         StatusDotBrush = s_GreenBrush;
         UpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
-        FiveHourQuota.Update(response.Limits.FiveHour);
-        SevenDayQuota.Update(response.Limits.SevenDay);
+        FiveHourQuota.Update(response.Limits.FiveHour, HideInvalidProgressBars);
+        SevenDayQuota.Update(response.Limits.SevenDay, HideInvalidProgressBars);
         UpdateResetCredits(response.ResetCredits);
+        NotifyUsageSectionVisibilityChanged();
+    }
+
+    /// <summary>
+    /// Notifies listeners that Usage section header visibility may have changed.
+    /// </summary>
+    private void NotifyUsageSectionVisibilityChanged()
+    {
+        OnPropertyChanged(nameof(IsUsageSectionHeaderVisible));
     }
 
     /// <summary>
@@ -1734,12 +1812,18 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         /// <summary>
         /// Updates the quota display from a usage limit.
         /// </summary>
-        public void Update(UsageLimit limit)
+        public void Update(UsageLimit limit, bool hideInvalidProgressBars)
         {
             if (limit.WindowMinutes <= 0)
             {
-                // Successful response with an inactive window: hide this quota row.
-                IsVisible = false;
+                if (hideInvalidProgressBars)
+                {
+                    // Successful response with an inactive window: hide this quota row.
+                    IsVisible = false;
+                    return;
+                }
+
+                UpdateUnavailable(showReset: false);
                 return;
             }
 

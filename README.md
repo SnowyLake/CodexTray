@@ -35,7 +35,7 @@
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, 以及 Grok 剩余额度和重置时间监控.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
-- 支持 `System`, `Light`, `Dark` 主题, Acrylic blur 和透明度设置.
+- 支持 `System`, `Light`, `Dark` 主题, Acrylic blur, 透明度和窗口尺寸设置.
 - 自动检测 LiteMonitor 与 TrafficMonitor 安装目录, 并一键安装对应插件.
 - 支持插件中显示或隐藏额度重置时间, 以及倒计时或绝对时间格式.
 - 支持随 Windows 启动, 自定义本地 HTTP 端口和单实例运行.
@@ -58,7 +58,7 @@
 - Home 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
 - Cursor 页: 查看 Cursor Total, First Party, API 额度和实际账单 Token Cost.
 - APIs 页: 添加和查看 DeepSeek, NewAPI 或 Grok 监控卡片.
-- Settings 页: 调整刷新, 显示, 自启动, 插件目录和 HTTP 端口设置.
+- Settings 页: 调整刷新, 显示, 窗口尺寸, 自启动, 插件目录和 HTTP 端口设置.
 
 再次运行 `CodexTray.exe` 不会启动第二个实例, 而是通知已有实例打开主面板.
 

@@ -108,9 +108,15 @@ public sealed class AppSettings
 
     public int AcrylicOpacityPercent { get; set; } = CodexTrayDefaults.AcrylicOpacityPercent;
 
+    public int WindowWidth { get; set; } = CodexTrayDefaults.WindowWidth;
+
+    public int WindowHeight { get; set; } = CodexTrayDefaults.WindowHeight;
+
     public bool ShowResetTimeInPlugins { get; set; } = CodexTrayDefaults.ShowResetTimeInPlugins;
 
     public bool UseAbsoluteResetTime { get; set; } = CodexTrayDefaults.UseAbsoluteResetTime;
+
+    public bool HideInvalidProgressBars { get; set; } = CodexTrayDefaults.HideInvalidProgressBars;
 
     public List<ApiMonitorSettings> ApiMonitors { get; set; } = [];
 
@@ -134,6 +140,18 @@ public sealed class AppSettings
             AcrylicOpacityPercent > CodexTrayDefaults.MaximumAcrylicOpacityPercent)
         {
             AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
+        }
+
+        if (WindowWidth < CodexTrayDefaults.MinimumWindowWidth ||
+            WindowWidth > CodexTrayDefaults.MaximumWindowWidth)
+        {
+            WindowWidth = CodexTrayDefaults.WindowWidth;
+        }
+
+        if (WindowHeight < CodexTrayDefaults.MinimumWindowHeight ||
+            WindowHeight > CodexTrayDefaults.MaximumWindowHeight)
+        {
+            WindowHeight = CodexTrayDefaults.WindowHeight;
         }
 
         LiteMonitorDir = LiteMonitorDir.Trim();

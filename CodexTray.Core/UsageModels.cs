@@ -14,9 +14,16 @@ public static class CodexTrayDefaults
     public const bool AcrylicEnabled = true;
     public const bool ShowResetTimeInPlugins = true;
     public const bool UseAbsoluteResetTime = false;
+    public const bool HideInvalidProgressBars = true;
     public const int AcrylicOpacityPercent = 80;
     public const int MinimumAcrylicOpacityPercent = 10;
     public const int MaximumAcrylicOpacityPercent = 100;
+    public const int WindowWidth = 380;
+    public const int MinimumWindowWidth = 280;
+    public const int MaximumWindowWidth = 800;
+    public const int WindowHeight = 605;
+    public const int MinimumWindowHeight = 400;
+    public const int MaximumWindowHeight = 1200;
     public const string AppName = "CodexTray";
     public const string SettingsFileName = "settings.json";
     public const string ModelPricingFileName = "model-pricing.json";

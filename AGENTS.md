@@ -57,6 +57,7 @@ API 监控也是独立链路: `ApiUsageCollector` 查询 DeepSeek 与 NewAPI, �
 - 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults`.
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
 - 主题支持 `System`, `Light`, `Dark`. Acrylic 默认开启, 透明度默认 80%, 范围为 10% 到 100%.
+- 窗口默认宽 380, 高 605, 宽度范围 280 到 800, 高度范围 400 到 1200.
 - API provider 支持 `DeepSeek`, `NewAPI`, `Grok`, `Cursor`. DeepSeek 与 NewAPI 的凭据以明文保存在 `settings.json`, Grok 只保存 OAuth source 选择, Cursor 不保存 token.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
 
