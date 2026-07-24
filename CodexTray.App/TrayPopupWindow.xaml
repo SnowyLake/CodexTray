@@ -551,34 +551,44 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <StackPanel Margin="0,20,0,0">
+                    <TextBlock Text="Resets"
+                               Style="{StaticResource HomeSectionHeaderSpacedStyle}" />
+                    <StackPanel>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Reset Credits"
+                            <TextBlock Text="{Binding ResetCreditsDisplay}"
                                        VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                        FontSize="13.5"
-                                       FontWeight="Normal" />
+                                       FontWeight="Medium" />
                             <TextBlock Grid.Column="1"
-                                       Text="{Binding ResetCreditsDisplay}"
+                                       Text="{Binding ResetCreditsResetTime}"
                                        HorizontalAlignment="Right"
                                        VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                        FontSize="13.5"
-                                       FontWeight="Normal" />
+                                       FontWeight="Normal"
+                                       Visibility="{Binding IsResetCreditsResetTimeVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         </Grid>
-                        <StackPanel Orientation="Horizontal"
-                                    HorizontalAlignment="Right"
-                                    Margin="0,5,0,0"
-                                    Visibility="{Binding IsResetCreditsResetTimeVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock Text="{Binding ResetCreditsResetTime}"
-                                       VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="12" />
-                        </StackPanel>
+                        <TextBlock Text="{Binding ResetCreditsOtherResetTimes}"
+                                   HorizontalAlignment="Right"
+                                   Margin="0,5,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="12">
+                            <TextBlock.Style>
+                                <Style TargetType="{x:Type TextBlock}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ResetCreditsOtherResetTimes}" Value="">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                     </StackPanel>
 
                     <TextBlock Text="Token Cost"

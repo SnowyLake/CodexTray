@@ -69,6 +69,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_SourceDisplay = "Source: unavailable";
     private string m_ResetCreditsDisplay = "N/A";
     private string m_ResetCreditsResetTime = "unknown";
+    private string m_ResetCreditsOtherResetTimes = string.Empty;
     private bool m_IsResetCreditsResetTimeVisible = true;
     private string m_LiteMonitorDir = string.Empty;
     private string m_TrafficMonitorDir = string.Empty;
@@ -274,6 +275,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     {
         get => m_ResetCreditsResetTime;
         private set => SetField(ref m_ResetCreditsResetTime, value);
+    }
+
+    public string ResetCreditsOtherResetTimes
+    {
+        get => m_ResetCreditsOtherResetTimes;
+        private set => SetField(ref m_ResetCreditsOtherResetTimes, value);
     }
 
     public bool IsResetCreditsResetTimeVisible
@@ -1044,6 +1051,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             ResetCreditsDisplay = $"{resetCredits.AvailableCount} Available";
             ResetCreditsResetTime = resetCredits.NearestExpiryLocal;
+            ResetCreditsOtherResetTimes = resetCredits.OtherExpiriesLocal;
             // Hide expiry only after a successful response with no remaining credits.
             IsResetCreditsResetTimeVisible = resetCredits.AvailableCount > 0;
         }
@@ -1052,6 +1060,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             // Request failed / no account: keep the full unavailable row visible.
             ResetCreditsDisplay = "N/A";
             ResetCreditsResetTime = "unknown";
+            ResetCreditsOtherResetTimes = string.Empty;
             IsResetCreditsResetTimeVisible = true;
         }
     }

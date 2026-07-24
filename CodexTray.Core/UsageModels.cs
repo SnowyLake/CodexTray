@@ -157,6 +157,9 @@ public sealed class ResetCredits
 
     [JsonPropertyName("nearest_expiry_local")]
     public string NearestExpiryLocal { get; set; } = "N/A";
+
+    [JsonPropertyName("other_expiries_local")]
+    public string OtherExpiriesLocal { get; set; } = string.Empty;
 }
 
 public sealed class UsageDisplay

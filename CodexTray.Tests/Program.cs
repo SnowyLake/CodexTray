@@ -1208,12 +1208,13 @@ internal static class Program
         DateTimeOffset nearestExpiry = new(2026, 7, 14, 18, 30, 0, TimeSpan.Zero);
         string resetCreditsBody = JsonSerializer.Serialize(new
         {
-            available_count = 2,
+            available_count = 3,
             credits = new[]
             {
-                new { status = "available", expires_at = nearestExpiry.AddDays(1).ToString("O") },
+                new { status = "available", expires_at = nearestExpiry.AddDays(2).ToString("O") },
                 new { status = "redeemed", expires_at = nearestExpiry.AddHours(-1).ToString("O") },
                 new { status = "available", expires_at = nearestExpiry.ToString("O") },
+                new { status = "available", expires_at = nearestExpiry.AddDays(1).ToString("O") },
             },
         });
         CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient client, resetCreditsBody);
@@ -1222,8 +1223,12 @@ internal static class Program
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(response.ResetCredits.Available, "reset credits should be available");
-        AssertEqual(2, response.ResetCredits.AvailableCount, "reset credit count");
+        AssertEqual(3, response.ResetCredits.AvailableCount, "reset credit count");
         AssertEqual(nearestExpiry.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), response.ResetCredits.NearestExpiryLocal, "nearest local reset credit expiry");
+        AssertEqual(
+            $"{nearestExpiry.AddDays(1).ToLocalTime():MM-dd} · {nearestExpiry.AddDays(2).ToLocalTime():MM-dd}",
+            response.ResetCredits.OtherExpiriesLocal,
+            "other local reset credit expiries");
         return Task.CompletedTask;
     }
 
