@@ -31,7 +31,7 @@
 - 显示可用 Reset Credits 数量及最近到期时间.
 - 统计 Today, Yesterday, Week, Month, Last 7 Days, Last 30 Days 和 Total 的 token 用量与 API 等价成本.
 - 支持选择 Token Cost 项目和中英文 token 数量单位.
-- Cursor 页面显示 Total, First Party 和 API 剩余额度, Total 重置时间, 以及 7 个周期的实际账单 token 与成本.
+- Cursor 页面显示 Total, First Party 和 APIs 剩余额度, Total 重置时间, 以及 7 个周期的实际账单 token 与成本.
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, 以及 Grok 剩余额度和重置时间监控.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
@@ -56,7 +56,7 @@
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
 - Home 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
-- Cursor 页: 查看 Cursor Total, First Party, API 额度和实际账单 Token Cost.
+- Cursor 页: 查看 Total, First Party, APIs 额度和实际账单 Token Cost.
 - APIs 页: 添加和查看 DeepSeek, NewAPI 或 Grok 监控卡片.
 - Settings 页: 调整刷新, 显示, 窗口尺寸, 自启动, 插件目录和 HTTP 端口设置.
 
@@ -64,7 +64,7 @@
 
 ## Cursor 页面
 
-Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个请求共享一次本地凭据读取和最多一次 OAuth refresh 重试. Total, First Party 和 API 显示独立剩余额度, 只有 Total 显示重置时间. Token Cost 的 Today, Yesterday, Week, Month, Last 7 Days, Last 30 Days 和 Total 与 Home 页使用相同的可见性和 token 单位设置.
+Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个请求共享一次本地凭据读取和最多一次 OAuth refresh 重试. Total, First Party 和 APIs 显示独立剩余额度, 只有 Total 显示重置时间. Token Cost 的 Today, Yesterday, Week, Month, Last 7 Days, Last 30 Days 和 Total 与 Home 页使用相同的可见性和 token 单位设置.
 
 Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不会用本地模型价格表重算. OAuth token 不会写入 `settings.json`.
 

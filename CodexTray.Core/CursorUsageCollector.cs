@@ -8,8 +8,9 @@ using Microsoft.Data.Sqlite;
 namespace CodexTray.Core;
 
 public sealed record CursorUsageSnapshot(
+    string PlanType,
     double TotalUsedPercent,
-    double FirstPartyUsedPercent,
+    double AutoUsedPercent,
     double ApiUsedPercent,
     long ResetsAt);
 
@@ -141,7 +142,7 @@ public sealed class CursorUsageCollector
         JsonElement root = document.RootElement;
         if (!TryGetPlan(root, out JsonElement plan) ||
             !TryGetPlanPercent(plan, "totalPercentUsed", out double totalUsedPercent) ||
-            !TryGetPlanPercent(plan, "autoPercentUsed", out double firstPartyUsedPercent) ||
+            !TryGetPlanPercent(plan, "autoPercentUsed", out double autoUsedPercent) ||
             !TryGetPlanPercent(plan, "apiPercentUsed", out double apiUsedPercent))
         {
             throw new InvalidOperationException("Cursor usage-summary did not include plan usage percents.");
@@ -153,8 +154,9 @@ public sealed class CursorUsageCollector
         }
 
         return new CursorUsageSnapshot(
+            GetStringProperty(root, "membershipType", "unknown"),
             totalUsedPercent,
-            firstPartyUsedPercent,
+            autoUsedPercent,
             apiUsedPercent,
             resetsAt.ToUnixTimeSeconds());
     }
@@ -736,6 +738,16 @@ public sealed class CursorUsageCollector
             individualUsage.ValueKind == JsonValueKind.Object &&
             individualUsage.TryGetProperty("plan", out plan) &&
             plan.ValueKind == JsonValueKind.Object;
+    }
+
+    /// <summary>
+    /// Reads a string property or returns the supplied fallback.
+    /// </summary>
+    private static string GetStringProperty(JsonElement element, string propertyName, string fallback)
+    {
+        return element.TryGetProperty(propertyName, out JsonElement value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? fallback
+            : fallback;
     }
 
     /// <summary>

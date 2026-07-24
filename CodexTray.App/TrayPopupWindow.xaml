@@ -401,17 +401,17 @@
                                        FontSize="26"
                                        FontWeight="Medium"
                                        VerticalAlignment="Center" />
-                            <Border MinWidth="52"
-                                    Height="22"
-                                    Margin="12,0,0,0"
-                                    VerticalAlignment="Center"
-                                    Padding="11,0"
-                                    CornerRadius="11"
+                            <Border MinWidth="32"
+                                    Height="16"
+                                    Margin="6,6,0,0"
+                                    VerticalAlignment="Top"
+                                    Padding="6,0"
+                                    CornerRadius="4"
                                     Background="{Binding PlanBadgeBrush}">
                                 <TextBlock Text="{Binding PlanDisplay}"
                                            Foreground="#FFFFFF"
                                            FontWeight="Normal"
-                                           FontSize="12"
+                                           FontSize="9.5"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                             </Border>
@@ -704,7 +704,7 @@
                         </TextBlock>
 
                         <TextBlock Grid.Row="4"
-                                   Text="Last 7 Days"
+                                   Text="Last 7 days"
                                    Margin="0,0,0,12"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}"
@@ -728,7 +728,7 @@
                         </TextBlock>
 
                         <TextBlock Grid.Row="5"
-                                   Text="Last 30 Days"
+                                   Text="Last 30 days"
                                    Margin="0,0,0,12"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}"
@@ -790,11 +790,27 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Cursor"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                   FontSize="26"
-                                   FontWeight="Medium"
-                                   VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Cursor"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                       FontSize="26"
+                                       FontWeight="Medium"
+                                       VerticalAlignment="Center" />
+                            <Border MinWidth="32"
+                                    Height="16"
+                                    Margin="6,6,0,0"
+                                    VerticalAlignment="Top"
+                                    Padding="6,0"
+                                    CornerRadius="4"
+                                    Background="{Binding CursorPlanBadgeBrush}">
+                                <TextBlock Text="{Binding CursorPlanDisplay}"
+                                           Foreground="#FFFFFF"
+                                           FontWeight="Normal"
+                                           FontSize="9.5"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                        </StackPanel>
                         <Button Grid.Column="1"
                                 VerticalAlignment="Center"
                                 Command="{Binding RefreshCommand}"
@@ -843,10 +859,10 @@
                         <StackPanel Margin="0,0,0,20">
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding CursorFirstPartyQuota.Title}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" />
-                                <TextBlock Grid.Column="1" Text="{Binding CursorFirstPartyQuota.PercentText}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="14" />
+                                <TextBlock Text="{Binding CursorAutoQuota.Title}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" />
+                                <TextBlock Grid.Column="1" Text="{Binding CursorAutoQuota.PercentText}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="14" />
                             </Grid>
-                            <ProgressBar Margin="0,9,0,0" Maximum="100" Value="{Binding CursorFirstPartyQuota.RemainingPercent, Mode=OneWay}" Foreground="{Binding CursorFirstPartyQuota.AccentBrush}" Style="{StaticResource QuotaProgressBarStyle}" />
+                            <ProgressBar Margin="0,9,0,0" Maximum="100" Value="{Binding CursorAutoQuota.RemainingPercent, Mode=OneWay}" Foreground="{Binding CursorAutoQuota.AccentBrush}" Style="{StaticResource QuotaProgressBarStyle}" />
                         </StackPanel>
 
                         <StackPanel>
@@ -874,9 +890,9 @@
                             <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowWeekTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorWeekTokenCostDisplay.Cost" /><Binding Path="CursorWeekTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
                             <TextBlock Grid.Row="3" Text="Month" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowMonthTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowMonthTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorMonthTokenCostDisplay.Cost" /><Binding Path="CursorMonthTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
-                            <TextBlock Grid.Row="4" Text="Last 7 Days" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowSevenDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Grid.Row="4" Text="Last 7 days" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowSevenDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowSevenDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorSevenDayTokenCostDisplay.Cost" /><Binding Path="CursorSevenDayTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
-                            <TextBlock Grid.Row="5" Text="Last 30 Days" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowThirtyDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Grid.Row="5" Text="Last 30 days" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowThirtyDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowThirtyDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorThirtyDayTokenCostDisplay.Cost" /><Binding Path="CursorThirtyDayTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
                             <TextBlock Grid.Row="6" Text="Total" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" />
                             <TextBlock Grid.Row="6" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorTotalTokenCostDisplay.Cost" /><Binding Path="CursorTotalTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
@@ -1307,11 +1323,11 @@
                                                   IsCheckable="True"
                                                   IsChecked="{Binding ShowMonthTokenCost, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
-                                        <MenuItem Header="Last 7 Days"
+                                        <MenuItem Header="Last 7 days"
                                                   IsCheckable="True"
                                                   IsChecked="{Binding ShowSevenDayTokenCost, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
-                                        <MenuItem Header="Last 30 Days"
+                                        <MenuItem Header="Last 30 days"
                                                   IsCheckable="True"
                                                   IsChecked="{Binding ShowThirtyDayTokenCost, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />

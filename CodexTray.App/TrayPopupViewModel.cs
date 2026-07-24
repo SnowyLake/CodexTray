@@ -110,6 +110,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private int m_ApiUsageMonitorCount;
     private DateTimeOffset? m_ApiUsageUpdatedAt;
     private Media.Brush m_CursorStatusDotBrush = s_RedBrush;
+    private string m_CursorPlanDisplay = "UNKNOWN";
+    private Media.Brush m_CursorPlanBadgeBrush = s_PlanBadgeInactiveBrush;
     private string m_CursorUpdatedAtDisplay = "Waiting for first refresh";
     private string m_CursorStatusTooltip = string.Empty;
     private string m_InAppDialogTitle = string.Empty;
@@ -159,9 +161,9 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public QuotaViewModel CursorTotalQuota { get; } = new("Total");
 
-    public QuotaViewModel CursorFirstPartyQuota { get; } = new("First Party");
+    public QuotaViewModel CursorAutoQuota { get; } = new("First Party");
 
-    public QuotaViewModel CursorApiQuota { get; } = new("API");
+    public QuotaViewModel CursorApiQuota { get; } = new("APIs");
 
     public ICommand ShowHomeCommand { get; }
 
@@ -728,6 +730,18 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         private set => SetField(ref m_CursorStatusDotBrush, value);
     }
 
+    public string CursorPlanDisplay
+    {
+        get => m_CursorPlanDisplay;
+        private set => SetField(ref m_CursorPlanDisplay, value);
+    }
+
+    public Media.Brush CursorPlanBadgeBrush
+    {
+        get => m_CursorPlanBadgeBrush;
+        private set => SetField(ref m_CursorPlanBadgeBrush, value);
+    }
+
     public string CursorUpdatedAtDisplay
     {
         get => m_CursorUpdatedAtDisplay;
@@ -1101,17 +1115,21 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         bool tokenCostAvailable = dashboard.TokenCost != null;
         if (usage != null)
         {
+            CursorPlanDisplay = FormatCursorPlan(usage.PlanType);
+            CursorPlanBadgeBrush = CursorPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
             string reset = m_Settings.UseAbsoluteResetTime
                 ? CodexTrayCollector.FormatSevenDayResetDate(usage.ResetsAt, dashboard.UpdatedAt)
                 : CodexTrayCollector.FormatSevenDayResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
             CursorTotalQuota.UpdateCursorUsage(usage.TotalUsedPercent, reset, showReset: true);
-            CursorFirstPartyQuota.UpdateCursorUsage(usage.FirstPartyUsedPercent, string.Empty, showReset: false);
+            CursorAutoQuota.UpdateCursorUsage(usage.AutoUsedPercent, string.Empty, showReset: false);
             CursorApiQuota.UpdateCursorUsage(usage.ApiUsedPercent, string.Empty, showReset: false);
         }
         else
         {
+            CursorPlanDisplay = "UNKNOWN";
+            CursorPlanBadgeBrush = s_PlanBadgeInactiveBrush;
             CursorTotalQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
-            CursorFirstPartyQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
+            CursorAutoQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
             CursorApiQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
         }
 
@@ -1659,6 +1677,17 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             "chatgpt" => "PLUS",
             _ => "UNKNOWN",
         };
+    }
+
+    /// <summary>
+    /// Formats a Cursor membership type as a compact subscription label.
+    /// </summary>
+    private static string FormatCursorPlan(string? planType)
+    {
+        string normalized = (planType ?? string.Empty).Trim().Replace("-", "_", StringComparison.Ordinal).Replace(" ", "_", StringComparison.Ordinal);
+        return string.IsNullOrEmpty(normalized)
+            ? "UNKNOWN"
+            : normalized.Replace("_plus", "+", StringComparison.OrdinalIgnoreCase).Replace("_", " ", StringComparison.Ordinal).ToUpperInvariant();
     }
 
     /// <summary>

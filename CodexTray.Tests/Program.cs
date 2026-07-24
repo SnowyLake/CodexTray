@@ -652,6 +652,7 @@ internal static class Program
             json,
             DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
 
+        AssertEqual("pro_plus", snapshot.PlanType, "Cursor plan type");
         AssertEqual(10, snapshot.TotalUsedPercent, "Cursor total used percentage");
         AssertEqual(12, snapshot.FirstPartyUsedPercent, "Cursor first-party used percentage");
         AssertEqual(0, snapshot.ApiUsedPercent, "Cursor API used percentage");
@@ -944,6 +945,7 @@ internal static class Program
         return JsonSerializer.Serialize(new
         {
             billingCycleEnd = billingCycleEnd.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
+            membershipType = "pro_plus",
             individualUsage = new
             {
                 plan = new
