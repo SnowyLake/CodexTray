@@ -7,6 +7,7 @@
 - [功能](#功能)
 - [安装](#安装)
 - [使用](#使用)
+- [Cursor 页面](#cursor-页面)
 - [API 监控](#api-监控)
 - [插件支持](#插件支持)
 - [数据与隐私](#数据与隐私)
@@ -18,7 +19,7 @@
 
 应用还会统计本机 Codex 会话的 token 用量, 按模型价格估算 API 等价成本. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
 
-除了 Codex 额度, 应用还可以在独立的 APIs 页面监控 DeepSeek, NewAPI, Grok 和 Cursor 的余额或用量.
+除了 Codex 额度, 应用还可以在独立的 Cursor 页面查看 Cursor 额度与 token 账单统计, 并在 APIs 页面监控 DeepSeek, NewAPI 和 Grok 的余额或用量.
 
 ## 效果展示
 
@@ -30,7 +31,8 @@
 - 显示可用 Reset Credits 数量及最近到期时间.
 - 统计 Today, Yesterday, Week, Month, Last 7 Days, Last 30 Days 和 Total 的 token 用量与 API 等价成本.
 - 支持选择 Token Cost 项目和中英文 token 数量单位.
-- 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, 以及 Grok 与 Cursor 剩余额度和重置时间监控.
+- Cursor 页面显示 Total, First Party 和 API 剩余额度, Total 重置时间, 以及 7 个周期的实际账单 token 与成本.
+- 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, 以及 Grok 剩余额度和重置时间监控.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
 - 支持 `System`, `Light`, `Dark` 主题, Acrylic blur 和透明度设置.
@@ -54,10 +56,17 @@
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
 - Home 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
-- APIs 页: 添加和查看 DeepSeek, NewAPI, Grok 或 Cursor 监控卡片.
+- Cursor 页: 查看 Cursor Total, First Party, API 额度和实际账单 Token Cost.
+- APIs 页: 添加和查看 DeepSeek, NewAPI 或 Grok 监控卡片.
 - Settings 页: 调整刷新, 显示, 自启动, 插件目录和 HTTP 端口设置.
 
 再次运行 `CodexTray.exe` 不会启动第二个实例, 而是通知已有实例打开主面板.
+
+## Cursor 页面
+
+Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个请求共享一次本地凭据读取和最多一次 OAuth refresh 重试. Total, First Party 和 API 显示独立剩余额度, 只有 Total 显示重置时间. Token Cost 的 Today, Yesterday, Week, Month, Last 7 Days, Last 30 Days 和 Total 与 Home 页使用相同的可见性和 token 单位设置.
+
+Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不会用本地模型价格表重算. OAuth token 不会写入 `settings.json`.
 
 ## API 监控
 
@@ -66,9 +75,8 @@
 - DeepSeek: 填写 Base URL 和 API key, 默认 Base URL 为 `https://api.deepseek.com`.
 - NewAPI: 填写实例 Base URL, access token 和 User ID.
 - Grok: 选择 `Grok Build` 或 `OpenCode` OAuth source. CodexTray 直接读取所选工具已保存的本地 OAuth session, 不要求复制 token. access token 临近过期时会自动刷新并写回对应 auth 文件.
-- Cursor: 无需填写 token. CodexTray 直接读取本机 Cursor IDE 已保存的本地 OAuth session (`state.vscdb`). access token 临近过期时会自动刷新并写回原数据库.
 
-卡片支持自定义显示名称, 调整顺序和删除. Grok 与 Cursor 的重置时间遵循 Settings 页中的倒计时或绝对时间格式设置.
+卡片支持自定义显示名称, 调整顺序和删除. Grok 的重置时间遵循 Settings 页中的倒计时或绝对时间格式设置. 已保存的 Cursor 卡片继续可编辑, 排序和删除, 并显示 Cursor 页同一轮 quota 快照.
 
 ## 插件支持
 
@@ -84,7 +92,7 @@ LiteMonitor 显示 `Codex 5-Hour` 和 `Codex 7-Day` 两项, 从 JSON 接口读�
 - Token Cost 来自本机 `~/.codex/sessions` 与 `~/.codex/archived_sessions` 日志, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本.
 - DeepSeek 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - Grok 监控读取 Grok Build 或 OpenCode 已保存的本地 OAuth session, 并向 Grok 官方接口查询用量. access token 过期前会通过 xAI OAuth refresh 自动续期并写回原 auth 文件. OAuth token 不会复制到 `settings.json`.
-- Cursor 监控读取本机 Cursor IDE 的 `state.vscdb` OAuth session, 并向 Cursor 官方 usage-summary 接口查询用量. access token 过期前会通过 Cursor OAuth refresh 自动续期并写回原数据库. OAuth token 不会复制到 `settings.json`.
+- Cursor 页面读取本机 Cursor IDE 的 `state.vscdb` OAuth session, 并向 Cursor 官方 usage-summary 与 usage-events 接口查询额度和账单用量. access token 过期前会通过 Cursor OAuth refresh 自动续期并写回原数据库. OAuth token 不会复制到 `settings.json`.
 - 本地 HTTP 服务默认仅监听 `127.0.0.1:17890`, 不向局域网开放.
 - OAuth token 不会写入日志, 插件配置或本地 HTTP 响应.
 - 应用设置保存在 `CodexTray.exe` 同级目录的 `settings.json`.
@@ -101,7 +109,7 @@ LiteMonitor 显示 `Codex 5-Hour` 和 `Codex 7-Day` 两项, 从 JSON 接口读�
 
 ### 为什么 API 卡片显示 N/A
 
-将鼠标悬停在卡片名称或状态圆点上查看错误信息. DeepSeek 和 NewAPI 需要有效的 Base URL 与凭据, NewAPI 还需要 User ID. Grok 需要先在所选的 Grok Build 或 OpenCode 中完成 xAI OAuth 登录. Cursor 需要先在本机 Cursor IDE 中完成登录. 日常使用中 CodexTray 会自动刷新 access token; 若 refresh token 也失效, 再回到对应工具重新登录.
+将鼠标悬停在卡片名称或状态圆点上查看错误信息. DeepSeek 和 NewAPI 需要有效的 Base URL 与凭据, NewAPI 还需要 User ID. Grok 需要先在所选的 Grok Build 或 OpenCode 中完成 xAI OAuth 登录. Cursor 页面需要先在本机 Cursor IDE 中完成登录. 日常使用中 CodexTray 会自动刷新 access token; 若 refresh token 也失效, 再回到对应工具重新登录.
 
 ### 为什么 LiteMonitor 或 TrafficMonitor 没有更新
 

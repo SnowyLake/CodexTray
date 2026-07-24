@@ -13,10 +13,15 @@ internal static class Program
     private static int s_Failures;
 
     /// <summary>
-    /// Runs all C# checks for the tray implementation.
+    /// Runs deterministic checks or the opt-in redacted Cursor live probe.
     /// </summary>
-    private static async Task<int> Main()
+    private static async Task<int> Main(string[] args)
     {
+        if (args.SequenceEqual(["--cursor-live"], StringComparer.Ordinal))
+        {
+            return await RunCursorLiveAsync();
+        }
+
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
         await RunAsync("uses countdown label for same-day seven day reset", TestSevenDayCountdownLabelAsync);
         await RunAsync("uses countdown label for next-day seven day reset", TestNextDaySevenDayCountdownLabelAsync);
@@ -39,11 +44,68 @@ internal static class Program
         await RunAsync("refreshes expired OpenCode OAuth", TestOpenCodeOAuthRefreshAsync);
         await RunAsync("parses Cursor usage-summary JSON", TestCursorUsageCollectorAsync);
         await RunAsync("refreshes expired Cursor OAuth", TestCursorOAuthRefreshAsync);
+        await RunAsync("collects complete Cursor dashboard token cost", TestCursorDashboardAsync);
+        await RunAsync("classifies Cursor event totalCents validation", TestCursorTotalCentsValidationAsync);
+        await RunAsync("clears incomplete Cursor dashboard regions", TestCursorDashboardFailuresAsync);
+        await RunAsync("shares one Cursor dashboard OAuth refresh", TestCursorDashboardRefreshBudgetAsync);
+        await RunAsync("includes Cursor Codex pricing", TestCursorCodexPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Runs a redacted live Cursor dashboard probe without emitting credentials or event details.
+    /// </summary>
+    private static async Task<int> RunCursorLiveAsync()
+    {
+        CursorUsageDashboard dashboard = await new CursorUsageCollector().CollectDashboardAsync();
+        Console.WriteLine($"LIVE Cursor usage: {(dashboard.Usage == null ? "unavailable" : "available")}");
+        Console.WriteLine($"LIVE Cursor usage error: {FormatLiveError(dashboard.UsageError)}");
+        Console.WriteLine($"LIVE Cursor refresh: initial={dashboard.InitialCredentialRefreshUsed}, forced={dashboard.ForcedCredentialRefreshUsed}");
+        if (dashboard.TokenCostDiagnostics is not CursorUsageEventsDiagnostics diagnostics)
+        {
+            Console.WriteLine("LIVE Cursor usage-events: unavailable");
+            Console.WriteLine($"LIVE Cursor usage-events error: {FormatLiveError(dashboard.TokenCostError)}");
+            return 1;
+        }
+
+        Console.WriteLine($"LIVE Cursor usage-events: events={diagnostics.EventCount}, pages={diagnostics.PageCount}, tokenEvents={diagnostics.TokenEventCount}, zeroTokenMissingCost={diagnostics.ZeroTokenMissingCostEventCount}");
+        Console.WriteLine(
+            $"LIVE Cursor token fields: input={diagnostics.InputTokenFieldCount}/{diagnostics.TokenEventCount}, " +
+            $"output={diagnostics.OutputTokenFieldCount}/{diagnostics.TokenEventCount}, " +
+            $"cacheRead={diagnostics.CacheReadTokenFieldCount}/{diagnostics.TokenEventCount}, " +
+            $"cacheWrite={diagnostics.CacheWriteTokenFieldCount}/{diagnostics.TokenEventCount}");
+        Console.WriteLine($"LIVE Cursor usage-events elapsed: {diagnostics.Elapsed.TotalMilliseconds:0} ms");
+        return dashboard.Usage == null ? 1 : 0;
+    }
+
+    /// <summary>
+    /// Formats a collector-generated live probe error without exposing secrets or payload data.
+    /// </summary>
+    private static string FormatLiveError(string error)
+    {
+        if (string.IsNullOrWhiteSpace(error))
+        {
+            return "none";
+        }
+
+        if (error is "Request timed out" or "Cursor network request failed." or "Cursor response JSON decode failed." or "Cursor response numeric overflow." or "Cursor local auth database could not be read." ||
+            error.StartsWith("Cursor local auth database was not found.", StringComparison.Ordinal) ||
+            error.StartsWith("Cursor OAuth access token was not found.", StringComparison.Ordinal) ||
+            error.StartsWith("Cursor OAuth token", StringComparison.Ordinal) ||
+            error.StartsWith("Cursor usage request failed:", StringComparison.Ordinal) ||
+            error.StartsWith("Cursor usage-events request failed:", StringComparison.Ordinal) ||
+            error.StartsWith("Cursor usage events ", StringComparison.Ordinal) ||
+            error.StartsWith("Cursor usage event ", StringComparison.Ordinal) ||
+            error.StartsWith("Cursor usage-summary ", StringComparison.Ordinal))
+        {
+            return error;
+        }
+
+        return "unclassified request or response failure";
     }
 
     /// <summary>
@@ -423,13 +485,11 @@ internal static class Program
         AppSettings loaded = store.Load();
         ApiMonitorSettings deepSeek = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.DeepSeekProvider);
         ApiMonitorSettings grok = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.GrokProvider);
-        ApiMonitorSettings cursor = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.CursorProvider);
         AssertEqual("deepseek-secret-token", deepSeek.ApiKey, "saved API key");
         AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
         AssertEqual(ApiMonitorSettings.OpenCodeOAuthSource, grok.GrokOAuthSource, "saved Grok OAuth source");
-        AssertEqual(string.Empty, cursor.BaseUrl, "Cursor base URL should be cleared");
-        AssertEqual(string.Empty, cursor.ApiKey, "Cursor API key should be cleared");
-        AssertEqual("Local Cursor", cursor.Name, "Cursor monitor name");
+        AssertEqual(2, loaded.ApiMonitors.Count, "Cursor API monitor should be removed");
+        AssertTrue(!json.Contains("Local Cursor", StringComparison.Ordinal), "settings should remove Cursor API monitors");
         return Task.CompletedTask;
     }
 
@@ -642,6 +702,208 @@ internal static class Program
     }
 
     /// <summary>
+    /// Tests complete paged Cursor token-cost aggregation from actual event cents.
+    /// </summary>
+    private static async Task TestCursorDashboardAsync()
+    {
+        using TempDirectory temp = new();
+        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
+        string dbPath = Path.Combine(temp.Path, "state.vscdb");
+        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
+        try
+        {
+            DateTimeOffset now = new(2026, 7, 15, 12, 0, 0, TimeSpan.FromHours(8));
+            string access = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
+            CreateCursorStateDatabase(dbPath, access, "cursor-refresh");
+            DateTimeOffset weekStart = now.Date.AddDays(-((int)now.DayOfWeek + 6) % 7).AddHours(12);
+            object today = CreateCursorUsageEvent(now, "100", 10, "20", 30, "125", 999);
+            object yesterday = CreateCursorUsageEvent(now.AddDays(-1), 1, 1, 1, 1, 10, 999);
+            object week = CreateCursorUsageEvent(weekStart, 2, 2, 2, 2, 20, 999);
+            object nonToken = CreateCursorUsageEvent(now.AddDays(-2), null, null, null, null, null, 999);
+            object sevenDay = CreateCursorUsageEvent(now.AddDays(-6), 5, 5, 5, 5, 30, 999);
+            object thirtyDay = CreateCursorUsageEvent(now.AddDays(-29), 6, 6, 6, 6, 40, 999);
+            object historical = CreateCursorUsageEvent(now.AddDays(-30), 7, 7, 7, 7, 50, 999);
+            using HttpClient client = new(new CursorDashboardHttpMessageHandler(
+                CreateCursorUsageSummaryJson(10, 12, 0, DateTimeOffset.UtcNow.AddDays(30)),
+                page => page switch
+                {
+                    1 => JsonResponse(CreateCursorUsageEventsJson(7, today, yesterday, week, nonToken)),
+                    2 => JsonResponse(CreateCursorUsageEventsJson(7, sevenDay, thirtyDay, historical)),
+                    _ => throw new InvalidOperationException("unexpected usage-events page"),
+                }));
+            CursorUsageDashboard dashboard = await new CursorUsageCollector(client).CollectDashboardAsync(now);
+
+            AssertTrue(dashboard.Usage != null, "Cursor usage should be available");
+            AssertTrue(dashboard.TokenCost != null, "Cursor token cost should be available");
+            AssertEqual(false, dashboard.InitialCredentialRefreshUsed, "Cursor dashboard should not refresh a valid initial token");
+            AssertEqual(false, dashboard.ForcedCredentialRefreshUsed, "Cursor dashboard should not force refresh a valid token");
+            AssertEqual(7, dashboard.TokenCostDiagnostics!.EventCount, "Cursor diagnostics event count");
+            AssertEqual(2, dashboard.TokenCostDiagnostics.PageCount, "Cursor diagnostics page count");
+            AssertEqual(6, dashboard.TokenCostDiagnostics.TokenEventCount, "Cursor diagnostics token event count");
+            AssertEqual(6, dashboard.TokenCostDiagnostics.CacheReadTokenFieldCount, "Cursor diagnostics cache read coverage");
+            AssertEqual(6, dashboard.TokenCostDiagnostics.CacheWriteTokenFieldCount, "Cursor diagnostics cache write coverage");
+            AssertEqual(160L, dashboard.TokenCost!.Today.TotalTokens, "Cursor cache tokens should contribute to total tokens");
+            AssertEqual(1.25m, dashboard.TokenCost.Today.CostUsd, "Cursor cost must use totalCents instead of chargedCents");
+            AssertEqual(4L, dashboard.TokenCost.Yesterday.TotalTokens, "Cursor yesterday boundary");
+            AssertEqual(172L, dashboard.TokenCost.Week.TotalTokens, "Cursor week Monday boundary");
+            AssertEqual(192L, dashboard.TokenCost.Month.TotalTokens, "Cursor month boundary");
+            AssertEqual(192L, dashboard.TokenCost.SevenDay.TotalTokens, "Cursor last seven day boundary");
+            AssertEqual(216L, dashboard.TokenCost.ThirtyDay.TotalTokens, "Cursor last thirty day boundary");
+            AssertEqual(244L, dashboard.TokenCost.Total.TotalTokens, "Cursor historical total boundary");
+            AssertEqual(2.75m, dashboard.TokenCost.Total.CostUsd, "Cursor total event cents");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
+        }
+    }
+
+    /// <summary>
+    /// Tests safe totalCents error classification and empty-token event handling.
+    /// </summary>
+    private static async Task TestCursorTotalCentsValidationAsync()
+    {
+        using TempDirectory temp = new();
+        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
+        string dbPath = Path.Combine(temp.Path, "state.vscdb");
+        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
+        try
+        {
+            DateTimeOffset now = new(2026, 7, 15, 12, 0, 0, TimeSpan.FromHours(8));
+            string access = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
+            CreateCursorStateDatabase(dbPath, access, "cursor-refresh");
+
+            CursorUsageDashboard missing = await CollectCursorEventCostFixtureAsync(
+                now,
+                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: false));
+            AssertEqual("Cursor usage event totalCents is missing.", missing.TokenCostError, "missing totalCents error");
+
+            CursorUsageDashboard nullValue = await CollectCursorEventCostFixtureAsync(
+                now,
+                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: true, totalCents: null));
+            AssertEqual("Cursor usage event totalCents is null.", nullValue.TokenCostError, "null totalCents error");
+
+            CursorUsageDashboard nonNumeric = await CollectCursorEventCostFixtureAsync(
+                now,
+                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: true, totalCents: "not-a-number"));
+            AssertEqual("Cursor usage event totalCents is a nonnumeric string.", nonNumeric.TokenCostError, "nonnumeric totalCents error");
+
+            CursorUsageDashboard negative = await CollectCursorEventCostFixtureAsync(
+                now,
+                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: true, totalCents: -1));
+            AssertEqual("Cursor usage event totalCents is negative.", negative.TokenCostError, "negative totalCents error");
+
+            CursorUsageDashboard nonFinite = await CollectCursorEventCostFixtureAsync(
+                now,
+                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: true, totalCents: "NaN"));
+            AssertEqual("Cursor usage event totalCents is nonfinite.", nonFinite.TokenCostError, "nonfinite totalCents error");
+
+            CursorUsageDashboard zeroTokenMissingCost = await CollectCursorEventCostFixtureAsync(
+                now,
+                CreateCursorTokenUsageEvent(now, 0, 0, 0, 0, includeTotalCents: false));
+            AssertTrue(zeroTokenMissingCost.TokenCost != null, "zero-token event without cost should not clear token cost");
+            AssertEqual(0L, zeroTokenMissingCost.TokenCost!.Total.TotalTokens, "zero-token event total");
+            AssertEqual(0m, zeroTokenMissingCost.TokenCost.Total.CostUsd, "zero-token event cost");
+            AssertEqual(1, zeroTokenMissingCost.TokenCostDiagnostics!.ZeroTokenMissingCostEventCount, "zero-token missing-cost diagnostics");
+            AssertEqual(0, zeroTokenMissingCost.TokenCostDiagnostics.TokenEventCount, "zero-token missing-cost should not count as a token event");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
+        }
+    }
+
+    /// <summary>
+    /// Tests independent dashboard failure regions and atomic token-cost paging failure.
+    /// </summary>
+    private static async Task TestCursorDashboardFailuresAsync()
+    {
+        using TempDirectory temp = new();
+        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
+        string dbPath = Path.Combine(temp.Path, "state.vscdb");
+        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
+        try
+        {
+            DateTimeOffset now = new(2026, 7, 15, 12, 0, 0, TimeSpan.FromHours(8));
+            string access = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
+            CreateCursorStateDatabase(dbPath, access, "cursor-refresh");
+            object eventRecord = CreateCursorUsageEvent(now, 1, 1, 1, 1, 1, 1);
+            using HttpClient usageFailureClient = new(new CursorDashboardHttpMessageHandler(
+                CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
+                _ => JsonResponse(CreateCursorUsageEventsJson(1, eventRecord)),
+                usageStatus: HttpStatusCode.InternalServerError));
+            CursorUsageDashboard usageFailure = await new CursorUsageCollector(usageFailureClient).CollectDashboardAsync(now);
+            AssertTrue(usageFailure.Usage == null, "failed usage-summary must clear usage region");
+            AssertTrue(usageFailure.TokenCost != null, "usage-events should remain available after usage-summary failure");
+
+            using HttpClient pagingFailureClient = new(new CursorDashboardHttpMessageHandler(
+                CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
+                page => page == 1
+                    ? JsonResponse(CreateCursorUsageEventsJson(2, eventRecord))
+                    : new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+            CursorUsageDashboard pagingFailure = await new CursorUsageCollector(pagingFailureClient).CollectDashboardAsync(now);
+            AssertTrue(pagingFailure.Usage != null, "successful usage-summary must survive usage-events failure");
+            AssertTrue(pagingFailure.TokenCost == null, "incomplete usage-events paging must not return partial token cost");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
+        }
+    }
+
+    /// <summary>
+    /// Tests one forced OAuth refresh shared by Cursor usage-summary and usage-events.
+    /// </summary>
+    private static async Task TestCursorDashboardRefreshBudgetAsync()
+    {
+        using TempDirectory temp = new();
+        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
+        string dbPath = Path.Combine(temp.Path, "state.vscdb");
+        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
+        try
+        {
+            DateTimeOffset now = new(2026, 7, 15, 12, 0, 0, TimeSpan.FromHours(8));
+            string oldAccess = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
+            string newAccess = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(2));
+            CreateCursorStateDatabase(dbPath, oldAccess, "cursor-refresh");
+            CursorDashboardHttpMessageHandler handler = new(
+                CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
+                _ => JsonResponse(CreateCursorUsageEventsJson(0)),
+                oldAccess,
+                newAccess,
+                "cursor-refresh");
+            using HttpClient client = new(handler);
+            CursorUsageDashboard dashboard = await new CursorUsageCollector(client).CollectDashboardAsync(now);
+
+            AssertTrue(dashboard.Usage != null && dashboard.TokenCost != null, "refreshed Cursor dashboard should be available");
+            AssertEqual(1, handler.RefreshCount, "Cursor dashboard should use one shared refresh budget");
+            AssertEqual(false, dashboard.InitialCredentialRefreshUsed, "Cursor dashboard forced refresh should begin with a valid token");
+            AssertEqual(true, dashboard.ForcedCredentialRefreshUsed, "Cursor dashboard should report its forced refresh");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
+        }
+    }
+
+    /// <summary>
+    /// Tests that the local pricing resource includes the supported Cursor Codex model.
+    /// </summary>
+    private static Task TestCursorCodexPricingAsync()
+    {
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Path.Combine("Resources", "model-pricing.json")));
+        JsonElement pricing = document.RootElement.GetProperty("gpt-5.3-codex");
+        AssertEqual(1.75m, pricing.GetProperty("input").GetDecimal(), "gpt-5.3-codex input price");
+        AssertEqual(0.175m, pricing.GetProperty("cachedInput").GetDecimal(), "gpt-5.3-codex cached input price");
+        AssertEqual(14.0m, pricing.GetProperty("output").GetDecimal(), "gpt-5.3-codex output price");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Builds a minimal gRPC-web billing body for Grok collector tests.
     /// </summary>
     private static byte[] CreateGrokBillingResponse(float usedPercent, long resetAt)
@@ -684,6 +946,105 @@ internal static class Program
                 },
             },
         });
+    }
+
+    /// <summary>
+    /// Builds one Cursor usage-events page fixture.
+    /// </summary>
+    private static string CreateCursorUsageEventsJson(int totalCount, params object[] displays)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            totalUsageEventsCount = totalCount,
+            usageEventsDisplay = displays,
+        });
+    }
+
+    /// <summary>
+    /// Collects a one-event Cursor token-cost fixture with a valid usage-summary response.
+    /// </summary>
+    private static async Task<CursorUsageDashboard> CollectCursorEventCostFixtureAsync(DateTimeOffset now, object usageEvent)
+    {
+        using HttpClient client = new(new CursorDashboardHttpMessageHandler(
+            CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
+            _ => JsonResponse(CreateCursorUsageEventsJson(1, usageEvent))));
+        return await new CursorUsageCollector(client).CollectDashboardAsync(now);
+    }
+
+    /// <summary>
+    /// Builds one Cursor usage event fixture with optional token counters.
+    /// </summary>
+    private static object CreateCursorUsageEvent(
+        DateTimeOffset timestamp,
+        object? inputTokens,
+        object? outputTokens,
+        object? cacheReadTokens,
+        object? cacheWriteTokens,
+        object? totalCents,
+        object chargedCents)
+    {
+        Dictionary<string, object?> display = new()
+        {
+            ["timestamp"] = timestamp.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
+            ["model"] = "gpt-5.3-codex",
+            ["chargedCents"] = chargedCents,
+        };
+        if (totalCents != null)
+        {
+            display["tokenUsage"] = new Dictionary<string, object?>
+            {
+                ["inputTokens"] = inputTokens,
+                ["outputTokens"] = outputTokens,
+                ["cacheReadTokens"] = cacheReadTokens,
+                ["cacheWriteTokens"] = cacheWriteTokens,
+                ["totalCents"] = totalCents,
+            };
+        }
+
+        return display;
+    }
+
+    /// <summary>
+    /// Builds one Cursor event fixture with tokenUsage present and configurable totalCents presence.
+    /// </summary>
+    private static object CreateCursorTokenUsageEvent(
+        DateTimeOffset timestamp,
+        object inputTokens,
+        object outputTokens,
+        object cacheReadTokens,
+        object cacheWriteTokens,
+        bool includeTotalCents,
+        object? totalCents = null)
+    {
+        Dictionary<string, object?> tokenUsage = new()
+        {
+            ["inputTokens"] = inputTokens,
+            ["outputTokens"] = outputTokens,
+            ["cacheReadTokens"] = cacheReadTokens,
+            ["cacheWriteTokens"] = cacheWriteTokens,
+        };
+        if (includeTotalCents)
+        {
+            tokenUsage["totalCents"] = totalCents;
+        }
+
+        return new Dictionary<string, object?>
+        {
+            ["timestamp"] = timestamp.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
+            ["model"] = "gpt-test",
+            ["tokenUsage"] = tokenUsage,
+        };
+    }
+
+    /// <summary>
+    /// Creates a JSON HTTP response for one fake Cursor endpoint request.
+    /// </summary>
+    private static HttpResponseMessage JsonResponse(string body)
+    {
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
     }
 
     /// <summary>
@@ -1209,6 +1570,156 @@ internal sealed class CursorOAuthRefreshHttpMessageHandler : HttpMessageHandler
         }
 
         throw new InvalidOperationException($"unexpected Cursor request URI: {requestUri}");
+    }
+}
+
+internal sealed class CursorDashboardHttpMessageHandler : HttpMessageHandler
+{
+    private const string k_UsageEndpoint = "https://cursor.com/api/usage-summary";
+    private const string k_UsageEventsEndpoint = "https://cursor.com/api/dashboard/get-filtered-usage-events";
+    private const string k_TokenEndpoint = "https://api2.cursor.sh/oauth/token";
+    private readonly string m_UsageBody;
+    private readonly Func<int, HttpResponseMessage> m_UsageEventsResponse;
+    private readonly string? m_OldAccessToken;
+    private readonly string? m_NewAccessToken;
+    private readonly string? m_ExpectedRefreshToken;
+    private readonly HttpStatusCode m_UsageStatus;
+
+    public int RequestCount { get; private set; }
+
+    public int RefreshCount { get; private set; }
+
+    /// <summary>
+    /// Creates a handler for Cursor dashboard requests with optional forced OAuth refresh.
+    /// </summary>
+    public CursorDashboardHttpMessageHandler(
+        string usageBody,
+        Func<int, HttpResponseMessage> usageEventsResponse,
+        string? oldAccessToken = null,
+        string? newAccessToken = null,
+        string? expectedRefreshToken = null,
+        HttpStatusCode usageStatus = HttpStatusCode.OK)
+    {
+        m_UsageBody = usageBody;
+        m_UsageEventsResponse = usageEventsResponse;
+        m_OldAccessToken = oldAccessToken;
+        m_NewAccessToken = newAccessToken;
+        m_ExpectedRefreshToken = expectedRefreshToken;
+        m_UsageStatus = usageStatus;
+    }
+
+    /// <summary>
+    /// Handles Cursor dashboard, OAuth refresh, and usage-events paging requests.
+    /// </summary>
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+        if (requestUri == k_TokenEndpoint)
+        {
+            RefreshCount++;
+            if (m_NewAccessToken == null || m_ExpectedRefreshToken == null)
+            {
+                throw new InvalidOperationException("unexpected Cursor OAuth refresh");
+            }
+
+            string body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!body.Contains($"refresh_token={Uri.EscapeDataString(m_ExpectedRefreshToken)}", StringComparison.Ordinal) &&
+                !body.Contains($"refresh_token={m_ExpectedRefreshToken}", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("missing Cursor dashboard refresh token");
+            }
+
+            return CreateJsonResponse(JsonSerializer.Serialize(new
+            {
+                access_token = m_NewAccessToken,
+                refresh_token = "rotated-cursor-refresh",
+                expires_in = 3600,
+            }));
+        }
+
+        if (requestUri == k_UsageEndpoint)
+        {
+            if (ShouldRejectOldCookie(request))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            if (m_UsageStatus != HttpStatusCode.OK)
+            {
+                return new HttpResponseMessage(m_UsageStatus);
+            }
+
+            ValidateNewCookie(request);
+            return CreateJsonResponse(m_UsageBody);
+        }
+
+        if (requestUri == k_UsageEventsEndpoint)
+        {
+            if (ShouldRejectOldCookie(request))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            if (!request.Headers.TryGetValues("Origin", out IEnumerable<string>? origins) || origins.Single() != "https://cursor.com")
+            {
+                throw new InvalidOperationException("missing Cursor usage-events origin");
+            }
+
+            string body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using JsonDocument document = JsonDocument.Parse(body);
+            int page = document.RootElement.GetProperty("page").GetInt32();
+            if (document.RootElement.GetProperty("pageSize").GetInt32() != 1000 ||
+                document.RootElement.GetProperty("startDate").GetString() != "0" ||
+                !long.TryParse(document.RootElement.GetProperty("endDate").GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long endDate) ||
+                endDate <= 0 ||
+                request.Content?.Headers.ContentType?.MediaType != "application/json" ||
+                !request.Headers.Accept.Any(header => header.MediaType == "application/json"))
+            {
+                throw new InvalidOperationException("invalid Cursor usage-events pagination request");
+            }
+            ValidateNewCookie(request);
+            return m_UsageEventsResponse(page);
+        }
+
+        throw new InvalidOperationException($"unexpected Cursor dashboard request URI: {requestUri}");
+    }
+
+    /// <summary>
+    /// Returns whether the request still carries the initial access token.
+    /// </summary>
+    private bool ShouldRejectOldCookie(HttpRequestMessage request)
+    {
+        return m_OldAccessToken != null && request.Headers.TryGetValues("Cookie", out IEnumerable<string>? cookies) &&
+            string.Join(';', cookies).Contains(m_OldAccessToken, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that forced-refresh requests use the rotated access token.
+    /// </summary>
+    private void ValidateNewCookie(HttpRequestMessage request)
+    {
+        if (m_NewAccessToken == null)
+        {
+            return;
+        }
+
+        if (!request.Headers.TryGetValues("Cookie", out IEnumerable<string>? cookies) ||
+            !string.Join(';', cookies).Contains(m_NewAccessToken, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("missing refreshed Cursor dashboard cookie");
+        }
+    }
+
+    /// <summary>
+    /// Creates a successful JSON response for one fake Cursor dashboard request.
+    /// </summary>
+    private static HttpResponseMessage CreateJsonResponse(string body)
+    {
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
     }
 }
 

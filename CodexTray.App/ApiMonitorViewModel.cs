@@ -36,7 +36,6 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     public string[] ProviderOptions { get; } =
     [
         ApiMonitorSettings.DeepSeekProvider,
-        ApiMonitorSettings.CursorProvider,
         ApiMonitorSettings.GrokProvider,
         ApiMonitorSettings.NewApiProvider,
     ];
@@ -71,7 +70,6 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             {
                 ApiMonitorSettings.NewApiProvider => ApiMonitorSettings.NewApiProvider,
                 ApiMonitorSettings.GrokProvider => ApiMonitorSettings.GrokProvider,
-                ApiMonitorSettings.CursorProvider => ApiMonitorSettings.CursorProvider,
                 _ => ApiMonitorSettings.DeepSeekProvider,
             };
             string previousProvider = m_Provider;
@@ -92,7 +90,6 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
 
             OnPropertyChanged(nameof(IsNewApi));
             OnPropertyChanged(nameof(IsGrok));
-            OnPropertyChanged(nameof(IsCursor));
             OnPropertyChanged(nameof(IsLocalSessionAuth));
             OnPropertyChanged(nameof(HasSecondaryDisplay));
             OnPropertyChanged(nameof(PrimaryDisplayLabel));
@@ -157,15 +154,13 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
 
     public bool IsGrok => m_Provider == ApiMonitorSettings.GrokProvider;
 
-    public bool IsCursor => m_Provider == ApiMonitorSettings.CursorProvider;
+    public bool IsLocalSessionAuth => IsGrok;
 
-    public bool IsLocalSessionAuth => IsGrok || IsCursor;
-
-    public bool HasSecondaryDisplay => IsNewApi || IsGrok || IsCursor;
+    public bool HasSecondaryDisplay => IsNewApi || IsGrok;
 
     public string PrimaryDisplayLabel => "Balance:";
 
-    public string SecondaryDisplayLabel => IsGrok || IsCursor ? "Resets:" : "Used:";
+    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : "Used:";
 
     public string DisplayName => string.IsNullOrWhiteSpace(m_Name) ? m_Provider : m_Name.Trim();
 

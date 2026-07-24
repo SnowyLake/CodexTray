@@ -20,6 +20,7 @@ internal sealed class TrayController : IDisposable
     private readonly SettingsStore m_SettingsStore;
     private readonly CodexTrayCollector m_Collector;
     private readonly ApiUsageCollector m_ApiUsageCollector;
+    private readonly CursorUsageCollector m_CursorUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
     private readonly UsageCache m_UsageCache = new();
     private readonly Forms.NotifyIcon m_NotifyIcon;
@@ -46,6 +47,7 @@ internal sealed class TrayController : IDisposable
         m_SettingsStore = new SettingsStore();
         m_Collector = new CodexTrayCollector();
         m_ApiUsageCollector = new ApiUsageCollector();
+        m_CursorUsageCollector = new CursorUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
         m_AppIcon = LoadApplicationIcon();
         bool settingsExists = m_SettingsStore.Exists();
@@ -434,7 +436,11 @@ internal sealed class TrayController : IDisposable
             m_UsageCache.Update(response);
             RefreshPopupStatus();
             ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
-            IReadOnlyList<ApiUsageResult> apiUsage = await m_ApiUsageCollector.CollectAsync(apiMonitors, useAbsoluteResetTime).ConfigureAwait(true);
+            CursorUsageDashboard cursorDashboard = await m_CursorUsageCollector.CollectDashboardAsync().ConfigureAwait(true);
+            IReadOnlyList<ApiUsageResult> apiUsage = await m_ApiUsageCollector
+                .CollectAsync(apiMonitors, useAbsoluteResetTime)
+                .ConfigureAwait(true);
+            m_PopupViewModel?.UpdateCursorDashboard(cursorDashboard);
             m_PopupViewModel?.UpdateApiUsage(apiUsage);
             TokenCostStatistics? tokenCost;
             try

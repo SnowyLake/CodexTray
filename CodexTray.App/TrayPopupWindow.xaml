@@ -317,6 +317,28 @@
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
+            <Style x:Key="CursorTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0,0,4,0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                <Setter Property="FontSize" Value="16" />
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                    </Trigger>
+                    <Trigger Property="IsPressed" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                    </Trigger>
+                    <DataTrigger Binding="{Binding IsCursorSelected}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
 
             <!-- Quota progress bar -->
             <Style x:Key="QuotaProgressBarStyle" TargetType="{x:Type ProgressBar}">
@@ -743,6 +765,115 @@
 
             </Grid>
 
+            <!-- ===================== CURSOR ===================== -->
+            <Grid Grid.Row="0"
+                  Visibility="{Binding IsCursorVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Cursor"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="26"
+                                   FontWeight="Medium"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Command="{Binding RefreshCommand}"
+                                ToolTip="Refresh"
+                                Style="{StaticResource IconButtonStyle}">
+                            <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
+                        </Button>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal"
+                                Margin="2,6,0,0"
+                                VerticalAlignment="Center"
+                                ToolTip="{Binding CursorStatusTooltip}">
+                        <Ellipse Width="7"
+                                 Height="7"
+                                 Margin="0,0,6,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{Binding CursorStatusDotBrush}" />
+                        <TextBlock Text="{Binding CursorUpdatedAtDisplay}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="12" />
+                    </StackPanel>
+                </StackPanel>
+
+                <ScrollViewer Grid.Row="1"
+                              Margin="0,24,-8,0"
+                              Padding="0,0,8,0"
+                              VerticalScrollBarVisibility="Hidden">
+                    <StackPanel VerticalAlignment="Top">
+                        <TextBlock Text="Usage"
+                                   Style="{StaticResource HomeSectionHeaderStyle}" />
+
+                        <StackPanel Margin="0,0,0,20">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding CursorTotalQuota.Title}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" />
+                                <TextBlock Grid.Column="1" Text="{Binding CursorTotalQuota.PercentText}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="14" />
+                            </Grid>
+                            <ProgressBar Margin="0,9,0,0" Maximum="100" Value="{Binding CursorTotalQuota.RemainingPercent, Mode=OneWay}" Foreground="{Binding CursorTotalQuota.AccentBrush}" Style="{StaticResource QuotaProgressBarStyle}" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,5,0,0" Visibility="{Binding CursorTotalQuota.IsResetVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="&#xE823;" FontFamily="Segoe MDL2 Assets" Margin="0,0,4,0" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="10" />
+                                <TextBlock Text="{Binding CursorTotalQuota.ResetText}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="12" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Margin="0,0,0,20">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding CursorFirstPartyQuota.Title}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" />
+                                <TextBlock Grid.Column="1" Text="{Binding CursorFirstPartyQuota.PercentText}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="14" />
+                            </Grid>
+                            <ProgressBar Margin="0,9,0,0" Maximum="100" Value="{Binding CursorFirstPartyQuota.RemainingPercent, Mode=OneWay}" Foreground="{Binding CursorFirstPartyQuota.AccentBrush}" Style="{StaticResource QuotaProgressBarStyle}" />
+                        </StackPanel>
+
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding CursorApiQuota.Title}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" />
+                                <TextBlock Grid.Column="1" Text="{Binding CursorApiQuota.PercentText}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="14" />
+                            </Grid>
+                            <ProgressBar Margin="0,9,0,0" Maximum="100" Value="{Binding CursorApiQuota.RemainingPercent, Mode=OneWay}" Foreground="{Binding CursorApiQuota.AccentBrush}" Style="{StaticResource QuotaProgressBarStyle}" />
+                        </StackPanel>
+
+                        <TextBlock Text="Token Cost"
+                                   Style="{StaticResource HomeSectionHeaderSpacedStyle}"
+                                   Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Grid Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Today" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowTodayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowTodayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorTodayTokenCostDisplay.Cost" /><Binding Path="CursorTodayTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
+                            <TextBlock Grid.Row="1" Text="Yesterday" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowYesterdayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowYesterdayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorYesterdayTokenCostDisplay.Cost" /><Binding Path="CursorYesterdayTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
+                            <TextBlock Grid.Row="2" Text="Week" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowWeekTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowWeekTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorWeekTokenCostDisplay.Cost" /><Binding Path="CursorWeekTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
+                            <TextBlock Grid.Row="3" Text="Month" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowMonthTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowMonthTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorMonthTokenCostDisplay.Cost" /><Binding Path="CursorMonthTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
+                            <TextBlock Grid.Row="4" Text="Last 7 Days" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowSevenDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowSevenDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorSevenDayTokenCostDisplay.Cost" /><Binding Path="CursorSevenDayTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
+                            <TextBlock Grid.Row="5" Text="Last 30 Days" Margin="0,0,0,12" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" Visibility="{Binding ShowThirtyDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,0,0,12" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5" Visibility="{Binding ShowThirtyDayTokenCost, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorThirtyDayTokenCostDisplay.Cost" /><Binding Path="CursorThirtyDayTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
+                            <TextBlock Grid.Row="6" Text="Total" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="13.5" FontWeight="Medium" />
+                            <TextBlock Grid.Row="6" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="13.5"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="CursorTotalTokenCostDisplay.Cost" /><Binding Path="CursorTotalTokenCostDisplay.Tokens" /></MultiBinding></TextBlock.Text></TextBlock>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
             <!-- ===================== APIs ===================== -->
             <Grid Grid.Row="0"
                   Visibility="{Binding IsApiVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -968,14 +1099,6 @@
                                                               Style="{StaticResource SettingsComboBoxStyle}" />
                                                     <TextBlock Margin="0,8,0,0"
                                                                Text="Reads the local OAuth session. Tokens are not stored here."
-                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                               FontSize="12"
-                                                               TextWrapping="Wrap" />
-                                                </StackPanel>
-
-                                                <StackPanel Visibility="{Binding IsCursor, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                    <TextBlock Margin="0,12,0,0"
-                                                               Text="Reads the local Cursor IDE OAuth session from state.vscdb. Tokens are not stored here."
                                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                FontSize="12"
                                                                TextWrapping="Wrap" />
@@ -1532,6 +1655,10 @@
                             Content="&#xE80F;"
                             ToolTip="Home"
                             Style="{StaticResource HomeTabButtonStyle}" />
+                    <Button Command="{Binding ShowCursorCommand}"
+                            Content="&#xE8A5;"
+                            ToolTip="Cursor"
+                            Style="{StaticResource CursorTabButtonStyle}" />
                     <Button Command="{Binding ShowApiCommand}"
                             Content="&#xE774;"
                             ToolTip="APIs"

@@ -142,6 +142,7 @@ public sealed class AppSettings
         TokenUnit = NormalizeTokenUnit(TokenUnit);
         TokenCostItems &= TokenCostItem.All;
         ApiMonitors ??= [];
+        ApiMonitors.RemoveAll(monitor => string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase));
         HashSet<string> monitorIds = new(StringComparer.Ordinal);
         foreach (ApiMonitorSettings monitor in ApiMonitors)
         {

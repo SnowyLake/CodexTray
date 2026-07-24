@@ -46,6 +46,7 @@ internal sealed record InAppDialogRequest(
 internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 {
     private const string k_HomePageName = "Home";
+    private const string k_CursorPageName = "Cursor";
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
     private const string k_AboutPageName = "About";
@@ -83,6 +84,13 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private TokenCostDisplay m_SevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
     private TokenCostDisplay m_ThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
     private TokenCostDisplay m_TotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private TokenCostDisplay m_CursorTodayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private TokenCostDisplay m_CursorYesterdayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private TokenCostDisplay m_CursorWeekTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private TokenCostDisplay m_CursorMonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private TokenCostDisplay m_CursorSevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private TokenCostDisplay m_CursorThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private TokenCostDisplay m_CursorTotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
     private bool m_StartWithWindows;
     private bool m_AcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
     private int m_AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
@@ -97,6 +105,9 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private int m_ApiUsageErrorCount;
     private int m_ApiUsageMonitorCount;
     private DateTimeOffset? m_ApiUsageUpdatedAt;
+    private Media.Brush m_CursorStatusDotBrush = s_RedBrush;
+    private string m_CursorUpdatedAtDisplay = "Waiting for first refresh";
+    private string m_CursorStatusTooltip = string.Empty;
     private string m_InAppDialogTitle = string.Empty;
     private string m_InAppDialogMessage = string.Empty;
     private string m_InAppDialogPrimaryButtonText = "OK";
@@ -139,7 +150,15 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public QuotaViewModel SevenDayQuota { get; } = new("7-Day");
 
+    public QuotaViewModel CursorTotalQuota { get; } = new("Total");
+
+    public QuotaViewModel CursorFirstPartyQuota { get; } = new("First Party");
+
+    public QuotaViewModel CursorApiQuota { get; } = new("API");
+
     public ICommand ShowHomeCommand { get; }
+
+    public ICommand ShowCursorCommand { get; }
 
     public ICommand ShowApiCommand { get; }
 
@@ -485,6 +504,48 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         private set => SetField(ref m_TotalTokenCostDisplay, value);
     }
 
+    public TokenCostDisplay CursorTodayTokenCostDisplay
+    {
+        get => m_CursorTodayTokenCostDisplay;
+        private set => SetField(ref m_CursorTodayTokenCostDisplay, value);
+    }
+
+    public TokenCostDisplay CursorYesterdayTokenCostDisplay
+    {
+        get => m_CursorYesterdayTokenCostDisplay;
+        private set => SetField(ref m_CursorYesterdayTokenCostDisplay, value);
+    }
+
+    public TokenCostDisplay CursorWeekTokenCostDisplay
+    {
+        get => m_CursorWeekTokenCostDisplay;
+        private set => SetField(ref m_CursorWeekTokenCostDisplay, value);
+    }
+
+    public TokenCostDisplay CursorMonthTokenCostDisplay
+    {
+        get => m_CursorMonthTokenCostDisplay;
+        private set => SetField(ref m_CursorMonthTokenCostDisplay, value);
+    }
+
+    public TokenCostDisplay CursorSevenDayTokenCostDisplay
+    {
+        get => m_CursorSevenDayTokenCostDisplay;
+        private set => SetField(ref m_CursorSevenDayTokenCostDisplay, value);
+    }
+
+    public TokenCostDisplay CursorThirtyDayTokenCostDisplay
+    {
+        get => m_CursorThirtyDayTokenCostDisplay;
+        private set => SetField(ref m_CursorThirtyDayTokenCostDisplay, value);
+    }
+
+    public TokenCostDisplay CursorTotalTokenCostDisplay
+    {
+        get => m_CursorTotalTokenCostDisplay;
+        private set => SetField(ref m_CursorTotalTokenCostDisplay, value);
+    }
+
     public bool StartWithWindows
     {
         get => m_StartWithWindows;
@@ -555,6 +616,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public bool IsHomeVisible => m_CurrentPage == k_HomePageName;
 
+    public bool IsCursorVisible => m_CurrentPage == k_CursorPageName;
+
     public bool IsApiVisible => m_CurrentPage == k_ApiPageName;
 
     public bool IsSettingsVisible => m_CurrentPage == k_SettingsPageName;
@@ -562,6 +625,8 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public bool IsAboutVisible => m_CurrentPage == k_AboutPageName;
 
     public bool IsHomeSelected => m_CurrentPage == k_HomePageName;
+
+    public bool IsCursorSelected => m_CurrentPage == k_CursorPageName;
 
     public bool IsApiSelected => m_CurrentPage == k_ApiPageName;
 
@@ -603,6 +668,24 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
                 _ => $"{m_ApiUsageErrorCount} {errorLabel} Update Error",
             };
         }
+    }
+
+    public Media.Brush CursorStatusDotBrush
+    {
+        get => m_CursorStatusDotBrush;
+        private set => SetField(ref m_CursorStatusDotBrush, value);
+    }
+
+    public string CursorUpdatedAtDisplay
+    {
+        get => m_CursorUpdatedAtDisplay;
+        private set => SetField(ref m_CursorUpdatedAtDisplay, value);
+    }
+
+    public string CursorStatusTooltip
+    {
+        get => m_CursorStatusTooltip;
+        private set => SetField(ref m_CursorStatusTooltip, value);
     }
 
     public bool IsRefreshing
@@ -666,6 +749,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         LoadSettings(settings);
         LoadApiMonitors(settings.ApiMonitors);
         ShowHomeCommand = new RelayCommand(_ => ShowHome());
+        ShowCursorCommand = new RelayCommand(_ => ShowCursor());
         ShowApiCommand = new RelayCommand(_ => ShowApi());
         ShowSettingsCommand = new RelayCommand(_ => ShowSettings());
         ShowAboutCommand = new RelayCommand(_ => ShowAbout());
@@ -921,6 +1005,91 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Updates the Cursor page from one shared dashboard collection result.
+    /// </summary>
+    public void UpdateCursorDashboard(CursorUsageDashboard dashboard)
+    {
+        CursorUsageSnapshot? usage = dashboard.Usage;
+        bool usageAvailable = usage != null;
+        bool tokenCostAvailable = dashboard.TokenCost != null;
+        if (usage != null)
+        {
+            string reset = m_Settings.UseAbsoluteResetTime
+                ? CodexTrayCollector.FormatSevenDayResetDate(usage.ResetsAt, dashboard.UpdatedAt)
+                : CodexTrayCollector.FormatSevenDayResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
+            CursorTotalQuota.UpdateCursorUsage(usage.TotalUsedPercent, reset, showReset: true);
+            CursorFirstPartyQuota.UpdateCursorUsage(usage.FirstPartyUsedPercent, string.Empty, showReset: false);
+            CursorApiQuota.UpdateCursorUsage(usage.ApiUsedPercent, string.Empty, showReset: false);
+        }
+        else
+        {
+            CursorTotalQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
+            CursorFirstPartyQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
+            CursorApiQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
+        }
+
+        UpdateCursorTokenCost(dashboard.TokenCost);
+        CursorStatusDotBrush = usageAvailable && tokenCostAvailable
+            ? s_GreenBrush
+            : usageAvailable || tokenCostAvailable
+                ? s_YellowBrush
+                : s_RedBrush;
+        CursorUpdatedAtDisplay = usageAvailable && tokenCostAvailable
+            ? FormatUpdatedAt(dashboard.UpdatedAt.ToString("O", CultureInfo.InvariantCulture))
+            : usageAvailable
+                ? "Usage updated, Token Cost N/A"
+                : tokenCostAvailable
+                    ? "Token Cost updated, Usage N/A"
+                    : "Update error";
+        CursorStatusTooltip = FormatCursorStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
+    }
+
+    /// <summary>
+    /// Updates Cursor token-cost rows or clears every row after an incomplete events refresh.
+    /// </summary>
+    private void UpdateCursorTokenCost(TokenCostStatistics? statistics)
+    {
+        if (statistics == null)
+        {
+            CursorTodayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+            CursorYesterdayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+            CursorWeekTokenCostDisplay = s_UnavailableTokenCostDisplay;
+            CursorMonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
+            CursorSevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+            CursorThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+            CursorTotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
+            return;
+        }
+
+        CursorTodayTokenCostDisplay = FormatTokenCost(statistics.Today);
+        CursorYesterdayTokenCostDisplay = FormatTokenCost(statistics.Yesterday);
+        CursorWeekTokenCostDisplay = FormatTokenCost(statistics.Week);
+        CursorMonthTokenCostDisplay = FormatTokenCost(statistics.Month);
+        CursorSevenDayTokenCostDisplay = FormatTokenCost(statistics.SevenDay);
+        CursorThirtyDayTokenCostDisplay = FormatTokenCost(statistics.ThirtyDay);
+        CursorTotalTokenCostDisplay = FormatTokenCost(statistics.Total);
+    }
+
+    /// <summary>
+    /// Combines sanitized Cursor endpoint errors for the status tooltip.
+    /// </summary>
+    private static string FormatCursorStatusTooltip(CursorUsageDashboard dashboard, bool usageAvailable, bool tokenCostAvailable)
+    {
+        List<string> errors = [];
+        if (!usageAvailable && dashboard.UsageError.Length > 0)
+        {
+            errors.Add($"Usage: {dashboard.UsageError}");
+        }
+
+        if (!tokenCostAvailable && dashboard.TokenCostError.Length > 0)
+        {
+            errors.Add($"Token Cost: {dashboard.TokenCostError}");
+        }
+
+        return string.Join(Environment.NewLine, errors);
+    }
+
+    /// <summary>
     /// Formats one token cost period for display.
     /// </summary>
     private TokenCostDisplay FormatTokenCost(TokenCostSummary summary)
@@ -946,6 +1115,14 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public void ShowHome()
     {
         SetPage(k_HomePageName);
+    }
+
+    /// <summary>
+    /// Shows the Cursor dashboard page inside the tray popup.
+    /// </summary>
+    public void ShowCursor()
+    {
+        SetPage(k_CursorPageName);
     }
 
     /// <summary>
@@ -989,10 +1166,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
         m_CurrentPage = pageName;
         OnPropertyChanged(nameof(IsHomeVisible));
+        OnPropertyChanged(nameof(IsCursorVisible));
         OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsAboutVisible));
         OnPropertyChanged(nameof(IsHomeSelected));
+        OnPropertyChanged(nameof(IsCursorSelected));
         OnPropertyChanged(nameof(IsApiSelected));
         OnPropertyChanged(nameof(IsSettingsSelected));
     }
@@ -1498,6 +1677,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         private string m_ResetText = "unknown";
         private Media.Brush m_AccentBrush = s_RedBrush;
         private bool m_IsVisible = true;
+        private bool m_IsResetVisible = true;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -1537,6 +1717,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             private set => SetField(ref m_IsVisible, value);
         }
 
+        public bool IsResetVisible
+        {
+            get => m_IsResetVisible;
+            private set => SetField(ref m_IsResetVisible, value);
+        }
+
         /// <summary>
         /// Creates a quota display model.
         /// </summary>
@@ -1557,24 +1743,43 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
                 return;
             }
 
-            int remaining = Math.Max(0, Math.Min(100, limit.RemainingPercent));
-            RemainingPercent = remaining;
-            PercentText = $"{remaining}%";
-            ResetText = string.IsNullOrWhiteSpace(limit.ResetLabel) ? "unknown" : limit.ResetLabel;
-            AccentBrush = GetAccentBrush(remaining);
-            IsVisible = true;
+            UpdateRemaining(limit.RemainingPercent, limit.ResetLabel, showReset: true);
+        }
+
+        /// <summary>
+        /// Updates the quota display from Cursor used-percent data.
+        /// </summary>
+        public void UpdateCursorUsage(double usedPercent, string resetText, bool showReset)
+        {
+            int remaining = (int)Math.Round(Math.Clamp(100 - usedPercent, 0, 100), MidpointRounding.AwayFromZero);
+            UpdateRemaining(remaining, resetText, showReset);
         }
 
         /// <summary>
         /// Updates the quota display for a failed or unauthorized response.
         /// </summary>
-        public void UpdateUnavailable()
+        public void UpdateUnavailable(bool showReset = true, string unavailableResetText = "unknown")
         {
             RemainingPercent = 0;
             PercentText = "N/A";
-            ResetText = "unknown";
+            ResetText = unavailableResetText;
             AccentBrush = s_RedBrush;
             IsVisible = true;
+            IsResetVisible = showReset;
+        }
+
+        /// <summary>
+        /// Applies one remaining percentage and optional reset label to the quota display.
+        /// </summary>
+        private void UpdateRemaining(int remainingPercent, string resetText, bool showReset)
+        {
+            int remaining = Math.Max(0, Math.Min(100, remainingPercent));
+            RemainingPercent = remaining;
+            PercentText = $"{remaining}%";
+            ResetText = string.IsNullOrWhiteSpace(resetText) ? "unknown" : resetText;
+            AccentBrush = GetAccentBrush(remaining);
+            IsVisible = true;
+            IsResetVisible = showReset;
         }
 
         /// <summary>

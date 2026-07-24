@@ -34,7 +34,6 @@ public sealed class ApiUsageCollector
 
     private readonly HttpClient m_HttpClient;
     private readonly GrokUsageCollector m_GrokUsageCollector;
-    private readonly CursorUsageCollector m_CursorUsageCollector;
 
     /// <summary>
     /// Creates an API usage collector with the shared HTTP client.
@@ -51,7 +50,6 @@ public sealed class ApiUsageCollector
     {
         m_HttpClient = httpClient;
         m_GrokUsageCollector = new GrokUsageCollector(httpClient);
-        m_CursorUsageCollector = new CursorUsageCollector(httpClient);
     }
 
     /// <summary>
@@ -93,7 +91,10 @@ public sealed class ApiUsageCollector
     /// <summary>
     /// Queries every configured API monitor in parallel.
     /// </summary>
-    public async Task<IReadOnlyList<ApiUsageResult>> CollectAsync(IEnumerable<ApiMonitorSettings> monitors, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ApiUsageResult>> CollectAsync(
+        IEnumerable<ApiMonitorSettings> monitors,
+        bool useAbsoluteResetTime = false,
+        CancellationToken cancellationToken = default)
     {
         Task<ApiUsageResult>[] queries = monitors.Select(monitor => CollectOneAsync(monitor, useAbsoluteResetTime, cancellationToken)).ToArray();
         return await Task.WhenAll(queries).ConfigureAwait(false);
@@ -108,11 +109,6 @@ public sealed class ApiUsageCollector
         if (monitor.Provider == ApiMonitorSettings.GrokProvider)
         {
             return await CollectGrokAsync(monitor, now, useAbsoluteResetTime, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (monitor.Provider == ApiMonitorSettings.CursorProvider)
-        {
-            return await CollectCursorAsync(monitor, now, useAbsoluteResetTime, cancellationToken).ConfigureAwait(false);
         }
 
         if (monitor.ApiKey.Length == 0)
@@ -177,36 +173,6 @@ public sealed class ApiUsageCollector
                     : CodexTrayCollector.FormatSevenDayResetLabel(snapshot.ResetsAt, now),
                 string.Empty,
                 now);
-        }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
-        {
-            return Unavailable(monitor.Id, exception is TaskCanceledException ? "Request timed out" : exception.Message, now);
-        }
-    }
-
-    /// <summary>
-    /// Queries Cursor usage with the locally stored IDE OAuth session.
-    /// </summary>
-    private async Task<ApiUsageResult> CollectCursorAsync(ApiMonitorSettings monitor, DateTimeOffset now, bool useAbsoluteResetTime, CancellationToken cancellationToken)
-    {
-        try
-        {
-            CursorUsageSnapshot snapshot = await m_CursorUsageCollector
-                .CollectAsync(cancellationToken)
-                .ConfigureAwait(false);
-            string total = FormatRemainingPercent(snapshot.TotalUsedPercent);
-            string firstParty = FormatRemainingPercent(snapshot.FirstPartyUsedPercent);
-            string api = FormatRemainingPercent(snapshot.ApiUsedPercent);
-            return new ApiUsageResult(
-                monitor.Id,
-                true,
-                $"{total} · {firstParty} · {api}",
-                useAbsoluteResetTime
-                    ? CodexTrayCollector.FormatSevenDayResetDate(snapshot.ResetsAt, now)
-                    : CodexTrayCollector.FormatSevenDayResetLabel(snapshot.ResetsAt, now),
-                string.Empty,
-                now,
-                $"Total: {total}\nFirstParty: {firstParty}\nAPI: {api}");
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {
