@@ -1236,6 +1236,49 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
+                            <TextBlock Text="Visible pages"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <Button Grid.Column="1"
+                                    Height="34"
+                                    HorizontalAlignment="Stretch"
+                                    Padding="11,0"
+                                    HorizontalContentAlignment="Stretch"
+                                    Click="OpenTokenCostItemsMenu">
+                                <Grid>
+                                    <TextBlock Text="{Binding VisiblePagesDisplay}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="&#xE70D;"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Center"
+                                               FontFamily="Segoe MDL2 Assets"
+                                               FontSize="12" />
+                                </Grid>
+                                <Button.ContextMenu>
+                                    <ContextMenu MinWidth="140"
+                                                 Placement="Bottom"
+                                                 DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                        <MenuItem Header="Codex"
+                                                  IsCheckable="True"
+                                                  IsChecked="{Binding ShowCodexPage, Mode=TwoWay}"
+                                                  StaysOpenOnClick="True" />
+                                        <MenuItem Header="Cursor"
+                                                  IsCheckable="True"
+                                                  IsChecked="{Binding ShowCursorPage, Mode=TwoWay}"
+                                                  StaysOpenOnClick="True" />
+                                        <MenuItem Header="APIs"
+                                                  IsCheckable="True"
+                                                  IsChecked="{Binding ShowApisPage, Mode=TwoWay}"
+                                                  StaysOpenOnClick="True" />
+                                    </ContextMenu>
+                                </Button.ContextMenu>
+                            </Button>
+                        </Grid>
+
+                        <Grid Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="140" />
+                            </Grid.ColumnDefinitions>
                             <TextBlock Text="Start with Windows"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
@@ -1738,6 +1781,7 @@
                             HorizontalAlignment="Right">
                     <Button Command="{Binding ShowHomeCommand}"
                             ToolTip="Codex"
+                            Visibility="{Binding IsCodexTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource HomeTabButtonStyle}">
                         <Path Width="18"
                               Height="18"
@@ -1747,6 +1791,7 @@
                     </Button>
                     <Button Command="{Binding ShowCursorCommand}"
                             ToolTip="Cursor"
+                            Visibility="{Binding IsCursorTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource CursorTabButtonStyle}">
                         <Path Width="18"
                               Height="18"
@@ -1757,6 +1802,7 @@
                     <Button Command="{Binding ShowApiCommand}"
                             Content="&#xE774;"
                             ToolTip="APIs"
+                            Visibility="{Binding IsApiTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource ApiTabButtonStyle}" />
                     <Button Command="{Binding ShowSettingsCommand}"
                             Content="&#xE713;"

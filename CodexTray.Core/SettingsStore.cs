@@ -15,6 +15,16 @@ public enum TokenCostItem
     All = Today | Yesterday | Week | Month | SevenDay | ThirtyDay,
 }
 
+[Flags]
+public enum PageItem
+{
+    None = 0,
+    Codex = 1 << 0,
+    Cursor = 1 << 1,
+    Apis = 1 << 2,
+    All = Codex | Cursor | Apis,
+}
+
 public sealed class ApiMonitorSettings
 {
     public const string DeepSeekProvider = "DeepSeek";
@@ -96,6 +106,8 @@ public sealed class AppSettings
 
     public int RefreshIntervalMinutes { get; set; } = CodexTrayDefaults.RefreshIntervalMinutes;
 
+    public PageItem VisiblePages { get; set; } = PageItem.All;
+
     public bool StartWithWindows { get; set; }
 
     public string ThemeMode { get; set; } = ThemeModeSystem;
@@ -159,6 +171,7 @@ public sealed class AppSettings
         ThemeMode = NormalizeThemeMode(ThemeMode);
         TokenUnit = NormalizeTokenUnit(TokenUnit);
         TokenCostItems &= TokenCostItem.All;
+        VisiblePages &= PageItem.All;
         ApiMonitors ??= [];
         ApiMonitors.RemoveAll(monitor => string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase));
         HashSet<string> monitorIds = new(StringComparer.Ordinal);

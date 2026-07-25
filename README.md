@@ -58,7 +58,7 @@
 - Home 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
 - Cursor 页: 查看 Total, First Party, APIs 额度和实际账单 Token Cost.
 - APIs 页: 添加和查看 DeepSeek, NewAPI 或 Grok 监控卡片.
-- Settings 页: 调整刷新, 显示, 窗口尺寸, 自启动, 插件目录和 HTTP 端口设置.
+- Settings 页: 调整可见页面, 刷新, 显示, 窗口尺寸, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Cursor 和 APIs 入口并停止对应后台采集, 隐藏 Codex 时还会停止本地 HTTP 服务.
 
 再次运行 `CodexTray.exe` 不会启动第二个实例, 而是通知已有实例打开主面板.
 

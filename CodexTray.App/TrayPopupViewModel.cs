@@ -92,6 +92,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private TokenCostDisplay m_CursorSevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
     private TokenCostDisplay m_CursorThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
     private TokenCostDisplay m_CursorTotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private PageItem m_VisiblePages = PageItem.All;
     private bool m_StartWithWindows;
     private bool m_AcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
     private int m_AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
@@ -130,6 +131,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_SnapshotThemeMode = AppSettings.ThemeModeSystem;
     private string m_SnapshotTokenUnit = AppSettings.TokenUnitEnglish;
     private TokenCostItem m_SnapshotTokenCostItems = TokenCostItem.All;
+    private PageItem m_SnapshotVisiblePages = PageItem.All;
     private bool m_SnapshotStartWithWindows;
     private bool m_SnapshotAcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
     private int m_SnapshotAcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
@@ -561,6 +563,50 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         private set => SetField(ref m_CursorTotalTokenCostDisplay, value);
     }
 
+    public PageItem VisiblePages
+    {
+        get => m_VisiblePages;
+        set
+        {
+            if (SetField(ref m_VisiblePages, value & PageItem.All))
+            {
+                OnPropertyChanged(nameof(VisiblePagesDisplay));
+                OnPropertyChanged(nameof(IsCodexTabVisible));
+                OnPropertyChanged(nameof(IsCursorTabVisible));
+                OnPropertyChanged(nameof(IsApiTabVisible));
+                OnPropertyChanged(nameof(ShowCodexPage));
+                OnPropertyChanged(nameof(ShowCursorPage));
+                OnPropertyChanged(nameof(ShowApisPage));
+                EvaluateDirtyState();
+            }
+        }
+    }
+
+    public string VisiblePagesDisplay => m_VisiblePages switch
+    {
+        PageItem.None => "None",
+        PageItem.All => "All",
+        _ => "Custom",
+    };
+
+    public bool ShowCodexPage
+    {
+        get => (m_VisiblePages & PageItem.Codex) != 0;
+        set => SetPageItem(PageItem.Codex, value);
+    }
+
+    public bool ShowCursorPage
+    {
+        get => (m_VisiblePages & PageItem.Cursor) != 0;
+        set => SetPageItem(PageItem.Cursor, value);
+    }
+
+    public bool ShowApisPage
+    {
+        get => (m_VisiblePages & PageItem.Apis) != 0;
+        set => SetPageItem(PageItem.Apis, value);
+    }
+
     public bool StartWithWindows
     {
         get => m_StartWithWindows;
@@ -685,6 +731,12 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public bool IsApiSelected => m_CurrentPage == k_ApiPageName;
 
     public bool IsSettingsSelected => m_CurrentPage == k_SettingsPageName;
+
+    public bool IsCodexTabVisible => (m_VisiblePages & PageItem.Codex) != 0;
+
+    public bool IsCursorTabVisible => (m_VisiblePages & PageItem.Cursor) != 0;
+
+    public bool IsApiTabVisible => (m_VisiblePages & PageItem.Apis) != 0;
 
     public string AppVersion => typeof(TrayPopupViewModel).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
@@ -812,6 +864,13 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public TrayPopupViewModel(AppSettings settings)
     {
         m_Settings = settings;
+        m_CurrentPage = (settings.VisiblePages & PageItem.Codex) != 0
+            ? k_HomePageName
+            : (settings.VisiblePages & PageItem.Cursor) != 0
+                ? k_CursorPageName
+                : (settings.VisiblePages & PageItem.Apis) != 0
+                    ? k_ApiPageName
+                    : k_SettingsPageName;
         LoadSettings(settings);
         LoadApiMonitors(settings.ApiMonitors);
         ShowHomeCommand = new RelayCommand(_ => ShowHome());
@@ -852,6 +911,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             ThemeMode = settings.ThemeMode;
             TokenUnit = settings.TokenUnit;
             TokenCostItems = settings.TokenCostItems;
+            VisiblePages = settings.VisiblePages;
             StartWithWindows = settings.StartWithWindows;
             AcrylicEnabled = settings.AcrylicEnabled;
             AcrylicOpacityPercent = settings.AcrylicOpacityPercent;
@@ -881,6 +941,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         m_SnapshotThemeMode = m_ThemeMode;
         m_SnapshotTokenUnit = m_TokenUnit;
         m_SnapshotTokenCostItems = m_TokenCostItems;
+        m_SnapshotVisiblePages = m_VisiblePages;
         m_SnapshotStartWithWindows = m_StartWithWindows;
         m_SnapshotAcrylicEnabled = m_AcrylicEnabled;
         m_SnapshotAcrylicOpacityPercent = m_AcrylicOpacityPercent;
@@ -911,6 +972,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             m_ThemeMode == m_SnapshotThemeMode &&
             m_TokenUnit == m_SnapshotTokenUnit &&
             m_TokenCostItems == m_SnapshotTokenCostItems &&
+            m_VisiblePages == m_SnapshotVisiblePages &&
             m_StartWithWindows == m_SnapshotStartWithWindows &&
             m_AcrylicEnabled == m_SnapshotAcrylicEnabled &&
             m_AcrylicOpacityPercent == m_SnapshotAcrylicOpacityPercent &&
@@ -967,6 +1029,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         m_Settings.ThemeMode = ThemeMode;
         m_Settings.TokenUnit = TokenUnit;
         m_Settings.TokenCostItems = TokenCostItems;
+        m_Settings.VisiblePages = VisiblePages;
         m_Settings.AcrylicEnabled = AcrylicEnabled;
         m_Settings.AcrylicOpacityPercent = AcrylicOpacityPercent;
         m_Settings.WindowWidth = windowWidth;
@@ -987,6 +1050,16 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         TokenCostItems = isShown
             ? m_TokenCostItems | item
             : m_TokenCostItems & ~item;
+    }
+
+    /// <summary>
+    /// Adds or removes one page from the current selection.
+    /// </summary>
+    private void SetPageItem(PageItem item, bool isShown)
+    {
+        VisiblePages = isShown
+            ? m_VisiblePages | item
+            : m_VisiblePages & ~item;
     }
 
     /// <summary>

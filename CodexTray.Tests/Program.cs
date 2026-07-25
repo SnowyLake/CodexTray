@@ -370,6 +370,7 @@ internal static class Program
         {
             Port = 17997,
             RefreshIntervalMinutes = 7,
+            VisiblePages = PageItem.Cursor | PageItem.Apis,
         };
 
         store.Save(settings);
@@ -379,6 +380,7 @@ internal static class Program
         AssertTrue(File.Exists(expectedPath), "settings file should exist beside executable");
         AssertTrue(!Directory.Exists(Path.Combine(temp.Path, "CodexTray")), "settings directory should not exist");
         AssertEqual(17997, store.Load().Port, "saved settings port");
+        AssertEqual(PageItem.Cursor | PageItem.Apis, store.Load().VisiblePages, "saved visible pages");
         return Task.CompletedTask;
     }
 
@@ -397,6 +399,7 @@ internal static class Program
         AssertEqual(string.Empty, settings.LiteMonitorDir, "default LiteMonitor path");
         AssertEqual(string.Empty, settings.TrafficMonitorDir, "default TrafficMonitor path");
         AssertEqual(CodexTrayDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
+        AssertEqual(PageItem.All, settings.VisiblePages, "default visible pages");
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
         AssertEqual(TokenCostItem.All, settings.TokenCostItems, "default token cost items");
@@ -409,6 +412,7 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.LiteMonitorDir), out _), "repaired settings should include LiteMonitor path");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TrafficMonitorDir), out _), "repaired settings should include TrafficMonitor path");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.RefreshIntervalMinutes), out _), "repaired settings should include refresh interval");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.VisiblePages), out _), "repaired settings should include visible pages");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenCostItems), out _), "repaired settings should include token cost items");
@@ -431,6 +435,7 @@ internal static class Program
             ThemeMode = "unexpected",
             TokenUnit = AppSettings.TokenUnitChinese,
             TokenCostItems = TokenCostItem.Today | (TokenCostItem)(1 << 10),
+            VisiblePages = PageItem.Cursor | (PageItem)(1 << 10),
             WindowWidth = 100,
             WindowHeight = 9999,
         };
@@ -442,6 +447,7 @@ internal static class Program
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "Chinese token unit");
         AssertEqual(TokenCostItem.Today, settings.TokenCostItems, "supported token cost items");
+        AssertEqual(PageItem.Cursor, settings.VisiblePages, "supported visible pages");
         AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
         AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
         settings.TokenUnit = "M/B";
