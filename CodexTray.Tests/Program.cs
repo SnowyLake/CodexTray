@@ -654,7 +654,7 @@ internal static class Program
 
         AssertEqual("pro_plus", snapshot.PlanType, "Cursor plan type");
         AssertEqual(10, snapshot.TotalUsedPercent, "Cursor total used percentage");
-        AssertEqual(12, snapshot.FirstPartyUsedPercent, "Cursor first-party used percentage");
+        AssertEqual(12, snapshot.AutoUsedPercent, "Cursor first-party used percentage");
         AssertEqual(0, snapshot.ApiUsedPercent, "Cursor API used percentage");
         AssertEqual(resetAt, snapshot.ResetsAt, "Cursor reset timestamp");
         return Task.CompletedTask;
@@ -686,7 +686,7 @@ internal static class Program
             CursorUsageSnapshot snapshot = await collector.CollectAsync();
 
             AssertEqual(12.5, snapshot.TotalUsedPercent, "refreshed Cursor total used percentage");
-            AssertEqual(20, snapshot.FirstPartyUsedPercent, "refreshed Cursor first-party used percentage");
+            AssertEqual(20, snapshot.AutoUsedPercent, "refreshed Cursor first-party used percentage");
             AssertEqual(5, snapshot.ApiUsedPercent, "refreshed Cursor API used percentage");
             AssertEqual(1_802_592_000, snapshot.ResetsAt, "refreshed Cursor reset timestamp");
 
