@@ -1179,18 +1179,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     private TokenCostDisplay FormatTokenCost(TokenCostSummary summary)
     {
         string cost = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-        return new TokenCostDisplay(cost, FormatTokens(summary.TotalTokens, m_Settings.TokenUnit));
-    }
-
-    /// <summary>
-    /// Formats token counts using the selected compact unit family.
-    /// </summary>
-    private static string FormatTokens(long tokens, string tokenUnit)
-    {
-        (decimal divisor, string suffix) = tokenUnit == AppSettings.TokenUnitChinese
-            ? tokens >= 100_000_000 ? (100_000_000m, "亿") : (10_000m, "万")
-            : tokens >= 1_000_000_000 ? (1_000_000_000m, "B") : (1_000_000m, "M");
-        return $"{tokens / divisor:0.00}{suffix}";
+        return new TokenCostDisplay(cost, AppSettings.FormatTokenCount(summary.TotalTokens, m_Settings.TokenUnit));
     }
 
     /// <summary>

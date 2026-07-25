@@ -133,6 +133,19 @@ public sealed class AppSettings
     public List<ApiMonitorSettings> ApiMonitors { get; set; } = [];
 
     /// <summary>
+    /// Formats a token count using the selected compact unit family.
+    /// </summary>
+    public static string FormatTokenCount(long tokens, string tokenUnit)
+    {
+        (decimal divisor, string suffix) = tokenUnit == TokenUnitChinese
+            ? tokens >= 100_000_000 ? (100_000_000m, "亿") : (10_000m, "万")
+            : tokens >= 1_000_000_000 ? (1_000_000_000m, "B")
+            : tokens >= 1_000_000 ? (1_000_000m, "M")
+            : (1_000m, "K");
+        return $"{tokens / divisor:0.00}{suffix}";
+    }
+
+    /// <summary>
     /// Creates a normalized copy of settings values.
     /// </summary>
     public AppSettings Normalize()

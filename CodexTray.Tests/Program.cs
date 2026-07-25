@@ -38,6 +38,7 @@ internal static class Program
         await RunAsync("repairs missing settings fields", TestSettingsStoreRepairsMissingFieldsAsync);
         await RunAsync("repairs null and malformed settings", TestSettingsStoreRepairsNullAndMalformedValuesAsync);
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
+        await RunAsync("formats compact token units", TestTokenUnitFormattingAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
         await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
         await RunAsync("parses Grok billing protobuf", TestGrokUsageCollectorAsync);
@@ -514,6 +515,18 @@ internal static class Program
         settings.TokenUnit = "万/亿";
         settings.Normalize();
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "legacy Chinese token unit");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests compact token unit thresholds.
+    /// </summary>
+    private static Task TestTokenUnitFormattingAsync()
+    {
+        AssertEqual("999.00K", AppSettings.FormatTokenCount(999_000, AppSettings.TokenUnitEnglish), "English K unit");
+        AssertEqual("1.00M", AppSettings.FormatTokenCount(1_000_000, AppSettings.TokenUnitEnglish), "English M lower boundary");
+        AssertEqual("999.00M", AppSettings.FormatTokenCount(999_000_000, AppSettings.TokenUnitEnglish), "English M upper range");
+        AssertEqual("1.00B", AppSettings.FormatTokenCount(1_000_000_000, AppSettings.TokenUnitEnglish), "English B boundary");
         return Task.CompletedTask;
     }
 
