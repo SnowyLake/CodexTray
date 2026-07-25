@@ -42,7 +42,7 @@ internal sealed record InAppDialogRequest(
 
 internal sealed class TrayPopupViewModel : ObservableObject
 {
-    private const string k_HomePageName = "Home";
+    private const string k_CodexPageName = "Codex";
     private const string k_CursorPageName = "Cursor";
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
@@ -57,7 +57,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     private static readonly TokenCostDisplay s_UnavailableTokenCostDisplay = new("N/A", "N/A");
 
     private readonly AppSettings m_Settings;
-    private string m_CurrentPage = k_HomePageName;
+    private string m_CurrentPage = k_CodexPageName;
     private string m_PlanDisplay = "UNKNOWN";
     private Media.Brush m_PlanBadgeBrush = s_PlanBadgeInactiveBrush;
     private Media.Brush m_StatusDotBrush = s_RedBrush;
@@ -152,7 +152,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
 
     public IReadOnlyList<TokenCostRowViewModel> CursorTokenCostRows { get; } = CreateTokenCostRows();
 
-    public ICommand ShowHomeCommand { get; }
+    public ICommand ShowCodexCommand { get; }
 
     public ICommand ShowCursorCommand { get; }
 
@@ -616,7 +616,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
 
     public int AcrylicOpacityMaximum => CodexTrayDefaults.MaximumAcrylicOpacityPercent;
 
-    public bool IsHomeVisible => m_CurrentPage == k_HomePageName;
+    public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
 
     public bool IsCursorVisible => m_CurrentPage == k_CursorPageName;
 
@@ -626,7 +626,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
 
     public bool IsAboutVisible => m_CurrentPage == k_AboutPageName;
 
-    public bool IsHomeSelected => m_CurrentPage == k_HomePageName;
+    public bool IsCodexSelected => m_CurrentPage == k_CodexPageName;
 
     public bool IsCursorSelected => m_CurrentPage == k_CursorPageName;
 
@@ -767,7 +767,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     {
         m_Settings = settings;
         m_CurrentPage = (settings.VisiblePages & PageItem.Codex) != 0
-            ? k_HomePageName
+            ? k_CodexPageName
             : (settings.VisiblePages & PageItem.Cursor) != 0
                 ? k_CursorPageName
                 : (settings.VisiblePages & PageItem.Apis) != 0
@@ -775,7 +775,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
                     : k_SettingsPageName;
         LoadSettings(settings);
         LoadApiMonitors(settings.ApiMonitors);
-        ShowHomeCommand = new RelayCommand(_ => ShowHome());
+        ShowCodexCommand = new RelayCommand(_ => ShowCodex());
         ShowCursorCommand = new RelayCommand(_ => ShowCursor());
         ShowApiCommand = new RelayCommand(_ => ShowApi());
         ShowSettingsCommand = new RelayCommand(_ => ShowSettings());
@@ -1183,11 +1183,11 @@ internal sealed class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Shows the home page inside the tray popup.
+    /// Shows the Codex dashboard page inside the tray popup.
     /// </summary>
-    public void ShowHome()
+    public void ShowCodex()
     {
-        SetPage(k_HomePageName);
+        SetPage(k_CodexPageName);
     }
 
     /// <summary>
@@ -1238,12 +1238,12 @@ internal sealed class TrayPopupViewModel : ObservableObject
         }
 
         m_CurrentPage = pageName;
-        OnPropertyChanged(nameof(IsHomeVisible));
+        OnPropertyChanged(nameof(IsCodexVisible));
         OnPropertyChanged(nameof(IsCursorVisible));
         OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsAboutVisible));
-        OnPropertyChanged(nameof(IsHomeSelected));
+        OnPropertyChanged(nameof(IsCodexSelected));
         OnPropertyChanged(nameof(IsCursorSelected));
         OnPropertyChanged(nameof(IsApiSelected));
         OnPropertyChanged(nameof(IsSettingsSelected));

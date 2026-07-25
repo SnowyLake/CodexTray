@@ -149,21 +149,21 @@
                 </Setter>
             </Style>
 
-            <!-- ============ Home ============ -->
-            <Thickness x:Key="HomeSectionHeaderMargin">0,0,0,12</Thickness>
-            <Thickness x:Key="HomeSectionHeaderSpacedMargin">0,22,0,10</Thickness>
+            <!-- ============ Shared page sections ============ -->
+            <Thickness x:Key="SectionHeaderMargin">0,0,0,12</Thickness>
+            <Thickness x:Key="SectionHeaderSpacedMargin">0,22,0,10</Thickness>
 
-            <Style x:Key="HomeSectionHeaderStyle" TargetType="{x:Type TextBlock}">
+            <Style x:Key="SectionHeaderStyle" TargetType="{x:Type TextBlock}">
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
                 <Setter Property="FontSize" Value="12" />
                 <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="Margin" Value="{StaticResource HomeSectionHeaderMargin}" />
+                <Setter Property="Margin" Value="{StaticResource SectionHeaderMargin}" />
             </Style>
 
-            <Style x:Key="HomeSectionHeaderSpacedStyle"
-                   BasedOn="{StaticResource HomeSectionHeaderStyle}"
+            <Style x:Key="SectionHeaderSpacedStyle"
+                   BasedOn="{StaticResource SectionHeaderStyle}"
                    TargetType="{x:Type TextBlock}">
-                <Setter Property="Margin" Value="{StaticResource HomeSectionHeaderSpacedMargin}" />
+                <Setter Property="Margin" Value="{StaticResource SectionHeaderSpacedMargin}" />
             </Style>
 
             <!-- ============ Settings: native Fluent controls ============ -->
@@ -254,7 +254,7 @@
                     </Setter.Value>
                 </Setter>
             </Style>
-            <Style x:Key="HomeTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+            <Style x:Key="CodexTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
                 <Setter Property="MinWidth" Value="0" />
                 <Setter Property="Width" Value="36" />
                 <Setter Property="Height" Value="36" />
@@ -271,7 +271,7 @@
                     <Trigger Property="IsPressed" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </Trigger>
-                    <DataTrigger Binding="{Binding IsHomeSelected}" Value="True">
+                    <DataTrigger Binding="{Binding IsCodexSelected}" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </DataTrigger>
                 </Style.Triggers>
@@ -470,9 +470,9 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- ===================== HOME ===================== -->
+            <!-- ===================== CODEX ===================== -->
             <Grid Grid.Row="0"
-                  Visibility="{Binding IsHomeVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                  Visibility="{Binding IsCodexVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -537,7 +537,7 @@
                     <StackPanel VerticalAlignment="Top"
                                 Grid.IsSharedSizeScope="True">
                     <TextBlock Text="Usage"
-                               Style="{StaticResource HomeSectionHeaderStyle}"
+                               Style="{StaticResource SectionHeaderStyle}"
                                Visibility="{Binding IsUsageSectionHeaderVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                     <ContentControl Content="{Binding FiveHourQuota}"
@@ -552,7 +552,7 @@
                                     Visibility="{Binding SevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                     <TextBlock Text="Resets"
-                               Style="{StaticResource HomeSectionHeaderSpacedStyle}" />
+                               Style="{StaticResource SectionHeaderSpacedStyle}" />
                     <StackPanel>
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -592,7 +592,7 @@
                     </StackPanel>
 
                     <TextBlock Text="Token Cost"
-                               Style="{StaticResource HomeSectionHeaderSpacedStyle}"
+                               Style="{StaticResource SectionHeaderSpacedStyle}"
                                Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     <ItemsControl ItemsSource="{Binding CodexTokenCostRows}"
                                   ItemTemplate="{StaticResource TokenCostRowDataTemplate}"
@@ -673,7 +673,7 @@
                               VerticalScrollBarVisibility="Hidden">
                     <StackPanel VerticalAlignment="Top">
                         <TextBlock Text="Usage"
-                                   Style="{StaticResource HomeSectionHeaderStyle}" />
+                                   Style="{StaticResource SectionHeaderStyle}" />
 
                         <ContentControl Content="{Binding CursorTotalQuota}"
                                         ContentTemplate="{StaticResource QuotaDataTemplate}"
@@ -693,7 +693,7 @@
                                         Visibility="{Binding CursorApiQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                         <TextBlock Text="Token Cost"
-                                   Style="{StaticResource HomeSectionHeaderSpacedStyle}"
+                                   Style="{StaticResource SectionHeaderSpacedStyle}"
                                    Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <ItemsControl ItemsSource="{Binding CursorTokenCostRows}"
                                       ItemTemplate="{StaticResource TokenCostRowDataTemplate}"
@@ -980,7 +980,7 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- Header: aligned with Home (left title + right button) -->
+                <!-- Header: aligned with Codex (left title + right button) -->
                 <StackPanel Grid.Row="0">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -1584,10 +1584,10 @@
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right">
-                    <Button Command="{Binding ShowHomeCommand}"
+                    <Button Command="{Binding ShowCodexCommand}"
                             ToolTip="Codex"
                             Visibility="{Binding IsCodexTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
-                            Style="{StaticResource HomeTabButtonStyle}">
+                            Style="{StaticResource CodexTabButtonStyle}">
                         <Path Width="18"
                               Height="18"
                               Data="{StaticResource OpenAiLogoGeometry}"
