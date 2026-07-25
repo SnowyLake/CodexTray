@@ -168,58 +168,21 @@ public sealed class GrokUsageCollector
     /// </summary>
     private async Task<OAuthTokenRefresh> RefreshOAuthTokenAsync(string refreshToken, string clientId, CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = new(HttpMethod.Post, k_TokenEndpoint);
-        request.Content = new FormUrlEncodedContent(
-        [
-            new KeyValuePair<string, string>("grant_type", "refresh_token"),
-            new KeyValuePair<string, string>("client_id", clientId),
-            new KeyValuePair<string, string>("refresh_token", refreshToken),
-        ]);
+        OAuthTokenResponse response = await OAuthTokenHelpers.RefreshAsync(
+            m_HttpClient,
+            k_TokenEndpoint,
+            clientId,
+            refreshToken,
+            "Grok",
+            "Run the selected OAuth source login again.",
+            cancellationToken).ConfigureAwait(false);
+        DateTimeOffset expiresAt = response.ExpiresInSeconds is double seconds
+            ? DateTimeOffset.UtcNow.AddSeconds(seconds)
+            : OAuthTokenHelpers.TryGetJwtExpiry(response.AccessToken, out DateTimeOffset jwtExpiry)
+                ? jwtExpiry
+                : DateTimeOffset.UtcNow.AddHours(1);
 
-        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"Grok OAuth refresh failed: HTTP {(int)response.StatusCode}. Run the selected OAuth source login again.");
-        }
-
-        using JsonDocument document = JsonDocument.Parse(body);
-        if (!document.RootElement.TryGetProperty("access_token", out JsonElement accessToken) ||
-            accessToken.ValueKind != JsonValueKind.String ||
-            string.IsNullOrWhiteSpace(accessToken.GetString()))
-        {
-            throw new InvalidOperationException("Grok OAuth refresh response did not include an access token.");
-        }
-
-        string? nextRefresh = refreshToken;
-        if (document.RootElement.TryGetProperty("refresh_token", out JsonElement refreshed) &&
-            refreshed.ValueKind == JsonValueKind.String &&
-            !string.IsNullOrWhiteSpace(refreshed.GetString()))
-        {
-            nextRefresh = refreshed.GetString();
-        }
-
-        string? idToken = null;
-        if (document.RootElement.TryGetProperty("id_token", out JsonElement id) &&
-            id.ValueKind == JsonValueKind.String &&
-            !string.IsNullOrWhiteSpace(id.GetString()))
-        {
-            idToken = id.GetString();
-        }
-
-        DateTimeOffset expiresAt = DateTimeOffset.UtcNow.AddHours(1);
-        if (document.RootElement.TryGetProperty("expires_in", out JsonElement expiresIn) &&
-            expiresIn.TryGetDouble(out double seconds) &&
-            seconds > 0)
-        {
-            expiresAt = DateTimeOffset.UtcNow.AddSeconds(seconds);
-        }
-        else if (TryGetJwtExpiry(accessToken.GetString()!, out DateTimeOffset jwtExpiry))
-        {
-            expiresAt = jwtExpiry;
-        }
-
-        return new OAuthTokenRefresh(accessToken.GetString()!, nextRefresh!, idToken, expiresAt);
+        return new OAuthTokenRefresh(response.AccessToken, response.RefreshToken, response.IdToken, expiresAt);
     }
 
     /// <summary>
@@ -396,7 +359,7 @@ public sealed class GrokUsageCollector
 
         entryObject["expires_at"] = refresh.ExpiresAt.UtcDateTime.ToString("o", CultureInfo.InvariantCulture);
         rootObject[credential.EntryKey] = entryObject;
-        File.WriteAllText(credential.AuthPath, rootObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        AtomicFile.WriteAllText(credential.AuthPath, rootObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     /// <summary>
@@ -473,7 +436,7 @@ public sealed class GrokUsageCollector
         xaiObject["refresh"] = refresh.RefreshToken;
         xaiObject["expires"] = refresh.ExpiresAt.ToUnixTimeMilliseconds();
         rootObject["xai"] = xaiObject;
-        File.WriteAllText(credential.AuthPath, rootObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        AtomicFile.WriteAllText(credential.AuthPath, rootObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     /// <summary>
@@ -513,7 +476,7 @@ public sealed class GrokUsageCollector
     private static bool NeedsRefresh(DateTimeOffset? expiresAt, string accessToken)
     {
         DateTimeOffset? effectiveExpiry = expiresAt;
-        if (TryGetJwtExpiry(accessToken, out DateTimeOffset jwtExpiry))
+        if (OAuthTokenHelpers.TryGetJwtExpiry(accessToken, out DateTimeOffset jwtExpiry))
         {
             effectiveExpiry = effectiveExpiry is DateTimeOffset stored
                 ? (stored < jwtExpiry ? stored : jwtExpiry)
@@ -521,47 +484,6 @@ public sealed class GrokUsageCollector
         }
 
         return effectiveExpiry is DateTimeOffset expiry && expiry <= DateTimeOffset.UtcNow + s_RefreshBuffer;
-    }
-
-    /// <summary>
-    /// Reads the JWT exp claim without validating the signature.
-    /// </summary>
-    private static bool TryGetJwtExpiry(string token, out DateTimeOffset expiry)
-    {
-        expiry = default;
-        string[] parts = token.Split('.');
-        if (parts.Length < 2)
-        {
-            return false;
-        }
-
-        try
-        {
-            string payload = parts[1].Replace('-', '+').Replace('_', '/');
-            switch (payload.Length % 4)
-            {
-                case 2:
-                    payload += "==";
-                    break;
-                case 3:
-                    payload += "=";
-                    break;
-            }
-
-            using JsonDocument document = JsonDocument.Parse(Convert.FromBase64String(payload));
-            if (!document.RootElement.TryGetProperty("exp", out JsonElement exp) ||
-                !exp.TryGetInt64(out long seconds))
-            {
-                return false;
-            }
-
-            expiry = DateTimeOffset.FromUnixTimeSeconds(seconds);
-            return true;
-        }
-        catch (Exception exception) when (exception is FormatException or JsonException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
     }
 
     /// <summary>

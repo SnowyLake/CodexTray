@@ -2,18 +2,14 @@ namespace CodexTray.Core;
 
 public sealed class UsageCache
 {
-    private readonly object m_Lock = new();
-    private UsageResponse? m_Response;
+    private volatile UsageResponse? m_Response;
 
     /// <summary>
     /// Stores the latest collected usage response.
     /// </summary>
     public void Update(UsageResponse response)
     {
-        lock (m_Lock)
-        {
-            m_Response = response;
-        }
+        m_Response = response;
     }
 
     /// <summary>
@@ -21,9 +17,6 @@ public sealed class UsageCache
     /// </summary>
     public UsageResponse? Get()
     {
-        lock (m_Lock)
-        {
-            return m_Response;
-        }
+        return m_Response;
     }
 }

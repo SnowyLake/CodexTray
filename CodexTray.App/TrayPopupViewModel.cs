@@ -1,12 +1,9 @@
 using CodexTray.Core;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Text;
 using System.Windows.Input;
 using Forms = System.Windows.Forms;
 using Media = System.Windows.Media;
@@ -43,7 +40,7 @@ internal sealed record InAppDialogRequest(
     string? SecondaryButtonText = null,
     Action? PrimaryAction = null);
 
-internal sealed class TrayPopupViewModel : INotifyPropertyChanged
+internal sealed class TrayPopupViewModel : ObservableObject
 {
     private const string k_HomePageName = "Home";
     private const string k_CursorPageName = "Cursor";
@@ -78,20 +75,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_ThemeMode = AppSettings.ThemeModeSystem;
     private string m_TokenUnit = AppSettings.TokenUnitEnglish;
     private TokenCostItem m_TokenCostItems = TokenCostItem.All;
-    private TokenCostDisplay m_TodayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_YesterdayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_WeekTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_MonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_SevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_ThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_TotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_CursorTodayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_CursorYesterdayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_CursorWeekTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_CursorMonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_CursorSevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_CursorThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_CursorTotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
     private PageItem m_VisiblePages = PageItem.All;
     private bool m_StartWithWindows;
     private bool m_AcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
@@ -141,8 +124,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private bool m_SnapshotUseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
     private bool m_SnapshotHideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
 
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     public event EventHandler? RefreshRequested;
 
     public event EventHandler? SaveSettingsRequested;
@@ -166,6 +147,10 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public QuotaViewModel CursorAutoQuota { get; } = new("First Party");
 
     public QuotaViewModel CursorApiQuota { get; } = new("APIs");
+
+    public IReadOnlyList<TokenCostRowViewModel> CodexTokenCostRows { get; } = CreateTokenCostRows();
+
+    public IReadOnlyList<TokenCostRowViewModel> CursorTokenCostRows { get; } = CreateTokenCostRows();
 
     public ICommand ShowHomeCommand { get; }
 
@@ -429,6 +414,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ShowMonthTokenCost));
                 OnPropertyChanged(nameof(ShowSevenDayTokenCost));
                 OnPropertyChanged(nameof(ShowThirtyDayTokenCost));
+                UpdateTokenCostRowVisibility();
                 EvaluateDirtyState();
             }
         }
@@ -477,90 +463,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     {
         get => (m_TokenCostItems & TokenCostItem.ThirtyDay) != 0;
         set => SetTokenCostItem(TokenCostItem.ThirtyDay, value);
-    }
-
-    public TokenCostDisplay TodayTokenCostDisplay
-    {
-        get => m_TodayTokenCostDisplay;
-        private set => SetField(ref m_TodayTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay YesterdayTokenCostDisplay
-    {
-        get => m_YesterdayTokenCostDisplay;
-        private set => SetField(ref m_YesterdayTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay WeekTokenCostDisplay
-    {
-        get => m_WeekTokenCostDisplay;
-        private set => SetField(ref m_WeekTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay MonthTokenCostDisplay
-    {
-        get => m_MonthTokenCostDisplay;
-        private set => SetField(ref m_MonthTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay SevenDayTokenCostDisplay
-    {
-        get => m_SevenDayTokenCostDisplay;
-        private set => SetField(ref m_SevenDayTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay ThirtyDayTokenCostDisplay
-    {
-        get => m_ThirtyDayTokenCostDisplay;
-        private set => SetField(ref m_ThirtyDayTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay TotalTokenCostDisplay
-    {
-        get => m_TotalTokenCostDisplay;
-        private set => SetField(ref m_TotalTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay CursorTodayTokenCostDisplay
-    {
-        get => m_CursorTodayTokenCostDisplay;
-        private set => SetField(ref m_CursorTodayTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay CursorYesterdayTokenCostDisplay
-    {
-        get => m_CursorYesterdayTokenCostDisplay;
-        private set => SetField(ref m_CursorYesterdayTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay CursorWeekTokenCostDisplay
-    {
-        get => m_CursorWeekTokenCostDisplay;
-        private set => SetField(ref m_CursorWeekTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay CursorMonthTokenCostDisplay
-    {
-        get => m_CursorMonthTokenCostDisplay;
-        private set => SetField(ref m_CursorMonthTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay CursorSevenDayTokenCostDisplay
-    {
-        get => m_CursorSevenDayTokenCostDisplay;
-        private set => SetField(ref m_CursorSevenDayTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay CursorThirtyDayTokenCostDisplay
-    {
-        get => m_CursorThirtyDayTokenCostDisplay;
-        private set => SetField(ref m_CursorThirtyDayTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay CursorTotalTokenCostDisplay
-    {
-        get => m_CursorTotalTokenCostDisplay;
-        private set => SetField(ref m_CursorTotalTokenCostDisplay, value);
     }
 
     public PageItem VisiblePages
@@ -988,7 +890,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// <summary>
     /// Applies editable properties to the shared settings model.
     /// </summary>
-    public bool TryApplySettings(out string message)
+    public void ApplySettings()
     {
         int port = ClampOrDefault(PortText, CodexTrayDefaults.MinimumPort, CodexTrayDefaults.MaximumPort, CodexTrayDefaults.Port);
         int refreshInterval = ClampOrDefault(
@@ -1038,8 +940,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         m_Settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
         m_Settings.HideInvalidProgressBars = HideInvalidProgressBars;
         CaptureSnapshot(SettingsStatus.Saved);
-        message = "Changes saved";
-        return true;
     }
 
     /// <summary>
@@ -1053,6 +953,34 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Updates the fixed token-cost row visibility for the current item selection.
+    /// </summary>
+    private void UpdateTokenCostRowVisibility()
+    {
+        foreach (TokenCostRowViewModel row in CodexTokenCostRows.Concat(CursorTokenCostRows))
+        {
+            row.IsVisible = row.Item == TokenCostItem.None || (m_TokenCostItems & row.Item) != 0;
+        }
+    }
+
+    /// <summary>
+    /// Creates the fixed token-cost rows shared by each dashboard page.
+    /// </summary>
+    private static IReadOnlyList<TokenCostRowViewModel> CreateTokenCostRows()
+    {
+        return
+        [
+            new TokenCostRowViewModel("Today", TokenCostItem.Today),
+            new TokenCostRowViewModel("Yesterday", TokenCostItem.Yesterday),
+            new TokenCostRowViewModel("Week", TokenCostItem.Week),
+            new TokenCostRowViewModel("Month", TokenCostItem.Month),
+            new TokenCostRowViewModel("Last 7 days", TokenCostItem.SevenDay),
+            new TokenCostRowViewModel("Last 30 days", TokenCostItem.ThirtyDay),
+            new TokenCostRowViewModel("Total", TokenCostItem.None, isLast: true),
+        ];
+    }
+
+    /// <summary>
     /// Adds or removes one page from the current selection.
     /// </summary>
     private void SetPageItem(PageItem item, bool isShown)
@@ -1063,12 +991,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Parses digits from raw input and clamps to the range, falling back to a default when empty.
+    /// Parses and clamps raw input, falling back to a default when invalid.
     /// </summary>
     private static int ClampOrDefault(string rawText, int minimum, int maximum, int fallback)
     {
-        string digits = KeepDigits(rawText);
-        if (!int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        if (!int.TryParse(rawText, out int value))
         {
             return fallback;
         }
@@ -1157,25 +1084,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     public void UpdateTokenCost(TokenCostStatistics? statistics)
     {
-        if (statistics == null)
-        {
-            TodayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            YesterdayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            WeekTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            MonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            SevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            ThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            TotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            return;
-        }
-
-        TodayTokenCostDisplay = FormatTokenCost(statistics.Today);
-        YesterdayTokenCostDisplay = FormatTokenCost(statistics.Yesterday);
-        WeekTokenCostDisplay = FormatTokenCost(statistics.Week);
-        MonthTokenCostDisplay = FormatTokenCost(statistics.Month);
-        SevenDayTokenCostDisplay = FormatTokenCost(statistics.SevenDay);
-        ThirtyDayTokenCostDisplay = FormatTokenCost(statistics.ThirtyDay);
-        TotalTokenCostDisplay = FormatTokenCost(statistics.Total);
+        UpdateTokenCostRows(CodexTokenCostRows, statistics);
     }
 
     /// <summary>
@@ -1206,7 +1115,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             CursorApiQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
         }
 
-        UpdateCursorTokenCost(dashboard.TokenCost);
+        UpdateTokenCostRows(CursorTokenCostRows, dashboard.TokenCost);
         CursorStatusDotBrush = usageAvailable && tokenCostAvailable
             ? s_GreenBrush
             : usageAvailable || tokenCostAvailable
@@ -1223,29 +1132,26 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Updates Cursor token-cost rows or clears every row after an incomplete events refresh.
+    /// Updates one fixed token-cost row group from the supplied statistics.
     /// </summary>
-    private void UpdateCursorTokenCost(TokenCostStatistics? statistics)
+    private void UpdateTokenCostRows(IReadOnlyList<TokenCostRowViewModel> rows, TokenCostStatistics? statistics)
     {
-        if (statistics == null)
+        TokenCostDisplay[] displays = statistics == null
+            ? Enumerable.Repeat(s_UnavailableTokenCostDisplay, rows.Count).ToArray()
+            :
+            [
+                FormatTokenCost(statistics.Today),
+                FormatTokenCost(statistics.Yesterday),
+                FormatTokenCost(statistics.Week),
+                FormatTokenCost(statistics.Month),
+                FormatTokenCost(statistics.SevenDay),
+                FormatTokenCost(statistics.ThirtyDay),
+                FormatTokenCost(statistics.Total),
+            ];
+        for (int index = 0; index < rows.Count; index++)
         {
-            CursorTodayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            CursorYesterdayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            CursorWeekTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            CursorMonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            CursorSevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            CursorThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            CursorTotalTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            return;
+            rows[index].Display = displays[index];
         }
-
-        CursorTodayTokenCostDisplay = FormatTokenCost(statistics.Today);
-        CursorYesterdayTokenCostDisplay = FormatTokenCost(statistics.Yesterday);
-        CursorWeekTokenCostDisplay = FormatTokenCost(statistics.Week);
-        CursorMonthTokenCostDisplay = FormatTokenCost(statistics.Month);
-        CursorSevenDayTokenCostDisplay = FormatTokenCost(statistics.SevenDay);
-        CursorThirtyDayTokenCostDisplay = FormatTokenCost(statistics.ThirtyDay);
-        CursorTotalTokenCostDisplay = FormatTokenCost(statistics.Total);
     }
 
     /// <summary>
@@ -1378,7 +1284,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         foreach (ApiMonitorSettings monitorSettings in settings)
         {
             ApiMonitorViewModel monitor = new(monitorSettings);
-            monitor.Changed += HandleApiMonitorChanged;
             monitor.EditingSaved += HandleApiMonitorSaved;
             ApiMonitors.Add(monitor);
         }
@@ -1392,7 +1297,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private void AddApiMonitor()
     {
         ApiMonitorViewModel monitor = new(new ApiMonitorSettings(), isEditing: true, isPending: true);
-        monitor.Changed += HandleApiMonitorChanged;
         monitor.EditingSaved += HandleApiMonitorSaved;
         ApiMonitors.Add(monitor);
         NotifyApiMonitorCountChanged();
@@ -1422,7 +1326,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private void DeleteApiMonitor(ApiMonitorViewModel monitor)
     {
         bool wasPending = monitor.IsPending;
-        monitor.Changed -= HandleApiMonitorChanged;
         monitor.EditingSaved -= HandleApiMonitorSaved;
         ApiMonitors.Remove(monitor);
         SaveApiMonitors();
@@ -1450,19 +1353,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
 
         ApiMonitors.Move(oldIndex, newIndex);
-        SaveApiMonitors();
-    }
-
-    /// <summary>
-    /// Persists a changed API monitor field.
-    /// </summary>
-    private void HandleApiMonitorChanged(object? sender, EventArgs args)
-    {
-        if (sender is ApiMonitorViewModel { IsPending: true })
-        {
-            return;
-        }
-
         SaveApiMonitors();
     }
 
@@ -1779,28 +1669,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Keeps only decimal digits from a raw input string.
-    /// </summary>
-    private static string KeepDigits(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return string.Empty;
-        }
-
-        StringBuilder builder = new(value.Length);
-        foreach (char character in value)
-        {
-            if (character is >= '0' and <= '9')
-            {
-                builder.Append(character);
-            }
-        }
-
-        return builder.ToString();
-    }
-
-    /// <summary>
     /// Normalizes a theme mode string for UI selection.
     /// </summary>
     private static string NormalizeThemeMode(string? themeMode)
@@ -1835,32 +1703,42 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         return value[..keep] + "..." + value[^keep..];
     }
 
-    /// <summary>
-    /// Sets a property value and notifies listeners.
-    /// </summary>
-    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    internal sealed class TokenCostRowViewModel : ObservableObject
     {
-        if (EqualityComparer<T>.Default.Equals(field, value))
+        private TokenCostDisplay m_Display = s_UnavailableTokenCostDisplay;
+        private bool m_IsVisible = true;
+
+        public string Title { get; }
+
+        public TokenCostItem Item { get; }
+
+        public TokenCostDisplay Display
         {
-            return false;
+            get => m_Display;
+            internal set => SetField(ref m_Display, value);
         }
 
-        field = value;
-        OnPropertyChanged(propertyName);
-        return true;
+        public bool IsVisible
+        {
+            get => m_IsVisible;
+            internal set => SetField(ref m_IsVisible, value);
+        }
+
+        public bool IsLast { get; }
+
+        /// <summary>
+        /// Creates one fixed token-cost display row.
+        /// </summary>
+        public TokenCostRowViewModel(string title, TokenCostItem item, bool isLast = false)
+        {
+            Title = title;
+            Item = item;
+            IsLast = isLast;
+        }
     }
 
-    /// <summary>
-    /// Raises a property change notification.
-    /// </summary>
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    internal sealed class QuotaViewModel : ObservableObject
     {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
-
-    internal sealed class QuotaViewModel : INotifyPropertyChanged
-    {
-        private string m_Title;
         private int m_RemainingPercent;
         private string m_PercentText = "N/A";
         private string m_ResetText = "unknown";
@@ -1868,13 +1746,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         private bool m_IsVisible = true;
         private bool m_IsResetVisible = true;
 
-        public event PropertyChangedEventHandler? PropertyChanged;
-
-        public string Title
-        {
-            get => m_Title;
-            private set => SetField(ref m_Title, value);
-        }
+        public string Title { get; }
 
         public int RemainingPercent
         {
@@ -1917,7 +1789,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         /// </summary>
         public QuotaViewModel(string title)
         {
-            m_Title = title;
+            Title = title;
         }
 
         /// <summary>
@@ -1990,27 +1862,5 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             return remainingPercent >= 20 ? s_YellowBrush : s_RedBrush;
         }
 
-        /// <summary>
-        /// Sets a property value and notifies listeners.
-        /// </summary>
-        private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
-        {
-            if (EqualityComparer<T>.Default.Equals(field, value))
-            {
-                return false;
-            }
-
-            field = value;
-            OnPropertyChanged(propertyName);
-            return true;
-        }
-
-        /// <summary>
-        /// Raises a property change notification.
-        /// </summary>
-        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-        {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        }
     }
 }

@@ -1,12 +1,10 @@
 using CodexTray.Core;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Media = System.Windows.Media;
 
 namespace CodexTray.App;
 
-internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
+internal sealed class ApiMonitorViewModel : ObservableObject
 {
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_RedBrush = new Media.SolidColorBrush(Media.Color.FromRgb(224, 91, 77));
@@ -24,10 +22,6 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     private Media.Brush m_StatusDotBrush = s_RedBrush;
     private bool m_IsEditing;
     private bool m_IsPending;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public event EventHandler? Changed;
 
     public event EventHandler? EditingSaved;
 
@@ -56,7 +50,6 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             if (SetField(ref m_Name, value))
             {
                 OnPropertyChanged(nameof(DisplayName));
-                Changed?.Invoke(this, EventArgs.Empty);
             }
         }
     }
@@ -95,44 +88,25 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(PrimaryDisplayLabel));
             OnPropertyChanged(nameof(SecondaryDisplayLabel));
             OnPropertyChanged(nameof(DisplayName));
-            Changed?.Invoke(this, EventArgs.Empty);
         }
     }
 
     public string BaseUrl
     {
         get => m_BaseUrl;
-        set
-        {
-            if (SetField(ref m_BaseUrl, value))
-            {
-                Changed?.Invoke(this, EventArgs.Empty);
-            }
-        }
+        set => SetField(ref m_BaseUrl, value);
     }
 
     public string ApiKey
     {
         get => m_ApiKey;
-        set
-        {
-            if (SetField(ref m_ApiKey, value))
-            {
-                Changed?.Invoke(this, EventArgs.Empty);
-            }
-        }
+        set => SetField(ref m_ApiKey, value);
     }
 
     public string UserId
     {
         get => m_UserId;
-        set
-        {
-            if (SetField(ref m_UserId, value))
-            {
-                Changed?.Invoke(this, EventArgs.Empty);
-            }
-        }
+        set => SetField(ref m_UserId, value);
     }
 
     public string GrokOAuthSource
@@ -143,10 +117,7 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             string normalized = string.Equals(value, ApiMonitorSettings.OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
                 ? ApiMonitorSettings.OpenCodeOAuthSource
                 : ApiMonitorSettings.GrokBuildOAuthSource;
-            if (SetField(ref m_GrokOAuthSource, normalized))
-            {
-                Changed?.Invoke(this, EventArgs.Empty);
-            }
+            SetField(ref m_GrokOAuthSource, normalized);
         }
     }
 
@@ -272,26 +243,4 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         EditingSaved?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>
-    /// Sets a field and raises property change notification when needed.
-    /// </summary>
-    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(field, value))
-        {
-            return false;
-        }
-
-        field = value;
-        OnPropertyChanged(propertyName);
-        return true;
-    }
-
-    /// <summary>
-    /// Raises a property change notification.
-    /// </summary>
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
 }

@@ -48,49 +48,23 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Collects today's exact Codex token usage and API-equivalent cost.
-    /// </summary>
-    public TokenCostSummary CollectToday(string? codexDirectory = null, DateTimeOffset? now = null)
-    {
-        return Collect(codexDirectory, now).Today;
-    }
-
-    /// <summary>
     /// Collects Codex token usage for the supported calendar periods.
     /// </summary>
     public TokenCostStatistics Collect(string? codexDirectory = null, DateTimeOffset? now = null)
     {
         string root = codexDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
         DateTimeOffset current = now ?? DateTimeOffset.Now;
-        DateTime today = current.LocalDateTime.Date;
-        DateTime weekStart = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
-        DateTime monthStart = new(today.Year, today.Month, 1);
         Dictionary<string, ModelPricing> pricing = LoadPricing();
-        PeriodAccumulator todayPeriod = new();
-        PeriodAccumulator yesterdayPeriod = new();
-        PeriodAccumulator weekPeriod = new();
-        PeriodAccumulator monthPeriod = new();
-        PeriodAccumulator sevenDayPeriod = new();
-        PeriodAccumulator thirtyDayPeriod = new();
-        PeriodAccumulator totalPeriod = new();
+        TokenCostPeriodAccumulator accumulator = new(current);
         string[] sessionFiles = EnumerateSessionFiles(root).ToArray();
         Dictionary<string, string> rolloutIndex = BuildRolloutIndex(sessionFiles);
 
         foreach (string path in sessionFiles)
         {
-            CollectFile(path, today, weekStart, monthStart, pricing, rolloutIndex, todayPeriod, yesterdayPeriod, weekPeriod, monthPeriod, sevenDayPeriod, thirtyDayPeriod, totalPeriod);
+            CollectFile(path, pricing, rolloutIndex, accumulator);
         }
 
-        return new TokenCostStatistics
-        {
-            Today = todayPeriod.ToSummary(),
-            Yesterday = yesterdayPeriod.ToSummary(),
-            Week = weekPeriod.ToSummary(),
-            Month = monthPeriod.ToSummary(),
-            SevenDay = sevenDayPeriod.ToSummary(),
-            ThirtyDay = thirtyDayPeriod.ToSummary(),
-            Total = totalPeriod.ToSummary(),
-        };
+        return accumulator.ToStatistics();
     }
 
     /// <summary>
@@ -132,18 +106,9 @@ public sealed class TokenCostCollector
     /// </summary>
     private static void CollectFile(
         string path,
-        DateTime today,
-        DateTime weekStart,
-        DateTime monthStart,
         Dictionary<string, ModelPricing> pricing,
         Dictionary<string, string> rolloutIndex,
-        PeriodAccumulator todayPeriod,
-        PeriodAccumulator yesterdayPeriod,
-        PeriodAccumulator weekPeriod,
-        PeriodAccumulator monthPeriod,
-        PeriodAccumulator sevenDayPeriod,
-        PeriodAccumulator thirtyDayPeriod,
-        PeriodAccumulator totalPeriod)
+        TokenCostPeriodAccumulator accumulator)
     {
         string model = "unknown";
         TokenCounts? previous = null;
@@ -224,7 +189,6 @@ public sealed class TokenCostCollector
                     continue;
                 }
 
-                DateTime eventDate = timestamp.LocalDateTime.Date;
                 decimal? cost = null;
                 if (TryFindPricing(pricing, model, out ModelPricing modelPricing))
                 {
@@ -233,40 +197,7 @@ public sealed class TokenCostCollector
                     cost = (freshInput * modelPricing.Input + cached * modelPricing.CachedInput + delta.Output * modelPricing.Output) / 1_000_000m;
                 }
 
-                if (eventDate == today)
-                {
-                    todayPeriod.Add(delta.Total, cost);
-                }
-
-                if (eventDate == today.AddDays(-1))
-                {
-                    yesterdayPeriod.Add(delta.Total, cost);
-                }
-
-                if (eventDate >= weekStart && eventDate <= today)
-                {
-                    weekPeriod.Add(delta.Total, cost);
-                }
-
-                if (eventDate >= monthStart && eventDate <= today)
-                {
-                    monthPeriod.Add(delta.Total, cost);
-                }
-
-                if (eventDate >= today.AddDays(-6) && eventDate <= today)
-                {
-                    sevenDayPeriod.Add(delta.Total, cost);
-                }
-
-                if (eventDate >= today.AddDays(-29) && eventDate <= today)
-                {
-                    thirtyDayPeriod.Add(delta.Total, cost);
-                }
-
-                if (eventDate <= today)
-                {
-                    totalPeriod.Add(delta.Total, cost);
-                }
+                accumulator.Add(timestamp, delta.Total, cost);
             }
             catch (JsonException)
             {
@@ -531,36 +462,6 @@ public sealed class TokenCostCollector
     private readonly record struct TokenCounterSignature(long? Input, long? CachedInput, long? Output, long? ReasoningOutput, long? Total);
 
     private readonly record struct TokenUsageSignature(TokenCounterSignature? Total, TokenCounterSignature? Last);
-
-    private sealed class PeriodAccumulator
-    {
-        private long m_TotalTokens;
-        private decimal m_TotalCost;
-
-        /// <summary>
-        /// Adds one usage delta to this period.
-        /// </summary>
-        public void Add(long tokens, decimal? cost)
-        {
-            m_TotalTokens += tokens;
-            if (cost.HasValue)
-            {
-                m_TotalCost += cost.Value;
-            }
-        }
-
-        /// <summary>
-        /// Creates the immutable period summary.
-        /// </summary>
-        public TokenCostSummary ToSummary()
-        {
-            return new TokenCostSummary
-            {
-                TotalTokens = m_TotalTokens,
-                CostUsd = m_TotalCost,
-            };
-        }
-    }
 
     private readonly record struct TokenCounts(long Input, long CachedInput, long Output)
     {

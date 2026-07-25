@@ -36,6 +36,7 @@ internal static class Program
         await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
         await RunAsync("repairs missing settings fields", TestSettingsStoreRepairsMissingFieldsAsync);
+        await RunAsync("repairs null and malformed settings", TestSettingsStoreRepairsNullAndMalformedValuesAsync);
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
         await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
@@ -420,6 +421,63 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowHeight), out _), "repaired settings should include window height");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests settings repair for null values, null monitor entries, and malformed JSON.
+    /// </summary>
+    private static Task TestSettingsStoreRepairsNullAndMalformedValuesAsync()
+    {
+        using TempDirectory temp = new();
+        SettingsStore store = new(temp.Path);
+        File.WriteAllText(store.SettingsPath, """
+        {
+          "LiteMonitorDir": null,
+          "TrafficMonitorDir": null,
+          "ApiMonitors": [
+            null,
+            {
+              "Id": null,
+              "Name": null,
+              "Provider": null,
+              "BaseUrl": null,
+              "ApiKey": null,
+              "UserId": null,
+              "GrokOAuthSource": null
+            },
+            {
+              "Provider": "Cursor"
+            }
+          ]
+        }
+        """);
+
+        AppSettings settings = store.Load();
+
+        AssertEqual(string.Empty, settings.LiteMonitorDir, "null LiteMonitor path");
+        AssertEqual(string.Empty, settings.TrafficMonitorDir, "null TrafficMonitor path");
+        AssertEqual(1, settings.ApiMonitors.Count, "null and Cursor monitors should be removed");
+        ApiMonitorSettings monitor = settings.ApiMonitors.Single();
+        AssertTrue(!string.IsNullOrWhiteSpace(monitor.Id), "null monitor id should be repaired");
+        AssertEqual(ApiMonitorSettings.DeepSeekProvider, monitor.Provider, "null monitor provider should be repaired");
+        AssertEqual(ApiMonitorSettings.DeepSeekProvider, monitor.Name, "null monitor name should be repaired");
+        AssertEqual(string.Empty, monitor.BaseUrl, "null monitor base URL should be repaired");
+        AssertEqual(string.Empty, monitor.ApiKey, "null monitor API key should be repaired");
+        AssertEqual(string.Empty, monitor.UserId, "null monitor user id should be repaired");
+        AssertEqual(ApiMonitorSettings.GrokBuildOAuthSource, monitor.GrokOAuthSource, "null OAuth source should be repaired");
+
+        string repairedJson = File.ReadAllText(store.SettingsPath);
+        using JsonDocument document = JsonDocument.Parse(repairedJson);
+        AssertEqual(JsonValueKind.String, document.RootElement.GetProperty(nameof(AppSettings.LiteMonitorDir)).ValueKind, "repaired LiteMonitor path JSON type");
+        AssertEqual(1, document.RootElement.GetProperty(nameof(AppSettings.ApiMonitors)).GetArrayLength(), "repaired API monitor JSON count");
+        AssertTrue(!Directory.EnumerateFiles(temp.Path, "*.tmp", SearchOption.TopDirectoryOnly).Any(), "atomic settings write should not leave temporary files");
+
+        using TempDirectory malformedTemp = new();
+        SettingsStore malformedStore = new(malformedTemp.Path);
+        File.WriteAllText(malformedStore.SettingsPath, "{");
+        AppSettings fallback = malformedStore.Load();
+        AssertEqual(CodexTrayDefaults.Port, fallback.Port, "malformed settings should fall back to defaults");
         return Task.CompletedTask;
     }
 
@@ -1286,7 +1344,13 @@ internal static class Program
 
         using FileStream activeWriter = new(sessionPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
         TokenCostCollector collector = new(pricingPath);
-        TokenCostSummary summary = collector.CollectToday(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)));
+        File.WriteAllLines(Path.Combine(sessions, "future.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            "{\"timestamp\":\"2026-07-12T10:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10000,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
+        ]);
+
+        TokenCostSummary summary = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Today;
         AssertEqual(2900L, summary.TotalTokens, "today total tokens");
         AssertEqual(0.0062m, summary.CostUsd, "today API-equivalent cost");
         TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)));

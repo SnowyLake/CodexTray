@@ -40,16 +40,13 @@ public static class CodexTrayDefaults
     public const string UsageTextEndpointPath = "/codex-tray.txt";
     public const string HealthEndpointPath = "/health";
     public const string UnavailableDisplay = "N/A";
-    public static readonly string DefaultBridgeUrl = BuildLoopbackUrl(Port, UsageEndpointPath);
-    public static readonly string DefaultBridgeTextUrl = BuildLoopbackUrl(Port, UsageTextEndpointPath);
 
     /// <summary>
     /// Builds the JSON bridge URL for a port.
     /// </summary>
     public static string BuildBridgeUrl(int port)
     {
-        int normalizedPort = NormalizePort(port);
-        return normalizedPort == Port ? DefaultBridgeUrl : BuildLoopbackUrl(normalizedPort, UsageEndpointPath);
+        return BuildLoopbackUrl(NormalizePort(port), UsageEndpointPath);
     }
 
     /// <summary>
@@ -57,8 +54,7 @@ public static class CodexTrayDefaults
     /// </summary>
     public static string BuildBridgeTextUrl(int port)
     {
-        int normalizedPort = NormalizePort(port);
-        return normalizedPort == Port ? DefaultBridgeTextUrl : BuildLoopbackUrl(normalizedPort, UsageTextEndpointPath);
+        return BuildLoopbackUrl(NormalizePort(port), UsageTextEndpointPath);
     }
 
     /// <summary>

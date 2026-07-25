@@ -166,14 +166,14 @@ public sealed class AppSettings
             WindowHeight = CodexTrayDefaults.WindowHeight;
         }
 
-        LiteMonitorDir = LiteMonitorDir.Trim();
-        TrafficMonitorDir = TrafficMonitorDir.Trim();
+        LiteMonitorDir = (LiteMonitorDir ?? string.Empty).Trim();
+        TrafficMonitorDir = (TrafficMonitorDir ?? string.Empty).Trim();
         ThemeMode = NormalizeThemeMode(ThemeMode);
         TokenUnit = NormalizeTokenUnit(TokenUnit);
         TokenCostItems &= TokenCostItem.All;
         VisiblePages &= PageItem.All;
         ApiMonitors ??= [];
-        ApiMonitors.RemoveAll(monitor => string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase));
+        ApiMonitors.RemoveAll(monitor => monitor == null || string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase));
         HashSet<string> monitorIds = new(StringComparer.Ordinal);
         foreach (ApiMonitorSettings monitor in ApiMonitors)
         {
@@ -273,6 +273,10 @@ public sealed class SettingsStore
         {
             return new AppSettings().Normalize();
         }
+        catch (UnauthorizedAccessException)
+        {
+            return new AppSettings().Normalize();
+        }
     }
 
     /// <summary>
@@ -283,6 +287,6 @@ public sealed class SettingsStore
         Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
         settings.Normalize();
         string json = JsonSerializer.Serialize(settings, s_JsonOptions);
-        File.WriteAllText(SettingsPath, json);
+        AtomicFile.WriteAllText(SettingsPath, json);
     }
 }

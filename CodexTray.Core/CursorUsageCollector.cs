@@ -199,9 +199,16 @@ public sealed class CursorUsageCollector
             throw new InvalidOperationException("Cursor OAuth token expired or unauthorized and no refresh token is available. Sign in to Cursor again.");
         }
 
-        OAuthTokenRefresh refresh = await RefreshOAuthTokenAsync(credential.RefreshToken, cancellationToken).ConfigureAwait(false);
+        OAuthTokenResponse refresh = await OAuthTokenHelpers.RefreshAsync(
+            m_HttpClient,
+            k_TokenEndpoint,
+            k_ClientId,
+            credential.RefreshToken,
+            "Cursor",
+            "Sign in to Cursor again.",
+            cancellationToken).ConfigureAwait(false);
         SaveCredential(credential.DbPath, refresh);
-        if (!TryGetJwtSubject(refresh.AccessToken, out string userId))
+        if (!OAuthTokenHelpers.TryGetJwtSubject(refresh.AccessToken, out string userId))
         {
             throw new InvalidOperationException("Cursor OAuth access token did not include a user id.");
         }
@@ -239,45 +246,6 @@ public sealed class CursorUsageCollector
         {
             return new CursorEndpointResult<T>(default, FormatError(exception), credential, refreshUsed);
         }
-    }
-
-    /// <summary>
-    /// Requests a new Cursor access token from the OAuth token endpoint.
-    /// </summary>
-    private async Task<OAuthTokenRefresh> RefreshOAuthTokenAsync(string refreshToken, CancellationToken cancellationToken)
-    {
-        using HttpRequestMessage request = new(HttpMethod.Post, k_TokenEndpoint);
-        request.Content = new FormUrlEncodedContent(
-        [
-            new KeyValuePair<string, string>("grant_type", "refresh_token"),
-            new KeyValuePair<string, string>("client_id", k_ClientId),
-            new KeyValuePair<string, string>("refresh_token", refreshToken),
-        ]);
-
-        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"Cursor OAuth refresh failed: HTTP {(int)response.StatusCode}. Sign in to Cursor again.");
-        }
-
-        using JsonDocument document = JsonDocument.Parse(body);
-        if (!document.RootElement.TryGetProperty("access_token", out JsonElement accessToken) ||
-            accessToken.ValueKind != JsonValueKind.String ||
-            string.IsNullOrWhiteSpace(accessToken.GetString()))
-        {
-            throw new InvalidOperationException("Cursor OAuth refresh response did not include an access token.");
-        }
-
-        string nextRefresh = refreshToken;
-        if (document.RootElement.TryGetProperty("refresh_token", out JsonElement refreshed) &&
-            refreshed.ValueKind == JsonValueKind.String &&
-            !string.IsNullOrWhiteSpace(refreshed.GetString()))
-        {
-            nextRefresh = refreshed.GetString()!;
-        }
-
-        return new OAuthTokenRefresh(accessToken.GetString()!, nextRefresh);
     }
 
     /// <summary>
@@ -480,67 +448,15 @@ public sealed class CursorUsageCollector
     /// </summary>
     private static TokenCostStatistics AggregateUsageEvents(IEnumerable<CursorUsageEvent> events, DateTimeOffset refreshedAt)
     {
-        DateTime today = refreshedAt.LocalDateTime.Date;
-        DateTime weekStart = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
-        DateTime monthStart = new(today.Year, today.Month, 1);
-        CursorPeriodAccumulator todayPeriod = new();
-        CursorPeriodAccumulator yesterdayPeriod = new();
-        CursorPeriodAccumulator weekPeriod = new();
-        CursorPeriodAccumulator monthPeriod = new();
-        CursorPeriodAccumulator sevenDayPeriod = new();
-        CursorPeriodAccumulator thirtyDayPeriod = new();
-        CursorPeriodAccumulator totalPeriod = new();
+        TokenCostPeriodAccumulator accumulator = new(refreshedAt);
 
         foreach (CursorUsageEvent usageEvent in events)
         {
-            DateTime eventDate = usageEvent.Timestamp.LocalDateTime.Date;
             long tokens = checked(usageEvent.InputTokens + usageEvent.OutputTokens + usageEvent.CacheReadTokens + usageEvent.CacheWriteTokens);
-            if (eventDate == today)
-            {
-                todayPeriod.Add(tokens, usageEvent.TotalCents);
-            }
-
-            if (eventDate == today.AddDays(-1))
-            {
-                yesterdayPeriod.Add(tokens, usageEvent.TotalCents);
-            }
-
-            if (eventDate >= weekStart && eventDate <= today)
-            {
-                weekPeriod.Add(tokens, usageEvent.TotalCents);
-            }
-
-            if (eventDate >= monthStart && eventDate <= today)
-            {
-                monthPeriod.Add(tokens, usageEvent.TotalCents);
-            }
-
-            if (eventDate >= today.AddDays(-6) && eventDate <= today)
-            {
-                sevenDayPeriod.Add(tokens, usageEvent.TotalCents);
-            }
-
-            if (eventDate >= today.AddDays(-29) && eventDate <= today)
-            {
-                thirtyDayPeriod.Add(tokens, usageEvent.TotalCents);
-            }
-
-            if (eventDate <= today)
-            {
-                totalPeriod.Add(tokens, usageEvent.TotalCents);
-            }
+            accumulator.Add(usageEvent.Timestamp, tokens, usageEvent.TotalCents / 100m);
         }
 
-        return new TokenCostStatistics
-        {
-            Today = todayPeriod.ToSummary(),
-            Yesterday = yesterdayPeriod.ToSummary(),
-            Week = weekPeriod.ToSummary(),
-            Month = monthPeriod.ToSummary(),
-            SevenDay = sevenDayPeriod.ToSummary(),
-            ThirtyDay = thirtyDayPeriod.ToSummary(),
-            Total = totalPeriod.ToSummary(),
-        };
+        return accumulator.ToStatistics();
     }
 
     /// <summary>
@@ -614,7 +530,7 @@ public sealed class CursorUsageCollector
                 return false;
             }
 
-            if (!TryGetJwtSubject(accessToken, out string userId))
+            if (!OAuthTokenHelpers.TryGetJwtSubject(accessToken, out string userId))
             {
                 error = "Cursor OAuth access token did not include a user id.";
                 return false;
@@ -634,7 +550,7 @@ public sealed class CursorUsageCollector
     /// <summary>
     /// Writes refreshed Cursor tokens back into the local IDE state database.
     /// </summary>
-    private static void SaveCredential(string dbPath, OAuthTokenRefresh refresh)
+    private static void SaveCredential(string dbPath, OAuthTokenResponse refresh)
     {
         WithSqlite(dbPath, connection =>
         {
@@ -927,79 +843,13 @@ public sealed class CursorUsageCollector
     /// </summary>
     private static bool NeedsRefresh(string accessToken)
     {
-        return TryGetJwtExpiry(accessToken, out DateTimeOffset expiry) && expiry <= DateTimeOffset.UtcNow + s_RefreshBuffer;
-    }
-
-    /// <summary>
-    /// Reads the JWT exp claim without validating the signature.
-    /// </summary>
-    private static bool TryGetJwtExpiry(string token, out DateTimeOffset expiry)
-    {
-        expiry = default;
-        return TryReadJwtPayload(token, out JsonElement payload) &&
-            payload.TryGetProperty("exp", out JsonElement exp) &&
-            exp.TryGetInt64(out long seconds) &&
-            TryCreateUnixTimestamp(seconds, out expiry);
-    }
-
-    /// <summary>
-    /// Reads the JWT sub claim used as the Cursor session user id.
-    /// </summary>
-    private static bool TryGetJwtSubject(string token, out string subject)
-    {
-        subject = string.Empty;
-        if (!TryReadJwtPayload(token, out JsonElement payload) ||
-            !payload.TryGetProperty("sub", out JsonElement sub) ||
-            sub.ValueKind != JsonValueKind.String ||
-            string.IsNullOrWhiteSpace(sub.GetString()))
-        {
-            return false;
-        }
-
-        subject = sub.GetString()!;
-        return true;
-    }
-
-    /// <summary>
-    /// Decodes a JWT payload JSON object without validating the signature.
-    /// </summary>
-    private static bool TryReadJwtPayload(string token, out JsonElement payload)
-    {
-        payload = default;
-        string[] parts = token.Split('.');
-        if (parts.Length < 2)
-        {
-            return false;
-        }
-
-        try
-        {
-            string encoded = parts[1].Replace('-', '+').Replace('_', '/');
-            switch (encoded.Length % 4)
-            {
-                case 2:
-                    encoded += "==";
-                    break;
-                case 3:
-                    encoded += "=";
-                    break;
-            }
-
-            using JsonDocument document = JsonDocument.Parse(Convert.FromBase64String(encoded));
-            payload = document.RootElement.Clone();
-            return true;
-        }
-        catch (Exception exception) when (exception is FormatException or JsonException or ArgumentException)
-        {
-            return false;
-        }
+        return OAuthTokenHelpers.TryGetJwtExpiry(accessToken, out DateTimeOffset expiry) &&
+            expiry <= DateTimeOffset.UtcNow + s_RefreshBuffer;
     }
 
     private readonly record struct CursorCredential(string DbPath, string AccessToken, string RefreshToken, string UserId);
 
     private readonly record struct CursorCredentialResult(CursorCredential Credential, bool RefreshUsed);
-
-    private sealed record OAuthTokenRefresh(string AccessToken, string RefreshToken);
 
     private sealed record CursorEndpointResult<T>(T? Value, string Error, CursorCredential Credential, bool RefreshUsed);
 
@@ -1028,33 +878,6 @@ public sealed class CursorUsageCollector
         Negative,
         NonFinite,
         OutOfRange,
-    }
-
-    private sealed class CursorPeriodAccumulator
-    {
-        private long m_TotalTokens;
-        private decimal m_TotalCents;
-
-        /// <summary>
-        /// Adds one complete Cursor usage event to the period.
-        /// </summary>
-        public void Add(long tokens, decimal totalCents)
-        {
-            m_TotalTokens = checked(m_TotalTokens + tokens);
-            m_TotalCents += totalCents;
-        }
-
-        /// <summary>
-        /// Converts the accumulated values into the shared token-cost summary shape.
-        /// </summary>
-        public TokenCostSummary ToSummary()
-        {
-            return new TokenCostSummary
-            {
-                TotalTokens = m_TotalTokens,
-                CostUsd = m_TotalCents / 100m,
-            };
-        }
     }
 
     private sealed class CursorRequestException : InvalidOperationException
