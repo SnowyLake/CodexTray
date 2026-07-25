@@ -102,6 +102,7 @@ API 监控也是独立链路: `ApiUsageCollector` 查询 DeepSeek 与 NewAPI, �
 ## 验证工作流
 
 - 每次涉及需要重新编译的代码或 XAML 改动完成后, 必须在最终验证步骤自动执行 `Scripts/Publish-App.ps1 -NoPause`, 并确认发布成功且发布目录中的程序已启动.
+- 在 Codex Windows 环境执行可能触发 NuGet restore 的 build, test, publish 或打包命令时, 必须直接申请沙箱外执行权限. Windows Codex sandbox 可能导致 Schannel 返回 `SEC_E_NO_CREDENTIALS` 并产生 `NU1900`. 不得通过关闭 NuGet Audit 或屏蔽 `NU1900` 规避.
 
 构建全部项目:
 
