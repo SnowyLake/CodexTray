@@ -15,6 +15,16 @@ public enum TokenCostItem
     All = Today | Yesterday | Week | Month | SevenDay | ThirtyDay,
 }
 
+[Flags]
+public enum PageItem
+{
+    None = 0,
+    Codex = 1 << 0,
+    Cursor = 1 << 1,
+    Apis = 1 << 2,
+    All = Codex | Cursor | Apis,
+}
+
 public sealed class ApiMonitorSettings
 {
     public const string DeepSeekProvider = "DeepSeek";
@@ -22,6 +32,8 @@ public sealed class ApiMonitorSettings
     public const string NewApiProvider = "NewAPI";
 
     public const string GrokProvider = "Grok";
+
+    public const string CursorProvider = "Cursor";
 
     public const string GrokBuildOAuthSource = "Grok Build";
 
@@ -51,15 +63,25 @@ public sealed class ApiMonitorSettings
         {
             string value when string.Equals(value, NewApiProvider, StringComparison.OrdinalIgnoreCase) => NewApiProvider,
             string value when string.Equals(value, GrokProvider, StringComparison.OrdinalIgnoreCase) => GrokProvider,
+            string value when string.Equals(value, CursorProvider, StringComparison.OrdinalIgnoreCase) => CursorProvider,
             _ => DeepSeekProvider,
         };
         Name = string.IsNullOrWhiteSpace(Name) ? Provider : Name.Trim();
-        BaseUrl = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
-        ApiKey = (ApiKey ?? string.Empty).Trim();
-        UserId = (UserId ?? string.Empty).Trim();
         GrokOAuthSource = string.Equals(GrokOAuthSource?.Trim(), OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
             ? OpenCodeOAuthSource
             : GrokBuildOAuthSource;
+
+        if (Provider is GrokProvider or CursorProvider)
+        {
+            BaseUrl = string.Empty;
+            ApiKey = string.Empty;
+            UserId = string.Empty;
+            return this;
+        }
+
+        BaseUrl = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
+        ApiKey = (ApiKey ?? string.Empty).Trim();
+        UserId = (UserId ?? string.Empty).Trim();
         return this;
     }
 }
@@ -84,6 +106,8 @@ public sealed class AppSettings
 
     public int RefreshIntervalMinutes { get; set; } = CodexTrayDefaults.RefreshIntervalMinutes;
 
+    public PageItem VisiblePages { get; set; } = PageItem.All;
+
     public bool StartWithWindows { get; set; }
 
     public string ThemeMode { get; set; } = ThemeModeSystem;
@@ -96,11 +120,30 @@ public sealed class AppSettings
 
     public int AcrylicOpacityPercent { get; set; } = CodexTrayDefaults.AcrylicOpacityPercent;
 
+    public int WindowWidth { get; set; } = CodexTrayDefaults.WindowWidth;
+
+    public int WindowHeight { get; set; } = CodexTrayDefaults.WindowHeight;
+
     public bool ShowResetTimeInPlugins { get; set; } = CodexTrayDefaults.ShowResetTimeInPlugins;
 
     public bool UseAbsoluteResetTime { get; set; } = CodexTrayDefaults.UseAbsoluteResetTime;
 
+    public bool HideInvalidProgressBars { get; set; } = CodexTrayDefaults.HideInvalidProgressBars;
+
     public List<ApiMonitorSettings> ApiMonitors { get; set; } = [];
+
+    /// <summary>
+    /// Formats a token count using the selected compact unit family.
+    /// </summary>
+    public static string FormatTokenCount(long tokens, string tokenUnit)
+    {
+        (decimal divisor, string suffix) = tokenUnit == TokenUnitChinese
+            ? tokens >= 100_000_000 ? (100_000_000m, "亿") : (10_000m, "万")
+            : tokens >= 1_000_000_000 ? (1_000_000_000m, "B")
+            : tokens >= 1_000_000 ? (1_000_000m, "M")
+            : (1_000m, "K");
+        return $"{tokens / divisor:0.00}{suffix}";
+    }
 
     /// <summary>
     /// Creates a normalized copy of settings values.
@@ -124,12 +167,26 @@ public sealed class AppSettings
             AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
         }
 
-        LiteMonitorDir = LiteMonitorDir.Trim();
-        TrafficMonitorDir = TrafficMonitorDir.Trim();
+        if (WindowWidth < CodexTrayDefaults.MinimumWindowWidth ||
+            WindowWidth > CodexTrayDefaults.MaximumWindowWidth)
+        {
+            WindowWidth = CodexTrayDefaults.WindowWidth;
+        }
+
+        if (WindowHeight < CodexTrayDefaults.MinimumWindowHeight ||
+            WindowHeight > CodexTrayDefaults.MaximumWindowHeight)
+        {
+            WindowHeight = CodexTrayDefaults.WindowHeight;
+        }
+
+        LiteMonitorDir = (LiteMonitorDir ?? string.Empty).Trim();
+        TrafficMonitorDir = (TrafficMonitorDir ?? string.Empty).Trim();
         ThemeMode = NormalizeThemeMode(ThemeMode);
         TokenUnit = NormalizeTokenUnit(TokenUnit);
         TokenCostItems &= TokenCostItem.All;
+        VisiblePages &= PageItem.All;
         ApiMonitors ??= [];
+        ApiMonitors.RemoveAll(monitor => monitor == null || string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase));
         HashSet<string> monitorIds = new(StringComparer.Ordinal);
         foreach (ApiMonitorSettings monitor in ApiMonitors)
         {
@@ -229,6 +286,10 @@ public sealed class SettingsStore
         {
             return new AppSettings().Normalize();
         }
+        catch (UnauthorizedAccessException)
+        {
+            return new AppSettings().Normalize();
+        }
     }
 
     /// <summary>
@@ -239,6 +300,6 @@ public sealed class SettingsStore
         Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
         settings.Normalize();
         string json = JsonSerializer.Serialize(settings, s_JsonOptions);
-        File.WriteAllText(SettingsPath, json);
+        AtomicFile.WriteAllText(SettingsPath, json);
     }
 }

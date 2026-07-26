@@ -20,6 +20,7 @@ internal sealed class TrayController : IDisposable
     private readonly SettingsStore m_SettingsStore;
     private readonly CodexTrayCollector m_Collector;
     private readonly ApiUsageCollector m_ApiUsageCollector;
+    private readonly CursorUsageCollector m_CursorUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
     private readonly UsageCache m_UsageCache = new();
     private readonly Forms.NotifyIcon m_NotifyIcon;
@@ -46,6 +47,7 @@ internal sealed class TrayController : IDisposable
         m_SettingsStore = new SettingsStore();
         m_Collector = new CodexTrayCollector();
         m_ApiUsageCollector = new ApiUsageCollector();
+        m_CursorUsageCollector = new CursorUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
         m_AppIcon = LoadApplicationIcon();
         bool settingsExists = m_SettingsStore.Exists();
@@ -53,7 +55,10 @@ internal sealed class TrayController : IDisposable
         m_NotifyIcon = CreateNotifyIcon();
         m_RefreshTimer = new DispatcherTimer(DispatcherPriority.Background, m_Dispatcher);
         m_RefreshTimer.Tick += async (_, _) => await RefreshUsageAsync();
-        StartService();
+        if ((m_Settings.VisiblePages & PageItem.Codex) != 0)
+        {
+            StartService();
+        }
         ConfigureRefreshTimer();
         _ = RefreshUsageAsync();
         StartSignalListener();
@@ -311,15 +316,20 @@ internal sealed class TrayController : IDisposable
     private void SaveSettings()
     {
         int previousPort = m_Settings.Port;
-        if (m_PopupViewModel?.TryApplySettings(out _) == false)
-        {
-            return;
-        }
+        bool codexWasEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
+        m_PopupViewModel?.ApplySettings();
 
         StartupManager.SetEnabled(Environment.ProcessPath ?? string.Empty, m_Settings.StartWithWindows);
         m_SettingsStore.Save(m_Settings);
         ConfigureRefreshTimer();
-        if (previousPort != m_Settings.Port)
+        bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
+        if (!codexIsEnabled)
+        {
+            m_Server?.Dispose();
+            m_Server = null;
+            m_NotifyIcon.Text = CodexTrayDefaults.AppName;
+        }
+        else if (!codexWasEnabled || previousPort != m_Settings.Port)
         {
             RestartService();
         }
@@ -335,6 +345,11 @@ internal sealed class TrayController : IDisposable
     {
         m_Settings.Normalize();
         m_RefreshTimer.Stop();
+        if (m_Settings.VisiblePages == PageItem.None)
+        {
+            return;
+        }
+
         m_RefreshTimer.Interval = TimeSpan.FromMinutes(m_Settings.RefreshIntervalMinutes);
         m_RefreshTimer.Start();
     }
@@ -346,10 +361,7 @@ internal sealed class TrayController : IDisposable
     {
         try
         {
-            if (m_PopupViewModel?.TryApplySettings(out _) == false)
-            {
-                return;
-            }
+            m_PopupViewModel?.ApplySettings();
 
             if (!TryValidateLiteMonitorDirectory(m_Settings.LiteMonitorDir, out string message))
             {
@@ -375,10 +387,7 @@ internal sealed class TrayController : IDisposable
     {
         try
         {
-            if (m_PopupViewModel?.TryApplySettings(out _) == false)
-            {
-                return;
-            }
+            m_PopupViewModel?.ApplySettings();
 
             if (!TryValidateTrafficMonitorDirectory(m_Settings.TrafficMonitorDir, out string message))
             {
@@ -416,6 +425,12 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private async Task RefreshUsageAsync()
     {
+        PageItem visiblePages = m_Settings.VisiblePages;
+        if (visiblePages == PageItem.None)
+        {
+            return;
+        }
+
         if (Interlocked.Exchange(ref m_IsRefreshing, 1) == 1)
         {
             return;
@@ -428,24 +443,59 @@ internal sealed class TrayController : IDisposable
 
         try
         {
-            bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
             bool useAbsoluteResetTime = m_Settings.UseAbsoluteResetTime;
-            UsageResponse response = await Task.Run(() => m_Collector.Collect(showResetTimeInPlugins, useAbsoluteResetTime)).ConfigureAwait(true);
-            m_UsageCache.Update(response);
-            RefreshPopupStatus();
-            ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
-            IReadOnlyList<ApiUsageResult> apiUsage = await m_ApiUsageCollector.CollectAsync(apiMonitors, useAbsoluteResetTime).ConfigureAwait(true);
-            m_PopupViewModel?.UpdateApiUsage(apiUsage);
-            TokenCostStatistics? tokenCost;
-            try
+            Task<UsageResponse>? codexUsageTask = null;
+            Task<TokenCostStatistics?>? tokenCostTask = null;
+            Task<CursorUsageDashboard>? cursorDashboardTask = null;
+            Task<IReadOnlyList<ApiUsageResult>>? apiUsageTask = null;
+            if ((visiblePages & PageItem.Codex) != 0)
             {
-                tokenCost = await Task.Run(() => m_TokenCostCollector.Collect()).ConfigureAwait(true);
+                bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
+                codexUsageTask = Task.Run(() => m_Collector.Collect(showResetTimeInPlugins, useAbsoluteResetTime));
+                tokenCostTask = Task.Run(() =>
+                {
+                    try
+                    {
+                        return m_TokenCostCollector.Collect();
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+                    {
+                        return null;
+                    }
+                });
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+
+            if ((visiblePages & PageItem.Cursor) != 0)
             {
-                tokenCost = null;
+                cursorDashboardTask = m_CursorUsageCollector.CollectDashboardAsync();
             }
-            m_PopupViewModel?.UpdateTokenCost(tokenCost);
+
+            if ((visiblePages & PageItem.Apis) != 0)
+            {
+                ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
+                apiUsageTask = m_ApiUsageCollector.CollectAsync(apiMonitors, useAbsoluteResetTime);
+            }
+
+            if (codexUsageTask != null && tokenCostTask != null)
+            {
+                UsageResponse response = await codexUsageTask.ConfigureAwait(true);
+                m_UsageCache.Update(response);
+                RefreshPopupStatus();
+                TokenCostStatistics? tokenCost = await tokenCostTask.ConfigureAwait(true);
+                m_PopupViewModel?.UpdateTokenCost(tokenCost);
+            }
+
+            if (cursorDashboardTask != null)
+            {
+                CursorUsageDashboard cursorDashboard = await cursorDashboardTask.ConfigureAwait(true);
+                m_PopupViewModel?.UpdateCursorDashboard(cursorDashboard);
+            }
+
+            if (apiUsageTask != null)
+            {
+                IReadOnlyList<ApiUsageResult> apiUsage = await apiUsageTask.ConfigureAwait(true);
+                m_PopupViewModel?.UpdateApiUsage(apiUsage);
+            }
         }
         finally
         {

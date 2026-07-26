@@ -1,12 +1,10 @@
 using CodexTray.Core;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Media = System.Windows.Media;
 
 namespace CodexTray.App;
 
-internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
+internal sealed class ApiMonitorViewModel : ObservableObject
 {
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_RedBrush = new Media.SolidColorBrush(Media.Color.FromRgb(224, 91, 77));
@@ -18,15 +16,12 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     private string m_UserId;
     private string m_GrokOAuthSource;
     private string m_BalanceDisplay = "N/A";
+    private string m_BalanceTooltip = string.Empty;
     private string m_UsedDisplay = "N/A";
     private string m_StatusText = "Waiting for refresh";
     private Media.Brush m_StatusDotBrush = s_RedBrush;
     private bool m_IsEditing;
     private bool m_IsPending;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public event EventHandler? Changed;
 
     public event EventHandler? EditingSaved;
 
@@ -55,7 +50,6 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             if (SetField(ref m_Name, value))
             {
                 OnPropertyChanged(nameof(DisplayName));
-                Changed?.Invoke(this, EventArgs.Empty);
             }
         }
     }
@@ -89,48 +83,30 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
 
             OnPropertyChanged(nameof(IsNewApi));
             OnPropertyChanged(nameof(IsGrok));
+            OnPropertyChanged(nameof(IsLocalSessionAuth));
             OnPropertyChanged(nameof(HasSecondaryDisplay));
             OnPropertyChanged(nameof(PrimaryDisplayLabel));
             OnPropertyChanged(nameof(SecondaryDisplayLabel));
             OnPropertyChanged(nameof(DisplayName));
-            Changed?.Invoke(this, EventArgs.Empty);
         }
     }
 
     public string BaseUrl
     {
         get => m_BaseUrl;
-        set
-        {
-            if (SetField(ref m_BaseUrl, value))
-            {
-                Changed?.Invoke(this, EventArgs.Empty);
-            }
-        }
+        set => SetField(ref m_BaseUrl, value);
     }
 
     public string ApiKey
     {
         get => m_ApiKey;
-        set
-        {
-            if (SetField(ref m_ApiKey, value))
-            {
-                Changed?.Invoke(this, EventArgs.Empty);
-            }
-        }
+        set => SetField(ref m_ApiKey, value);
     }
 
     public string UserId
     {
         get => m_UserId;
-        set
-        {
-            if (SetField(ref m_UserId, value))
-            {
-                Changed?.Invoke(this, EventArgs.Empty);
-            }
-        }
+        set => SetField(ref m_UserId, value);
     }
 
     public string GrokOAuthSource
@@ -141,10 +117,7 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
             string normalized = string.Equals(value, ApiMonitorSettings.OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
                 ? ApiMonitorSettings.OpenCodeOAuthSource
                 : ApiMonitorSettings.GrokBuildOAuthSource;
-            if (SetField(ref m_GrokOAuthSource, normalized))
-            {
-                Changed?.Invoke(this, EventArgs.Empty);
-            }
+            SetField(ref m_GrokOAuthSource, normalized);
         }
     }
 
@@ -152,9 +125,11 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
 
     public bool IsGrok => m_Provider == ApiMonitorSettings.GrokProvider;
 
+    public bool IsLocalSessionAuth => IsGrok;
+
     public bool HasSecondaryDisplay => IsNewApi || IsGrok;
 
-    public string PrimaryDisplayLabel => IsGrok ? "Remaining:" : "Balance:";
+    public string PrimaryDisplayLabel => "Balance:";
 
     public string SecondaryDisplayLabel => IsGrok ? "Resets:" : "Used:";
 
@@ -165,6 +140,14 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         get => m_BalanceDisplay;
         private set => SetField(ref m_BalanceDisplay, value);
     }
+
+    public string BalanceTooltip
+    {
+        get => m_BalanceTooltip;
+        private set => SetField(ref m_BalanceTooltip, value);
+    }
+
+    public bool HasBalanceTooltip => !string.IsNullOrWhiteSpace(m_BalanceTooltip);
 
     public string UsedDisplay
     {
@@ -236,6 +219,8 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
     public void Update(ApiUsageResult result)
     {
         BalanceDisplay = result.BalanceDisplay;
+        BalanceTooltip = result.BalanceTooltip;
+        OnPropertyChanged(nameof(HasBalanceTooltip));
         UsedDisplay = result.UsedDisplay;
         StatusText = result.Available
             ? $"Updated {result.UpdatedAt:HH:mm}"
@@ -258,26 +243,4 @@ internal sealed class ApiMonitorViewModel : INotifyPropertyChanged
         EditingSaved?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>
-    /// Sets a field and raises property change notification when needed.
-    /// </summary>
-    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(field, value))
-        {
-            return false;
-        }
-
-        field = value;
-        OnPropertyChanged(propertyName);
-        return true;
-    }
-
-    /// <summary>
-    /// Raises a property change notification.
-    /// </summary>
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
 }

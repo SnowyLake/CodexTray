@@ -1,12 +1,9 @@
 using CodexTray.Core;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Text;
 using System.Windows.Input;
 using Forms = System.Windows.Forms;
 using Media = System.Windows.Media;
@@ -43,9 +40,10 @@ internal sealed record InAppDialogRequest(
     string? SecondaryButtonText = null,
     Action? PrimaryAction = null);
 
-internal sealed class TrayPopupViewModel : INotifyPropertyChanged
+internal sealed class TrayPopupViewModel : ObservableObject
 {
-    private const string k_HomePageName = "Home";
+    private const string k_CodexPageName = "Codex";
+    private const string k_CursorPageName = "Cursor";
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
     private const string k_AboutPageName = "About";
@@ -59,7 +57,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private static readonly TokenCostDisplay s_UnavailableTokenCostDisplay = new("N/A", "N/A");
 
     private readonly AppSettings m_Settings;
-    private string m_CurrentPage = k_HomePageName;
+    private string m_CurrentPage = k_CodexPageName;
     private string m_PlanDisplay = "UNKNOWN";
     private Media.Brush m_PlanBadgeBrush = s_PlanBadgeInactiveBrush;
     private Media.Brush m_StatusDotBrush = s_RedBrush;
@@ -67,7 +65,9 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_ServiceStatus = "Service: starting";
     private string m_SourceDisplay = "Source: unavailable";
     private string m_ResetCreditsDisplay = "N/A";
-    private string m_ResetCreditsResetTime = "N/A";
+    private string m_ResetCreditsResetTime = "unknown";
+    private string m_ResetCreditsOtherResetTimes = string.Empty;
+    private bool m_IsResetCreditsResetTimeVisible = true;
     private string m_LiteMonitorDir = string.Empty;
     private string m_TrafficMonitorDir = string.Empty;
     private string m_PortText = CodexTrayDefaults.Port.ToString(CultureInfo.InvariantCulture);
@@ -75,17 +75,15 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_ThemeMode = AppSettings.ThemeModeSystem;
     private string m_TokenUnit = AppSettings.TokenUnitEnglish;
     private TokenCostItem m_TokenCostItems = TokenCostItem.All;
-    private TokenCostDisplay m_TodayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_YesterdayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_WeekTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_MonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_SevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-    private TokenCostDisplay m_ThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
+    private PageItem m_VisiblePages = PageItem.All;
     private bool m_StartWithWindows;
     private bool m_AcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
     private int m_AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
+    private string m_WindowWidthText = CodexTrayDefaults.WindowWidth.ToString(CultureInfo.InvariantCulture);
+    private string m_WindowHeightText = CodexTrayDefaults.WindowHeight.ToString(CultureInfo.InvariantCulture);
     private bool m_ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
     private bool m_UseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
+    private bool m_HideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
     private bool m_IsRefreshing;
     private bool m_IsInAppDialogOpen;
     private bool m_IsNativeModalOpen;
@@ -95,6 +93,11 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private int m_ApiUsageErrorCount;
     private int m_ApiUsageMonitorCount;
     private DateTimeOffset? m_ApiUsageUpdatedAt;
+    private Media.Brush m_CursorStatusDotBrush = s_RedBrush;
+    private string m_CursorPlanDisplay = "UNKNOWN";
+    private Media.Brush m_CursorPlanBadgeBrush = s_PlanBadgeInactiveBrush;
+    private string m_CursorUpdatedAtDisplay = "Waiting for first refresh";
+    private string m_CursorStatusTooltip = string.Empty;
     private string m_InAppDialogTitle = string.Empty;
     private string m_InAppDialogMessage = string.Empty;
     private string m_InAppDialogPrimaryButtonText = "OK";
@@ -111,13 +114,15 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private string m_SnapshotThemeMode = AppSettings.ThemeModeSystem;
     private string m_SnapshotTokenUnit = AppSettings.TokenUnitEnglish;
     private TokenCostItem m_SnapshotTokenCostItems = TokenCostItem.All;
+    private PageItem m_SnapshotVisiblePages = PageItem.All;
     private bool m_SnapshotStartWithWindows;
     private bool m_SnapshotAcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
     private int m_SnapshotAcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
+    private string m_SnapshotWindowWidthText = string.Empty;
+    private string m_SnapshotWindowHeightText = string.Empty;
     private bool m_SnapshotShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
     private bool m_SnapshotUseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
+    private bool m_SnapshotHideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
 
     public event EventHandler? RefreshRequested;
 
@@ -137,7 +142,19 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public QuotaViewModel SevenDayQuota { get; } = new("7-Day");
 
-    public ICommand ShowHomeCommand { get; }
+    public QuotaViewModel CursorTotalQuota { get; } = new("Total");
+
+    public QuotaViewModel CursorAutoQuota { get; } = new("First Party");
+
+    public QuotaViewModel CursorApiQuota { get; } = new("APIs");
+
+    public IReadOnlyList<TokenCostRowViewModel> CodexTokenCostRows { get; } = CreateTokenCostRows();
+
+    public IReadOnlyList<TokenCostRowViewModel> CursorTokenCostRows { get; } = CreateTokenCostRows();
+
+    public ICommand ShowCodexCommand { get; }
+
+    public ICommand ShowCursorCommand { get; }
 
     public ICommand ShowApiCommand { get; }
 
@@ -247,6 +264,18 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     {
         get => m_ResetCreditsResetTime;
         private set => SetField(ref m_ResetCreditsResetTime, value);
+    }
+
+    public string ResetCreditsOtherResetTimes
+    {
+        get => m_ResetCreditsOtherResetTimes;
+        private set => SetField(ref m_ResetCreditsOtherResetTimes, value);
+    }
+
+    public bool IsResetCreditsResetTimeVisible
+    {
+        get => m_IsResetCreditsResetTimeVisible;
+        private set => SetField(ref m_IsResetCreditsResetTimeVisible, value);
     }
 
     public string LiteMonitorDir
@@ -385,6 +414,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ShowMonthTokenCost));
                 OnPropertyChanged(nameof(ShowSevenDayTokenCost));
                 OnPropertyChanged(nameof(ShowThirtyDayTokenCost));
+                UpdateTokenCostRowVisibility();
                 EvaluateDirtyState();
             }
         }
@@ -435,40 +465,48 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         set => SetTokenCostItem(TokenCostItem.ThirtyDay, value);
     }
 
-    public TokenCostDisplay TodayTokenCostDisplay
+    public PageItem VisiblePages
     {
-        get => m_TodayTokenCostDisplay;
-        private set => SetField(ref m_TodayTokenCostDisplay, value);
+        get => m_VisiblePages;
+        set
+        {
+            if (SetField(ref m_VisiblePages, value & PageItem.All))
+            {
+                OnPropertyChanged(nameof(VisiblePagesDisplay));
+                OnPropertyChanged(nameof(IsCodexTabVisible));
+                OnPropertyChanged(nameof(IsCursorTabVisible));
+                OnPropertyChanged(nameof(IsApiTabVisible));
+                OnPropertyChanged(nameof(ShowCodexPage));
+                OnPropertyChanged(nameof(ShowCursorPage));
+                OnPropertyChanged(nameof(ShowApisPage));
+                EvaluateDirtyState();
+            }
+        }
     }
 
-    public TokenCostDisplay YesterdayTokenCostDisplay
+    public string VisiblePagesDisplay => m_VisiblePages switch
     {
-        get => m_YesterdayTokenCostDisplay;
-        private set => SetField(ref m_YesterdayTokenCostDisplay, value);
+        PageItem.None => "None",
+        PageItem.All => "All",
+        _ => "Custom",
+    };
+
+    public bool ShowCodexPage
+    {
+        get => (m_VisiblePages & PageItem.Codex) != 0;
+        set => SetPageItem(PageItem.Codex, value);
     }
 
-    public TokenCostDisplay WeekTokenCostDisplay
+    public bool ShowCursorPage
     {
-        get => m_WeekTokenCostDisplay;
-        private set => SetField(ref m_WeekTokenCostDisplay, value);
+        get => (m_VisiblePages & PageItem.Cursor) != 0;
+        set => SetPageItem(PageItem.Cursor, value);
     }
 
-    public TokenCostDisplay MonthTokenCostDisplay
+    public bool ShowApisPage
     {
-        get => m_MonthTokenCostDisplay;
-        private set => SetField(ref m_MonthTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay SevenDayTokenCostDisplay
-    {
-        get => m_SevenDayTokenCostDisplay;
-        private set => SetField(ref m_SevenDayTokenCostDisplay, value);
-    }
-
-    public TokenCostDisplay ThirtyDayTokenCostDisplay
-    {
-        get => m_ThirtyDayTokenCostDisplay;
-        private set => SetField(ref m_ThirtyDayTokenCostDisplay, value);
+        get => (m_VisiblePages & PageItem.Apis) != 0;
+        set => SetPageItem(PageItem.Apis, value);
     }
 
     public bool StartWithWindows
@@ -509,6 +547,30 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
     }
 
+    public string WindowWidthText
+    {
+        get => m_WindowWidthText;
+        set
+        {
+            if (SetField(ref m_WindowWidthText, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
+    }
+
+    public string WindowHeightText
+    {
+        get => m_WindowHeightText;
+        set
+        {
+            if (SetField(ref m_WindowHeightText, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
+    }
+
     public bool ShowResetTimeInPlugins
     {
         get => m_ShowResetTimeInPlugins;
@@ -533,13 +595,30 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool HideInvalidProgressBars
+    {
+        get => m_HideInvalidProgressBars;
+        set
+        {
+            if (SetField(ref m_HideInvalidProgressBars, value))
+            {
+                EvaluateDirtyState();
+            }
+        }
+    }
+
+    public bool IsUsageSectionHeaderVisible =>
+        !m_HideInvalidProgressBars || FiveHourQuota.IsVisible || SevenDayQuota.IsVisible;
+
     public string AcrylicOpacityDisplay => $"{m_AcrylicOpacityPercent}%";
 
     public int AcrylicOpacityMinimum => CodexTrayDefaults.MinimumAcrylicOpacityPercent;
 
     public int AcrylicOpacityMaximum => CodexTrayDefaults.MaximumAcrylicOpacityPercent;
 
-    public bool IsHomeVisible => m_CurrentPage == k_HomePageName;
+    public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
+
+    public bool IsCursorVisible => m_CurrentPage == k_CursorPageName;
 
     public bool IsApiVisible => m_CurrentPage == k_ApiPageName;
 
@@ -547,11 +626,19 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
 
     public bool IsAboutVisible => m_CurrentPage == k_AboutPageName;
 
-    public bool IsHomeSelected => m_CurrentPage == k_HomePageName;
+    public bool IsCodexSelected => m_CurrentPage == k_CodexPageName;
+
+    public bool IsCursorSelected => m_CurrentPage == k_CursorPageName;
 
     public bool IsApiSelected => m_CurrentPage == k_ApiPageName;
 
     public bool IsSettingsSelected => m_CurrentPage == k_SettingsPageName;
+
+    public bool IsCodexTabVisible => (m_VisiblePages & PageItem.Codex) != 0;
+
+    public bool IsCursorTabVisible => (m_VisiblePages & PageItem.Cursor) != 0;
+
+    public bool IsApiTabVisible => (m_VisiblePages & PageItem.Apis) != 0;
 
     public string AppVersion => typeof(TrayPopupViewModel).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
@@ -589,6 +676,36 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
                 _ => $"{m_ApiUsageErrorCount} {errorLabel} Update Error",
             };
         }
+    }
+
+    public Media.Brush CursorStatusDotBrush
+    {
+        get => m_CursorStatusDotBrush;
+        private set => SetField(ref m_CursorStatusDotBrush, value);
+    }
+
+    public string CursorPlanDisplay
+    {
+        get => m_CursorPlanDisplay;
+        private set => SetField(ref m_CursorPlanDisplay, value);
+    }
+
+    public Media.Brush CursorPlanBadgeBrush
+    {
+        get => m_CursorPlanBadgeBrush;
+        private set => SetField(ref m_CursorPlanBadgeBrush, value);
+    }
+
+    public string CursorUpdatedAtDisplay
+    {
+        get => m_CursorUpdatedAtDisplay;
+        private set => SetField(ref m_CursorUpdatedAtDisplay, value);
+    }
+
+    public string CursorStatusTooltip
+    {
+        get => m_CursorStatusTooltip;
+        private set => SetField(ref m_CursorStatusTooltip, value);
     }
 
     public bool IsRefreshing
@@ -649,9 +766,17 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     public TrayPopupViewModel(AppSettings settings)
     {
         m_Settings = settings;
+        m_CurrentPage = (settings.VisiblePages & PageItem.Codex) != 0
+            ? k_CodexPageName
+            : (settings.VisiblePages & PageItem.Cursor) != 0
+                ? k_CursorPageName
+                : (settings.VisiblePages & PageItem.Apis) != 0
+                    ? k_ApiPageName
+                    : k_SettingsPageName;
         LoadSettings(settings);
         LoadApiMonitors(settings.ApiMonitors);
-        ShowHomeCommand = new RelayCommand(_ => ShowHome());
+        ShowCodexCommand = new RelayCommand(_ => ShowCodex());
+        ShowCursorCommand = new RelayCommand(_ => ShowCursor());
         ShowApiCommand = new RelayCommand(_ => ShowApi());
         ShowSettingsCommand = new RelayCommand(_ => ShowSettings());
         ShowAboutCommand = new RelayCommand(_ => ShowAbout());
@@ -688,11 +813,15 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             ThemeMode = settings.ThemeMode;
             TokenUnit = settings.TokenUnit;
             TokenCostItems = settings.TokenCostItems;
+            VisiblePages = settings.VisiblePages;
             StartWithWindows = settings.StartWithWindows;
             AcrylicEnabled = settings.AcrylicEnabled;
             AcrylicOpacityPercent = settings.AcrylicOpacityPercent;
+            WindowWidthText = settings.WindowWidth.ToString(CultureInfo.InvariantCulture);
+            WindowHeightText = settings.WindowHeight.ToString(CultureInfo.InvariantCulture);
             ShowResetTimeInPlugins = settings.ShowResetTimeInPlugins;
             UseAbsoluteResetTime = settings.UseAbsoluteResetTime;
+            HideInvalidProgressBars = settings.HideInvalidProgressBars;
         }
         finally
         {
@@ -714,11 +843,15 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         m_SnapshotThemeMode = m_ThemeMode;
         m_SnapshotTokenUnit = m_TokenUnit;
         m_SnapshotTokenCostItems = m_TokenCostItems;
+        m_SnapshotVisiblePages = m_VisiblePages;
         m_SnapshotStartWithWindows = m_StartWithWindows;
         m_SnapshotAcrylicEnabled = m_AcrylicEnabled;
         m_SnapshotAcrylicOpacityPercent = m_AcrylicOpacityPercent;
+        m_SnapshotWindowWidthText = m_WindowWidthText;
+        m_SnapshotWindowHeightText = m_WindowHeightText;
         m_SnapshotShowResetTimeInPlugins = m_ShowResetTimeInPlugins;
         m_SnapshotUseAbsoluteResetTime = m_UseAbsoluteResetTime;
+        m_SnapshotHideInvalidProgressBars = m_HideInvalidProgressBars;
         m_SettingsBaseline = baseline;
         SettingsStatus = baseline;
     }
@@ -741,11 +874,15 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             m_ThemeMode == m_SnapshotThemeMode &&
             m_TokenUnit == m_SnapshotTokenUnit &&
             m_TokenCostItems == m_SnapshotTokenCostItems &&
+            m_VisiblePages == m_SnapshotVisiblePages &&
             m_StartWithWindows == m_SnapshotStartWithWindows &&
             m_AcrylicEnabled == m_SnapshotAcrylicEnabled &&
             m_AcrylicOpacityPercent == m_SnapshotAcrylicOpacityPercent &&
+            m_WindowWidthText == m_SnapshotWindowWidthText &&
+            m_WindowHeightText == m_SnapshotWindowHeightText &&
             m_ShowResetTimeInPlugins == m_SnapshotShowResetTimeInPlugins &&
-            m_UseAbsoluteResetTime == m_SnapshotUseAbsoluteResetTime;
+            m_UseAbsoluteResetTime == m_SnapshotUseAbsoluteResetTime &&
+            m_HideInvalidProgressBars == m_SnapshotHideInvalidProgressBars;
 
         SettingsStatus = matchesSnapshot ? m_SettingsBaseline : SettingsStatus.Unsaved;
     }
@@ -753,7 +890,7 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// <summary>
     /// Applies editable properties to the shared settings model.
     /// </summary>
-    public bool TryApplySettings(out string message)
+    public void ApplySettings()
     {
         int port = ClampOrDefault(PortText, CodexTrayDefaults.MinimumPort, CodexTrayDefaults.MaximumPort, CodexTrayDefaults.Port);
         int refreshInterval = ClampOrDefault(
@@ -761,11 +898,23 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             CodexTrayDefaults.MinimumRefreshIntervalMinutes,
             CodexTrayDefaults.MaximumRefreshIntervalMinutes,
             CodexTrayDefaults.RefreshIntervalMinutes);
+        int windowWidth = ClampOrDefault(
+            WindowWidthText,
+            CodexTrayDefaults.MinimumWindowWidth,
+            CodexTrayDefaults.MaximumWindowWidth,
+            CodexTrayDefaults.WindowWidth);
+        int windowHeight = ClampOrDefault(
+            WindowHeightText,
+            CodexTrayDefaults.MinimumWindowHeight,
+            CodexTrayDefaults.MaximumWindowHeight,
+            CodexTrayDefaults.WindowHeight);
         m_SuppressDirtyTracking = true;
         try
         {
             PortText = port.ToString(CultureInfo.InvariantCulture);
             RefreshIntervalText = refreshInterval.ToString(CultureInfo.InvariantCulture);
+            WindowWidthText = windowWidth.ToString(CultureInfo.InvariantCulture);
+            WindowHeightText = windowHeight.ToString(CultureInfo.InvariantCulture);
             LiteMonitorDir = LiteMonitorDir.Trim();
             TrafficMonitorDir = TrafficMonitorDir.Trim();
         }
@@ -782,13 +931,15 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         m_Settings.ThemeMode = ThemeMode;
         m_Settings.TokenUnit = TokenUnit;
         m_Settings.TokenCostItems = TokenCostItems;
+        m_Settings.VisiblePages = VisiblePages;
         m_Settings.AcrylicEnabled = AcrylicEnabled;
         m_Settings.AcrylicOpacityPercent = AcrylicOpacityPercent;
+        m_Settings.WindowWidth = windowWidth;
+        m_Settings.WindowHeight = windowHeight;
         m_Settings.ShowResetTimeInPlugins = ShowResetTimeInPlugins;
         m_Settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
+        m_Settings.HideInvalidProgressBars = HideInvalidProgressBars;
         CaptureSnapshot(SettingsStatus.Saved);
-        message = "Changes saved";
-        return true;
     }
 
     /// <summary>
@@ -802,12 +953,49 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Parses digits from raw input and clamps to the range, falling back to a default when empty.
+    /// Updates the fixed token-cost row visibility for the current item selection.
+    /// </summary>
+    private void UpdateTokenCostRowVisibility()
+    {
+        foreach (TokenCostRowViewModel row in CodexTokenCostRows.Concat(CursorTokenCostRows))
+        {
+            row.IsVisible = row.Item == TokenCostItem.None || (m_TokenCostItems & row.Item) != 0;
+        }
+    }
+
+    /// <summary>
+    /// Creates the fixed token-cost rows shared by each dashboard page.
+    /// </summary>
+    private static IReadOnlyList<TokenCostRowViewModel> CreateTokenCostRows()
+    {
+        return
+        [
+            new TokenCostRowViewModel("Today", TokenCostItem.Today),
+            new TokenCostRowViewModel("Yesterday", TokenCostItem.Yesterday),
+            new TokenCostRowViewModel("Week", TokenCostItem.Week),
+            new TokenCostRowViewModel("Month", TokenCostItem.Month),
+            new TokenCostRowViewModel("Last 7 days", TokenCostItem.SevenDay),
+            new TokenCostRowViewModel("Last 30 days", TokenCostItem.ThirtyDay),
+            new TokenCostRowViewModel("Total", TokenCostItem.None, isLast: true),
+        ];
+    }
+
+    /// <summary>
+    /// Adds or removes one page from the current selection.
+    /// </summary>
+    private void SetPageItem(PageItem item, bool isShown)
+    {
+        VisiblePages = isShown
+            ? m_VisiblePages | item
+            : m_VisiblePages & ~item;
+    }
+
+    /// <summary>
+    /// Parses and clamps raw input, falling back to a default when invalid.
     /// </summary>
     private static int ClampOrDefault(string rawText, int minimum, int maximum, int fallback)
     {
-        string digits = KeepDigits(rawText);
-        if (!int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        if (!int.TryParse(rawText, out int value))
         {
             return fallback;
         }
@@ -854,9 +1042,18 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         PlanBadgeBrush = s_PlanBadgeActiveBrush;
         StatusDotBrush = s_GreenBrush;
         UpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
-        FiveHourQuota.Update(response.Limits.FiveHour);
-        SevenDayQuota.Update(response.Limits.SevenDay);
+        FiveHourQuota.Update(response.Limits.FiveHour, HideInvalidProgressBars);
+        SevenDayQuota.Update(response.Limits.SevenDay, HideInvalidProgressBars);
         UpdateResetCredits(response.ResetCredits);
+        NotifyUsageSectionVisibilityChanged();
+    }
+
+    /// <summary>
+    /// Notifies listeners that Usage section header visibility may have changed.
+    /// </summary>
+    private void NotifyUsageSectionVisibilityChanged()
+    {
+        OnPropertyChanged(nameof(IsUsageSectionHeaderVisible));
     }
 
     /// <summary>
@@ -868,11 +1065,17 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         {
             ResetCreditsDisplay = $"{resetCredits.AvailableCount} Available";
             ResetCreditsResetTime = resetCredits.NearestExpiryLocal;
+            ResetCreditsOtherResetTimes = resetCredits.OtherExpiriesLocal;
+            // Hide expiry only after a successful response with no remaining credits.
+            IsResetCreditsResetTimeVisible = resetCredits.AvailableCount > 0;
         }
         else
         {
+            // Request failed / no account: keep the full unavailable row visible.
             ResetCreditsDisplay = "N/A";
-            ResetCreditsResetTime = "N/A";
+            ResetCreditsResetTime = "unknown";
+            ResetCreditsOtherResetTimes = string.Empty;
+            IsResetCreditsResetTimeVisible = true;
         }
     }
 
@@ -881,23 +1084,93 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     /// </summary>
     public void UpdateTokenCost(TokenCostStatistics? statistics)
     {
-        if (statistics == null)
+        UpdateTokenCostRows(CodexTokenCostRows, statistics);
+    }
+
+    /// <summary>
+    /// Updates the Cursor page from one shared dashboard collection result.
+    /// </summary>
+    public void UpdateCursorDashboard(CursorUsageDashboard dashboard)
+    {
+        CursorUsageSnapshot? usage = dashboard.Usage;
+        bool usageAvailable = usage != null;
+        bool tokenCostAvailable = dashboard.TokenCost != null;
+        if (usage != null)
         {
-            TodayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            YesterdayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            WeekTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            MonthTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            SevenDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            ThirtyDayTokenCostDisplay = s_UnavailableTokenCostDisplay;
-            return;
+            CursorPlanDisplay = FormatCursorPlan(usage.PlanType);
+            CursorPlanBadgeBrush = CursorPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
+            string reset = m_Settings.UseAbsoluteResetTime
+                ? CodexTrayCollector.FormatSevenDayResetDate(usage.ResetsAt, dashboard.UpdatedAt)
+                : CodexTrayCollector.FormatSevenDayResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
+            CursorTotalQuota.UpdateCursorUsage(usage.TotalUsedPercent, reset, showReset: true);
+            CursorAutoQuota.UpdateCursorUsage(usage.AutoUsedPercent, string.Empty, showReset: false);
+            CursorApiQuota.UpdateCursorUsage(usage.ApiUsedPercent, string.Empty, showReset: false);
+        }
+        else
+        {
+            CursorPlanDisplay = "UNKNOWN";
+            CursorPlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            CursorTotalQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
+            CursorAutoQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
+            CursorApiQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
         }
 
-        TodayTokenCostDisplay = FormatTokenCost(statistics.Today);
-        YesterdayTokenCostDisplay = FormatTokenCost(statistics.Yesterday);
-        WeekTokenCostDisplay = FormatTokenCost(statistics.Week);
-        MonthTokenCostDisplay = FormatTokenCost(statistics.Month);
-        SevenDayTokenCostDisplay = FormatTokenCost(statistics.SevenDay);
-        ThirtyDayTokenCostDisplay = FormatTokenCost(statistics.ThirtyDay);
+        UpdateTokenCostRows(CursorTokenCostRows, dashboard.TokenCost);
+        CursorStatusDotBrush = usageAvailable && tokenCostAvailable
+            ? s_GreenBrush
+            : usageAvailable || tokenCostAvailable
+                ? s_YellowBrush
+                : s_RedBrush;
+        CursorUpdatedAtDisplay = usageAvailable && tokenCostAvailable
+            ? FormatUpdatedAt(dashboard.UpdatedAt.ToString("O", CultureInfo.InvariantCulture))
+            : usageAvailable
+                ? "Usage updated, Token Cost N/A"
+                : tokenCostAvailable
+                    ? "Token Cost updated, Usage N/A"
+                    : "Update error";
+        CursorStatusTooltip = FormatCursorStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
+    }
+
+    /// <summary>
+    /// Updates one fixed token-cost row group from the supplied statistics.
+    /// </summary>
+    private void UpdateTokenCostRows(IReadOnlyList<TokenCostRowViewModel> rows, TokenCostStatistics? statistics)
+    {
+        TokenCostDisplay[] displays = statistics == null
+            ? Enumerable.Repeat(s_UnavailableTokenCostDisplay, rows.Count).ToArray()
+            :
+            [
+                FormatTokenCost(statistics.Today),
+                FormatTokenCost(statistics.Yesterday),
+                FormatTokenCost(statistics.Week),
+                FormatTokenCost(statistics.Month),
+                FormatTokenCost(statistics.SevenDay),
+                FormatTokenCost(statistics.ThirtyDay),
+                FormatTokenCost(statistics.Total),
+            ];
+        for (int index = 0; index < rows.Count; index++)
+        {
+            rows[index].Display = displays[index];
+        }
+    }
+
+    /// <summary>
+    /// Combines sanitized Cursor endpoint errors for the status tooltip.
+    /// </summary>
+    private static string FormatCursorStatusTooltip(CursorUsageDashboard dashboard, bool usageAvailable, bool tokenCostAvailable)
+    {
+        List<string> errors = [];
+        if (!usageAvailable && dashboard.UsageError.Length > 0)
+        {
+            errors.Add($"Usage: {dashboard.UsageError}");
+        }
+
+        if (!tokenCostAvailable && dashboard.TokenCostError.Length > 0)
+        {
+            errors.Add($"Token Cost: {dashboard.TokenCostError}");
+        }
+
+        return string.Join(Environment.NewLine, errors);
     }
 
     /// <summary>
@@ -906,26 +1179,23 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private TokenCostDisplay FormatTokenCost(TokenCostSummary summary)
     {
         string cost = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-        return new TokenCostDisplay(cost, FormatTokens(summary.TotalTokens, m_Settings.TokenUnit));
+        return new TokenCostDisplay(cost, AppSettings.FormatTokenCount(summary.TotalTokens, m_Settings.TokenUnit));
     }
 
     /// <summary>
-    /// Formats token counts using the selected compact unit family.
+    /// Shows the Codex dashboard page inside the tray popup.
     /// </summary>
-    private static string FormatTokens(long tokens, string tokenUnit)
+    public void ShowCodex()
     {
-        (decimal divisor, string suffix) = tokenUnit == AppSettings.TokenUnitChinese
-            ? tokens >= 100_000_000 ? (100_000_000m, "亿") : (10_000m, "万")
-            : tokens >= 1_000_000_000 ? (1_000_000_000m, "B") : (1_000_000m, "M");
-        return $"{tokens / divisor:0.00}{suffix}";
+        SetPage(k_CodexPageName);
     }
 
     /// <summary>
-    /// Shows the home page inside the tray popup.
+    /// Shows the Cursor dashboard page inside the tray popup.
     /// </summary>
-    public void ShowHome()
+    public void ShowCursor()
     {
-        SetPage(k_HomePageName);
+        SetPage(k_CursorPageName);
     }
 
     /// <summary>
@@ -968,11 +1238,13 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
 
         m_CurrentPage = pageName;
-        OnPropertyChanged(nameof(IsHomeVisible));
+        OnPropertyChanged(nameof(IsCodexVisible));
+        OnPropertyChanged(nameof(IsCursorVisible));
         OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsAboutVisible));
-        OnPropertyChanged(nameof(IsHomeSelected));
+        OnPropertyChanged(nameof(IsCodexSelected));
+        OnPropertyChanged(nameof(IsCursorSelected));
         OnPropertyChanged(nameof(IsApiSelected));
         OnPropertyChanged(nameof(IsSettingsSelected));
     }
@@ -1001,7 +1273,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         foreach (ApiMonitorSettings monitorSettings in settings)
         {
             ApiMonitorViewModel monitor = new(monitorSettings);
-            monitor.Changed += HandleApiMonitorChanged;
             monitor.EditingSaved += HandleApiMonitorSaved;
             ApiMonitors.Add(monitor);
         }
@@ -1015,7 +1286,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private void AddApiMonitor()
     {
         ApiMonitorViewModel monitor = new(new ApiMonitorSettings(), isEditing: true, isPending: true);
-        monitor.Changed += HandleApiMonitorChanged;
         monitor.EditingSaved += HandleApiMonitorSaved;
         ApiMonitors.Add(monitor);
         NotifyApiMonitorCountChanged();
@@ -1045,7 +1315,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     private void DeleteApiMonitor(ApiMonitorViewModel monitor)
     {
         bool wasPending = monitor.IsPending;
-        monitor.Changed -= HandleApiMonitorChanged;
         monitor.EditingSaved -= HandleApiMonitorSaved;
         ApiMonitors.Remove(monitor);
         SaveApiMonitors();
@@ -1073,19 +1342,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         }
 
         ApiMonitors.Move(oldIndex, newIndex);
-        SaveApiMonitors();
-    }
-
-    /// <summary>
-    /// Persists a changed API monitor field.
-    /// </summary>
-    private void HandleApiMonitorChanged(object? sender, EventArgs args)
-    {
-        if (sender is ApiMonitorViewModel { IsPending: true })
-        {
-            return;
-        }
-
         SaveApiMonitors();
     }
 
@@ -1376,6 +1632,17 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Formats a Cursor membership type as a compact subscription label.
+    /// </summary>
+    private static string FormatCursorPlan(string? planType)
+    {
+        string normalized = (planType ?? string.Empty).Trim().Replace("-", "_", StringComparison.Ordinal).Replace(" ", "_", StringComparison.Ordinal);
+        return string.IsNullOrEmpty(normalized)
+            ? "UNKNOWN"
+            : normalized.Replace("_plus", "+", StringComparison.OrdinalIgnoreCase).Replace("_", " ", StringComparison.Ordinal).ToUpperInvariant();
+    }
+
+    /// <summary>
     /// Formats an update timestamp for compact display.
     /// </summary>
     private static string FormatUpdatedAt(string? updatedAt)
@@ -1388,28 +1655,6 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         return DateTimeOffset.TryParse(updatedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTimeOffset parsed)
             ? $"Updated {parsed.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)}"
             : updatedAt;
-    }
-
-    /// <summary>
-    /// Keeps only decimal digits from a raw input string.
-    /// </summary>
-    private static string KeepDigits(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return string.Empty;
-        }
-
-        StringBuilder builder = new(value.Length);
-        foreach (char character in value)
-        {
-            if (character is >= '0' and <= '9')
-            {
-                builder.Append(character);
-            }
-        }
-
-        return builder.ToString();
     }
 
     /// <summary>
@@ -1447,44 +1692,50 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
         return value[..keep] + "..." + value[^keep..];
     }
 
-    /// <summary>
-    /// Sets a property value and notifies listeners.
-    /// </summary>
-    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    internal sealed class TokenCostRowViewModel : ObservableObject
     {
-        if (EqualityComparer<T>.Default.Equals(field, value))
+        private TokenCostDisplay m_Display = s_UnavailableTokenCostDisplay;
+        private bool m_IsVisible = true;
+
+        public string Title { get; }
+
+        public TokenCostItem Item { get; }
+
+        public TokenCostDisplay Display
         {
-            return false;
+            get => m_Display;
+            internal set => SetField(ref m_Display, value);
         }
 
-        field = value;
-        OnPropertyChanged(propertyName);
-        return true;
+        public bool IsVisible
+        {
+            get => m_IsVisible;
+            internal set => SetField(ref m_IsVisible, value);
+        }
+
+        public bool IsLast { get; }
+
+        /// <summary>
+        /// Creates one fixed token-cost display row.
+        /// </summary>
+        public TokenCostRowViewModel(string title, TokenCostItem item, bool isLast = false)
+        {
+            Title = title;
+            Item = item;
+            IsLast = isLast;
+        }
     }
 
-    /// <summary>
-    /// Raises a property change notification.
-    /// </summary>
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    internal sealed class QuotaViewModel : ObservableObject
     {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
-
-    internal sealed class QuotaViewModel : INotifyPropertyChanged
-    {
-        private string m_Title;
         private int m_RemainingPercent;
-        private string m_PercentText = "0%";
+        private string m_PercentText = "N/A";
         private string m_ResetText = "unknown";
-        private Media.Brush m_AccentBrush = s_GreenBrush;
+        private Media.Brush m_AccentBrush = s_RedBrush;
+        private bool m_IsVisible = true;
+        private bool m_IsResetVisible = true;
 
-        public event PropertyChangedEventHandler? PropertyChanged;
-
-        public string Title
-        {
-            get => m_Title;
-            private set => SetField(ref m_Title, value);
-        }
+        public string Title { get; }
 
         public int RemainingPercent
         {
@@ -1510,41 +1761,81 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             private set => SetField(ref m_AccentBrush, value);
         }
 
+        public bool IsVisible
+        {
+            get => m_IsVisible;
+            private set => SetField(ref m_IsVisible, value);
+        }
+
+        public bool IsResetVisible
+        {
+            get => m_IsResetVisible;
+            private set => SetField(ref m_IsResetVisible, value);
+        }
+
         /// <summary>
         /// Creates a quota display model.
         /// </summary>
         public QuotaViewModel(string title)
         {
-            m_Title = title;
+            Title = title;
         }
 
         /// <summary>
         /// Updates the quota display from a usage limit.
         /// </summary>
-        public void Update(UsageLimit limit)
+        public void Update(UsageLimit limit, bool hideInvalidProgressBars)
         {
             if (limit.WindowMinutes <= 0)
             {
-                UpdateUnavailable();
+                if (hideInvalidProgressBars)
+                {
+                    // Successful response with an inactive window: hide this quota row.
+                    IsVisible = false;
+                    return;
+                }
+
+                UpdateUnavailable(showReset: false);
                 return;
             }
 
-            int remaining = Math.Max(0, Math.Min(100, limit.RemainingPercent));
-            RemainingPercent = remaining;
-            PercentText = $"{remaining}%";
-            ResetText = string.IsNullOrWhiteSpace(limit.ResetLabel) ? "unknown" : limit.ResetLabel;
-            AccentBrush = GetAccentBrush(remaining);
+            UpdateRemaining(limit.RemainingPercent, limit.ResetLabel, showReset: true);
         }
 
         /// <summary>
-        /// Updates the quota display for an unavailable response.
+        /// Updates the quota display from Cursor used-percent data.
         /// </summary>
-        public void UpdateUnavailable()
+        public void UpdateCursorUsage(double usedPercent, string resetText, bool showReset)
+        {
+            int remaining = (int)Math.Round(Math.Clamp(100 - usedPercent, 0, 100), MidpointRounding.AwayFromZero);
+            UpdateRemaining(remaining, resetText, showReset);
+        }
+
+        /// <summary>
+        /// Updates the quota display for a failed or unauthorized response.
+        /// </summary>
+        public void UpdateUnavailable(bool showReset = true, string unavailableResetText = "unknown")
         {
             RemainingPercent = 0;
             PercentText = "N/A";
-            ResetText = "unknown";
+            ResetText = unavailableResetText;
             AccentBrush = s_RedBrush;
+            IsVisible = true;
+            IsResetVisible = showReset;
+        }
+
+        /// <summary>
+        /// Applies one remaining percentage and optional reset label to the quota display.
+        /// </summary>
+        private void UpdateRemaining(int remainingPercent, string resetText, bool showReset)
+        {
+            int remaining = Math.Max(0, Math.Min(100, remainingPercent));
+            RemainingPercent = remaining;
+            PercentText = $"{remaining}%";
+            ResetText = string.IsNullOrWhiteSpace(resetText) ? "unknown" : resetText;
+            AccentBrush = GetAccentBrush(remaining);
+            IsVisible = true;
+            IsResetVisible = showReset;
         }
 
         /// <summary>
@@ -1560,27 +1851,5 @@ internal sealed class TrayPopupViewModel : INotifyPropertyChanged
             return remainingPercent >= 20 ? s_YellowBrush : s_RedBrush;
         }
 
-        /// <summary>
-        /// Sets a property value and notifies listeners.
-        /// </summary>
-        private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
-        {
-            if (EqualityComparer<T>.Default.Equals(field, value))
-            {
-                return false;
-            }
-
-            field = value;
-            OnPropertyChanged(propertyName);
-            return true;
-        }
-
-        /// <summary>
-        /// Raises a property change notification.
-        /// </summary>
-        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-        {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        }
     }
 }

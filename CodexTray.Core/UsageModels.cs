@@ -14,9 +14,16 @@ public static class CodexTrayDefaults
     public const bool AcrylicEnabled = true;
     public const bool ShowResetTimeInPlugins = true;
     public const bool UseAbsoluteResetTime = false;
+    public const bool HideInvalidProgressBars = true;
     public const int AcrylicOpacityPercent = 80;
     public const int MinimumAcrylicOpacityPercent = 10;
     public const int MaximumAcrylicOpacityPercent = 100;
+    public const int WindowWidth = 380;
+    public const int MinimumWindowWidth = 280;
+    public const int MaximumWindowWidth = 800;
+    public const int WindowHeight = 605;
+    public const int MinimumWindowHeight = 400;
+    public const int MaximumWindowHeight = 1200;
     public const string AppName = "CodexTray";
     public const string SettingsFileName = "settings.json";
     public const string ModelPricingFileName = "model-pricing.json";
@@ -33,16 +40,13 @@ public static class CodexTrayDefaults
     public const string UsageTextEndpointPath = "/codex-tray.txt";
     public const string HealthEndpointPath = "/health";
     public const string UnavailableDisplay = "N/A";
-    public static readonly string DefaultBridgeUrl = BuildLoopbackUrl(Port, UsageEndpointPath);
-    public static readonly string DefaultBridgeTextUrl = BuildLoopbackUrl(Port, UsageTextEndpointPath);
 
     /// <summary>
     /// Builds the JSON bridge URL for a port.
     /// </summary>
     public static string BuildBridgeUrl(int port)
     {
-        int normalizedPort = NormalizePort(port);
-        return normalizedPort == Port ? DefaultBridgeUrl : BuildLoopbackUrl(normalizedPort, UsageEndpointPath);
+        return BuildLoopbackUrl(NormalizePort(port), UsageEndpointPath);
     }
 
     /// <summary>
@@ -50,8 +54,7 @@ public static class CodexTrayDefaults
     /// </summary>
     public static string BuildBridgeTextUrl(int port)
     {
-        int normalizedPort = NormalizePort(port);
-        return normalizedPort == Port ? DefaultBridgeTextUrl : BuildLoopbackUrl(normalizedPort, UsageTextEndpointPath);
+        return BuildLoopbackUrl(NormalizePort(port), UsageTextEndpointPath);
     }
 
     /// <summary>
@@ -150,6 +153,9 @@ public sealed class ResetCredits
 
     [JsonPropertyName("nearest_expiry_local")]
     public string NearestExpiryLocal { get; set; } = "N/A";
+
+    [JsonPropertyName("other_expiries_local")]
+    public string OtherExpiriesLocal { get; set; } = string.Empty;
 }
 
 public sealed class UsageDisplay

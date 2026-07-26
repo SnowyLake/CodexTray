@@ -199,7 +199,7 @@ public sealed class CodexTrayCollector
     private static ResetCredits BuildResetCredits(JsonElement root, DateTimeOffset now)
     {
         int availableCount = Math.Max(0, GetInt32Property(root, "available_count", 0));
-        DateTimeOffset? nearestExpiry = null;
+        List<DateTimeOffset> expiries = [];
         if (availableCount > 0 && root.TryGetProperty("credits", out JsonElement credits) && credits.ValueKind == JsonValueKind.Array)
         {
             foreach (JsonElement credit in credits.EnumerateArray())
@@ -211,18 +211,21 @@ public sealed class CodexTrayCollector
                     continue;
                 }
 
-                if (nearestExpiry == null || expiry < nearestExpiry)
-                {
-                    nearestExpiry = expiry;
-                }
+                expiries.Add(expiry);
             }
         }
 
+        expiries.Sort();
         return new ResetCredits
         {
             Available = true,
             AvailableCount = availableCount,
-            NearestExpiryLocal = nearestExpiry?.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "N/A",
+            NearestExpiryLocal = expiries.Count > 0
+                ? expiries[0].ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
+                : "N/A",
+            OtherExpiriesLocal = string.Join(
+                " · ",
+                expiries.Skip(1).Select(expiry => expiry.ToLocalTime().ToString("MM-dd", CultureInfo.InvariantCulture))),
         };
     }
 
@@ -363,7 +366,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Formats the seven day reset as a countdown label.
     /// </summary>
-    internal static string FormatSevenDayResetLabel(long epochSeconds, DateTimeOffset now)
+    public static string FormatSevenDayResetLabel(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {
@@ -391,7 +394,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Formats the seven day reset as an absolute local month-day label.
     /// </summary>
-    internal static string FormatSevenDayResetDate(long epochSeconds, DateTimeOffset now)
+    public static string FormatSevenDayResetDate(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {

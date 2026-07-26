@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Input;
 using DataObject = System.Windows.DataObject;
@@ -9,7 +8,7 @@ namespace CodexTray.App;
 /// <summary>
 /// Attached behavior that restricts a TextBox to non-negative integer input.
 /// </summary>
-internal static partial class NumericInput
+internal static class NumericInput
 {
     /// <summary>
     /// Enables digit-only input filtering on a TextBox.
@@ -84,9 +83,6 @@ internal static partial class NumericInput
     /// </summary>
     private static bool IsDigits(string text)
     {
-        return text.Length > 0 && DigitsRegex().IsMatch(text);
+        return text.All(char.IsAsciiDigit);
     }
-
-    [GeneratedRegex("^[0-9]+$")]
-    private static partial Regex DigitsRegex();
 }

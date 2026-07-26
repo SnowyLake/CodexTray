@@ -1,4 +1,5 @@
 using CodexTray.Core;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -29,6 +30,7 @@ internal sealed partial class TrayPopupWindow : Window
         InitializeComponent();
         DataContext = viewModel;
         ApplyThemeMode(viewModel.ThemeMode);
+        ApplyWindowSize(viewModel);
         viewModel.PropertyChanged += (_, args) =>
         {
             switch (args.PropertyName)
@@ -41,8 +43,50 @@ internal sealed partial class TrayPopupWindow : Window
                 case nameof(TrayPopupViewModel.AcrylicOpacityPercent):
                     ApplyBackdrop();
                     break;
+                case nameof(TrayPopupViewModel.WindowWidthText):
+                case nameof(TrayPopupViewModel.WindowHeightText):
+                    ApplyWindowSize(viewModel);
+                    break;
             }
         };
+    }
+
+    /// <summary>
+    /// Applies a parsed window size when the value is within the supported range.
+    /// </summary>
+    private void ApplyWindowSize(TrayPopupViewModel viewModel)
+    {
+        if (!TryParseWindowSize(viewModel.WindowWidthText, CodexTrayDefaults.MinimumWindowWidth, CodexTrayDefaults.MaximumWindowWidth, out int width) ||
+            !TryParseWindowSize(viewModel.WindowHeightText, CodexTrayDefaults.MinimumWindowHeight, CodexTrayDefaults.MaximumWindowHeight, out int height))
+        {
+            return;
+        }
+
+        if (Width == width && Height == height)
+        {
+            return;
+        }
+
+        bool preserveBottom = IsVisible && !double.IsNaN(Top);
+        double bottom = preserveBottom ? Top + Height : 0;
+        Width = width;
+        Height = height;
+        if (preserveBottom)
+        {
+            // Keep the bottom edge fixed so tray popups grow upward.
+            Top = bottom - height;
+        }
+    }
+
+    /// <summary>
+    /// Parses a window size text value when it is already within range.
+    /// </summary>
+    private static bool TryParseWindowSize(string? text, int minimum, int maximum, out int value)
+    {
+        value = 0;
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
+            && value >= minimum
+            && value <= maximum;
     }
 
     /// <summary>
