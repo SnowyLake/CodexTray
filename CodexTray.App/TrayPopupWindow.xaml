@@ -1526,7 +1526,7 @@
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    FontSize="13" />
                         <TextBlock Margin="18,12,18,28"
-                                   Text="A lightweight Windows tray monitor for Codex usage and API balances."
+                                   Text="A lightweight Windows tray monitor for Codex and other AI services."
                                    TextAlignment="Center"
                                    TextWrapping="Wrap"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
