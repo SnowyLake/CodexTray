@@ -15,7 +15,7 @@
     <TargetFramework>net9.0-windows</TargetFramework>
     <AssemblyName>CodexTray</AssemblyName>
     <RootNamespace>CodexTray.App</RootNamespace>
-    <Version>2.0.1</Version>
+    <Version>3.0.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>..\Resources\icon.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
