@@ -17,15 +17,15 @@ public sealed class TokenCostStatistics
 
     public TokenCostSummary Yesterday { get; init; } = new();
 
-    public TokenCostSummary Week { get; init; } = new();
+    public TokenCostSummary ThisWeek { get; init; } = new();
 
-    public TokenCostSummary Month { get; init; } = new();
+    public TokenCostSummary ThisMonth { get; init; } = new();
 
-    public TokenCostSummary SevenDay { get; init; } = new();
+    public TokenCostSummary LastSevenDays { get; init; } = new();
 
-    public TokenCostSummary ThirtyDay { get; init; } = new();
+    public TokenCostSummary LastThirtyDays { get; init; } = new();
 
-    public TokenCostSummary Total { get; init; } = new();
+    public TokenCostSummary Lifetime { get; init; } = new();
 }
 
 public sealed class TokenCostCollector

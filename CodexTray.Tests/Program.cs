@@ -832,12 +832,12 @@ internal static class Program
             AssertEqual(160L, dashboard.TokenCost!.Today.TotalTokens, "Cursor cache tokens should contribute to total tokens");
             AssertEqual(1.25m, dashboard.TokenCost.Today.CostUsd, "Cursor cost must use totalCents instead of chargedCents");
             AssertEqual(4L, dashboard.TokenCost.Yesterday.TotalTokens, "Cursor yesterday boundary");
-            AssertEqual(172L, dashboard.TokenCost.Week.TotalTokens, "Cursor week Monday boundary");
-            AssertEqual(192L, dashboard.TokenCost.Month.TotalTokens, "Cursor month boundary");
-            AssertEqual(192L, dashboard.TokenCost.SevenDay.TotalTokens, "Cursor last seven day boundary");
-            AssertEqual(216L, dashboard.TokenCost.ThirtyDay.TotalTokens, "Cursor last thirty day boundary");
-            AssertEqual(244L, dashboard.TokenCost.Total.TotalTokens, "Cursor historical total boundary");
-            AssertEqual(2.75m, dashboard.TokenCost.Total.CostUsd, "Cursor total event cents");
+            AssertEqual(172L, dashboard.TokenCost.ThisWeek.TotalTokens, "Cursor this week Monday boundary");
+            AssertEqual(192L, dashboard.TokenCost.ThisMonth.TotalTokens, "Cursor this month boundary");
+            AssertEqual(192L, dashboard.TokenCost.LastSevenDays.TotalTokens, "Cursor last 7 days boundary");
+            AssertEqual(216L, dashboard.TokenCost.LastThirtyDays.TotalTokens, "Cursor last 30 days boundary");
+            AssertEqual(244L, dashboard.TokenCost.Lifetime.TotalTokens, "Cursor lifetime boundary");
+            AssertEqual(2.75m, dashboard.TokenCost.Lifetime.CostUsd, "Cursor lifetime event cents");
         }
         finally
         {
@@ -890,8 +890,8 @@ internal static class Program
                 now,
                 CreateCursorTokenUsageEvent(now, 0, 0, 0, 0, includeTotalCents: false));
             AssertTrue(zeroTokenMissingCost.TokenCost != null, "zero-token event without cost should not clear token cost");
-            AssertEqual(0L, zeroTokenMissingCost.TokenCost!.Total.TotalTokens, "zero-token event total");
-            AssertEqual(0m, zeroTokenMissingCost.TokenCost.Total.CostUsd, "zero-token event cost");
+            AssertEqual(0L, zeroTokenMissingCost.TokenCost!.Lifetime.TotalTokens, "zero-token event lifetime");
+            AssertEqual(0m, zeroTokenMissingCost.TokenCost.Lifetime.CostUsd, "zero-token event cost");
             AssertEqual(1, zeroTokenMissingCost.TokenCostDiagnostics!.ZeroTokenMissingCostEventCount, "zero-token missing-cost diagnostics");
             AssertEqual(0, zeroTokenMissingCost.TokenCostDiagnostics.TokenEventCount, "zero-token missing-cost should not count as a token event");
         }
@@ -1370,13 +1370,13 @@ internal static class Program
         AssertEqual(0.0062m, summary.CostUsd, "today API-equivalent cost");
         TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode);
         AssertEqual(550L, statistics.Yesterday.TotalTokens, "yesterday total tokens");
-        AssertEqual(3450L, statistics.Week.TotalTokens, "calendar week total tokens");
-        AssertEqual(3520L, statistics.Month.TotalTokens, "calendar month total tokens");
-        AssertEqual(3520L, statistics.SevenDay.TotalTokens, "seven day total tokens");
-        AssertEqual(3560L, statistics.ThirtyDay.TotalTokens, "thirty day total tokens");
-        AssertEqual(0.00774m, statistics.ThirtyDay.CostUsd, "thirty day API-equivalent cost");
-        AssertEqual(3660L, statistics.Total.TotalTokens, "historical total tokens");
-        AssertEqual(0.00794m, statistics.Total.CostUsd, "historical API-equivalent cost");
+        AssertEqual(3450L, statistics.ThisWeek.TotalTokens, "this week total tokens");
+        AssertEqual(3520L, statistics.ThisMonth.TotalTokens, "this month total tokens");
+        AssertEqual(3520L, statistics.LastSevenDays.TotalTokens, "last 7 days total tokens");
+        AssertEqual(3560L, statistics.LastThirtyDays.TotalTokens, "last 30 days total tokens");
+        AssertEqual(0.00774m, statistics.LastThirtyDays.CostUsd, "last 30 days API-equivalent cost");
+        AssertEqual(3660L, statistics.Lifetime.TotalTokens, "lifetime tokens");
+        AssertEqual(0.00794m, statistics.Lifetime.CostUsd, "lifetime API-equivalent cost");
         return Task.CompletedTask;
     }
 
@@ -1450,12 +1450,12 @@ internal static class Program
         ]);
 
         TokenCostCollector collector = new(pricingPath);
-        TokenCostSummary total = collector.Collect(
+        TokenCostSummary lifetime = collector.Collect(
             temp.Path,
             new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)),
-            Path.Combine(temp.Path, "missing-opencode")).Total;
-        AssertEqual(2860L, total.TotalTokens, "subagent total excludes only matching replay prefix");
-        AssertEqual(0.006m, total.CostUsd, "subagent total cost");
+            Path.Combine(temp.Path, "missing-opencode")).Lifetime;
+        AssertEqual(2860L, lifetime.TotalTokens, "subagent lifetime excludes only matching replay prefix");
+        AssertEqual(0.006m, lifetime.CostUsd, "subagent lifetime cost");
         return Task.CompletedTask;
     }
 

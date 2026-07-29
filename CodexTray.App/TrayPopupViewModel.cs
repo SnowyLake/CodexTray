@@ -410,10 +410,10 @@ internal sealed class TrayPopupViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsTokenCostVisible));
                 OnPropertyChanged(nameof(ShowTodayTokenCost));
                 OnPropertyChanged(nameof(ShowYesterdayTokenCost));
-                OnPropertyChanged(nameof(ShowWeekTokenCost));
-                OnPropertyChanged(nameof(ShowMonthTokenCost));
-                OnPropertyChanged(nameof(ShowSevenDayTokenCost));
-                OnPropertyChanged(nameof(ShowThirtyDayTokenCost));
+                OnPropertyChanged(nameof(ShowThisWeekTokenCost));
+                OnPropertyChanged(nameof(ShowThisMonthTokenCost));
+                OnPropertyChanged(nameof(ShowLastSevenDaysTokenCost));
+                OnPropertyChanged(nameof(ShowLastThirtyDaysTokenCost));
                 UpdateTokenCostRowVisibility();
                 EvaluateDirtyState();
             }
@@ -441,28 +441,28 @@ internal sealed class TrayPopupViewModel : ObservableObject
         set => SetTokenCostItem(TokenCostItem.Yesterday, value);
     }
 
-    public bool ShowWeekTokenCost
+    public bool ShowThisWeekTokenCost
     {
-        get => (m_TokenCostItems & TokenCostItem.Week) != 0;
-        set => SetTokenCostItem(TokenCostItem.Week, value);
+        get => (m_TokenCostItems & TokenCostItem.ThisWeek) != 0;
+        set => SetTokenCostItem(TokenCostItem.ThisWeek, value);
     }
 
-    public bool ShowMonthTokenCost
+    public bool ShowThisMonthTokenCost
     {
-        get => (m_TokenCostItems & TokenCostItem.Month) != 0;
-        set => SetTokenCostItem(TokenCostItem.Month, value);
+        get => (m_TokenCostItems & TokenCostItem.ThisMonth) != 0;
+        set => SetTokenCostItem(TokenCostItem.ThisMonth, value);
     }
 
-    public bool ShowSevenDayTokenCost
+    public bool ShowLastSevenDaysTokenCost
     {
-        get => (m_TokenCostItems & TokenCostItem.SevenDay) != 0;
-        set => SetTokenCostItem(TokenCostItem.SevenDay, value);
+        get => (m_TokenCostItems & TokenCostItem.LastSevenDays) != 0;
+        set => SetTokenCostItem(TokenCostItem.LastSevenDays, value);
     }
 
-    public bool ShowThirtyDayTokenCost
+    public bool ShowLastThirtyDaysTokenCost
     {
-        get => (m_TokenCostItems & TokenCostItem.ThirtyDay) != 0;
-        set => SetTokenCostItem(TokenCostItem.ThirtyDay, value);
+        get => (m_TokenCostItems & TokenCostItem.LastThirtyDays) != 0;
+        set => SetTokenCostItem(TokenCostItem.LastThirtyDays, value);
     }
 
     public PageItem VisiblePages
@@ -972,11 +972,11 @@ internal sealed class TrayPopupViewModel : ObservableObject
         [
             new TokenCostRowViewModel("Today", TokenCostItem.Today),
             new TokenCostRowViewModel("Yesterday", TokenCostItem.Yesterday),
-            new TokenCostRowViewModel("Week", TokenCostItem.Week),
-            new TokenCostRowViewModel("Month", TokenCostItem.Month),
-            new TokenCostRowViewModel("Last 7 days", TokenCostItem.SevenDay),
-            new TokenCostRowViewModel("Last 30 days", TokenCostItem.ThirtyDay),
-            new TokenCostRowViewModel("Total", TokenCostItem.None, isLast: true),
+            new TokenCostRowViewModel("This week", TokenCostItem.ThisWeek),
+            new TokenCostRowViewModel("This month", TokenCostItem.ThisMonth),
+            new TokenCostRowViewModel("Last 7 days", TokenCostItem.LastSevenDays),
+            new TokenCostRowViewModel("Last 30 days", TokenCostItem.LastThirtyDays),
+            new TokenCostRowViewModel("Lifetime", TokenCostItem.None, isLast: true),
         ];
     }
 
@@ -1142,11 +1142,11 @@ internal sealed class TrayPopupViewModel : ObservableObject
             [
                 FormatTokenCost(statistics.Today),
                 FormatTokenCost(statistics.Yesterday),
-                FormatTokenCost(statistics.Week),
-                FormatTokenCost(statistics.Month),
-                FormatTokenCost(statistics.SevenDay),
-                FormatTokenCost(statistics.ThirtyDay),
-                FormatTokenCost(statistics.Total),
+                FormatTokenCost(statistics.ThisWeek),
+                FormatTokenCost(statistics.ThisMonth),
+                FormatTokenCost(statistics.LastSevenDays),
+                FormatTokenCost(statistics.LastThirtyDays),
+                FormatTokenCost(statistics.Lifetime),
             ];
         for (int index = 0; index < rows.Count; index++)
         {

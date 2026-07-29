@@ -8,11 +8,11 @@ public enum TokenCostItem
     None = 0,
     Today = 1 << 0,
     Yesterday = 1 << 1,
-    Week = 1 << 2,
-    Month = 1 << 3,
-    SevenDay = 1 << 4,
-    ThirtyDay = 1 << 5,
-    All = Today | Yesterday | Week | Month | SevenDay | ThirtyDay,
+    ThisWeek = 1 << 2,
+    ThisMonth = 1 << 3,
+    LastSevenDays = 1 << 4,
+    LastThirtyDays = 1 << 5,
+    All = Today | Yesterday | ThisWeek | ThisMonth | LastSevenDays | LastThirtyDays,
 }
 
 [Flags]

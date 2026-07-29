@@ -1165,21 +1165,21 @@
                                                   IsCheckable="True"
                                                   IsChecked="{Binding ShowYesterdayTokenCost, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
-                                        <MenuItem Header="Week"
+                                        <MenuItem Header="This week"
                                                   IsCheckable="True"
-                                                  IsChecked="{Binding ShowWeekTokenCost, Mode=TwoWay}"
+                                                  IsChecked="{Binding ShowThisWeekTokenCost, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
-                                        <MenuItem Header="Month"
+                                        <MenuItem Header="This month"
                                                   IsCheckable="True"
-                                                  IsChecked="{Binding ShowMonthTokenCost, Mode=TwoWay}"
+                                                  IsChecked="{Binding ShowThisMonthTokenCost, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
                                         <MenuItem Header="Last 7 days"
                                                   IsCheckable="True"
-                                                  IsChecked="{Binding ShowSevenDayTokenCost, Mode=TwoWay}"
+                                                  IsChecked="{Binding ShowLastSevenDaysTokenCost, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
                                         <MenuItem Header="Last 30 days"
                                                   IsCheckable="True"
-                                                  IsChecked="{Binding ShowThirtyDayTokenCost, Mode=TwoWay}"
+                                                  IsChecked="{Binding ShowLastThirtyDaysTokenCost, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
                                     </ContextMenu>
                                 </Button.ContextMenu>
