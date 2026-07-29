@@ -53,6 +53,7 @@ internal static class Program
         await RunAsync("includes Cursor Codex pricing", TestCursorCodexPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
+        await RunAsync("collects local OpenCode token cost", TestOpenCodeTokenCostAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
@@ -1363,10 +1364,11 @@ internal static class Program
             "{\"timestamp\":\"2026-07-12T10:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10000,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
         ]);
 
-        TokenCostSummary summary = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Today;
+        string missingOpenCode = Path.Combine(temp.Path, "missing-opencode");
+        TokenCostSummary summary = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode).Today;
         AssertEqual(2900L, summary.TotalTokens, "today total tokens");
         AssertEqual(0.0062m, summary.CostUsd, "today API-equivalent cost");
-        TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)));
+        TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode);
         AssertEqual(550L, statistics.Yesterday.TotalTokens, "yesterday total tokens");
         AssertEqual(3450L, statistics.Week.TotalTokens, "calendar week total tokens");
         AssertEqual(3520L, statistics.Month.TotalTokens, "calendar month total tokens");
@@ -1375,6 +1377,40 @@ internal static class Program
         AssertEqual(0.00774m, statistics.ThirtyDay.CostUsd, "thirty day API-equivalent cost");
         AssertEqual(3660L, statistics.Total.TotalTokens, "historical total tokens");
         AssertEqual(0.00794m, statistics.Total.CostUsd, "historical API-equivalent cost");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies OpenCode OpenAI messages use cached and reasoning token pricing.
+    /// </summary>
+    private static Task TestOpenCodeTokenCostAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{\"gpt-test\":{\"input\":2,\"cachedInput\":0.2,\"output\":10}}");
+        string codexRoot = Path.Combine(temp.Path, "codex");
+        string openCodeRoot = Path.Combine(temp.Path, "opencode");
+        Directory.CreateDirectory(codexRoot);
+        Directory.CreateDirectory(openCodeRoot);
+        using (SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = Path.Combine(openCodeRoot, "opencode.db"), Pooling = false }.ToString()))
+        {
+            connection.Open();
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "CREATE TABLE message (time_created INTEGER NOT NULL, data TEXT NOT NULL);";
+            command.ExecuteNonQuery();
+            command.CommandText = "INSERT INTO message VALUES ($time, $data);";
+            command.Parameters.AddWithValue("$time", new DateTimeOffset(2026, 7, 11, 9, 0, 0, TimeSpan.FromHours(8)).ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$data", "{\"role\":\"assistant\",\"providerID\":\"openai\",\"modelID\":\"gpt-test\",\"tokens\":{\"input\":600,\"output\":100,\"reasoning\":50,\"cache\":{\"read\":400,\"write\":0}}}");
+            command.ExecuteNonQuery();
+            command.Parameters["$data"].Value = "{\"role\":\"assistant\",\"providerID\":\"deepseek\",\"modelID\":\"gpt-test\",\"tokens\":{\"input\":1000,\"output\":1000}}";
+            command.ExecuteNonQuery();
+        }
+
+        TokenCostSummary summary = new TokenCostCollector(pricingPath)
+            .Collect(codexRoot, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), openCodeRoot)
+            .Today;
+        AssertEqual(1150L, summary.TotalTokens, "OpenCode total tokens");
+        AssertEqual(0.00278m, summary.CostUsd, "OpenCode API-equivalent cost");
         return Task.CompletedTask;
     }
 
@@ -1414,7 +1450,10 @@ internal static class Program
         ]);
 
         TokenCostCollector collector = new(pricingPath);
-        TokenCostSummary total = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Total;
+        TokenCostSummary total = collector.Collect(
+            temp.Path,
+            new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)),
+            Path.Combine(temp.Path, "missing-opencode")).Total;
         AssertEqual(2860L, total.TotalTokens, "subagent total excludes only matching replay prefix");
         AssertEqual(0.006m, total.CostUsd, "subagent total cost");
         return Task.CompletedTask;

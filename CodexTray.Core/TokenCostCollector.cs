@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 
 namespace CodexTray.Core;
 
@@ -48,11 +49,13 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Collects Codex token usage for the supported calendar periods.
+    /// Collects Codex and OpenCode token usage for the supported calendar periods.
     /// </summary>
-    public TokenCostStatistics Collect(string? codexDirectory = null, DateTimeOffset? now = null)
+    public TokenCostStatistics Collect(string? codexDirectory = null, DateTimeOffset? now = null, string? openCodeDirectory = null)
     {
-        string root = codexDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string root = codexDirectory ?? Path.Combine(userProfile, ".codex");
+        string openCodeRoot = openCodeDirectory ?? Path.Combine(userProfile, ".local", "share", "opencode");
         DateTimeOffset current = now ?? DateTimeOffset.Now;
         Dictionary<string, ModelPricing> pricing = LoadPricing();
         TokenCostPeriodAccumulator accumulator = new(current);
@@ -64,6 +67,7 @@ public sealed class TokenCostCollector
             CollectFile(path, pricing, rolloutIndex, accumulator);
         }
 
+        CollectOpenCode(Path.Combine(openCodeRoot, "opencode.db"), pricing, accumulator);
         return accumulator.ToStatistics();
     }
 
@@ -189,21 +193,92 @@ public sealed class TokenCostCollector
                     continue;
                 }
 
-                decimal? cost = null;
-                if (TryFindPricing(pricing, model, out ModelPricing modelPricing))
-                {
-                    long cached = Math.Min(delta.CachedInput, delta.Input);
-                    long freshInput = delta.Input - cached;
-                    cost = (freshInput * modelPricing.Input + cached * modelPricing.CachedInput + delta.Output * modelPricing.Output) / 1_000_000m;
-                }
-
-                accumulator.Add(timestamp, delta.Total, cost);
+                accumulator.Add(timestamp, delta.Total, CalculateCost(pricing, model, delta));
             }
             catch (JsonException)
             {
                 // Codex can leave a partially written final JSONL line while a session is active.
             }
         }
+    }
+
+    /// <summary>
+    /// Adds OpenAI token usage from the local OpenCode database.
+    /// </summary>
+    private static void CollectOpenCode(
+        string databasePath,
+        Dictionary<string, ModelPricing> pricing,
+        TokenCostPeriodAccumulator accumulator)
+    {
+        if (!File.Exists(databasePath))
+        {
+            return;
+        }
+
+        try
+        {
+            using SqliteConnection connection = new(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+            }.ToString());
+            connection.Open();
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "SELECT time_created, data FROM message;";
+            using SqliteDataReader reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                try
+                {
+                    using JsonDocument document = JsonDocument.Parse(reader.GetString(1));
+                    JsonElement root = document.RootElement;
+                    if (GetString(root, "role") != "assistant"
+                        || !string.Equals(GetString(root, "providerID"), "openai", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    JsonElement tokens = GetObject(root, "tokens");
+                    JsonElement cache = GetObject(tokens, "cache");
+                    TokenCounts counts = new(
+                        checked(GetInt64(tokens, "input") + GetInt64(cache, "read") + GetInt64(cache, "write")),
+                        GetInt64(cache, "read"),
+                        checked(GetInt64(tokens, "output") + GetInt64(tokens, "reasoning")));
+                    if (counts.Total == 0)
+                    {
+                        continue;
+                    }
+
+                    DateTimeOffset timestamp = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(0));
+                    string model = NormalizeModel(GetString(root, "modelID"));
+                    accumulator.Add(timestamp, counts.Total, CalculateCost(pricing, model, counts));
+                }
+                catch (Exception exception) when (exception is JsonException or OverflowException or ArgumentOutOfRangeException)
+                {
+                    // Ignore one malformed or partially written OpenCode message.
+                }
+            }
+        }
+        catch (Exception exception) when (exception is SqliteException or IOException or UnauthorizedAccessException)
+        {
+            // OpenCode usage is optional and must not hide available Codex usage.
+        }
+    }
+
+    /// <summary>
+    /// Calculates API-equivalent cost for one model usage event.
+    /// </summary>
+    private static decimal? CalculateCost(Dictionary<string, ModelPricing> pricing, string model, TokenCounts counts)
+    {
+        if (!TryFindPricing(pricing, model, out ModelPricing modelPricing))
+        {
+            return null;
+        }
+
+        long cached = Math.Min(counts.CachedInput, counts.Input);
+        long freshInput = counts.Input - cached;
+        return (freshInput * modelPricing.Input + cached * modelPricing.CachedInput + counts.Output * modelPricing.Output) / 1_000_000m;
     }
 
     /// <summary>

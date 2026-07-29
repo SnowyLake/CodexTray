@@ -91,7 +91,7 @@ LiteMonitor 显示 `Codex 5-Hour` 和 `Codex 7-Day` 两项, 从 JSON 接口读�
 ## 数据与隐私
 
 - 额度和 Reset Credits 来自 ChatGPT 官方接口. 应用读取 `~/.codex/auth.json` 中的 Codex OAuth 凭据.
-- Token Cost 来自本机 `~/.codex/sessions` 与 `~/.codex/archived_sessions` 日志, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本.
+- Token Cost 来自本机 Codex session 日志与 OpenCode `opencode.db` 中的 OpenAI 调用, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本.
 - DeepSeek 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - Grok 监控读取 Grok Build 或 OpenCode 已保存的本地 OAuth session, 并向 Grok 官方接口查询用量. access token 过期前会通过 xAI OAuth refresh 自动续期并写回原 auth 文件. OAuth token 不会复制到 `settings.json`.
 - Cursor 页面读取本机 Cursor IDE 的 `state.vscdb` OAuth session, 并向 Cursor 官方 usage-summary 与 usage-events 接口查询额度和账单用量. access token 过期前会通过 Cursor OAuth refresh 自动续期并写回原数据库. OAuth token 不会复制到 `settings.json`.
@@ -107,7 +107,7 @@ LiteMonitor 显示 `Codex 5-Hour` 和 `Codex 7-Day` 两项, 从 JSON 接口读�
 
 ### 为什么 Token Cost 显示 N/A
 
-请确认发布目录包含 `Resources/model-pricing.json`, 并且当前用户存在 Codex session 日志. 未收录价格的模型可以统计 token, 但无法计算成本.
+请确认发布目录包含 `Resources/model-pricing.json`, 并且当前用户存在 Codex session 日志或 OpenCode OpenAI 调用记录. 未收录价格的模型可以统计 token, 但无法计算成本.
 
 ### 为什么 API 卡片显示 N/A
 
