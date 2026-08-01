@@ -1,6 +1,5 @@
 using CodexTray.Core;
 using System.Globalization;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -17,10 +16,10 @@ internal sealed partial class TrayPopupWindow : Window
     private const int k_GwlExStyle = -20;
     private const int k_WsExToolWindow = 0x00000080;
     private const int k_DwmwaWindowCornerPreference = 33;
+    private const int k_DwmwaSystemBackdropType = 38;
     private const int k_DwmwcpRound = 2;
-    private const int k_WcaAccentPolicy = 19;
-    private const int k_AccentDisabled = 0;
-    private const int k_AccentEnableAcrylicBlurBehind = 4;
+    private const int k_DwmsbtNone = 1;
+    private const int k_DwmsbtTransientWindow = 3;
 
     /// <summary>
     /// Creates the WPF tray popup window.
@@ -40,7 +39,6 @@ internal sealed partial class TrayPopupWindow : Window
                     ApplyBackdrop();
                     break;
                 case nameof(TrayPopupViewModel.AcrylicEnabled):
-                case nameof(TrayPopupViewModel.AcrylicOpacityPercent):
                     ApplyBackdrop();
                     break;
                 case nameof(TrayPopupViewModel.WindowWidthText):
@@ -325,104 +323,40 @@ internal sealed partial class TrayPopupWindow : Window
             return;
         }
 
-        bool acrylicEnabled = DataContext is TrayPopupViewModel { AcrylicEnabled: true };
+        bool acrylicSupported = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621);
+        bool acrylicEnabled = acrylicSupported && DataContext is TrayPopupViewModel { AcrylicEnabled: true };
         if (acrylicEnabled)
         {
             RootBorder.Background = System.Windows.Media.Brushes.Transparent;
-            SetAccentPolicy(handle, k_AccentEnableAcrylicBlurBehind, ResolveAcrylicGradientColor());
+            if (SetSystemBackdropType(handle, k_DwmsbtTransientWindow))
+            {
+                return;
+            }
         }
-        else
+
+        RootBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "ApplicationBackgroundBrush");
+        if (acrylicSupported)
         {
-            RootBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "ApplicationBackgroundBrush");
-            SetAccentPolicy(handle, k_AccentDisabled, 0);
+            SetSystemBackdropType(handle, k_DwmsbtNone);
         }
     }
 
     /// <summary>
-    /// Builds the acrylic tint color as 0xAABBGGRR from theme and opacity settings.
+    /// Sets the Windows 11 DWM system backdrop type and reports whether it succeeded.
     /// </summary>
-    private uint ResolveAcrylicGradientColor()
-    {
-        int opacityPercent = DataContext is TrayPopupViewModel viewModel
-            ? viewModel.AcrylicOpacityPercent
-            : CodexTrayDefaults.AcrylicOpacityPercent;
-        opacityPercent = Math.Clamp(
-            opacityPercent,
-            CodexTrayDefaults.MinimumAcrylicOpacityPercent,
-            CodexTrayDefaults.MaximumAcrylicOpacityPercent);
-        uint alpha = (uint)Math.Round(opacityPercent * 255.0 / 100.0);
-
-        // Tint RGB tracks the effective theme so the blur reads correctly on light and dark.
-        (uint red, uint green, uint blue) = IsEffectiveDarkTheme()
-            ? (0x20u, 0x20u, 0x20u)
-            : (0xF3u, 0xF3u, 0xF3u);
-
-        return (alpha << 24) | (blue << 16) | (green << 8) | red;
-    }
-
-    /// <summary>
-    /// Returns true when the effective theme resolves to dark.
-    /// </summary>
-    private bool IsEffectiveDarkTheme()
-    {
-        return ThemeMode == System.Windows.ThemeMode.Dark
-            || (ThemeMode == System.Windows.ThemeMode.System && !IsSystemLightTheme());
-    }
-
-    /// <summary>
-    /// Reads the system apps-use-light-theme preference.
-    /// </summary>
-    private static bool IsSystemLightTheme()
+    private static bool SetSystemBackdropType(nint handle, int backdropType)
     {
         try
         {
-            object? value = Microsoft.Win32.Registry.GetValue(
-                @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                "AppsUseLightTheme",
-                1);
-            return value is int flag && flag != 0;
-        }
-        catch (Exception exception) when (exception is IOException or System.Security.SecurityException)
-        {
-            return true;
-        }
-    }
-
-    /// <summary>
-    /// Sends an accent policy to the window composition attribute.
-    /// </summary>
-    private static void SetAccentPolicy(nint handle, int accentState, uint gradientColor)
-    {
-        try
-        {
-            AccentPolicy accent = new()
-            {
-                AccentState = accentState,
-                GradientColor = gradientColor,
-            };
-            int accentSize = Marshal.SizeOf<AccentPolicy>();
-            nint accentPointer = Marshal.AllocHGlobal(accentSize);
-            try
-            {
-                Marshal.StructureToPtr(accent, accentPointer, false);
-                WindowCompositionAttributeData data = new()
-                {
-                    Attribute = k_WcaAccentPolicy,
-                    Data = accentPointer,
-                    SizeOfData = accentSize,
-                };
-                SetWindowCompositionAttribute(handle, ref data);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(accentPointer);
-            }
+            return DwmSetWindowAttribute(handle, k_DwmwaSystemBackdropType, ref backdropType, sizeof(int)) >= 0;
         }
         catch (DllNotFoundException)
         {
+            return false;
         }
         catch (EntryPointNotFoundException)
         {
+            return false;
         }
     }
 
@@ -489,31 +423,4 @@ internal sealed partial class TrayPopupWindow : Window
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 
-    /// <summary>
-    /// Sets a Win32 window composition attribute.
-    /// </summary>
-    [DllImport("user32.dll")]
-    private static extern int SetWindowCompositionAttribute(nint hwnd, ref WindowCompositionAttributeData data);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct AccentPolicy
-    {
-        public int AccentState;
-
-        public int AccentFlags;
-
-        public uint GradientColor;
-
-        public int AnimationId;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WindowCompositionAttributeData
-    {
-        public int Attribute;
-
-        public nint Data;
-
-        public int SizeOfData;
-    }
 }

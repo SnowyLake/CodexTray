@@ -78,7 +78,6 @@ internal sealed class TrayPopupViewModel : ObservableObject
     private PageItem m_VisiblePages = PageItem.All;
     private bool m_StartWithWindows;
     private bool m_AcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
-    private int m_AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
     private string m_WindowWidthText = CodexTrayDefaults.WindowWidth.ToString(CultureInfo.InvariantCulture);
     private string m_WindowHeightText = CodexTrayDefaults.WindowHeight.ToString(CultureInfo.InvariantCulture);
     private bool m_ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
@@ -117,7 +116,6 @@ internal sealed class TrayPopupViewModel : ObservableObject
     private PageItem m_SnapshotVisiblePages = PageItem.All;
     private bool m_SnapshotStartWithWindows;
     private bool m_SnapshotAcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
-    private int m_SnapshotAcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
     private string m_SnapshotWindowWidthText = string.Empty;
     private string m_SnapshotWindowHeightText = string.Empty;
     private bool m_SnapshotShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
@@ -523,29 +521,21 @@ internal sealed class TrayPopupViewModel : ObservableObject
 
     public bool AcrylicEnabled
     {
-        get => m_AcrylicEnabled;
+        get => IsAcrylicSupported && m_AcrylicEnabled;
         set
         {
-            if (SetField(ref m_AcrylicEnabled, value))
+            bool normalized = IsAcrylicSupported && value;
+            if (SetField(ref m_AcrylicEnabled, normalized))
             {
                 EvaluateDirtyState();
             }
         }
     }
 
-    public int AcrylicOpacityPercent
-    {
-        get => m_AcrylicOpacityPercent;
-        set
-        {
-            int clamped = Math.Clamp(value, CodexTrayDefaults.MinimumAcrylicOpacityPercent, CodexTrayDefaults.MaximumAcrylicOpacityPercent);
-            if (SetField(ref m_AcrylicOpacityPercent, clamped))
-            {
-                OnPropertyChanged(nameof(AcrylicOpacityDisplay));
-                EvaluateDirtyState();
-            }
-        }
-    }
+    /// <summary>
+    /// Returns true when Windows 11 22H2 or later supports native acrylic.
+    /// </summary>
+    public bool IsAcrylicSupported => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621);
 
     public string WindowWidthText
     {
@@ -609,12 +599,6 @@ internal sealed class TrayPopupViewModel : ObservableObject
 
     public bool IsUsageSectionHeaderVisible =>
         !m_HideInvalidProgressBars || FiveHourQuota.IsVisible || SevenDayQuota.IsVisible;
-
-    public string AcrylicOpacityDisplay => $"{m_AcrylicOpacityPercent}%";
-
-    public int AcrylicOpacityMinimum => CodexTrayDefaults.MinimumAcrylicOpacityPercent;
-
-    public int AcrylicOpacityMaximum => CodexTrayDefaults.MaximumAcrylicOpacityPercent;
 
     public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
 
@@ -816,7 +800,6 @@ internal sealed class TrayPopupViewModel : ObservableObject
             VisiblePages = settings.VisiblePages;
             StartWithWindows = settings.StartWithWindows;
             AcrylicEnabled = settings.AcrylicEnabled;
-            AcrylicOpacityPercent = settings.AcrylicOpacityPercent;
             WindowWidthText = settings.WindowWidth.ToString(CultureInfo.InvariantCulture);
             WindowHeightText = settings.WindowHeight.ToString(CultureInfo.InvariantCulture);
             ShowResetTimeInPlugins = settings.ShowResetTimeInPlugins;
@@ -846,7 +829,6 @@ internal sealed class TrayPopupViewModel : ObservableObject
         m_SnapshotVisiblePages = m_VisiblePages;
         m_SnapshotStartWithWindows = m_StartWithWindows;
         m_SnapshotAcrylicEnabled = m_AcrylicEnabled;
-        m_SnapshotAcrylicOpacityPercent = m_AcrylicOpacityPercent;
         m_SnapshotWindowWidthText = m_WindowWidthText;
         m_SnapshotWindowHeightText = m_WindowHeightText;
         m_SnapshotShowResetTimeInPlugins = m_ShowResetTimeInPlugins;
@@ -877,7 +859,6 @@ internal sealed class TrayPopupViewModel : ObservableObject
             m_VisiblePages == m_SnapshotVisiblePages &&
             m_StartWithWindows == m_SnapshotStartWithWindows &&
             m_AcrylicEnabled == m_SnapshotAcrylicEnabled &&
-            m_AcrylicOpacityPercent == m_SnapshotAcrylicOpacityPercent &&
             m_WindowWidthText == m_SnapshotWindowWidthText &&
             m_WindowHeightText == m_SnapshotWindowHeightText &&
             m_ShowResetTimeInPlugins == m_SnapshotShowResetTimeInPlugins &&
@@ -933,7 +914,6 @@ internal sealed class TrayPopupViewModel : ObservableObject
         m_Settings.TokenCostItems = TokenCostItems;
         m_Settings.VisiblePages = VisiblePages;
         m_Settings.AcrylicEnabled = AcrylicEnabled;
-        m_Settings.AcrylicOpacityPercent = AcrylicOpacityPercent;
         m_Settings.WindowWidth = windowWidth;
         m_Settings.WindowHeight = windowHeight;
         m_Settings.ShowResetTimeInPlugins = ShowResetTimeInPlugins;

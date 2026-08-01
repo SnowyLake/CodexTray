@@ -15,9 +15,6 @@ public static class CodexTrayDefaults
     public const bool ShowResetTimeInPlugins = true;
     public const bool UseAbsoluteResetTime = false;
     public const bool HideInvalidProgressBars = true;
-    public const int AcrylicOpacityPercent = 80;
-    public const int MinimumAcrylicOpacityPercent = 10;
-    public const int MaximumAcrylicOpacityPercent = 100;
     public const int WindowWidth = 380;
     public const int MinimumWindowWidth = 280;
     public const int MaximumWindowWidth = 800;
