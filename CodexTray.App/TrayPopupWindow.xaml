@@ -1298,7 +1298,38 @@
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsEnabled="{Binding IsAcrylicSupported}"
                                       IsChecked="{Binding AcrylicEnabled}"
-                                      ToolTip="Available on Windows 11 22H2 or later" />
+                                      ToolTip="Available on Windows 11 or later" />
+                        </Grid>
+
+                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
+                              Style="{StaticResource SettingsRowGridStyle}"
+                              Visibility="{Binding AcrylicEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="140" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Opacity"
+                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <Grid Grid.Column="1"
+                                  VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="40" />
+                                </Grid.ColumnDefinitions>
+                                <Slider VerticalAlignment="Center"
+                                        Minimum="{Binding AcrylicOpacityMinimum, Mode=OneTime}"
+                                        Maximum="{Binding AcrylicOpacityMaximum, Mode=OneTime}"
+                                        IsSnapToTickEnabled="True"
+                                        TickFrequency="1"
+                                        Value="{Binding AcrylicOpacityPercent, Mode=TwoWay}" />
+                                <TextBlock Grid.Column="1"
+                                           Margin="8,0,0,0"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Right"
+                                           Text="{Binding AcrylicOpacityDisplay}"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                           FontSize="12" />
+                            </Grid>
                         </Grid>
 
                         <!-- Plugins -->

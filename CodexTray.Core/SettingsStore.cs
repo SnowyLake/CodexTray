@@ -118,6 +118,8 @@ public sealed class AppSettings
 
     public bool AcrylicEnabled { get; set; } = CodexTrayDefaults.AcrylicEnabled;
 
+    public int AcrylicOpacityPercent { get; set; } = CodexTrayDefaults.AcrylicOpacityPercent;
+
     public int WindowWidth { get; set; } = CodexTrayDefaults.WindowWidth;
 
     public int WindowHeight { get; set; } = CodexTrayDefaults.WindowHeight;
@@ -157,6 +159,12 @@ public sealed class AppSettings
             RefreshIntervalMinutes > CodexTrayDefaults.MaximumRefreshIntervalMinutes)
         {
             RefreshIntervalMinutes = CodexTrayDefaults.RefreshIntervalMinutes;
+        }
+
+        if (AcrylicOpacityPercent < CodexTrayDefaults.MinimumAcrylicOpacityPercent ||
+            AcrylicOpacityPercent > CodexTrayDefaults.MaximumAcrylicOpacityPercent)
+        {
+            AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
         }
 
         if (WindowWidth < CodexTrayDefaults.MinimumWindowWidth ||
