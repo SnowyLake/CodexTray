@@ -111,6 +111,12 @@ public sealed class UsageLimits
 
     [JsonPropertyName("seven_day")]
     public UsageLimit SevenDay { get; set; } = new() { Name = "seven_day" };
+
+    [JsonIgnore]
+    public UsageLimit SparkFiveHour { get; set; } = new() { Name = "spark_five_hour" };
+
+    [JsonIgnore]
+    public UsageLimit SparkSevenDay { get; set; } = new() { Name = "spark_seven_day" };
 }
 
 public sealed class UsageLimit

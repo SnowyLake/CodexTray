@@ -65,9 +65,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     private string m_ServiceStatus = "Service: starting";
     private string m_SourceDisplay = "Source: unavailable";
     private string m_ResetCreditsDisplay = "N/A";
-    private string m_ResetCreditsResetTime = "unknown";
-    private string m_ResetCreditsOtherResetTimes = string.Empty;
-    private bool m_IsResetCreditsResetTimeVisible = true;
+    private string m_ResetCreditsExpiryDates = "unknown";
     private string m_LiteMonitorDir = string.Empty;
     private string m_TrafficMonitorDir = string.Empty;
     private string m_PortText = CodexTrayDefaults.Port.ToString(CultureInfo.InvariantCulture);
@@ -139,6 +137,10 @@ internal sealed class TrayPopupViewModel : ObservableObject
     public QuotaViewModel FiveHourQuota { get; } = new("5-Hour");
 
     public QuotaViewModel SevenDayQuota { get; } = new("7-Day");
+
+    public QuotaViewModel SparkFiveHourQuota { get; } = new("GPT-5.3 Spark 5-Hour");
+
+    public QuotaViewModel SparkSevenDayQuota { get; } = new("GPT-5.3 Spark 7-Day");
 
     public QuotaViewModel CursorTotalQuota { get; } = new("Total");
 
@@ -258,22 +260,10 @@ internal sealed class TrayPopupViewModel : ObservableObject
         private set => SetField(ref m_ResetCreditsDisplay, value);
     }
 
-    public string ResetCreditsResetTime
+    public string ResetCreditsExpiryDates
     {
-        get => m_ResetCreditsResetTime;
-        private set => SetField(ref m_ResetCreditsResetTime, value);
-    }
-
-    public string ResetCreditsOtherResetTimes
-    {
-        get => m_ResetCreditsOtherResetTimes;
-        private set => SetField(ref m_ResetCreditsOtherResetTimes, value);
-    }
-
-    public bool IsResetCreditsResetTimeVisible
-    {
-        get => m_IsResetCreditsResetTimeVisible;
-        private set => SetField(ref m_IsResetCreditsResetTimeVisible, value);
+        get => m_ResetCreditsExpiryDates;
+        private set => SetField(ref m_ResetCreditsExpiryDates, value);
     }
 
     public string LiteMonitorDir
@@ -598,7 +588,9 @@ internal sealed class TrayPopupViewModel : ObservableObject
     }
 
     public bool IsUsageSectionHeaderVisible =>
-        !m_HideInvalidProgressBars || FiveHourQuota.IsVisible || SevenDayQuota.IsVisible;
+        !m_HideInvalidProgressBars || FiveHourQuota.IsVisible || SevenDayQuota.IsVisible || SparkFiveHourQuota.IsVisible || SparkSevenDayQuota.IsVisible;
+
+    public bool IsSparkQuotaSectionVisible => SparkFiveHourQuota.IsVisible || SparkSevenDayQuota.IsVisible;
 
     public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
 
@@ -1002,7 +994,10 @@ internal sealed class TrayPopupViewModel : ObservableObject
             UpdatedAtDisplay = FormatUpdatedAt(null);
             FiveHourQuota.UpdateUnavailable();
             SevenDayQuota.UpdateUnavailable();
+            SparkFiveHourQuota.UpdateUnavailable();
+            SparkSevenDayQuota.UpdateUnavailable();
             UpdateResetCredits(null);
+            NotifyUsageSectionVisibilityChanged();
             return;
         }
 
@@ -1014,7 +1009,10 @@ internal sealed class TrayPopupViewModel : ObservableObject
             UpdatedAtDisplay = $"Error{FormatResponseError(response)}";
             FiveHourQuota.UpdateUnavailable();
             SevenDayQuota.UpdateUnavailable();
+            SparkFiveHourQuota.UpdateUnavailable();
+            SparkSevenDayQuota.UpdateUnavailable();
             UpdateResetCredits(null);
+            NotifyUsageSectionVisibilityChanged();
             return;
         }
 
@@ -1024,6 +1022,8 @@ internal sealed class TrayPopupViewModel : ObservableObject
         UpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
         FiveHourQuota.Update(response.Limits.FiveHour, HideInvalidProgressBars);
         SevenDayQuota.Update(response.Limits.SevenDay, HideInvalidProgressBars);
+        SparkFiveHourQuota.Update(response.Limits.SparkFiveHour, HideInvalidProgressBars);
+        SparkSevenDayQuota.Update(response.Limits.SparkSevenDay, HideInvalidProgressBars);
         UpdateResetCredits(response.ResetCredits);
         NotifyUsageSectionVisibilityChanged();
     }
@@ -1034,6 +1034,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     private void NotifyUsageSectionVisibilityChanged()
     {
         OnPropertyChanged(nameof(IsUsageSectionHeaderVisible));
+        OnPropertyChanged(nameof(IsSparkQuotaSectionVisible));
     }
 
     /// <summary>
@@ -1044,18 +1045,17 @@ internal sealed class TrayPopupViewModel : ObservableObject
         if (resetCredits?.Available == true)
         {
             ResetCreditsDisplay = $"{resetCredits.AvailableCount} Available";
-            ResetCreditsResetTime = resetCredits.NearestExpiryLocal;
-            ResetCreditsOtherResetTimes = resetCredits.OtherExpiriesLocal;
-            // Hide expiry only after a successful response with no remaining credits.
-            IsResetCreditsResetTimeVisible = resetCredits.AvailableCount > 0;
+            string nearestExpiry = resetCredits.NearestExpiryLocal.Length >= 10
+                ? resetCredits.NearestExpiryLocal[5..10]
+                : resetCredits.NearestExpiryLocal;
+            ResetCreditsExpiryDates = resetCredits.AvailableCount > 0
+                ? string.Join(" · ", new[] { nearestExpiry, resetCredits.OtherExpiriesLocal }.Where(value => !string.IsNullOrWhiteSpace(value)))
+                : string.Empty;
         }
         else
         {
-            // Request failed / no account: keep the full unavailable row visible.
             ResetCreditsDisplay = "N/A";
-            ResetCreditsResetTime = "unknown";
-            ResetCreditsOtherResetTimes = string.Empty;
-            IsResetCreditsResetTimeVisible = true;
+            ResetCreditsExpiryDates = "unknown";
         }
     }
 

@@ -15,7 +15,7 @@
 
 ## 概览
 
-`CodexTray` 是一个适用于 Windows x64 的托盘应用. 它读取当前 Windows 用户的 Codex 登录信息, 从 ChatGPT 官方接口获取 5-Hour 和 7-Day 额度, 并通过本地服务把额度提供给 LiteMonitor 与 TrafficMonitor 插件.
+`CodexTray` 是一个适用于 Windows x64 的托盘应用. 它读取当前 Windows 用户的 Codex 登录信息, 从 ChatGPT 官方接口获取 5-Hour, 7-Day 和 Pro 用户的 GPT-5.3-Codex-Spark 额度, 并通过本地服务把 5-Hour 和 7-Day 额度提供给 LiteMonitor 与 TrafficMonitor 插件.
 
 应用还会统计本机 Codex 会话的 token 用量, 按模型价格估算 API 等价成本. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
 
@@ -27,7 +27,7 @@
 
 ## 功能
 
-- 显示 Codex 计划状态, 5-Hour 与 7-Day 剩余额度和重置时间.
+- 显示 Codex 计划状态, 5-Hour, 7-Day 与 Pro 用户的 GPT-5.3-Codex-Spark 剩余额度和重置时间.
 - 显示可用 Reset Credits 数量及最近到期时间.
 - 统计 Today, Yesterday, This week, This month, Last 7 days, Last 30 days 和 Lifetime 的 token 用量与 API 等价成本.
 - 支持选择 Token Cost 项目和中英文 token 数量单位.

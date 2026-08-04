@@ -418,6 +418,26 @@
                 </StackPanel>
             </DataTemplate>
 
+            <DataTemplate x:Key="CompactQuotaDataTemplate">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Title}"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                               FontSize="13.5"
+                               FontWeight="Medium" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding PercentText}"
+                               HorizontalAlignment="Right"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               FontSize="14" />
+                </Grid>
+            </DataTemplate>
+
             <DataTemplate x:Key="TokenCostRowDataTemplate">
                 <Grid Visibility="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <Grid.Style>
@@ -551,45 +571,52 @@
                                     HorizontalContentAlignment="Stretch"
                                     Visibility="{Binding SevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
-                    <TextBlock Text="Resets"
-                               Style="{StaticResource SectionHeaderSpacedStyle}" />
-                    <StackPanel>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding ResetCreditsDisplay}"
-                                       VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                       FontSize="13.5"
-                                       FontWeight="Medium" />
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding ResetCreditsResetTime}"
-                                       HorizontalAlignment="Right"
-                                       VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                       FontSize="13.5"
-                                       FontWeight="Normal"
-                                       Visibility="{Binding IsResetCreditsResetTimeVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        </Grid>
-                        <TextBlock Text="{Binding ResetCreditsOtherResetTimes}"
-                                   HorizontalAlignment="Right"
-                                   Margin="0,5,0,0"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   FontSize="12">
-                            <TextBlock.Style>
-                                <Style TargetType="{x:Type TextBlock}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding ResetCreditsOtherResetTimes}" Value="">
-                                            <Setter Property="Visibility" Value="Collapsed" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
+                    <StackPanel Margin="0,14,0,0"
+                                Visibility="{Binding IsSparkQuotaSectionVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <ContentControl Content="{Binding SparkFiveHourQuota}"
+                                        ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        Visibility="{Binding SparkFiveHourQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <ContentControl Content="{Binding SparkSevenDayQuota}"
+                                        ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        Margin="0,6,0,0"
+                                        Visibility="{Binding SparkSevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     </StackPanel>
+
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Reset Credits"
+                                   VerticalAlignment="Top"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="13.5"
+                                   FontWeight="Medium" />
+                        <StackPanel Grid.Column="1"
+                                    HorizontalAlignment="Right">
+                            <TextBlock Text="{Binding ResetCreditsDisplay}"
+                                       HorizontalAlignment="Right"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="14" />
+                            <TextBlock Text="{Binding ResetCreditsExpiryDates}"
+                                       HorizontalAlignment="Right"
+                                       Margin="0,5,0,0"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="12">
+                                <TextBlock.Style>
+                                    <Style TargetType="{x:Type TextBlock}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ResetCreditsExpiryDates}" Value="">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
 
                     <TextBlock Text="Token Cost"
                                Style="{StaticResource SectionHeaderSpacedStyle}"
@@ -1113,14 +1140,14 @@
                                       ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown" />
                         </Grid>
 
-                        <Grid ToolTip="Hide 5-Hour and 7-Day rows when the account has no active window for that limit"
+                        <Grid ToolTip="Hide Codex and Spark quota rows when the account has no active window for that limit"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Hide invalid progress bars"
-                                       ToolTip="Hide 5-Hour and 7-Day rows when the account has no active window for that limit"
+                                       ToolTip="Hide Codex and Spark quota rows when the account has no active window for that limit"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -1128,7 +1155,7 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding HideInvalidProgressBars}"
-                                      ToolTip="Hide 5-Hour and 7-Day rows when the account has no active window for that limit" />
+                                      ToolTip="Hide Codex and Spark quota rows when the account has no active window for that limit" />
                         </Grid>
 
                         <Grid Style="{StaticResource SettingsRowGridStyle}">

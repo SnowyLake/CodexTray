@@ -9,6 +9,7 @@ public sealed class CodexTrayCollector
 {
     private const int k_FiveHourWindowSeconds = 18000;
     private const int k_SevenDayWindowSeconds = 604800;
+    private const string k_SparkLimitName = "GPT-5.3-Codex-Spark";
     private const string k_FiveHourDisplayLabel = "Codex 5-Hour";
     private const string k_SevenDayDisplayLabel = "Codex 7-Day";
     private const string k_ResetCreditsEndpoint = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
@@ -113,20 +114,11 @@ public sealed class CodexTrayCollector
         JsonElement rateLimit = GetObjectProperty(root, "rate_limit");
         JsonElement primary = GetObjectProperty(rateLimit, "primary_window");
         JsonElement secondary = GetObjectProperty(rateLimit, "secondary_window");
-        UsageLimit fiveHour = BuildOfficialLimit("five_hour", default, now);
-        UsageLimit sevenDay = BuildOfficialLimit("seven_day", default, now);
-        foreach (JsonElement window in new[] { primary, secondary })
-        {
-            switch (GetInt32Property(window, "limit_window_seconds", 0))
-            {
-                case k_FiveHourWindowSeconds:
-                    fiveHour = BuildOfficialLimit("five_hour", window, now);
-                    break;
-                case k_SevenDayWindowSeconds:
-                    sevenDay = BuildOfficialLimit("seven_day", window, now);
-                    break;
-            }
-        }
+        UsageLimit fiveHour = BuildOfficialLimitFromRateLimit("five_hour", rateLimit, k_FiveHourWindowSeconds, now);
+        UsageLimit sevenDay = BuildOfficialLimitFromRateLimit("seven_day", rateLimit, k_SevenDayWindowSeconds, now);
+        JsonElement sparkRateLimit = FindAdditionalRateLimit(root, k_SparkLimitName);
+        UsageLimit sparkFiveHour = BuildOfficialLimitFromRateLimit("spark_five_hour", sparkRateLimit, k_FiveHourWindowSeconds, now);
+        UsageLimit sparkSevenDay = BuildOfficialLimitFromRateLimit("spark_seven_day", sparkRateLimit, k_SevenDayWindowSeconds, now);
 
         fiveHour.ResetLabel = useAbsoluteResetTime
             ? FormatFiveHourResetClock(fiveHour.ResetsAt, now)
@@ -134,6 +126,12 @@ public sealed class CodexTrayCollector
         sevenDay.ResetLabel = useAbsoluteResetTime
             ? FormatSevenDayResetDate(sevenDay.ResetsAt, now)
             : FormatSevenDayResetLabel(sevenDay.ResetsAt, now);
+        sparkFiveHour.ResetLabel = useAbsoluteResetTime
+            ? FormatFiveHourResetClock(sparkFiveHour.ResetsAt, now)
+            : FormatFiveHourResetLabel(sparkFiveHour.ResetsAt, now);
+        sparkSevenDay.ResetLabel = useAbsoluteResetTime
+            ? FormatSevenDayResetDate(sparkSevenDay.ResetsAt, now)
+            : FormatSevenDayResetLabel(sparkSevenDay.ResetsAt, now);
 
         if (primary.ValueKind != JsonValueKind.Object && secondary.ValueKind != JsonValueKind.Object)
         {
@@ -155,6 +153,8 @@ public sealed class CodexTrayCollector
             {
                 FiveHour = fiveHour,
                 SevenDay = sevenDay,
+                SparkFiveHour = sparkFiveHour,
+                SparkSevenDay = sparkSevenDay,
             },
             Display = display,
         };
@@ -280,6 +280,43 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
+    /// Builds one quota limit from the matching window in a rate-limit object.
+    /// </summary>
+    private static UsageLimit BuildOfficialLimitFromRateLimit(string name, JsonElement rateLimit, int windowSeconds, DateTimeOffset now)
+    {
+        foreach (JsonElement window in new[] { GetObjectProperty(rateLimit, "primary_window"), GetObjectProperty(rateLimit, "secondary_window") })
+        {
+            if (GetInt32Property(window, "limit_window_seconds", 0) == windowSeconds)
+            {
+                return BuildOfficialLimit(name, window, now);
+            }
+        }
+
+        return BuildOfficialLimit(name, default, now);
+    }
+
+    /// <summary>
+    /// Finds a named additional quota and returns its rate-limit object.
+    /// </summary>
+    private static JsonElement FindAdditionalRateLimit(JsonElement root, string limitName)
+    {
+        if (!root.TryGetProperty("additional_rate_limits", out JsonElement additionalRateLimits) || additionalRateLimits.ValueKind != JsonValueKind.Array)
+        {
+            return default;
+        }
+
+        foreach (JsonElement additionalRateLimit in additionalRateLimits.EnumerateArray())
+        {
+            if (GetStringProperty(additionalRateLimit, "limit_name", string.Empty) == limitName)
+            {
+                return GetObjectProperty(additionalRateLimit, "rate_limit");
+            }
+        }
+
+        return default;
+    }
+
+    /// <summary>
     /// Reads Codex OAuth credentials from auth.json.
     /// </summary>
     private static CodexCredentials ReadCodexCredentials(string authPath)
@@ -330,6 +367,8 @@ public sealed class CodexTrayCollector
             {
                 FiveHour = BuildOfficialLimit("five_hour", default, now),
                 SevenDay = BuildOfficialLimit("seven_day", default, now),
+                SparkFiveHour = BuildOfficialLimit("spark_five_hour", default, now),
+                SparkSevenDay = BuildOfficialLimit("spark_seven_day", default, now),
             },
             Display = new UsageDisplay(),
         };

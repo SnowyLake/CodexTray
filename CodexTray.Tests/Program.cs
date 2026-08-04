@@ -27,6 +27,7 @@ internal static class Program
         await RunAsync("uses countdown label for next-day seven day reset", TestNextDaySevenDayCountdownLabelAsync);
         await RunAsync("returns unavailable response without OAuth credentials", TestEmptyResponseAsync);
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
+        await RunAsync("collects additional Spark quotas", TestSparkQuotaAsync);
         await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
         await RunAsync("collects Codex reset credits", TestResetCreditsAsync);
         await RunAsync("omits reset suffix when disabled", TestDisplayWithoutResetSuffixAsync);
@@ -251,6 +252,74 @@ internal static class Program
         AssertEqual(60, response.Limits.SevenDay.RemainingPercent, "official seven day remaining percent");
         AssertEqual("75% 1h15m", response.Display.Codex5H, "official five hour display");
         AssertEqual("60% 2d12h", response.Display.Codex7D, "official seven day display");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests the Pro-only Spark quotas in the additional rate-limit collection.
+    /// </summary>
+    private static Task TestSparkQuotaAsync()
+    {
+        using TempDirectory temp = new();
+        DateTimeOffset now = new(2026, 8, 4, 12, 0, 0, TimeSpan.FromHours(8));
+        File.WriteAllText(Path.Combine(temp.Path, "auth.json"), JsonSerializer.Serialize(new
+        {
+            auth_mode = "chatgpt",
+            tokens = new
+            {
+                access_token = "test-token",
+                account_id = "account-123",
+            },
+        }));
+
+        string body = JsonSerializer.Serialize(new
+        {
+            plan_type = "pro",
+            rate_limit = new
+            {
+                primary_window = new
+                {
+                    used_percent = 20.0,
+                    limit_window_seconds = 604800,
+                    reset_at = now.AddDays(5).ToUnixTimeSeconds(),
+                },
+            },
+            additional_rate_limits = new[]
+            {
+                new
+                {
+                    limit_name = "GPT-5.3-Codex-Spark",
+                    rate_limit = new
+                    {
+                        primary_window = new
+                        {
+                            used_percent = 15.0,
+                            limit_window_seconds = 18000,
+                            reset_at = now.AddHours(4).ToUnixTimeSeconds(),
+                        },
+                        secondary_window = new
+                        {
+                            used_percent = 35.0,
+                            limit_window_seconds = 604800,
+                            reset_at = now.AddDays(6).ToUnixTimeSeconds(),
+                        },
+                    },
+                },
+            },
+        });
+        using HttpClient client = new(new FakeHttpMessageHandler(body));
+        CodexTrayCollector collector = new(() => now, client);
+
+        UsageResponse response = collector.Collect(temp.Path);
+
+        AssertEqual(300, response.Limits.SparkFiveHour.WindowMinutes, "Spark five hour window duration");
+        AssertEqual(85, response.Limits.SparkFiveHour.RemainingPercent, "Spark five hour remaining percent");
+        AssertEqual("4h00m", response.Limits.SparkFiveHour.ResetLabel, "Spark five hour reset label");
+        AssertEqual(10080, response.Limits.SparkSevenDay.WindowMinutes, "Spark weekly window duration");
+        AssertEqual(65, response.Limits.SparkSevenDay.RemainingPercent, "Spark weekly remaining percent");
+        AssertEqual("6d00h", response.Limits.SparkSevenDay.ResetLabel, "Spark weekly reset label");
+        string serialized = JsonSerializer.Serialize(response);
+        AssertTrue(!serialized.Contains("spark_seven_day", StringComparison.Ordinal), "Spark quota should not change the plugin JSON contract");
         return Task.CompletedTask;
     }
 
