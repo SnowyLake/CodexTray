@@ -17,7 +17,7 @@
 
 ## 项目概览
 
-`CodexTray` 是一个 C#/.NET 9 Windows x64 托盘应用. 桌面 UI 与应用内对话框使用 WPF. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
+`CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 与应用内对话框使用 WPF. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
 
 应用读取 `~/.codex/auth.json` 中的 OAuth 凭据, 请求 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口, 再通过仅监听 loopback 的本地 HTTP 服务向 LiteMonitor 和 TrafficMonitor 提供额度数据. OAuth 凭据缺失或无效时返回不可用状态.
 
@@ -36,6 +36,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek 与 NewAPI,
 3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
 4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Cursor/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
 5. `AppSettings.VisiblePages` 控制 Codex, Cursor 与 APIs 页的可见性和后台采集. 隐藏 Codex 页时停止本地 HTTP 服务, 全部隐藏时停止定时刷新.
+6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
 
 ### 额度与插件链路
 
@@ -73,10 +74,16 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek 与 NewAPI,
 - API provider 支持 `DeepSeek`, `NewAPI` 和 `Grok`. DeepSeek 与 NewAPI 的凭据以明文保存在 `settings.json`, Grok 只保存 OAuth source 选择.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
 
+### 演进边界
+
+- 当前交付物仍是后台托盘应用. 未来桌面客户端预计与托盘共同存在, 新客户端应复用 `CodexTray.Core` 中不依赖 UI 的采集, 设置, 缓存, HTTP 服务和插件能力.
+- `CodexTray.App` 保持 WPF 与托盘编排职责. 不在真实桌面客户端入口和进程模型确定前预先引入通用 Host, DI container, 单实现 interface 或跨进程抽象.
+- 可共享的长时任务必须支持 `CancellationToken`. 服务拥有者必须等待任务退出, 并在释放 `LightweightHttpServer` 前调用和等待 `StopAsync()`.
+
 ## 目录结构
 
 - `CodexTray.Core`: Codex 官方额度采集, Cursor 额度与账单采集, API 余额与用量采集, Token Cost 统计, 缓存, HTTP 服务, 设置存储, 监控器定位与插件安装, Windows 自启动.
-- `CodexTray.App`: WPF 托盘应用, Codex/Cursor/APIs/Settings/About 页面, ViewModel, 命令和自定义数值输入控件.
+- `CodexTray.App`: WPF 托盘应用, Codex/Cursor/APIs/Settings/About 页面, 基于 `CommunityToolkit.Mvvm` 的 ViewModel 与命令, 以及自定义数值输入控件.
 - `CodexTray.Tests`: 自包含 C# 测试运行器.
 - `Plugins/LiteMonitor`: LiteMonitor JSON 模板 `CodexTray.json`.
 - `Plugins/TrafficMonitor`: TrafficMonitor 原生插件源码与 `CodexTray.ini` 模板. 原生构建输出位于 `Plugins/TrafficMonitor/Builds/**`.
@@ -91,6 +98,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek 与 NewAPI,
 
 - namespace 必须与项目目录对应: `CodexTray.Core`, `CodexTray.App`, `CodexTray.Tests`.
 - WPF UI 入口为 `App.cs`, `TrayController.cs`, `TrayPopupWindow.xaml`, `TrayPopupWindow.xaml.cs` 和 `TrayPopupViewModel.cs`. 托盘层使用 `System.Windows.Forms.NotifyIcon`.
+- ViewModel 复用 `CommunityToolkit.Mvvm` 的 `ObservableObject`, `[ObservableProperty]`, `[RelayCommand]` 和 `AsyncRelayCommand`. 不恢复项目自有的 `ObservableObject` 或 `RelayCommand` 实现.
 - 数值设置使用现有 `NumericUpDown` 和 `NumericInput`.
 - 监控器磁盘搜索复用 `MonitorLocator`, `LiteMonitorLocator` 和 `TrafficMonitorLocator`.
 - LiteMonitor 模板文件名保持为 `Plugins/LiteMonitor/CodexTray.json`. TrafficMonitor 模板文件名保持为 `Plugins/TrafficMonitor/CodexTray.ini`.
@@ -107,7 +115,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek 与 NewAPI,
 
 - `bin` 和 `obj` 使用项目默认位置.
 - 不提交 `bin`, `obj`, `Builds` 或 `Plugins/TrafficMonitor/Builds` 下的生成文件.
-- App 发布为 `net9.0-windows`, `win-x64`, 单文件, framework-dependent 应用.
+- App 发布为 `net10.0-windows`, `win-x64`, 单文件, framework-dependent 应用. `CodexTray.Core` 目标框架为 `net10.0`.
 - `Scripts/Publish-App.ps1` 清理已有发布输出时必须保留 `settings.json`.
 - `Resources` 和插件模板作为外部文件复制到发布目录.
 - 只有 `Plugins/TrafficMonitor/Builds/x64/Release/CodexTray.dll` 已存在时, App 发布才会复制 TrafficMonitor DLL.
