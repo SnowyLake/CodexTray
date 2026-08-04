@@ -293,14 +293,12 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        m_PopupViewModel = new TrayPopupViewModel(m_Settings);
-        m_PopupViewModel.RefreshRequested += async (_, _) => await RefreshUsageAsync();
+        m_PopupViewModel = new TrayPopupViewModel(m_Settings, RefreshUsageAsync);
         m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
         m_PopupViewModel.ApiMonitorsChanged += (_, _) => m_SettingsStore.Save(m_Settings);
         m_PopupViewModel.InAppDialogRequested += PresentInAppDialog;
         m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
         m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
-        m_PopupViewModel.ExitRequested += (_, _) => ExitApplication();
         ApplyStartupDetectingState();
         m_TrayPopupWindow = new TrayPopupWindow(m_PopupViewModel);
         m_TrayPopupWindow.Closed += (_, _) =>

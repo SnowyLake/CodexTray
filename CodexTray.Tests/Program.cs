@@ -1,3 +1,4 @@
+using CodexTray.App;
 using CodexTray.Core;
 using Microsoft.Data.Sqlite;
 using System.Globalization;
@@ -53,6 +54,9 @@ internal static class Program
         await RunAsync("shares one Cursor dashboard OAuth refresh", TestCursorDashboardRefreshBudgetAsync);
         await RunAsync("includes Cursor Codex pricing", TestCursorCodexPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
+        await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
+        await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
+        await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
         await RunAsync("collects local OpenCode token cost", TestOpenCodeTokenCostAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
@@ -1305,6 +1309,90 @@ internal static class Program
         AssertEqual(ApiUsageRefreshStatus.PartiallyAvailable, partial.Status, "mixed API refreshes should be partial");
         AssertEqual(1, partial.ErrorCount, "partial API refresh error count");
         AssertEqual(ApiUsageRefreshStatus.Unavailable, ApiUsageCollector.Summarize([unavailable]).Status, "all failed API refreshes should be unavailable");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests that the refresh command tracks its task and prevents concurrent execution.
+    /// </summary>
+    private static async Task TestRefreshCommandAsync()
+    {
+        TaskCompletionSource<bool> started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<bool> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int refreshCount = 0;
+        Func<Task> refreshAsync = async () =>
+        {
+            refreshCount++;
+            started.TrySetResult(true);
+            await release.Task;
+        };
+        TrayPopupViewModel viewModel = new(new AppSettings(), refreshAsync);
+
+        viewModel.RefreshCommand.Execute(null);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        AssertTrue(viewModel.RefreshCommand.IsRunning, "refresh command should report a running task");
+        AssertTrue(!viewModel.RefreshCommand.CanExecute(null), "refresh command should reject concurrent execution");
+        Task? executionTask = viewModel.RefreshCommand.ExecutionTask;
+        AssertTrue(executionTask != null, "refresh command should expose its execution task");
+
+        viewModel.AddApiMonitorCommand.Execute(null);
+        viewModel.ApiMonitors[0].ToggleEditingCommand.Execute(null);
+
+        AssertEqual(1, refreshCount, "programmatic refresh should not reenter a running command");
+        AssertTrue(ReferenceEquals(executionTask, viewModel.RefreshCommand.ExecutionTask), "programmatic refresh should preserve the active execution task");
+
+        release.TrySetResult(true);
+        await executionTask!;
+
+        AssertEqual(1, refreshCount, "refresh command invocation count");
+        AssertTrue(!viewModel.RefreshCommand.IsRunning, "refresh command should stop running after completion");
+        AssertTrue(viewModel.RefreshCommand.CanExecute(null), "refresh command should become executable after completion");
+    }
+
+    /// <summary>
+    /// Tests save and API monitor move command states.
+    /// </summary>
+    private static Task TestApiMonitorCommandStatesAsync()
+    {
+        AppSettings settings = new();
+        TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
+
+        AssertTrue(!viewModel.SaveSettingsCommand.CanExecute(null), "save command should be disabled for clean settings");
+        viewModel.PortText = (CodexTrayDefaults.Port + 1).ToString(CultureInfo.InvariantCulture);
+        AssertTrue(viewModel.SaveSettingsCommand.CanExecute(null), "save command should be enabled for dirty settings");
+
+        viewModel.AddApiMonitorCommand.Execute(null);
+        viewModel.AddApiMonitorCommand.Execute(null);
+        ApiMonitorViewModel first = viewModel.ApiMonitors[0];
+        ApiMonitorViewModel second = viewModel.ApiMonitors[1];
+
+        AssertTrue(!viewModel.MoveApiMonitorUpCommand.CanExecute(first), "first API monitor should not move up");
+        AssertTrue(viewModel.MoveApiMonitorDownCommand.CanExecute(first), "first API monitor should move down");
+        AssertTrue(viewModel.MoveApiMonitorUpCommand.CanExecute(second), "last API monitor should move up");
+        AssertTrue(!viewModel.MoveApiMonitorDownCommand.CanExecute(second), "last API monitor should not move down");
+
+        viewModel.MoveApiMonitorDownCommand.Execute(first);
+
+        AssertEqual(first, viewModel.ApiMonitors[1], "API monitor should move down");
+        AssertTrue(viewModel.MoveApiMonitorUpCommand.CanExecute(first), "moved API monitor should move up");
+        AssertTrue(!viewModel.MoveApiMonitorDownCommand.CanExecute(first), "moved API monitor should not move below the last position");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests dependent property notifications after migrating to Toolkit ObservableObject.
+    /// </summary>
+    private static Task TestApiMonitorNotificationsAsync()
+    {
+        ApiMonitorViewModel viewModel = new(new ApiMonitorSettings());
+        List<string?> changedProperties = [];
+        viewModel.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$1.00", "$0.50", string.Empty, DateTimeOffset.UtcNow, "USD balance"));
+
+        AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.BalanceTooltip)), "balance tooltip notification should be raised");
+        AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.HasBalanceTooltip)), "dependent tooltip notification should be raised");
         return Task.CompletedTask;
     }
 

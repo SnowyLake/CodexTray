@@ -1,10 +1,11 @@
 using CodexTray.Core;
-using System.Windows.Input;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Media = System.Windows.Media;
 
 namespace CodexTray.App;
 
-internal sealed class ApiMonitorViewModel : ObservableObject
+internal sealed partial class ApiMonitorViewModel : ObservableObject
 {
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_RedBrush = new Media.SolidColorBrush(Media.Color.FromRgb(224, 91, 77));
@@ -40,14 +41,12 @@ internal sealed class ApiMonitorViewModel : ObservableObject
         ApiMonitorSettings.OpenCodeOAuthSource,
     ];
 
-    public ICommand ToggleEditingCommand { get; }
-
     public string Name
     {
         get => m_Name;
         set
         {
-            if (SetField(ref m_Name, value))
+            if (SetProperty(ref m_Name, value))
             {
                 OnPropertyChanged(nameof(DisplayName));
             }
@@ -66,7 +65,7 @@ internal sealed class ApiMonitorViewModel : ObservableObject
                 _ => ApiMonitorSettings.DeepSeekProvider,
             };
             string previousProvider = m_Provider;
-            if (!SetField(ref m_Provider, normalized))
+            if (!SetProperty(ref m_Provider, normalized))
             {
                 return;
             }
@@ -94,19 +93,19 @@ internal sealed class ApiMonitorViewModel : ObservableObject
     public string BaseUrl
     {
         get => m_BaseUrl;
-        set => SetField(ref m_BaseUrl, value);
+        set => SetProperty(ref m_BaseUrl, value);
     }
 
     public string ApiKey
     {
         get => m_ApiKey;
-        set => SetField(ref m_ApiKey, value);
+        set => SetProperty(ref m_ApiKey, value);
     }
 
     public string UserId
     {
         get => m_UserId;
-        set => SetField(ref m_UserId, value);
+        set => SetProperty(ref m_UserId, value);
     }
 
     public string GrokOAuthSource
@@ -117,7 +116,7 @@ internal sealed class ApiMonitorViewModel : ObservableObject
             string normalized = string.Equals(value, ApiMonitorSettings.OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
                 ? ApiMonitorSettings.OpenCodeOAuthSource
                 : ApiMonitorSettings.GrokBuildOAuthSource;
-            SetField(ref m_GrokOAuthSource, normalized);
+            SetProperty(ref m_GrokOAuthSource, normalized);
         }
     }
 
@@ -138,13 +137,13 @@ internal sealed class ApiMonitorViewModel : ObservableObject
     public string BalanceDisplay
     {
         get => m_BalanceDisplay;
-        private set => SetField(ref m_BalanceDisplay, value);
+        private set => SetProperty(ref m_BalanceDisplay, value);
     }
 
     public string BalanceTooltip
     {
         get => m_BalanceTooltip;
-        private set => SetField(ref m_BalanceTooltip, value);
+        private set => SetProperty(ref m_BalanceTooltip, value);
     }
 
     public bool HasBalanceTooltip => !string.IsNullOrWhiteSpace(m_BalanceTooltip);
@@ -152,31 +151,31 @@ internal sealed class ApiMonitorViewModel : ObservableObject
     public string UsedDisplay
     {
         get => m_UsedDisplay;
-        private set => SetField(ref m_UsedDisplay, value);
+        private set => SetProperty(ref m_UsedDisplay, value);
     }
 
     public bool IsEditing
     {
         get => m_IsEditing;
-        private set => SetField(ref m_IsEditing, value);
+        private set => SetProperty(ref m_IsEditing, value);
     }
 
     public bool IsPending
     {
         get => m_IsPending;
-        private set => SetField(ref m_IsPending, value);
+        private set => SetProperty(ref m_IsPending, value);
     }
 
     public string StatusText
     {
         get => m_StatusText;
-        private set => SetField(ref m_StatusText, value);
+        private set => SetProperty(ref m_StatusText, value);
     }
 
     public Media.Brush StatusDotBrush
     {
         get => m_StatusDotBrush;
-        private set => SetField(ref m_StatusDotBrush, value);
+        private set => SetProperty(ref m_StatusDotBrush, value);
     }
 
     /// <summary>
@@ -193,7 +192,6 @@ internal sealed class ApiMonitorViewModel : ObservableObject
         m_GrokOAuthSource = settings.GrokOAuthSource;
         m_IsEditing = isEditing;
         m_IsPending = isPending;
-        ToggleEditingCommand = new RelayCommand(_ => ToggleEditing());
     }
 
     /// <summary>
@@ -231,6 +229,7 @@ internal sealed class ApiMonitorViewModel : ObservableObject
     /// <summary>
     /// Toggles editing and commits a pending monitor when editing is saved.
     /// </summary>
+    [RelayCommand]
     private void ToggleEditing()
     {
         IsEditing = !IsEditing;

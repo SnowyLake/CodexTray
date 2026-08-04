@@ -1,10 +1,11 @@
 using CodexTray.Core;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
-using System.Windows.Input;
 using Forms = System.Windows.Forms;
 using Media = System.Windows.Media;
 
@@ -40,7 +41,7 @@ internal sealed record InAppDialogRequest(
     string? SecondaryButtonText = null,
     Action? PrimaryAction = null);
 
-internal sealed class TrayPopupViewModel : ObservableObject
+internal sealed partial class TrayPopupViewModel : ObservableObject
 {
     private const string k_CodexPageName = "Codex";
     private const string k_CursorPageName = "Cursor";
@@ -122,8 +123,6 @@ internal sealed class TrayPopupViewModel : ObservableObject
     private bool m_SnapshotUseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
     private bool m_SnapshotHideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
 
-    public event EventHandler? RefreshRequested;
-
     public event EventHandler? SaveSettingsRequested;
 
     public event EventHandler? ApiMonitorsChanged;
@@ -131,8 +130,6 @@ internal sealed class TrayPopupViewModel : ObservableObject
     public event EventHandler? InstallLiteMonitorPluginRequested;
 
     public event EventHandler? InstallTrafficMonitorPluginRequested;
-
-    public event EventHandler? ExitRequested;
 
     public event Action<InAppDialogRequest>? InAppDialogRequested;
 
@@ -154,72 +151,48 @@ internal sealed class TrayPopupViewModel : ObservableObject
 
     public IReadOnlyList<TokenCostRowViewModel> CursorTokenCostRows { get; } = CreateTokenCostRows();
 
-    public ICommand ShowCodexCommand { get; }
+    public IRelayCommand OpenRepositoryCommand { get; }
 
-    public ICommand ShowCursorCommand { get; }
+    public IAsyncRelayCommand RefreshCommand { get; }
 
-    public ICommand ShowApiCommand { get; }
+    public IRelayCommand SaveSettingsCommand { get; }
 
-    public ICommand ShowSettingsCommand { get; }
+    public IRelayCommand InstallLiteMonitorPluginCommand { get; }
 
-    public ICommand ShowAboutCommand { get; }
+    public IRelayCommand InstallTrafficMonitorPluginCommand { get; }
 
-    public ICommand OpenRepositoryCommand { get; }
+    public IRelayCommand BrowseLiteMonitorCommand { get; }
 
-    public ICommand RefreshCommand { get; }
+    public IRelayCommand BrowseTrafficMonitorCommand { get; }
 
-    public ICommand SaveSettingsCommand { get; }
+    public IAsyncRelayCommand AutoDetectLiteMonitorCommand { get; }
 
-    public ICommand InstallLiteMonitorPluginCommand { get; }
-
-    public ICommand InstallTrafficMonitorPluginCommand { get; }
-
-    public ICommand BrowseLiteMonitorCommand { get; }
-
-    public ICommand BrowseTrafficMonitorCommand { get; }
-
-    public ICommand AutoDetectLiteMonitorCommand { get; }
-
-    public ICommand AutoDetectTrafficMonitorCommand { get; }
-
-    public ICommand ExitCommand { get; }
-
-    public ICommand AddApiMonitorCommand { get; }
-
-    public ICommand RemoveApiMonitorCommand { get; }
-
-    public ICommand MoveApiMonitorUpCommand { get; }
-
-    public ICommand MoveApiMonitorDownCommand { get; }
-
-    public ICommand ConfirmInAppDialogCommand { get; }
-
-    public ICommand DismissInAppDialogCommand { get; }
+    public IAsyncRelayCommand AutoDetectTrafficMonitorCommand { get; }
 
     public ObservableCollection<ApiMonitorViewModel> ApiMonitors { get; } = [];
 
     public string PlanDisplay
     {
         get => m_PlanDisplay;
-        private set => SetField(ref m_PlanDisplay, value);
+        private set => SetProperty(ref m_PlanDisplay, value);
     }
 
     public Media.Brush PlanBadgeBrush
     {
         get => m_PlanBadgeBrush;
-        private set => SetField(ref m_PlanBadgeBrush, value);
+        private set => SetProperty(ref m_PlanBadgeBrush, value);
     }
 
     public Media.Brush StatusDotBrush
     {
         get => m_StatusDotBrush;
-        private set => SetField(ref m_StatusDotBrush, value);
+        private set => SetProperty(ref m_StatusDotBrush, value);
     }
 
     public string UpdatedAtDisplay
     {
         get => m_UpdatedAtDisplay;
-        private set => SetField(ref m_UpdatedAtDisplay, value);
+        private set => SetProperty(ref m_UpdatedAtDisplay, value);
     }
 
     public SettingsStatus SettingsStatus
@@ -227,10 +200,11 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_SettingsStatus;
         private set
         {
-            if (SetField(ref m_SettingsStatus, value))
+            if (SetProperty(ref m_SettingsStatus, value))
             {
                 OnPropertyChanged(nameof(SettingsStatusText));
                 OnPropertyChanged(nameof(SettingsStatusBrush));
+                SaveSettingsCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -247,25 +221,25 @@ internal sealed class TrayPopupViewModel : ObservableObject
     public string ServiceStatus
     {
         get => m_ServiceStatus;
-        private set => SetField(ref m_ServiceStatus, value);
+        private set => SetProperty(ref m_ServiceStatus, value);
     }
 
     public string SourceDisplay
     {
         get => m_SourceDisplay;
-        private set => SetField(ref m_SourceDisplay, value);
+        private set => SetProperty(ref m_SourceDisplay, value);
     }
 
     public string ResetCreditsDisplay
     {
         get => m_ResetCreditsDisplay;
-        private set => SetField(ref m_ResetCreditsDisplay, value);
+        private set => SetProperty(ref m_ResetCreditsDisplay, value);
     }
 
     public string ResetCreditsExpiryDates
     {
         get => m_ResetCreditsExpiryDates;
-        private set => SetField(ref m_ResetCreditsExpiryDates, value);
+        private set => SetProperty(ref m_ResetCreditsExpiryDates, value);
     }
 
     public string LiteMonitorDir
@@ -273,7 +247,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_LiteMonitorDir;
         set
         {
-            if (SetField(ref m_LiteMonitorDir, value))
+            if (SetProperty(ref m_LiteMonitorDir, value))
             {
                 OnPropertyChanged(nameof(LiteMonitorDirDisplay));
                 EvaluateDirtyState();
@@ -288,7 +262,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_TrafficMonitorDir;
         set
         {
-            if (SetField(ref m_TrafficMonitorDir, value))
+            if (SetProperty(ref m_TrafficMonitorDir, value))
             {
                 OnPropertyChanged(nameof(TrafficMonitorDirDisplay));
                 EvaluateDirtyState();
@@ -303,7 +277,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_IsDetectingLiteMonitor;
         set
         {
-            if (SetField(ref m_IsDetectingLiteMonitor, value))
+            if (SetProperty(ref m_IsDetectingLiteMonitor, value))
             {
                 OnPropertyChanged(nameof(IsLiteMonitorActionsEnabled));
             }
@@ -315,7 +289,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_IsDetectingTrafficMonitor;
         set
         {
-            if (SetField(ref m_IsDetectingTrafficMonitor, value))
+            if (SetProperty(ref m_IsDetectingTrafficMonitor, value))
             {
                 OnPropertyChanged(nameof(IsTrafficMonitorActionsEnabled));
             }
@@ -332,7 +306,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_PortText;
         set
         {
-            if (SetField(ref m_PortText, value))
+            if (SetProperty(ref m_PortText, value))
             {
                 EvaluateDirtyState();
             }
@@ -344,7 +318,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_RefreshIntervalText;
         set
         {
-            if (SetField(ref m_RefreshIntervalText, value))
+            if (SetProperty(ref m_RefreshIntervalText, value))
             {
                 EvaluateDirtyState();
             }
@@ -356,7 +330,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_ThemeMode;
         set
         {
-            if (SetField(ref m_ThemeMode, NormalizeThemeMode(value)))
+            if (SetProperty(ref m_ThemeMode, NormalizeThemeMode(value)))
             {
                 EvaluateDirtyState();
             }
@@ -376,7 +350,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         set
         {
             string normalized = value == AppSettings.TokenUnitChinese ? AppSettings.TokenUnitChinese : AppSettings.TokenUnitEnglish;
-            if (SetField(ref m_TokenUnit, normalized))
+            if (SetProperty(ref m_TokenUnit, normalized))
             {
                 EvaluateDirtyState();
             }
@@ -394,7 +368,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_TokenCostItems;
         set
         {
-            if (SetField(ref m_TokenCostItems, value & TokenCostItem.All))
+            if (SetProperty(ref m_TokenCostItems, value & TokenCostItem.All))
             {
                 OnPropertyChanged(nameof(TokenCostItemsDisplay));
                 OnPropertyChanged(nameof(IsTokenCostVisible));
@@ -460,7 +434,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_VisiblePages;
         set
         {
-            if (SetField(ref m_VisiblePages, value & PageItem.All))
+            if (SetProperty(ref m_VisiblePages, value & PageItem.All))
             {
                 OnPropertyChanged(nameof(VisiblePagesDisplay));
                 OnPropertyChanged(nameof(IsCodexTabVisible));
@@ -504,7 +478,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_StartWithWindows;
         set
         {
-            if (SetField(ref m_StartWithWindows, value))
+            if (SetProperty(ref m_StartWithWindows, value))
             {
                 EvaluateDirtyState();
             }
@@ -517,7 +491,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         set
         {
             bool normalized = IsAcrylicSupported && value;
-            if (SetField(ref m_AcrylicEnabled, normalized))
+            if (SetProperty(ref m_AcrylicEnabled, normalized))
             {
                 EvaluateDirtyState();
             }
@@ -535,7 +509,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         set
         {
             int clamped = Math.Clamp(value, CodexTrayDefaults.MinimumAcrylicOpacityPercent, CodexTrayDefaults.MaximumAcrylicOpacityPercent);
-            if (SetField(ref m_AcrylicOpacityPercent, clamped))
+            if (SetProperty(ref m_AcrylicOpacityPercent, clamped))
             {
                 OnPropertyChanged(nameof(AcrylicOpacityDisplay));
                 EvaluateDirtyState();
@@ -548,7 +522,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_WindowWidthText;
         set
         {
-            if (SetField(ref m_WindowWidthText, value))
+            if (SetProperty(ref m_WindowWidthText, value))
             {
                 EvaluateDirtyState();
             }
@@ -560,7 +534,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_WindowHeightText;
         set
         {
-            if (SetField(ref m_WindowHeightText, value))
+            if (SetProperty(ref m_WindowHeightText, value))
             {
                 EvaluateDirtyState();
             }
@@ -572,7 +546,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_ShowResetTimeInPlugins;
         set
         {
-            if (SetField(ref m_ShowResetTimeInPlugins, value))
+            if (SetProperty(ref m_ShowResetTimeInPlugins, value))
             {
                 EvaluateDirtyState();
             }
@@ -584,7 +558,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_UseAbsoluteResetTime;
         set
         {
-            if (SetField(ref m_UseAbsoluteResetTime, value))
+            if (SetProperty(ref m_UseAbsoluteResetTime, value))
             {
                 EvaluateDirtyState();
             }
@@ -596,7 +570,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_HideInvalidProgressBars;
         set
         {
-            if (SetField(ref m_HideInvalidProgressBars, value))
+            if (SetProperty(ref m_HideInvalidProgressBars, value))
             {
                 EvaluateDirtyState();
             }
@@ -679,37 +653,37 @@ internal sealed class TrayPopupViewModel : ObservableObject
     public Media.Brush CursorStatusDotBrush
     {
         get => m_CursorStatusDotBrush;
-        private set => SetField(ref m_CursorStatusDotBrush, value);
+        private set => SetProperty(ref m_CursorStatusDotBrush, value);
     }
 
     public string CursorPlanDisplay
     {
         get => m_CursorPlanDisplay;
-        private set => SetField(ref m_CursorPlanDisplay, value);
+        private set => SetProperty(ref m_CursorPlanDisplay, value);
     }
 
     public Media.Brush CursorPlanBadgeBrush
     {
         get => m_CursorPlanBadgeBrush;
-        private set => SetField(ref m_CursorPlanBadgeBrush, value);
+        private set => SetProperty(ref m_CursorPlanBadgeBrush, value);
     }
 
     public string CursorUpdatedAtDisplay
     {
         get => m_CursorUpdatedAtDisplay;
-        private set => SetField(ref m_CursorUpdatedAtDisplay, value);
+        private set => SetProperty(ref m_CursorUpdatedAtDisplay, value);
     }
 
     public string CursorStatusTooltip
     {
         get => m_CursorStatusTooltip;
-        private set => SetField(ref m_CursorStatusTooltip, value);
+        private set => SetProperty(ref m_CursorStatusTooltip, value);
     }
 
     public bool IsRefreshing
     {
         get => m_IsRefreshing;
-        set => SetField(ref m_IsRefreshing, value);
+        set => SetProperty(ref m_IsRefreshing, value);
     }
 
     public bool IsModalOpen => m_IsInAppDialogOpen || m_IsNativeModalOpen;
@@ -719,7 +693,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_IsInAppDialogOpen;
         private set
         {
-            if (SetField(ref m_IsInAppDialogOpen, value))
+            if (SetProperty(ref m_IsInAppDialogOpen, value))
             {
                 OnPropertyChanged(nameof(IsModalOpen));
             }
@@ -729,19 +703,19 @@ internal sealed class TrayPopupViewModel : ObservableObject
     public string InAppDialogTitle
     {
         get => m_InAppDialogTitle;
-        private set => SetField(ref m_InAppDialogTitle, value);
+        private set => SetProperty(ref m_InAppDialogTitle, value);
     }
 
     public string InAppDialogMessage
     {
         get => m_InAppDialogMessage;
-        private set => SetField(ref m_InAppDialogMessage, value);
+        private set => SetProperty(ref m_InAppDialogMessage, value);
     }
 
     public string InAppDialogPrimaryButtonText
     {
         get => m_InAppDialogPrimaryButtonText;
-        private set => SetField(ref m_InAppDialogPrimaryButtonText, value);
+        private set => SetProperty(ref m_InAppDialogPrimaryButtonText, value);
     }
 
     public string InAppDialogSecondaryButtonText
@@ -749,7 +723,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
         get => m_InAppDialogSecondaryButtonText;
         private set
         {
-            if (SetField(ref m_InAppDialogSecondaryButtonText, value))
+            if (SetProperty(ref m_InAppDialogSecondaryButtonText, value))
             {
                 OnPropertyChanged(nameof(HasInAppDialogSecondaryButton));
             }
@@ -761,9 +735,18 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Creates a view model for the WPF tray popup.
     /// </summary>
-    public TrayPopupViewModel(AppSettings settings)
+    public TrayPopupViewModel(AppSettings settings, Func<Task> refreshAsync)
     {
         m_Settings = settings;
+        OpenRepositoryCommand = new RelayCommand(() => OpenUrl(k_RepositoryUrl));
+        RefreshCommand = new AsyncRelayCommand(refreshAsync);
+        SaveSettingsCommand = new RelayCommand(() => SaveSettingsRequested?.Invoke(this, EventArgs.Empty), CanSaveSettings);
+        InstallLiteMonitorPluginCommand = new RelayCommand(() => InstallLiteMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
+        InstallTrafficMonitorPluginCommand = new RelayCommand(() => InstallTrafficMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
+        BrowseLiteMonitorCommand = new RelayCommand(() => BrowseMonitorFolder("Select LiteMonitor folder", LiteMonitorDir, value => LiteMonitorDir = value));
+        BrowseTrafficMonitorCommand = new RelayCommand(() => BrowseMonitorFolder("Select TrafficMonitor folder", TrafficMonitorDir, value => TrafficMonitorDir = value));
+        AutoDetectLiteMonitorCommand = new AsyncRelayCommand(() => DetectLiteMonitorAsync(showNotFound: true));
+        AutoDetectTrafficMonitorCommand = new AsyncRelayCommand(() => DetectTrafficMonitorAsync(showNotFound: true));
         m_CurrentPage = (settings.VisiblePages & PageItem.Codex) != 0
             ? k_CodexPageName
             : (settings.VisiblePages & PageItem.Cursor) != 0
@@ -773,27 +756,14 @@ internal sealed class TrayPopupViewModel : ObservableObject
                     : k_SettingsPageName;
         LoadSettings(settings);
         LoadApiMonitors(settings.ApiMonitors);
-        ShowCodexCommand = new RelayCommand(_ => ShowCodex());
-        ShowCursorCommand = new RelayCommand(_ => ShowCursor());
-        ShowApiCommand = new RelayCommand(_ => ShowApi());
-        ShowSettingsCommand = new RelayCommand(_ => ShowSettings());
-        ShowAboutCommand = new RelayCommand(_ => ShowAbout());
-        OpenRepositoryCommand = new RelayCommand(_ => OpenUrl(k_RepositoryUrl));
-        RefreshCommand = new RelayCommand(_ => RefreshRequested?.Invoke(this, EventArgs.Empty));
-        SaveSettingsCommand = new RelayCommand(_ => SaveSettingsRequested?.Invoke(this, EventArgs.Empty));
-        InstallLiteMonitorPluginCommand = new RelayCommand(_ => InstallLiteMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
-        InstallTrafficMonitorPluginCommand = new RelayCommand(_ => InstallTrafficMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
-        BrowseLiteMonitorCommand = new RelayCommand(_ => BrowseMonitorFolder("Select LiteMonitor folder", LiteMonitorDir, value => LiteMonitorDir = value));
-        BrowseTrafficMonitorCommand = new RelayCommand(_ => BrowseMonitorFolder("Select TrafficMonitor folder", TrafficMonitorDir, value => TrafficMonitorDir = value));
-        AutoDetectLiteMonitorCommand = new RelayCommand(async _ => await DetectLiteMonitorAsync(showNotFound: true));
-        AutoDetectTrafficMonitorCommand = new RelayCommand(async _ => await DetectTrafficMonitorAsync(showNotFound: true));
-        ExitCommand = new RelayCommand(_ => ExitRequested?.Invoke(this, EventArgs.Empty));
-        AddApiMonitorCommand = new RelayCommand(_ => AddApiMonitor());
-        RemoveApiMonitorCommand = new RelayCommand(RemoveApiMonitor);
-        MoveApiMonitorUpCommand = new RelayCommand(parameter => MoveApiMonitor(parameter, -1));
-        MoveApiMonitorDownCommand = new RelayCommand(parameter => MoveApiMonitor(parameter, 1));
-        ConfirmInAppDialogCommand = new RelayCommand(_ => ConfirmInAppDialog());
-        DismissInAppDialogCommand = new RelayCommand(_ => DismissInAppDialog());
+    }
+
+    /// <summary>
+    /// Returns whether settings contain unsaved changes.
+    /// </summary>
+    private bool CanSaveSettings()
+    {
+        return SettingsStatus == SettingsStatus.Unsaved;
     }
 
     /// <summary>
@@ -1191,6 +1161,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Shows the Codex dashboard page inside the tray popup.
     /// </summary>
+    [RelayCommand]
     public void ShowCodex()
     {
         SetPage(k_CodexPageName);
@@ -1199,6 +1170,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Shows the Cursor dashboard page inside the tray popup.
     /// </summary>
+    [RelayCommand]
     public void ShowCursor()
     {
         SetPage(k_CursorPageName);
@@ -1207,6 +1179,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Shows the API monitoring page inside the tray popup.
     /// </summary>
+    [RelayCommand]
     public void ShowApi()
     {
         SetPage(k_ApiPageName);
@@ -1215,6 +1188,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Shows the settings page inside the tray popup.
     /// </summary>
+    [RelayCommand]
     public void ShowSettings()
     {
         if (!IsAboutVisible)
@@ -1228,6 +1202,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Shows the about page inside the tray popup.
     /// </summary>
+    [RelayCommand]
     public void ShowAbout()
     {
         SetPage(k_AboutPageName);
@@ -1289,6 +1264,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Adds a default DeepSeek API monitor card.
     /// </summary>
+    [RelayCommand]
     private void AddApiMonitor()
     {
         ApiMonitorViewModel monitor = new(new ApiMonitorSettings(), isEditing: true, isPending: true);
@@ -1300,9 +1276,10 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Requests confirmation before removing an API monitor card.
     /// </summary>
-    private void RemoveApiMonitor(object? parameter)
+    [RelayCommand]
+    private void RemoveApiMonitor(ApiMonitorViewModel? monitor)
     {
-        if (parameter is not ApiMonitorViewModel monitor)
+        if (monitor == null)
         {
             return;
         }
@@ -1326,16 +1303,51 @@ internal sealed class TrayPopupViewModel : ObservableObject
         SaveApiMonitors();
         if (!wasPending)
         {
-            RefreshRequested?.Invoke(this, EventArgs.Empty);
+            RequestRefresh();
         }
+    }
+
+    /// <summary>
+    /// Returns whether an API monitor can move up.
+    /// </summary>
+    private bool CanMoveApiMonitorUp(ApiMonitorViewModel? monitor)
+    {
+        return monitor != null && ApiMonitors.IndexOf(monitor) > 0;
+    }
+
+    /// <summary>
+    /// Moves an API monitor card up by one position.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanMoveApiMonitorUp))]
+    private void MoveApiMonitorUp(ApiMonitorViewModel? monitor)
+    {
+        MoveApiMonitor(monitor, -1);
+    }
+
+    /// <summary>
+    /// Returns whether an API monitor can move down.
+    /// </summary>
+    private bool CanMoveApiMonitorDown(ApiMonitorViewModel? monitor)
+    {
+        int index = monitor == null ? -1 : ApiMonitors.IndexOf(monitor);
+        return index >= 0 && index < ApiMonitors.Count - 1;
+    }
+
+    /// <summary>
+    /// Moves an API monitor card down by one position.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanMoveApiMonitorDown))]
+    private void MoveApiMonitorDown(ApiMonitorViewModel? monitor)
+    {
+        MoveApiMonitor(monitor, 1);
     }
 
     /// <summary>
     /// Moves an API monitor card by one position.
     /// </summary>
-    private void MoveApiMonitor(object? parameter, int offset)
+    private void MoveApiMonitor(ApiMonitorViewModel? monitor, int offset)
     {
-        if (parameter is not ApiMonitorViewModel monitor)
+        if (monitor == null)
         {
             return;
         }
@@ -1357,7 +1369,18 @@ internal sealed class TrayPopupViewModel : ObservableObject
     private void HandleApiMonitorSaved(object? sender, EventArgs args)
     {
         SaveApiMonitors();
-        RefreshRequested?.Invoke(this, EventArgs.Empty);
+        RequestRefresh();
+    }
+
+    /// <summary>
+    /// Starts a refresh when the asynchronous command is available.
+    /// </summary>
+    private void RequestRefresh()
+    {
+        if (RefreshCommand.CanExecute(null))
+        {
+            RefreshCommand.Execute(null);
+        }
     }
 
     /// <summary>
@@ -1377,6 +1400,8 @@ internal sealed class TrayPopupViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(IsApiEmpty));
         NotifyApiMonitorStatusChanged();
+        MoveApiMonitorUpCommand.NotifyCanExecuteChanged();
+        MoveApiMonitorDownCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>
@@ -1452,6 +1477,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Confirms the active in-window dialog.
     /// </summary>
+    [RelayCommand]
     private void ConfirmInAppDialog()
     {
         Action? primaryAction = m_InAppDialogPrimaryAction;
@@ -1462,6 +1488,7 @@ internal sealed class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Dismisses the active in-window dialog.
     /// </summary>
+    [RelayCommand]
     public void DismissInAppDialog()
     {
         if (!m_IsInAppDialogOpen)
@@ -1710,13 +1737,13 @@ internal sealed class TrayPopupViewModel : ObservableObject
         public TokenCostDisplay Display
         {
             get => m_Display;
-            internal set => SetField(ref m_Display, value);
+            internal set => SetProperty(ref m_Display, value);
         }
 
         public bool IsVisible
         {
             get => m_IsVisible;
-            internal set => SetField(ref m_IsVisible, value);
+            internal set => SetProperty(ref m_IsVisible, value);
         }
 
         public bool IsLast { get; }
@@ -1746,37 +1773,37 @@ internal sealed class TrayPopupViewModel : ObservableObject
         public int RemainingPercent
         {
             get => m_RemainingPercent;
-            private set => SetField(ref m_RemainingPercent, value);
+            private set => SetProperty(ref m_RemainingPercent, value);
         }
 
         public string PercentText
         {
             get => m_PercentText;
-            private set => SetField(ref m_PercentText, value);
+            private set => SetProperty(ref m_PercentText, value);
         }
 
         public string ResetText
         {
             get => m_ResetText;
-            private set => SetField(ref m_ResetText, value);
+            private set => SetProperty(ref m_ResetText, value);
         }
 
         public Media.Brush AccentBrush
         {
             get => m_AccentBrush;
-            private set => SetField(ref m_AccentBrush, value);
+            private set => SetProperty(ref m_AccentBrush, value);
         }
 
         public bool IsVisible
         {
             get => m_IsVisible;
-            private set => SetField(ref m_IsVisible, value);
+            private set => SetProperty(ref m_IsVisible, value);
         }
 
         public bool IsResetVisible
         {
             get => m_IsResetVisible;
-            private set => SetField(ref m_IsResetVisible, value);
+            private set => SetProperty(ref m_IsResetVisible, value);
         }
 
         /// <summary>
