@@ -77,11 +77,16 @@ public sealed class CursorUsageCollector
     /// </summary>
     public async Task<CursorUsageDashboard> CollectDashboardAsync(DateTimeOffset? now = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset refreshedAt = now ?? DateTimeOffset.Now;
         CursorCredentialResult initialCredential;
         try
         {
             initialCredential = await ResolveInitialCredentialAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {
@@ -91,6 +96,7 @@ public sealed class CursorUsageCollector
 
         CursorCredential credential = initialCredential.Credential;
         bool refreshUsed = false;
+        cancellationToken.ThrowIfCancellationRequested();
         CursorEndpointResult<CursorUsageSnapshot> usageResult = await CollectEndpointAsync(
             current => FetchUsageAsync(current, refreshedAt, cancellationToken),
             credential,
@@ -99,6 +105,7 @@ public sealed class CursorUsageCollector
         credential = usageResult.Credential;
         refreshUsed = usageResult.RefreshUsed;
 
+        cancellationToken.ThrowIfCancellationRequested();
         CursorEndpointResult<CursorUsageEventsCollection> tokenCostResult = await CollectEndpointAsync(
             current => FetchUsageEventsAsync(current, refreshedAt, cancellationToken),
             credential,
@@ -121,6 +128,7 @@ public sealed class CursorUsageCollector
     /// </summary>
     public async Task<CursorUsageSnapshot> CollectAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         CursorCredential credential = (await ResolveInitialCredentialAsync(cancellationToken).ConfigureAwait(false)).Credential;
         try
         {
@@ -225,6 +233,7 @@ public sealed class CursorUsageCollector
         bool refreshUsed,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             return new CursorEndpointResult<T>(await collect(credential).ConfigureAwait(false), string.Empty, credential, refreshUsed);
@@ -234,13 +243,23 @@ public sealed class CursorUsageCollector
             CursorCredential refreshed = credential;
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 refreshed = await RefreshCredentialAsync(credential, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 return new CursorEndpointResult<T>(await collect(refreshed).ConfigureAwait(false), string.Empty, refreshed, true);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception retryException) when (retryException is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
             {
                 return new CursorEndpointResult<T>(default, FormatError(retryException), refreshed, true);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 
@@ -13,16 +14,53 @@ public sealed class LightweightHttpServer : IDisposable
     };
 
     private readonly UsageCache m_UsageCache;
+    private readonly Lock m_LifecycleLock = new();
+    private readonly HashSet<Task> m_ClientTasks = [];
     private CancellationTokenSource? m_Cancellation;
     private TcpListener? m_Listener;
     private Task? m_AcceptTask;
+    private Task? m_StopTask;
     private bool m_Disposed;
+    private bool m_IsRunning;
+    private string? m_LastError;
 
     public int Port { get; private set; }
 
-    public bool IsRunning { get; private set; }
+    public bool IsRunning
+    {
+        get
+        {
+            lock (m_LifecycleLock)
+            {
+                return m_IsRunning;
+            }
+        }
+    }
 
-    public string? LastError { get; private set; }
+    public string? LastError
+    {
+        get
+        {
+            lock (m_LifecycleLock)
+            {
+                return m_LastError;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the number of currently tracked client operations for diagnostics.
+    /// </summary>
+    private int ActiveClientCount
+    {
+        get
+        {
+            lock (m_LifecycleLock)
+            {
+                return m_ClientTasks.Count;
+            }
+        }
+    }
 
     /// <summary>
     /// Creates a loopback HTTP server for Codex usage data.
@@ -38,75 +76,177 @@ public sealed class LightweightHttpServer : IDisposable
     /// </summary>
     public void Start()
     {
-        ThrowIfDisposed();
-        if (IsRunning)
+        lock (m_LifecycleLock)
         {
-            return;
-        }
+            ThrowIfDisposed();
+            if (m_IsRunning)
+            {
+                return;
+            }
 
-        m_Cancellation = new CancellationTokenSource();
-        m_Listener = new TcpListener(IPAddress.Parse(CodexTrayDefaults.Host), Port);
-        m_Listener.Start();
-        Port = ((IPEndPoint)m_Listener.LocalEndpoint).Port;
-        IsRunning = true;
-        LastError = null;
-        m_AcceptTask = Task.Run(() => AcceptLoopAsync(m_Cancellation.Token));
+            if (m_StopTask is { IsCompleted: false })
+            {
+                throw new InvalidOperationException("The server is still stopping.");
+            }
+
+            if (m_Cancellation != null || m_Listener != null || m_AcceptTask != null)
+            {
+                throw new InvalidOperationException("Call StopAsync before restarting a stopped server generation.");
+            }
+
+            CancellationTokenSource cancellation = new();
+            TcpListener listener = new(IPAddress.Parse(CodexTrayDefaults.Host), Port);
+            try
+            {
+                listener.Start();
+                Port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                m_Cancellation = cancellation;
+                m_Listener = listener;
+                m_IsRunning = true;
+                m_LastError = null;
+                m_StopTask = null;
+                m_AcceptTask = AcceptLoopAsync(listener, cancellation.Token);
+            }
+            catch
+            {
+                listener.Stop();
+                cancellation.Dispose();
+                throw;
+            }
+        }
     }
 
     /// <summary>
-    /// Stops the server and closes active listener resources.
+    /// Stops the server and drains all active clients.
     /// </summary>
-    public void Stop()
+    public Task StopAsync()
     {
-        if (!IsRunning)
+        lock (m_LifecycleLock)
         {
-            return;
-        }
+            if (m_StopTask is { IsCompleted: false })
+            {
+                return m_StopTask;
+            }
 
-        m_Cancellation?.Cancel();
-        m_Listener?.Stop();
-        try
-        {
-            m_AcceptTask?.Wait(TimeSpan.FromSeconds(2));
-        }
-        catch (AggregateException)
-        {
-        }
+            if (m_Cancellation == null || m_Listener == null || m_AcceptTask == null)
+            {
+                return m_StopTask ?? Task.CompletedTask;
+            }
 
-        m_AcceptTask = null;
-        m_Listener = null;
-        m_Cancellation?.Dispose();
-        m_Cancellation = null;
-        IsRunning = false;
+            m_IsRunning = false;
+            m_StopTask = StopCoreAsync(m_Cancellation, m_Listener, m_AcceptTask);
+            return m_StopTask;
+        }
     }
 
     /// <summary>
-    /// Disposes the server resources.
+    /// Disposes the server without synchronously blocking the caller.
     /// </summary>
     public void Dispose()
     {
-        if (m_Disposed)
+        lock (m_LifecycleLock)
         {
-            return;
+            if (m_Disposed)
+            {
+                return;
+            }
+
+            m_Disposed = true;
         }
 
-        Stop();
-        m_Disposed = true;
+        _ = ObserveStopAsync(StopAsync());
+    }
+
+    /// <summary>
+    /// Cancels the listener and releases one generation of server resources.
+    /// </summary>
+    private async Task StopCoreAsync(CancellationTokenSource cancellation, TcpListener listener, Task acceptTask)
+    {
+        await Task.Yield();
+        Exception? failure = null;
+        try
+        {
+            failure = CaptureFailure(failure, cancellation.Cancel);
+            failure = CaptureFailure(failure, listener.Stop);
+            failure = await CaptureFailureAsync(failure, acceptTask).ConfigureAwait(false);
+
+            Task[] clients;
+            lock (m_LifecycleLock)
+            {
+                clients = [.. m_ClientTasks];
+            }
+            failure = await CaptureFailureAsync(failure, Task.WhenAll(clients)).ConfigureAwait(false);
+        }
+        finally
+        {
+            failure = CaptureFailure(failure, listener.Stop);
+            failure = CaptureFailure(failure, cancellation.Dispose);
+
+            lock (m_LifecycleLock)
+            {
+                if (ReferenceEquals(m_Cancellation, cancellation))
+                {
+                    m_Cancellation = null;
+                    m_Listener = null;
+                    m_AcceptTask = null;
+                    m_IsRunning = false;
+                }
+            }
+        }
+
+        if (failure != null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    /// <summary>
+    /// Runs one synchronous cleanup step while retaining the first failure.
+    /// </summary>
+    private static Exception? CaptureFailure(Exception? failure, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            return failure ?? exception;
+        }
+
+        return failure;
+    }
+
+    /// <summary>
+    /// Awaits one cleanup step while retaining the first failure.
+    /// </summary>
+    private static async Task<Exception?> CaptureFailureAsync(Exception? failure, Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            return failure ?? exception;
+        }
+
+        return failure;
     }
 
     /// <summary>
     /// Runs the listener accept loop.
     /// </summary>
-    private async Task AcceptLoopAsync(CancellationToken cancellationToken)
+    private async Task AcceptLoopAsync(TcpListener listener, CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested && m_Listener != null)
+        while (!cancellationToken.IsCancellationRequested)
         {
             TcpClient client;
             try
             {
-                client = await m_Listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 break;
             }
@@ -114,13 +254,108 @@ public sealed class LightweightHttpServer : IDisposable
             {
                 break;
             }
+            catch (SocketException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
             catch (SocketException exception)
             {
-                LastError = exception.Message;
+                MarkGenerationFailed(listener, exception.Message);
+                break;
+            }
+            catch (Exception exception)
+            {
+                MarkGenerationFailed(listener, exception.Message);
                 break;
             }
 
-            _ = Task.Run(() => HandleClientAsync(client, cancellationToken), cancellationToken);
+            TaskCompletionSource start = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task? clientTask = null;
+            clientTask = HandleClientTrackedAsync(client, cancellationToken, start.Task, () => RemoveClientTask(clientTask!));
+            lock (m_LifecycleLock)
+            {
+                m_ClientTasks.Add(clientTask);
+            }
+
+            start.SetResult();
+        }
+    }
+
+    /// <summary>
+    /// Handles and observes one accepted client operation.
+    /// </summary>
+    private async Task HandleClientTrackedAsync(TcpClient client, CancellationToken cancellationToken, Task startTask, Action removeTask)
+    {
+        await startTask.ConfigureAwait(false);
+        using (client)
+        {
+            try
+            {
+                await HandleClientAsync(client, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (cancellationToken.IsCancellationRequested && exception is OperationCanceledException or IOException or ObjectDisposedException)
+            {
+            }
+            catch (Exception exception)
+            {
+                SetLastError(exception.Message);
+            }
+            finally
+            {
+                removeTask();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Removes a completed client operation from lifecycle tracking.
+    /// </summary>
+    private void RemoveClientTask(Task task)
+    {
+        lock (m_LifecycleLock)
+        {
+            m_ClientTasks.Remove(task);
+        }
+    }
+
+    /// <summary>
+    /// Records the latest server error.
+    /// </summary>
+    private void SetLastError(string? error)
+    {
+        lock (m_LifecycleLock)
+        {
+            m_LastError = error;
+        }
+    }
+
+    /// <summary>
+    /// Marks the current listener generation as failed without releasing its resources.
+    /// </summary>
+    private void MarkGenerationFailed(TcpListener listener, string error)
+    {
+        lock (m_LifecycleLock)
+        {
+            if (ReferenceEquals(m_Listener, listener))
+            {
+                m_IsRunning = false;
+                m_LastError = error;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Observes a fallback stop failure and preserves it as the latest server error.
+    /// </summary>
+    private async Task ObserveStopAsync(Task stopTask)
+    {
+        try
+        {
+            await stopTask.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            SetLastError(exception.Message);
         }
     }
 
@@ -164,7 +399,7 @@ public sealed class LightweightHttpServer : IDisposable
         if (path.StartsWith(CodexTrayDefaults.UsageTextEndpointPath, StringComparison.OrdinalIgnoreCase))
         {
             UsageResponse textResponse = m_UsageCache.Get() ?? CreatePendingResponse();
-            LastError = null;
+            SetLastError(null);
             await WriteUsageTextAsync(stream, textResponse, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -176,8 +411,7 @@ public sealed class LightweightHttpServer : IDisposable
         }
 
         UsageResponse response = m_UsageCache.Get() ?? CreatePendingResponse();
-        LastError = null;
-
+        SetLastError(null);
         await WriteJsonAsync(stream, 200, response, cancellationToken).ConfigureAwait(false);
     }
 

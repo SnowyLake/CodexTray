@@ -4,6 +4,8 @@ using Microsoft.Data.Sqlite;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 
@@ -34,6 +36,11 @@ internal static class Program
         await RunAsync("omits reset suffix when disabled", TestDisplayWithoutResetSuffixAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
+        await RunAsync("drains active HTTP clients on stop", TestHttpServerActiveClientStopAsync);
+        await RunAsync("recovers HTTP server after bind failure", TestHttpServerBindFailureRecoveryAsync);
+        await RunAsync("supports idempotent stop and restart", TestHttpServerStopRestartAsync);
+        await RunAsync("propagates collector cancellation", TestCollectorCancellationAsync);
+        await RunAsync("distinguishes API cancellation from timeout", TestApiUsageCancellationAsync);
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
         await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
@@ -55,6 +62,8 @@ internal static class Program
         await RunAsync("includes Cursor Codex pricing", TestCursorCodexPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
+        await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
+        await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
@@ -394,6 +403,127 @@ internal static class Program
         string usageText = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageTextEndpointPath}");
         AssertTrue(usageText.Contains("90% 1h00m", StringComparison.Ordinal), "text endpoint should include five hour display");
         AssertTrue(usageText.Contains("80% 2d00h", StringComparison.Ordinal), "text endpoint should include seven day display");
+        await server.StopAsync();
+    }
+
+    /// <summary>
+    /// Tests that stopping the HTTP server cancels and drains a partial-header client.
+    /// </summary>
+    private static async Task TestHttpServerActiveClientStopAsync()
+    {
+        using LightweightHttpServer server = new(new UsageCache(), 0);
+        server.Start();
+        using TcpClient client = new();
+        await client.ConnectAsync(CodexTrayDefaults.Host, server.Port);
+        await client.GetStream().WriteAsync(Encoding.ASCII.GetBytes("GET /health HTTP/1.1\r\nHost: localhost\r\n"));
+        await WaitForTrackedClientAsync(server);
+
+        Task firstStop = server.StopAsync();
+        Task secondStop = server.StopAsync();
+        AssertTrue(ReferenceEquals(firstStop, secondStop), "concurrent stop calls should share one task");
+        await firstStop.WaitAsync(TimeSpan.FromSeconds(2));
+        AssertTrue(!server.IsRunning, "server should stop after draining the partial request");
+    }
+
+    /// <summary>
+    /// Waits until the HTTP server has accepted and tracked a test client.
+    /// </summary>
+    private static async Task WaitForTrackedClientAsync(LightweightHttpServer server)
+    {
+        PropertyInfo property = typeof(LightweightHttpServer).GetProperty("ActiveClientCount", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("active client count property was not found");
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+        while ((int)(property.GetValue(server) ?? 0) == 0)
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
+    /// <summary>
+    /// Tests that a failed bind leaves the same HTTP server instance restartable.
+    /// </summary>
+    private static async Task TestHttpServerBindFailureRecoveryAsync()
+    {
+        TcpListener blocker = new(IPAddress.Loopback, 0);
+        blocker.Start();
+        int port = ((IPEndPoint)blocker.LocalEndpoint).Port;
+        using LightweightHttpServer server = new(new UsageCache(), port);
+        bool failed = false;
+        try
+        {
+            server.Start();
+        }
+        catch (SocketException)
+        {
+            failed = true;
+        }
+
+        AssertTrue(failed, "occupied port should reject the first bind");
+        blocker.Stop();
+        server.Start();
+        AssertTrue(server.IsRunning, "same server instance should start after bind cleanup");
+        await server.StopAsync();
+    }
+
+    /// <summary>
+    /// Tests stop idempotence, the in-progress restart guard, and restart after completion.
+    /// </summary>
+    private static async Task TestHttpServerStopRestartAsync()
+    {
+        using LightweightHttpServer server = new(new UsageCache(), 0);
+        server.Start();
+        Task stop = server.StopAsync();
+        bool restartGuarded = false;
+        try
+        {
+            server.Start();
+        }
+        catch (InvalidOperationException)
+        {
+            restartGuarded = true;
+        }
+
+        AssertTrue(restartGuarded, "start should reject an in-progress stop");
+        AssertTrue(ReferenceEquals(stop, server.StopAsync()), "stop should be idempotent while active");
+        await stop;
+        await server.StopAsync();
+        server.Start();
+        AssertTrue(server.IsRunning, "server should restart after stop completion");
+        await server.StopAsync();
+    }
+
+    /// <summary>
+    /// Tests pre-canceled Codex, token-cost, Cursor, and monitor locator operations.
+    /// </summary>
+    private static async Task TestCollectorCancellationAsync()
+    {
+        using TempDirectory temp = new();
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        await AssertCanceledAsync(() => new CodexTrayCollector().CollectAsync(temp.Path, cancellationToken: cancellation.Token));
+        await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().Collect(temp.Path, openCodeDirectory: temp.Path, cancellationToken: cancellation.Token)));
+        await AssertCanceledAsync(() => Task.Run(() => LiteMonitorLocator.AutoDetect(cancellationToken: cancellation.Token)));
+        await AssertCanceledAsync(() => new CursorUsageCollector().CollectDashboardAsync(cancellationToken: cancellation.Token));
+    }
+
+    /// <summary>
+    /// Tests caller cancellation propagation and non-caller timeout mapping for API monitors.
+    /// </summary>
+    private static async Task TestApiUsageCancellationAsync()
+    {
+        ApiMonitorSettings monitor = new()
+        {
+            Provider = ApiMonitorSettings.DeepSeekProvider,
+            ApiKey = "test-key",
+            BaseUrl = "https://example.test",
+        };
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        await AssertCanceledAsync(() => new ApiUsageCollector().CollectAsync([monitor], cancellationToken: cancellation.Token));
+
+        using HttpClient client = new(new CanceledHttpMessageHandler());
+        IReadOnlyList<ApiUsageResult> results = await new ApiUsageCollector(client).CollectAsync([monitor]);
+        AssertEqual("Request timed out", results[0].Error, "non-caller TaskCanceledException should remain a timeout");
     }
 
     /// <summary>
@@ -1351,6 +1481,112 @@ internal static class Program
     }
 
     /// <summary>
+    /// Tests dirty tracking for every migrated editable property.
+    /// </summary>
+    private static Task TestMigratedDirtyPropertiesAsync()
+    {
+        (string Name, Action<TrayPopupViewModel> Change, Action<TrayPopupViewModel> Restore)[] cases =
+        [
+            (nameof(TrayPopupViewModel.LiteMonitorDir), viewModel => viewModel.LiteMonitorDir = "C:\\LiteMonitor", viewModel => viewModel.LiteMonitorDir = string.Empty),
+            (nameof(TrayPopupViewModel.TrafficMonitorDir),
+             viewModel => viewModel.TrafficMonitorDir = "C:\\TrafficMonitor",
+             viewModel => viewModel.TrafficMonitorDir = string.Empty),
+            (nameof(TrayPopupViewModel.PortText),
+             viewModel => viewModel.PortText = "17891",
+             viewModel => viewModel.PortText = CodexTrayDefaults.Port.ToString(CultureInfo.InvariantCulture)),
+            (nameof(TrayPopupViewModel.RefreshIntervalText),
+             viewModel => viewModel.RefreshIntervalText = "2",
+             viewModel => viewModel.RefreshIntervalText = CodexTrayDefaults.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture)),
+            (nameof(TrayPopupViewModel.StartWithWindows), viewModel => viewModel.StartWithWindows = true, viewModel => viewModel.StartWithWindows = false),
+            (nameof(TrayPopupViewModel.WindowWidthText),
+             viewModel => viewModel.WindowWidthText = "381",
+             viewModel => viewModel.WindowWidthText = CodexTrayDefaults.WindowWidth.ToString(CultureInfo.InvariantCulture)),
+            (nameof(TrayPopupViewModel.WindowHeightText),
+             viewModel => viewModel.WindowHeightText = "606",
+             viewModel => viewModel.WindowHeightText = CodexTrayDefaults.WindowHeight.ToString(CultureInfo.InvariantCulture)),
+            (nameof(TrayPopupViewModel.ShowResetTimeInPlugins),
+             viewModel => viewModel.ShowResetTimeInPlugins = !CodexTrayDefaults.ShowResetTimeInPlugins,
+             viewModel => viewModel.ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins),
+            (nameof(TrayPopupViewModel.UseAbsoluteResetTime),
+             viewModel => viewModel.UseAbsoluteResetTime = !CodexTrayDefaults.UseAbsoluteResetTime,
+             viewModel => viewModel.UseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime),
+        ];
+
+        foreach ((string name, Action<TrayPopupViewModel> change, Action<TrayPopupViewModel> restore) in cases)
+        {
+            TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+            change(viewModel);
+            AssertEqual(SettingsStatus.Unsaved, viewModel.SettingsStatus, $"{name} should mark settings dirty");
+            AssertTrue(viewModel.SaveSettingsCommand.CanExecute(null), $"{name} should enable save");
+            restore(viewModel);
+            AssertEqual(SettingsStatus.Clean, viewModel.SettingsStatus, $"{name} should restore clean status");
+            AssertTrue(!viewModel.SaveSettingsCommand.CanExecute(null), $"{name} should disable save after restore");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests exact dependent and unchanged-value notifications for migrated tray properties.
+    /// </summary>
+    private static Task TestMigratedTrayNotificationsAsync()
+    {
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        List<string?> changedProperties = [];
+        viewModel.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+        viewModel.LiteMonitorDir = "C:\\LiteMonitor";
+        AssertEqual(
+            "LiteMonitorDir|LiteMonitorDirDisplay|SettingsStatus|SettingsStatusBrush|SettingsStatusText",
+            string.Join('|', changedProperties.Order()),
+            "LiteMonitor path notifications");
+        changedProperties.Clear();
+        viewModel.LiteMonitorDir = "C:\\LiteMonitor";
+        AssertEqual(0, changedProperties.Count, "unchanged LiteMonitor path notifications");
+
+        viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        changedProperties = [];
+        viewModel.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+        viewModel.TrafficMonitorDir = "C:\\TrafficMonitor";
+        AssertEqual(
+            "SettingsStatus|SettingsStatusBrush|SettingsStatusText|TrafficMonitorDir|TrafficMonitorDirDisplay",
+            string.Join('|', changedProperties.Order()),
+            "TrafficMonitor path notifications");
+
+        viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        changedProperties = [];
+        viewModel.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+        viewModel.IsDetectingLiteMonitor = true;
+        AssertEqual("IsDetectingLiteMonitor|IsLiteMonitorActionsEnabled", string.Join('|', changedProperties.Order()), "LiteMonitor detecting notifications");
+        changedProperties.Clear();
+        viewModel.IsDetectingLiteMonitor = true;
+        AssertEqual(0, changedProperties.Count, "unchanged LiteMonitor detecting notifications");
+        viewModel.IsDetectingTrafficMonitor = true;
+        AssertEqual("IsDetectingTrafficMonitor|IsTrafficMonitorActionsEnabled", string.Join('|', changedProperties.Order()), "TrafficMonitor detecting notifications");
+
+        changedProperties.Clear();
+        viewModel.IsRefreshing = true;
+        AssertEqual(nameof(TrayPopupViewModel.IsRefreshing), string.Join('|', changedProperties), "pure generated property notification");
+        changedProperties.Clear();
+        viewModel.IsRefreshing = true;
+        AssertEqual(0, changedProperties.Count, "unchanged pure generated property notifications");
+
+        InAppDialogRequest initialDialog = new("Title", "Message", "OK");
+        viewModel.ShowInAppDialog(initialDialog);
+        changedProperties.Clear();
+        InAppDialogRequest secondaryDialog = initialDialog with { SecondaryButtonText = "Cancel" };
+        viewModel.ShowInAppDialog(secondaryDialog);
+        AssertEqual(
+            "HasInAppDialogSecondaryButton|InAppDialogSecondaryButtonText",
+            string.Join('|', changedProperties.Order()),
+            "dialog secondary button notifications");
+        changedProperties.Clear();
+        viewModel.ShowInAppDialog(secondaryDialog);
+        AssertEqual(0, changedProperties.Count, "unchanged dialog secondary button notifications");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Tests save and API monitor move command states.
     /// </summary>
     private static Task TestApiMonitorCommandStatesAsync()
@@ -1389,10 +1625,21 @@ internal static class Program
         List<string?> changedProperties = [];
         viewModel.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
 
-        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$1.00", "$0.50", string.Empty, DateTimeOffset.UtcNow, "USD balance"));
+        viewModel.Name = "Personal";
+        AssertEqual("DisplayName|Name", string.Join('|', changedProperties.Order()), "API monitor name notifications");
+        changedProperties.Clear();
+        viewModel.Name = "Personal";
+        AssertEqual(0, changedProperties.Count, "unchanged API monitor name notifications");
 
-        AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.BalanceTooltip)), "balance tooltip notification should be raised");
-        AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.HasBalanceTooltip)), "dependent tooltip notification should be raised");
+        ApiUsageResult result = new(viewModel.Id, false, "N/A", "N/A", "Waiting for refresh", DateTimeOffset.UtcNow, "USD balance");
+        viewModel.Update(result);
+        AssertEqual(
+            "BalanceTooltip|HasBalanceTooltip",
+            string.Join('|', changedProperties.Order()),
+            "balance tooltip notifications");
+        changedProperties.Clear();
+        viewModel.Update(result);
+        AssertEqual(0, changedProperties.Count, "unchanged balance tooltip notifications");
         return Task.CompletedTask;
     }
 
@@ -1679,6 +1926,23 @@ internal static class Program
             throw new InvalidOperationException($"{message}: expected {expected}, got {actual}");
         }
     }
+
+    /// <summary>
+    /// Asserts that an asynchronous operation propagates cancellation.
+    /// </summary>
+    private static async Task AssertCanceledAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("operation should have propagated cancellation");
+    }
 }
 
 internal sealed class TempDirectory : IDisposable
@@ -1699,6 +1963,17 @@ internal sealed class TempDirectory : IDisposable
     public void Dispose()
     {
         Directory.Delete(Path, true);
+    }
+}
+
+internal sealed class CanceledHttpMessageHandler : HttpMessageHandler
+{
+    /// <summary>
+    /// Simulates an HttpClient timeout that was not caused by the caller token.
+    /// </summary>
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        return Task.FromException<HttpResponseMessage>(new TaskCanceledException("simulated timeout"));
     }
 }
 

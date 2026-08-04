@@ -10,19 +10,8 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_RedBrush = new Media.SolidColorBrush(Media.Color.FromRgb(224, 91, 77));
 
-    private string m_Name;
     private string m_Provider;
-    private string m_BaseUrl;
-    private string m_ApiKey;
-    private string m_UserId;
     private string m_GrokOAuthSource;
-    private string m_BalanceDisplay = "N/A";
-    private string m_BalanceTooltip = string.Empty;
-    private string m_UsedDisplay = "N/A";
-    private string m_StatusText = "Waiting for refresh";
-    private Media.Brush m_StatusDotBrush = s_RedBrush;
-    private bool m_IsEditing;
-    private bool m_IsPending;
 
     public event EventHandler? EditingSaved;
 
@@ -41,17 +30,9 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         ApiMonitorSettings.OpenCodeOAuthSource,
     ];
 
-    public string Name
-    {
-        get => m_Name;
-        set
-        {
-            if (SetProperty(ref m_Name, value))
-            {
-                OnPropertyChanged(nameof(DisplayName));
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DisplayName))]
+    public partial string Name { get; set; }
 
     public string Provider
     {
@@ -70,12 +51,12 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
                 return;
             }
 
-            if (m_Name == previousProvider)
+            if (Name == previousProvider)
             {
                 Name = normalized;
             }
 
-            if (m_BaseUrl.Length == 0 || m_BaseUrl == "https://api.deepseek.com")
+            if (BaseUrl.Length == 0 || BaseUrl == "https://api.deepseek.com")
             {
                 BaseUrl = normalized == ApiMonitorSettings.DeepSeekProvider ? "https://api.deepseek.com" : string.Empty;
             }
@@ -90,23 +71,14 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         }
     }
 
-    public string BaseUrl
-    {
-        get => m_BaseUrl;
-        set => SetProperty(ref m_BaseUrl, value);
-    }
+    [ObservableProperty]
+    public partial string BaseUrl { get; set; }
 
-    public string ApiKey
-    {
-        get => m_ApiKey;
-        set => SetProperty(ref m_ApiKey, value);
-    }
+    [ObservableProperty]
+    public partial string ApiKey { get; set; }
 
-    public string UserId
-    {
-        get => m_UserId;
-        set => SetProperty(ref m_UserId, value);
-    }
+    [ObservableProperty]
+    public partial string UserId { get; set; }
 
     public string GrokOAuthSource
     {
@@ -132,51 +104,31 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
 
     public string SecondaryDisplayLabel => IsGrok ? "Resets:" : "Used:";
 
-    public string DisplayName => string.IsNullOrWhiteSpace(m_Name) ? m_Provider : m_Name.Trim();
+    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? m_Provider : Name.Trim();
 
-    public string BalanceDisplay
-    {
-        get => m_BalanceDisplay;
-        private set => SetProperty(ref m_BalanceDisplay, value);
-    }
+    [ObservableProperty]
+    public partial string BalanceDisplay { get; private set; } = "N/A";
 
-    public string BalanceTooltip
-    {
-        get => m_BalanceTooltip;
-        private set => SetProperty(ref m_BalanceTooltip, value);
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBalanceTooltip))]
+    public partial string BalanceTooltip { get; private set; } = string.Empty;
 
-    public bool HasBalanceTooltip => !string.IsNullOrWhiteSpace(m_BalanceTooltip);
+    public bool HasBalanceTooltip => !string.IsNullOrWhiteSpace(BalanceTooltip);
 
-    public string UsedDisplay
-    {
-        get => m_UsedDisplay;
-        private set => SetProperty(ref m_UsedDisplay, value);
-    }
+    [ObservableProperty]
+    public partial string UsedDisplay { get; private set; } = "N/A";
 
-    public bool IsEditing
-    {
-        get => m_IsEditing;
-        private set => SetProperty(ref m_IsEditing, value);
-    }
+    [ObservableProperty]
+    public partial bool IsEditing { get; private set; }
 
-    public bool IsPending
-    {
-        get => m_IsPending;
-        private set => SetProperty(ref m_IsPending, value);
-    }
+    [ObservableProperty]
+    public partial bool IsPending { get; private set; }
 
-    public string StatusText
-    {
-        get => m_StatusText;
-        private set => SetProperty(ref m_StatusText, value);
-    }
+    [ObservableProperty]
+    public partial string StatusText { get; private set; } = "Waiting for refresh";
 
-    public Media.Brush StatusDotBrush
-    {
-        get => m_StatusDotBrush;
-        private set => SetProperty(ref m_StatusDotBrush, value);
-    }
+    [ObservableProperty]
+    public partial Media.Brush StatusDotBrush { get; private set; } = s_RedBrush;
 
     /// <summary>
     /// Creates an editable API monitor view model.
@@ -184,14 +136,14 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     public ApiMonitorViewModel(ApiMonitorSettings settings, bool isEditing = false, bool isPending = false)
     {
         Id = settings.Id;
-        m_Name = settings.Name;
+        Name = settings.Name;
         m_Provider = settings.Provider;
-        m_BaseUrl = settings.BaseUrl;
-        m_ApiKey = settings.ApiKey;
-        m_UserId = settings.UserId;
+        BaseUrl = settings.BaseUrl;
+        ApiKey = settings.ApiKey;
+        UserId = settings.UserId;
         m_GrokOAuthSource = settings.GrokOAuthSource;
-        m_IsEditing = isEditing;
-        m_IsPending = isPending;
+        IsEditing = isEditing;
+        IsPending = isPending;
     }
 
     /// <summary>
@@ -218,7 +170,6 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     {
         BalanceDisplay = result.BalanceDisplay;
         BalanceTooltip = result.BalanceTooltip;
-        OnPropertyChanged(nameof(HasBalanceTooltip));
         UsedDisplay = result.UsedDisplay;
         StatusText = result.Available
             ? $"Updated {result.UpdatedAt:HH:mm}"

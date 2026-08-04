@@ -36,7 +36,15 @@ public sealed class CodexTrayCollector
     /// </summary>
     public UsageResponse Collect(bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false)
     {
-        return Collect(GetDefaultCodexDirectory(), showResetTimeInPlugins, useAbsoluteResetTime);
+        return CollectAsync(showResetTimeInPlugins, useAbsoluteResetTime).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Collects the latest Codex usage response asynchronously from the default Codex directory.
+    /// </summary>
+    public Task<UsageResponse> CollectAsync(bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
+    {
+        return CollectAsync(GetDefaultCodexDirectory(), showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
     }
 
     /// <summary>
@@ -44,7 +52,15 @@ public sealed class CodexTrayCollector
     /// </summary>
     public UsageResponse Collect(string codexDirectory, bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false)
     {
-        return CollectOfficialUsage(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime);
+        return CollectAsync(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Collects the latest Codex usage response asynchronously from a Codex directory.
+    /// </summary>
+    public Task<UsageResponse> CollectAsync(string codexDirectory, bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
+    {
+        return CollectOfficialUsageAsync(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
     }
 
     /// <summary>
@@ -58,8 +74,9 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Collects Codex usage from the official ChatGPT quota endpoint.
     /// </summary>
-    private UsageResponse CollectOfficialUsage(string codexDirectory, bool showResetTimeInPlugins, bool useAbsoluteResetTime)
+    private async Task<UsageResponse> CollectOfficialUsageAsync(string codexDirectory, bool showResetTimeInPlugins, bool useAbsoluteResetTime, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset now = m_NowProvider();
         string authPath = Path.Combine(codexDirectory, "auth.json");
         CodexCredentials credentials = ReadCodexCredentials(authPath);
@@ -68,7 +85,7 @@ public sealed class CodexTrayCollector
             return CreateEmptyResponse(codexDirectory, now, credentials.Error ?? "Codex OAuth credentials unavailable");
         }
 
-        HttpRequestMessage request = new(HttpMethod.Get, "https://chatgpt.com/backend-api/wham/usage");
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://chatgpt.com/backend-api/wham/usage");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
         request.Headers.UserAgent.ParseAdd("codex-cli");
         request.Headers.Accept.ParseAdd("application/json");
@@ -79,13 +96,13 @@ public sealed class CodexTrayCollector
 
         try
         {
-            using HttpResponseMessage response = m_HttpClient.Send(request);
+            using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
             {
                 return CreateEmptyResponse(codexDirectory, now, $"Codex OAuth token expired or unauthorized: HTTP {(int)response.StatusCode}");
             }
 
-            string body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return CreateEmptyResponse(codexDirectory, now, $"Codex usage API failed: HTTP {(int)response.StatusCode}");
@@ -95,10 +112,14 @@ public sealed class CodexTrayCollector
             UsageResponse usage = BuildOfficialResponse(codexDirectory, authPath, document.RootElement, now, showResetTimeInPlugins, useAbsoluteResetTime);
             if (usage.Available)
             {
-                usage.ResetCredits = CollectResetCredits(credentials, now);
+                usage.ResetCredits = await CollectResetCreditsAsync(credentials, now, cancellationToken).ConfigureAwait(false);
             }
 
             return usage;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
         {
@@ -163,7 +184,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Collects reset credit availability without affecting the main quota response.
     /// </summary>
-    private ResetCredits CollectResetCredits(CodexCredentials credentials, DateTimeOffset now)
+    private async Task<ResetCredits> CollectResetCreditsAsync(CodexCredentials credentials, DateTimeOffset now, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(credentials.AccountId))
         {
@@ -178,14 +199,18 @@ public sealed class CodexTrayCollector
 
         try
         {
-            using HttpResponseMessage response = m_HttpClient.Send(request);
+            using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return new ResetCredits();
             }
 
-            using JsonDocument document = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+            using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
             return BuildResetCredits(document.RootElement, now);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
         {

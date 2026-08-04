@@ -96,6 +96,7 @@ public sealed class ApiUsageCollector
         bool useAbsoluteResetTime = false,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         Task<ApiUsageResult>[] queries = monitors.Select(monitor => CollectOneAsync(monitor, useAbsoluteResetTime, cancellationToken)).ToArray();
         return await Task.WhenAll(queries).ConfigureAwait(false);
     }
@@ -105,6 +106,7 @@ public sealed class ApiUsageCollector
     /// </summary>
     private async Task<ApiUsageResult> CollectOneAsync(ApiMonitorSettings monitor, bool useAbsoluteResetTime, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset now = DateTimeOffset.Now;
         if (monitor.Provider == ApiMonitorSettings.GrokProvider)
         {
@@ -148,6 +150,10 @@ public sealed class ApiUsageCollector
                 ? ParseNewApi(monitor.Id, document.RootElement, now)
                 : ParseDeepSeek(monitor.Id, document.RootElement, now);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException)
         {
             return Unavailable(monitor.Id, exception is TaskCanceledException ? "Request timed out" : "Invalid API response", now);
@@ -159,6 +165,7 @@ public sealed class ApiUsageCollector
     /// </summary>
     private async Task<ApiUsageResult> CollectGrokAsync(ApiMonitorSettings monitor, DateTimeOffset now, bool useAbsoluteResetTime, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             GrokUsageSnapshot snapshot = await m_GrokUsageCollector
@@ -173,6 +180,10 @@ public sealed class ApiUsageCollector
                     : CodexTrayCollector.FormatSevenDayResetLabel(snapshot.ResetsAt, now),
                 string.Empty,
                 now);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {

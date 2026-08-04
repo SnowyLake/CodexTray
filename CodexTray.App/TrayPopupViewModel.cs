@@ -59,51 +59,21 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     private readonly AppSettings m_Settings;
     private string m_CurrentPage = k_CodexPageName;
-    private string m_PlanDisplay = "UNKNOWN";
-    private Media.Brush m_PlanBadgeBrush = s_PlanBadgeInactiveBrush;
-    private Media.Brush m_StatusDotBrush = s_RedBrush;
-    private string m_UpdatedAtDisplay = "Waiting for first refresh";
-    private string m_ServiceStatus = "Service: starting";
-    private string m_SourceDisplay = "Source: unavailable";
-    private string m_ResetCreditsDisplay = "N/A";
-    private string m_ResetCreditsExpiryDates = "unknown";
-    private string m_LiteMonitorDir = string.Empty;
-    private string m_TrafficMonitorDir = string.Empty;
-    private string m_PortText = CodexTrayDefaults.Port.ToString(CultureInfo.InvariantCulture);
-    private string m_RefreshIntervalText = CodexTrayDefaults.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture);
     private string m_ThemeMode = AppSettings.ThemeModeSystem;
     private string m_TokenUnit = AppSettings.TokenUnitEnglish;
     private TokenCostItem m_TokenCostItems = TokenCostItem.All;
     private PageItem m_VisiblePages = PageItem.All;
-    private bool m_StartWithWindows;
     private bool m_AcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
     private int m_AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
-    private string m_WindowWidthText = CodexTrayDefaults.WindowWidth.ToString(CultureInfo.InvariantCulture);
-    private string m_WindowHeightText = CodexTrayDefaults.WindowHeight.ToString(CultureInfo.InvariantCulture);
-    private bool m_ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
-    private bool m_UseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
     private bool m_HideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
-    private bool m_IsRefreshing;
     private bool m_IsInAppDialogOpen;
     private bool m_IsNativeModalOpen;
-    private bool m_IsDetectingLiteMonitor;
-    private bool m_IsDetectingTrafficMonitor;
     private ApiUsageRefreshStatus? m_ApiUsageStatus;
     private int m_ApiUsageErrorCount;
     private int m_ApiUsageMonitorCount;
     private DateTimeOffset? m_ApiUsageUpdatedAt;
-    private Media.Brush m_CursorStatusDotBrush = s_RedBrush;
-    private string m_CursorPlanDisplay = "UNKNOWN";
-    private Media.Brush m_CursorPlanBadgeBrush = s_PlanBadgeInactiveBrush;
-    private string m_CursorUpdatedAtDisplay = "Waiting for first refresh";
-    private string m_CursorStatusTooltip = string.Empty;
-    private string m_InAppDialogTitle = string.Empty;
-    private string m_InAppDialogMessage = string.Empty;
-    private string m_InAppDialogPrimaryButtonText = "OK";
-    private string m_InAppDialogSecondaryButtonText = string.Empty;
     private Action? m_InAppDialogPrimaryAction;
 
-    private SettingsStatus m_SettingsStatus = SettingsStatus.Clean;
     private SettingsStatus m_SettingsBaseline = SettingsStatus.Clean;
     private bool m_SuppressDirtyTracking;
     private string m_SnapshotLiteMonitorDir = string.Empty;
@@ -171,159 +141,75 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public ObservableCollection<ApiMonitorViewModel> ApiMonitors { get; } = [];
 
-    public string PlanDisplay
-    {
-        get => m_PlanDisplay;
-        private set => SetProperty(ref m_PlanDisplay, value);
-    }
+    [ObservableProperty]
+    public partial string PlanDisplay { get; private set; } = "UNKNOWN";
 
-    public Media.Brush PlanBadgeBrush
-    {
-        get => m_PlanBadgeBrush;
-        private set => SetProperty(ref m_PlanBadgeBrush, value);
-    }
+    [ObservableProperty]
+    public partial Media.Brush PlanBadgeBrush { get; private set; } = s_PlanBadgeInactiveBrush;
 
-    public Media.Brush StatusDotBrush
-    {
-        get => m_StatusDotBrush;
-        private set => SetProperty(ref m_StatusDotBrush, value);
-    }
+    [ObservableProperty]
+    public partial Media.Brush StatusDotBrush { get; private set; } = s_RedBrush;
 
-    public string UpdatedAtDisplay
-    {
-        get => m_UpdatedAtDisplay;
-        private set => SetProperty(ref m_UpdatedAtDisplay, value);
-    }
+    [ObservableProperty]
+    public partial string UpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
 
-    public SettingsStatus SettingsStatus
-    {
-        get => m_SettingsStatus;
-        private set
-        {
-            if (SetProperty(ref m_SettingsStatus, value))
-            {
-                OnPropertyChanged(nameof(SettingsStatusText));
-                OnPropertyChanged(nameof(SettingsStatusBrush));
-                SaveSettingsCommand.NotifyCanExecuteChanged();
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SettingsStatusText))]
+    [NotifyPropertyChangedFor(nameof(SettingsStatusBrush))]
+    [NotifyCanExecuteChangedFor(nameof(SaveSettingsCommand))]
+    public partial SettingsStatus SettingsStatus { get; private set; } = SettingsStatus.Clean;
 
-    public string SettingsStatusText => m_SettingsStatus switch
+    public string SettingsStatusText => SettingsStatus switch
     {
         SettingsStatus.Saved => "Changes saved",
         SettingsStatus.Unsaved => "Unsaved changes",
         _ => string.Empty,
     };
 
-    public Media.Brush SettingsStatusBrush => m_SettingsStatus == SettingsStatus.Unsaved ? s_YellowBrush : s_GreenBrush;
+    public Media.Brush SettingsStatusBrush => SettingsStatus == SettingsStatus.Unsaved ? s_YellowBrush : s_GreenBrush;
 
-    public string ServiceStatus
-    {
-        get => m_ServiceStatus;
-        private set => SetProperty(ref m_ServiceStatus, value);
-    }
+    [ObservableProperty]
+    public partial string ServiceStatus { get; private set; } = "Service: starting";
 
-    public string SourceDisplay
-    {
-        get => m_SourceDisplay;
-        private set => SetProperty(ref m_SourceDisplay, value);
-    }
+    [ObservableProperty]
+    public partial string SourceDisplay { get; private set; } = "Source: unavailable";
 
-    public string ResetCreditsDisplay
-    {
-        get => m_ResetCreditsDisplay;
-        private set => SetProperty(ref m_ResetCreditsDisplay, value);
-    }
+    [ObservableProperty]
+    public partial string ResetCreditsDisplay { get; private set; } = "N/A";
 
-    public string ResetCreditsExpiryDates
-    {
-        get => m_ResetCreditsExpiryDates;
-        private set => SetProperty(ref m_ResetCreditsExpiryDates, value);
-    }
+    [ObservableProperty]
+    public partial string ResetCreditsExpiryDates { get; private set; } = "unknown";
 
-    public string LiteMonitorDir
-    {
-        get => m_LiteMonitorDir;
-        set
-        {
-            if (SetProperty(ref m_LiteMonitorDir, value))
-            {
-                OnPropertyChanged(nameof(LiteMonitorDirDisplay));
-                EvaluateDirtyState();
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LiteMonitorDirDisplay))]
+    public partial string LiteMonitorDir { get; set; } = string.Empty;
 
-    public string LiteMonitorDirDisplay => FormatPluginPath(m_LiteMonitorDir);
+    public string LiteMonitorDirDisplay => FormatPluginPath(LiteMonitorDir);
 
-    public string TrafficMonitorDir
-    {
-        get => m_TrafficMonitorDir;
-        set
-        {
-            if (SetProperty(ref m_TrafficMonitorDir, value))
-            {
-                OnPropertyChanged(nameof(TrafficMonitorDirDisplay));
-                EvaluateDirtyState();
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TrafficMonitorDirDisplay))]
+    public partial string TrafficMonitorDir { get; set; } = string.Empty;
 
-    public string TrafficMonitorDirDisplay => FormatPluginPath(m_TrafficMonitorDir);
+    public string TrafficMonitorDirDisplay => FormatPluginPath(TrafficMonitorDir);
 
-    public bool IsDetectingLiteMonitor
-    {
-        get => m_IsDetectingLiteMonitor;
-        set
-        {
-            if (SetProperty(ref m_IsDetectingLiteMonitor, value))
-            {
-                OnPropertyChanged(nameof(IsLiteMonitorActionsEnabled));
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLiteMonitorActionsEnabled))]
+    public partial bool IsDetectingLiteMonitor { get; set; }
 
-    public bool IsDetectingTrafficMonitor
-    {
-        get => m_IsDetectingTrafficMonitor;
-        set
-        {
-            if (SetProperty(ref m_IsDetectingTrafficMonitor, value))
-            {
-                OnPropertyChanged(nameof(IsTrafficMonitorActionsEnabled));
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsTrafficMonitorActionsEnabled))]
+    public partial bool IsDetectingTrafficMonitor { get; set; }
 
     // Plugin row actions are disabled while an auto detect is running to avoid racing the detected path.
-    public bool IsLiteMonitorActionsEnabled => !m_IsDetectingLiteMonitor;
+    public bool IsLiteMonitorActionsEnabled => !IsDetectingLiteMonitor;
 
-    public bool IsTrafficMonitorActionsEnabled => !m_IsDetectingTrafficMonitor;
+    public bool IsTrafficMonitorActionsEnabled => !IsDetectingTrafficMonitor;
 
-    public string PortText
-    {
-        get => m_PortText;
-        set
-        {
-            if (SetProperty(ref m_PortText, value))
-            {
-                EvaluateDirtyState();
-            }
-        }
-    }
+    [ObservableProperty]
+    public partial string PortText { get; set; } = CodexTrayDefaults.Port.ToString(CultureInfo.InvariantCulture);
 
-    public string RefreshIntervalText
-    {
-        get => m_RefreshIntervalText;
-        set
-        {
-            if (SetProperty(ref m_RefreshIntervalText, value))
-            {
-                EvaluateDirtyState();
-            }
-        }
-    }
+    [ObservableProperty]
+    public partial string RefreshIntervalText { get; set; } = CodexTrayDefaults.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture);
 
     public string ThemeMode
     {
@@ -473,17 +359,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         set => SetPageItem(PageItem.Apis, value);
     }
 
-    public bool StartWithWindows
-    {
-        get => m_StartWithWindows;
-        set
-        {
-            if (SetProperty(ref m_StartWithWindows, value))
-            {
-                EvaluateDirtyState();
-            }
-        }
-    }
+    [ObservableProperty]
+    public partial bool StartWithWindows { get; set; }
 
     public bool AcrylicEnabled
     {
@@ -517,53 +394,17 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
     }
 
-    public string WindowWidthText
-    {
-        get => m_WindowWidthText;
-        set
-        {
-            if (SetProperty(ref m_WindowWidthText, value))
-            {
-                EvaluateDirtyState();
-            }
-        }
-    }
+    [ObservableProperty]
+    public partial string WindowWidthText { get; set; } = CodexTrayDefaults.WindowWidth.ToString(CultureInfo.InvariantCulture);
 
-    public string WindowHeightText
-    {
-        get => m_WindowHeightText;
-        set
-        {
-            if (SetProperty(ref m_WindowHeightText, value))
-            {
-                EvaluateDirtyState();
-            }
-        }
-    }
+    [ObservableProperty]
+    public partial string WindowHeightText { get; set; } = CodexTrayDefaults.WindowHeight.ToString(CultureInfo.InvariantCulture);
 
-    public bool ShowResetTimeInPlugins
-    {
-        get => m_ShowResetTimeInPlugins;
-        set
-        {
-            if (SetProperty(ref m_ShowResetTimeInPlugins, value))
-            {
-                EvaluateDirtyState();
-            }
-        }
-    }
+    [ObservableProperty]
+    public partial bool ShowResetTimeInPlugins { get; set; } = CodexTrayDefaults.ShowResetTimeInPlugins;
 
-    public bool UseAbsoluteResetTime
-    {
-        get => m_UseAbsoluteResetTime;
-        set
-        {
-            if (SetProperty(ref m_UseAbsoluteResetTime, value))
-            {
-                EvaluateDirtyState();
-            }
-        }
-    }
+    [ObservableProperty]
+    public partial bool UseAbsoluteResetTime { get; set; } = CodexTrayDefaults.UseAbsoluteResetTime;
 
     public bool HideInvalidProgressBars
     {
@@ -650,41 +491,23 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
     }
 
-    public Media.Brush CursorStatusDotBrush
-    {
-        get => m_CursorStatusDotBrush;
-        private set => SetProperty(ref m_CursorStatusDotBrush, value);
-    }
+    [ObservableProperty]
+    public partial Media.Brush CursorStatusDotBrush { get; private set; } = s_RedBrush;
 
-    public string CursorPlanDisplay
-    {
-        get => m_CursorPlanDisplay;
-        private set => SetProperty(ref m_CursorPlanDisplay, value);
-    }
+    [ObservableProperty]
+    public partial string CursorPlanDisplay { get; private set; } = "UNKNOWN";
 
-    public Media.Brush CursorPlanBadgeBrush
-    {
-        get => m_CursorPlanBadgeBrush;
-        private set => SetProperty(ref m_CursorPlanBadgeBrush, value);
-    }
+    [ObservableProperty]
+    public partial Media.Brush CursorPlanBadgeBrush { get; private set; } = s_PlanBadgeInactiveBrush;
 
-    public string CursorUpdatedAtDisplay
-    {
-        get => m_CursorUpdatedAtDisplay;
-        private set => SetProperty(ref m_CursorUpdatedAtDisplay, value);
-    }
+    [ObservableProperty]
+    public partial string CursorUpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
 
-    public string CursorStatusTooltip
-    {
-        get => m_CursorStatusTooltip;
-        private set => SetProperty(ref m_CursorStatusTooltip, value);
-    }
+    [ObservableProperty]
+    public partial string CursorStatusTooltip { get; private set; } = string.Empty;
 
-    public bool IsRefreshing
-    {
-        get => m_IsRefreshing;
-        set => SetProperty(ref m_IsRefreshing, value);
-    }
+    [ObservableProperty]
+    public partial bool IsRefreshing { get; set; }
 
     public bool IsModalOpen => m_IsInAppDialogOpen || m_IsNativeModalOpen;
 
@@ -700,37 +523,20 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
     }
 
-    public string InAppDialogTitle
-    {
-        get => m_InAppDialogTitle;
-        private set => SetProperty(ref m_InAppDialogTitle, value);
-    }
+    [ObservableProperty]
+    public partial string InAppDialogTitle { get; private set; } = string.Empty;
 
-    public string InAppDialogMessage
-    {
-        get => m_InAppDialogMessage;
-        private set => SetProperty(ref m_InAppDialogMessage, value);
-    }
+    [ObservableProperty]
+    public partial string InAppDialogMessage { get; private set; } = string.Empty;
 
-    public string InAppDialogPrimaryButtonText
-    {
-        get => m_InAppDialogPrimaryButtonText;
-        private set => SetProperty(ref m_InAppDialogPrimaryButtonText, value);
-    }
+    [ObservableProperty]
+    public partial string InAppDialogPrimaryButtonText { get; private set; } = "OK";
 
-    public string InAppDialogSecondaryButtonText
-    {
-        get => m_InAppDialogSecondaryButtonText;
-        private set
-        {
-            if (SetProperty(ref m_InAppDialogSecondaryButtonText, value))
-            {
-                OnPropertyChanged(nameof(HasInAppDialogSecondaryButton));
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasInAppDialogSecondaryButton))]
+    public partial string InAppDialogSecondaryButtonText { get; private set; } = string.Empty;
 
-    public bool HasInAppDialogSecondaryButton => m_InAppDialogSecondaryButtonText.Length > 0;
+    public bool HasInAppDialogSecondaryButton => InAppDialogSecondaryButtonText.Length > 0;
 
     /// <summary>
     /// Creates a view model for the WPF tray popup.
@@ -745,8 +551,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         InstallTrafficMonitorPluginCommand = new RelayCommand(() => InstallTrafficMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
         BrowseLiteMonitorCommand = new RelayCommand(() => BrowseMonitorFolder("Select LiteMonitor folder", LiteMonitorDir, value => LiteMonitorDir = value));
         BrowseTrafficMonitorCommand = new RelayCommand(() => BrowseMonitorFolder("Select TrafficMonitor folder", TrafficMonitorDir, value => TrafficMonitorDir = value));
-        AutoDetectLiteMonitorCommand = new AsyncRelayCommand(() => DetectLiteMonitorAsync(showNotFound: true));
-        AutoDetectTrafficMonitorCommand = new AsyncRelayCommand(() => DetectTrafficMonitorAsync(showNotFound: true));
+        AutoDetectLiteMonitorCommand = new AsyncRelayCommand(cancellationToken => DetectLiteMonitorAsync(showNotFound: true, cancellationToken));
+        AutoDetectTrafficMonitorCommand = new AsyncRelayCommand(cancellationToken => DetectTrafficMonitorAsync(showNotFound: true, cancellationToken));
         m_CurrentPage = (settings.VisiblePages & PageItem.Codex) != 0
             ? k_CodexPageName
             : (settings.VisiblePages & PageItem.Cursor) != 0
@@ -800,25 +606,70 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Recomputes dirty state after the LiteMonitor directory changes.
+    /// </summary>
+    partial void OnLiteMonitorDirChanged(string value) => EvaluateDirtyState();
+
+    /// <summary>
+    /// Recomputes dirty state after the TrafficMonitor directory changes.
+    /// </summary>
+    partial void OnTrafficMonitorDirChanged(string value) => EvaluateDirtyState();
+
+    /// <summary>
+    /// Recomputes dirty state after the port text changes.
+    /// </summary>
+    partial void OnPortTextChanged(string value) => EvaluateDirtyState();
+
+    /// <summary>
+    /// Recomputes dirty state after the refresh interval text changes.
+    /// </summary>
+    partial void OnRefreshIntervalTextChanged(string value) => EvaluateDirtyState();
+
+    /// <summary>
+    /// Recomputes dirty state after the startup setting changes.
+    /// </summary>
+    partial void OnStartWithWindowsChanged(bool value) => EvaluateDirtyState();
+
+    /// <summary>
+    /// Recomputes dirty state after the window width text changes.
+    /// </summary>
+    partial void OnWindowWidthTextChanged(string value) => EvaluateDirtyState();
+
+    /// <summary>
+    /// Recomputes dirty state after the window height text changes.
+    /// </summary>
+    partial void OnWindowHeightTextChanged(string value) => EvaluateDirtyState();
+
+    /// <summary>
+    /// Recomputes dirty state after the plugin reset-time setting changes.
+    /// </summary>
+    partial void OnShowResetTimeInPluginsChanged(bool value) => EvaluateDirtyState();
+
+    /// <summary>
+    /// Recomputes dirty state after the absolute reset-time setting changes.
+    /// </summary>
+    partial void OnUseAbsoluteResetTimeChanged(bool value) => EvaluateDirtyState();
+
+    /// <summary>
     /// Captures the current editable values as the saved snapshot baseline.
     /// </summary>
     private void CaptureSnapshot(SettingsStatus baseline)
     {
-        m_SnapshotLiteMonitorDir = m_LiteMonitorDir;
-        m_SnapshotTrafficMonitorDir = m_TrafficMonitorDir;
-        m_SnapshotPortText = m_PortText;
-        m_SnapshotRefreshIntervalText = m_RefreshIntervalText;
+        m_SnapshotLiteMonitorDir = LiteMonitorDir;
+        m_SnapshotTrafficMonitorDir = TrafficMonitorDir;
+        m_SnapshotPortText = PortText;
+        m_SnapshotRefreshIntervalText = RefreshIntervalText;
         m_SnapshotThemeMode = m_ThemeMode;
         m_SnapshotTokenUnit = m_TokenUnit;
         m_SnapshotTokenCostItems = m_TokenCostItems;
         m_SnapshotVisiblePages = m_VisiblePages;
-        m_SnapshotStartWithWindows = m_StartWithWindows;
+        m_SnapshotStartWithWindows = StartWithWindows;
         m_SnapshotAcrylicEnabled = m_AcrylicEnabled;
         m_SnapshotAcrylicOpacityPercent = m_AcrylicOpacityPercent;
-        m_SnapshotWindowWidthText = m_WindowWidthText;
-        m_SnapshotWindowHeightText = m_WindowHeightText;
-        m_SnapshotShowResetTimeInPlugins = m_ShowResetTimeInPlugins;
-        m_SnapshotUseAbsoluteResetTime = m_UseAbsoluteResetTime;
+        m_SnapshotWindowWidthText = WindowWidthText;
+        m_SnapshotWindowHeightText = WindowHeightText;
+        m_SnapshotShowResetTimeInPlugins = ShowResetTimeInPlugins;
+        m_SnapshotUseAbsoluteResetTime = UseAbsoluteResetTime;
         m_SnapshotHideInvalidProgressBars = m_HideInvalidProgressBars;
         m_SettingsBaseline = baseline;
         SettingsStatus = baseline;
@@ -835,21 +686,21 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         bool matchesSnapshot =
-            m_LiteMonitorDir == m_SnapshotLiteMonitorDir &&
-            m_TrafficMonitorDir == m_SnapshotTrafficMonitorDir &&
-            m_PortText == m_SnapshotPortText &&
-            m_RefreshIntervalText == m_SnapshotRefreshIntervalText &&
+            LiteMonitorDir == m_SnapshotLiteMonitorDir &&
+            TrafficMonitorDir == m_SnapshotTrafficMonitorDir &&
+            PortText == m_SnapshotPortText &&
+            RefreshIntervalText == m_SnapshotRefreshIntervalText &&
             m_ThemeMode == m_SnapshotThemeMode &&
             m_TokenUnit == m_SnapshotTokenUnit &&
             m_TokenCostItems == m_SnapshotTokenCostItems &&
             m_VisiblePages == m_SnapshotVisiblePages &&
-            m_StartWithWindows == m_SnapshotStartWithWindows &&
+            StartWithWindows == m_SnapshotStartWithWindows &&
             m_AcrylicEnabled == m_SnapshotAcrylicEnabled &&
             m_AcrylicOpacityPercent == m_SnapshotAcrylicOpacityPercent &&
-            m_WindowWidthText == m_SnapshotWindowWidthText &&
-            m_WindowHeightText == m_SnapshotWindowHeightText &&
-            m_ShowResetTimeInPlugins == m_SnapshotShowResetTimeInPlugins &&
-            m_UseAbsoluteResetTime == m_SnapshotUseAbsoluteResetTime &&
+            WindowWidthText == m_SnapshotWindowWidthText &&
+            WindowHeightText == m_SnapshotWindowHeightText &&
+            ShowResetTimeInPlugins == m_SnapshotShowResetTimeInPlugins &&
+            UseAbsoluteResetTime == m_SnapshotUseAbsoluteResetTime &&
             m_HideInvalidProgressBars == m_SnapshotHideInvalidProgressBars;
 
         SettingsStatus = matchesSnapshot ? m_SettingsBaseline : SettingsStatus.Unsaved;
@@ -1542,9 +1393,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Auto detects the LiteMonitor directory off the UI thread.
     /// </summary>
-    public async Task DetectLiteMonitorAsync(bool showNotFound)
+    public async Task DetectLiteMonitorAsync(bool showNotFound, CancellationToken cancellationToken = default)
     {
-        if (m_IsDetectingLiteMonitor)
+        if (IsDetectingLiteMonitor)
         {
             return;
         }
@@ -1553,7 +1404,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         try
         {
             // Manual detect always runs a full scan instead of short-circuiting on the current path.
-            string detected = await Task.Run(() => LiteMonitorLocator.AutoDetect()).ConfigureAwait(true);
+            string detected = await Task.Run(() => LiteMonitorLocator.AutoDetect(cancellationToken: cancellationToken), cancellationToken).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(detected))
             {
                 LiteMonitorDir = CodexTrayDefaults.PluginPathNone;
@@ -1567,6 +1418,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
             LiteMonitorDir = detected;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
         finally
         {
             IsDetectingLiteMonitor = false;
@@ -1576,9 +1430,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Auto detects the TrafficMonitor directory off the UI thread.
     /// </summary>
-    public async Task DetectTrafficMonitorAsync(bool showNotFound)
+    public async Task DetectTrafficMonitorAsync(bool showNotFound, CancellationToken cancellationToken = default)
     {
-        if (m_IsDetectingTrafficMonitor)
+        if (IsDetectingTrafficMonitor)
         {
             return;
         }
@@ -1587,7 +1441,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         try
         {
             // Manual detect always runs a full scan instead of short-circuiting on the current path.
-            string detected = await Task.Run(() => TrafficMonitorLocator.AutoDetect()).ConfigureAwait(true);
+            string detected = await Task.Run(() => TrafficMonitorLocator.AutoDetect(cancellationToken: cancellationToken), cancellationToken).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(detected))
             {
                 TrafficMonitorDir = CodexTrayDefaults.PluginPathNone;
@@ -1600,6 +1454,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             }
 
             TrafficMonitorDir = detected;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         finally
         {
@@ -1725,26 +1582,17 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         return value[..keep] + "..." + value[^keep..];
     }
 
-    internal sealed class TokenCostRowViewModel : ObservableObject
+    internal sealed partial class TokenCostRowViewModel : ObservableObject
     {
-        private TokenCostDisplay m_Display = s_UnavailableTokenCostDisplay;
-        private bool m_IsVisible = true;
-
         public string Title { get; }
 
         public TokenCostItem Item { get; }
 
-        public TokenCostDisplay Display
-        {
-            get => m_Display;
-            internal set => SetProperty(ref m_Display, value);
-        }
+        [ObservableProperty]
+        public partial TokenCostDisplay Display { get; internal set; } = s_UnavailableTokenCostDisplay;
 
-        public bool IsVisible
-        {
-            get => m_IsVisible;
-            internal set => SetProperty(ref m_IsVisible, value);
-        }
+        [ObservableProperty]
+        public partial bool IsVisible { get; internal set; } = true;
 
         public bool IsLast { get; }
 
@@ -1759,52 +1607,27 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
     }
 
-    internal sealed class QuotaViewModel : ObservableObject
+    internal sealed partial class QuotaViewModel : ObservableObject
     {
-        private int m_RemainingPercent;
-        private string m_PercentText = "N/A";
-        private string m_ResetText = "unknown";
-        private Media.Brush m_AccentBrush = s_RedBrush;
-        private bool m_IsVisible = true;
-        private bool m_IsResetVisible = true;
-
         public string Title { get; }
 
-        public int RemainingPercent
-        {
-            get => m_RemainingPercent;
-            private set => SetProperty(ref m_RemainingPercent, value);
-        }
+        [ObservableProperty]
+        public partial int RemainingPercent { get; private set; }
 
-        public string PercentText
-        {
-            get => m_PercentText;
-            private set => SetProperty(ref m_PercentText, value);
-        }
+        [ObservableProperty]
+        public partial string PercentText { get; private set; } = "N/A";
 
-        public string ResetText
-        {
-            get => m_ResetText;
-            private set => SetProperty(ref m_ResetText, value);
-        }
+        [ObservableProperty]
+        public partial string ResetText { get; private set; } = "unknown";
 
-        public Media.Brush AccentBrush
-        {
-            get => m_AccentBrush;
-            private set => SetProperty(ref m_AccentBrush, value);
-        }
+        [ObservableProperty]
+        public partial Media.Brush AccentBrush { get; private set; } = s_RedBrush;
 
-        public bool IsVisible
-        {
-            get => m_IsVisible;
-            private set => SetProperty(ref m_IsVisible, value);
-        }
+        [ObservableProperty]
+        public partial bool IsVisible { get; private set; } = true;
 
-        public bool IsResetVisible
-        {
-            get => m_IsResetVisible;
-            private set => SetProperty(ref m_IsResetVisible, value);
-        }
+        [ObservableProperty]
+        public partial bool IsResetVisible { get; private set; } = true;
 
         /// <summary>
         /// Creates a quota display model.
