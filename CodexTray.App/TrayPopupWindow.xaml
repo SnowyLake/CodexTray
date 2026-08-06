@@ -407,6 +407,10 @@
                                             <Setter Property="FontSize" Value="20" />
                                             <Setter Property="FontWeight" Value="Medium" />
                                         </DataTrigger>
+                                        <DataTrigger Binding="{Binding Title}" Value="5-Hour">
+                                            <Setter Property="FontSize" Value="20" />
+                                            <Setter Property="FontWeight" Value="Medium" />
+                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding Title}" Value="Total">
                                             <Setter Property="FontSize" Value="20" />
                                             <Setter Property="FontWeight" Value="Medium" />
@@ -643,14 +647,16 @@
                               Padding="0,0,8,0"
                               VerticalScrollBarVisibility="Hidden">
                     <StackPanel VerticalAlignment="Top">
-                        <Border Style="{StaticResource UsageCardStyle}"
+                        <Border MinHeight="88"
+                                Style="{StaticResource UsageCardStyle}"
                                 Visibility="{Binding FiveHourQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <ContentControl Content="{Binding FiveHourQuota}"
                                             ContentTemplate="{StaticResource QuotaDataTemplate}"
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
 
-                        <Border Style="{StaticResource UsageCardStyle}"
+                        <Border MinHeight="88"
+                                Style="{StaticResource UsageCardStyle}"
                                 Visibility="{Binding SevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <ContentControl Content="{Binding SevenDayQuota}"
                                             ContentTemplate="{StaticResource QuotaDataTemplate}"
