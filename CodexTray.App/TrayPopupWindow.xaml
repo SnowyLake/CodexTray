@@ -405,15 +405,12 @@
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding Title}" Value="7-Day">
                                             <Setter Property="FontSize" Value="20" />
-                                            <Setter Property="FontWeight" Value="Medium" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding Title}" Value="5-Hour">
                                             <Setter Property="FontSize" Value="20" />
-                                            <Setter Property="FontWeight" Value="Medium" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding Title}" Value="Total">
                                             <Setter Property="FontSize" Value="20" />
-                                            <Setter Property="FontWeight" Value="Medium" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
