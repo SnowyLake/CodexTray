@@ -3,14 +3,9 @@ namespace CodexTray.Core;
 internal sealed class TokenCostPeriodAccumulator
 {
     private readonly DateTime m_Today;
-    private readonly DateTime m_ThisWeekStart;
-    private readonly DateTime m_ThisMonthStart;
     private readonly DateTime m_LastSevenDaysStart;
     private readonly PeriodAccumulator[] m_LastSevenDaysDailyPeriods;
     private readonly PeriodAccumulator m_TodayPeriod = new();
-    private readonly PeriodAccumulator m_YesterdayPeriod = new();
-    private readonly PeriodAccumulator m_ThisWeekPeriod = new();
-    private readonly PeriodAccumulator m_ThisMonthPeriod = new();
     private readonly PeriodAccumulator m_LastSevenDaysPeriod = new();
     private readonly PeriodAccumulator m_LastThirtyDaysPeriod = new();
     private readonly PeriodAccumulator m_LifetimePeriod = new();
@@ -21,8 +16,6 @@ internal sealed class TokenCostPeriodAccumulator
     public TokenCostPeriodAccumulator(DateTimeOffset asOf)
     {
         m_Today = asOf.LocalDateTime.Date;
-        m_ThisWeekStart = m_Today.AddDays(-((int)m_Today.DayOfWeek + 6) % 7);
-        m_ThisMonthStart = new DateTime(m_Today.Year, m_Today.Month, 1);
         m_LastSevenDaysStart = m_Today.AddDays(-6);
         m_LastSevenDaysDailyPeriods = Enumerable.Range(0, 7).Select(_ => new PeriodAccumulator()).ToArray();
     }
@@ -41,21 +34,6 @@ internal sealed class TokenCostPeriodAccumulator
         if (eventDate == m_Today)
         {
             m_TodayPeriod.Add(tokens, costUsd);
-        }
-
-        if (eventDate == m_Today.AddDays(-1))
-        {
-            m_YesterdayPeriod.Add(tokens, costUsd);
-        }
-
-        if (eventDate >= m_ThisWeekStart)
-        {
-            m_ThisWeekPeriod.Add(tokens, costUsd);
-        }
-
-        if (eventDate >= m_ThisMonthStart)
-        {
-            m_ThisMonthPeriod.Add(tokens, costUsd);
         }
 
         if (eventDate >= m_LastSevenDaysStart)
@@ -80,9 +58,6 @@ internal sealed class TokenCostPeriodAccumulator
         return new TokenCostStatistics
         {
             Today = m_TodayPeriod.ToSummary(),
-            Yesterday = m_YesterdayPeriod.ToSummary(),
-            ThisWeek = m_ThisWeekPeriod.ToSummary(),
-            ThisMonth = m_ThisMonthPeriod.ToSummary(),
             LastSevenDays = m_LastSevenDaysPeriod.ToSummary(),
             LastThirtyDays = m_LastThirtyDaysPeriod.ToSummary(),
             Lifetime = m_LifetimePeriod.ToSummary(),

@@ -190,9 +190,9 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
-    /// Opens the token cost item selection menu below its button.
+    /// Opens a settings selection menu below its button.
     /// </summary>
-    private void OpenTokenCostItemsMenu(object sender, RoutedEventArgs args)
+    private void OpenSelectionMenu(object sender, RoutedEventArgs args)
     {
         if (sender is Controls.Button { ContextMenu: { } contextMenu } button)
         {

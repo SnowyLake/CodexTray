@@ -491,7 +491,7 @@
             </DataTemplate>
 
             <DataTemplate x:Key="CompactTokenCostRowDataTemplate">
-                <Grid Visibility="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -713,8 +713,7 @@
                             </Grid>
                         </Border>
 
-                        <Grid Margin="0,22,0,0"
-                              Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid Margin="0,22,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -843,8 +842,7 @@
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
 
-                        <Grid Margin="0,22,0,0"
-                              Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid Margin="0,22,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -1225,7 +1223,7 @@
                                     HorizontalAlignment="Stretch"
                                     Padding="11,0"
                                     HorizontalContentAlignment="Stretch"
-                                    Click="OpenTokenCostItemsMenu">
+                                    Click="OpenSelectionMenu">
                                 <Grid>
                                     <TextBlock Text="{Binding VisiblePagesDisplay}"
                                                VerticalAlignment="Center" />
@@ -1306,61 +1304,6 @@
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding HideInvalidProgressBars}"
                                       ToolTip="Hide Codex and Spark quota rows when the account has no active window for that limit" />
-                        </Grid>
-
-                        <Grid Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Token Cost items"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <Button Grid.Column="1"
-                                    Height="34"
-                                    HorizontalAlignment="Stretch"
-                                    Padding="11,0"
-                                    HorizontalContentAlignment="Stretch"
-                                    Click="OpenTokenCostItemsMenu">
-                                <Grid>
-                                    <TextBlock Text="{Binding TokenCostItemsDisplay}"
-                                               VerticalAlignment="Center" />
-                                    <TextBlock Text="&#xE70D;"
-                                               HorizontalAlignment="Right"
-                                               VerticalAlignment="Center"
-                                               FontFamily="Segoe MDL2 Assets"
-                                               FontSize="12" />
-                                </Grid>
-                                <Button.ContextMenu>
-                                    <ContextMenu MinWidth="140"
-                                                 Placement="Bottom"
-                                                 DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                                        <MenuItem Header="Today"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowTodayTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="Yesterday"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowYesterdayTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="This week"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowThisWeekTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="This month"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowThisMonthTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="Last 7 days"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowLastSevenDaysTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="Last 30 days"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowLastThirtyDaysTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                    </ContextMenu>
-                                </Button.ContextMenu>
-                            </Button>
                         </Grid>
 
                         <Grid Margin="{StaticResource SettingsSectionEndMargin}"

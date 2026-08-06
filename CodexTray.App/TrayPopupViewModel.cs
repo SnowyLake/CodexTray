@@ -64,7 +64,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private string m_CurrentPage = k_CodexPageName;
     private string m_ThemeMode = AppSettings.ThemeModeSystem;
     private string m_TokenUnit = AppSettings.TokenUnitEnglish;
-    private TokenCostItem m_TokenCostItems = TokenCostItem.All;
     private PageItem m_VisiblePages = PageItem.All;
     private bool m_MicaEnabled;
     private bool m_HideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
@@ -84,7 +83,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private string m_SnapshotRefreshIntervalText = string.Empty;
     private string m_SnapshotThemeMode = AppSettings.ThemeModeSystem;
     private string m_SnapshotTokenUnit = AppSettings.TokenUnitEnglish;
-    private TokenCostItem m_SnapshotTokenCostItems = TokenCostItem.All;
     private PageItem m_SnapshotVisiblePages = PageItem.All;
     private bool m_SnapshotStartWithWindows;
     private bool m_SnapshotMicaEnabled;
@@ -255,72 +253,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         AppSettings.TokenUnitEnglish,
         AppSettings.TokenUnitChinese,
     ];
-
-    public TokenCostItem TokenCostItems
-    {
-        get => m_TokenCostItems;
-        set
-        {
-            if (SetProperty(ref m_TokenCostItems, value & TokenCostItem.All))
-            {
-                OnPropertyChanged(nameof(TokenCostItemsDisplay));
-                OnPropertyChanged(nameof(IsTokenCostVisible));
-                OnPropertyChanged(nameof(ShowTodayTokenCost));
-                OnPropertyChanged(nameof(ShowYesterdayTokenCost));
-                OnPropertyChanged(nameof(ShowThisWeekTokenCost));
-                OnPropertyChanged(nameof(ShowThisMonthTokenCost));
-                OnPropertyChanged(nameof(ShowLastSevenDaysTokenCost));
-                OnPropertyChanged(nameof(ShowLastThirtyDaysTokenCost));
-                UpdateTokenCostRowVisibility();
-                EvaluateDirtyState();
-            }
-        }
-    }
-
-    public string TokenCostItemsDisplay => m_TokenCostItems switch
-    {
-        TokenCostItem.None => "None",
-        TokenCostItem.All => "All",
-        _ => "Custom",
-    };
-
-    public bool IsTokenCostVisible => m_TokenCostItems != TokenCostItem.None;
-
-    public bool ShowTodayTokenCost
-    {
-        get => (m_TokenCostItems & TokenCostItem.Today) != 0;
-        set => SetTokenCostItem(TokenCostItem.Today, value);
-    }
-
-    public bool ShowYesterdayTokenCost
-    {
-        get => (m_TokenCostItems & TokenCostItem.Yesterday) != 0;
-        set => SetTokenCostItem(TokenCostItem.Yesterday, value);
-    }
-
-    public bool ShowThisWeekTokenCost
-    {
-        get => (m_TokenCostItems & TokenCostItem.ThisWeek) != 0;
-        set => SetTokenCostItem(TokenCostItem.ThisWeek, value);
-    }
-
-    public bool ShowThisMonthTokenCost
-    {
-        get => (m_TokenCostItems & TokenCostItem.ThisMonth) != 0;
-        set => SetTokenCostItem(TokenCostItem.ThisMonth, value);
-    }
-
-    public bool ShowLastSevenDaysTokenCost
-    {
-        get => (m_TokenCostItems & TokenCostItem.LastSevenDays) != 0;
-        set => SetTokenCostItem(TokenCostItem.LastSevenDays, value);
-    }
-
-    public bool ShowLastThirtyDaysTokenCost
-    {
-        get => (m_TokenCostItems & TokenCostItem.LastThirtyDays) != 0;
-        set => SetTokenCostItem(TokenCostItem.LastThirtyDays, value);
-    }
 
     public PageItem VisiblePages
     {
@@ -573,7 +505,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             RefreshIntervalText = settings.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture);
             ThemeMode = settings.ThemeMode;
             TokenUnit = settings.TokenUnit;
-            TokenCostItems = settings.TokenCostItems;
             VisiblePages = settings.VisiblePages;
             StartWithWindows = settings.StartWithWindows;
             MicaEnabled = settings.MicaEnabled;
@@ -647,7 +578,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_SnapshotRefreshIntervalText = RefreshIntervalText;
         m_SnapshotThemeMode = m_ThemeMode;
         m_SnapshotTokenUnit = m_TokenUnit;
-        m_SnapshotTokenCostItems = m_TokenCostItems;
         m_SnapshotVisiblePages = m_VisiblePages;
         m_SnapshotStartWithWindows = StartWithWindows;
         m_SnapshotMicaEnabled = m_MicaEnabled;
@@ -677,7 +607,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             RefreshIntervalText == m_SnapshotRefreshIntervalText &&
             m_ThemeMode == m_SnapshotThemeMode &&
             m_TokenUnit == m_SnapshotTokenUnit &&
-            m_TokenCostItems == m_SnapshotTokenCostItems &&
             m_VisiblePages == m_SnapshotVisiblePages &&
             StartWithWindows == m_SnapshotStartWithWindows &&
             m_MicaEnabled == m_SnapshotMicaEnabled &&
@@ -733,7 +662,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_Settings.StartWithWindows = StartWithWindows;
         m_Settings.ThemeMode = ThemeMode;
         m_Settings.TokenUnit = TokenUnit;
-        m_Settings.TokenCostItems = TokenCostItems;
         m_Settings.VisiblePages = VisiblePages;
         m_Settings.MicaEnabled = MicaEnabled;
         m_Settings.WindowWidth = windowWidth;
@@ -745,37 +673,16 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Adds or removes one token cost item from the current selection.
-    /// </summary>
-    private void SetTokenCostItem(TokenCostItem item, bool isShown)
-    {
-        TokenCostItems = isShown
-            ? m_TokenCostItems | item
-            : m_TokenCostItems & ~item;
-    }
-
-    /// <summary>
-    /// Updates the fixed token-cost row visibility for the current item selection.
-    /// </summary>
-    private void UpdateTokenCostRowVisibility()
-    {
-        foreach (TokenCostRowViewModel row in CodexTokenCostRows.Concat(CursorTokenCostRows))
-        {
-            row.IsVisible = row.Item == TokenCostItem.None || (m_TokenCostItems & row.Item) != 0;
-        }
-    }
-
-    /// <summary>
     /// Creates the compact token-cost rows shown on usage dashboards.
     /// </summary>
     private static IReadOnlyList<TokenCostRowViewModel> CreateCompactTokenCostRows()
     {
         return
         [
-            new TokenCostRowViewModel("Today", TokenCostItem.Today),
-            new TokenCostRowViewModel("7D", TokenCostItem.LastSevenDays),
-            new TokenCostRowViewModel("30D", TokenCostItem.LastThirtyDays),
-            new TokenCostRowViewModel("Lifetime", TokenCostItem.None, isLast: true),
+            new TokenCostRowViewModel("Today"),
+            new TokenCostRowViewModel("7D"),
+            new TokenCostRowViewModel("30D"),
+            new TokenCostRowViewModel("Lifetime", isLast: true),
         ];
     }
 
@@ -945,25 +852,20 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     private void UpdateTokenCostRows(IReadOnlyList<TokenCostRowViewModel> rows, TokenCostStatistics? statistics)
     {
-        foreach (TokenCostRowViewModel row in rows)
+        if (statistics == null)
         {
-            if (statistics == null)
+            foreach (TokenCostRowViewModel row in rows)
             {
                 row.Display = s_UnavailableTokenCostDisplay;
-                continue;
             }
 
-            TokenCostSummary summary = row.Item switch
-            {
-                TokenCostItem.Today => statistics.Today,
-                TokenCostItem.Yesterday => statistics.Yesterday,
-                TokenCostItem.ThisWeek => statistics.ThisWeek,
-                TokenCostItem.ThisMonth => statistics.ThisMonth,
-                TokenCostItem.LastSevenDays => statistics.LastSevenDays,
-                TokenCostItem.LastThirtyDays => statistics.LastThirtyDays,
-                _ => statistics.Lifetime,
-            };
-            row.Display = FormatTokenCost(summary);
+            return;
+        }
+
+        TokenCostSummary[] summaries = [statistics.Today, statistics.LastSevenDays, statistics.LastThirtyDays, statistics.Lifetime];
+        for (int index = 0; index < rows.Count; index++)
+        {
+            rows[index].Display = FormatTokenCost(summaries[index]);
         }
     }
 
@@ -1607,23 +1509,17 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         public string Title { get; }
 
-        public TokenCostItem Item { get; }
-
         [ObservableProperty]
         public partial TokenCostDisplay Display { get; internal set; } = s_UnavailableTokenCostDisplay;
-
-        [ObservableProperty]
-        public partial bool IsVisible { get; internal set; } = true;
 
         public bool IsLast { get; }
 
         /// <summary>
         /// Creates one fixed token-cost display row.
         /// </summary>
-        public TokenCostRowViewModel(string title, TokenCostItem item, bool isLast = false)
+        public TokenCostRowViewModel(string title, bool isLast = false)
         {
             Title = title;
-            Item = item;
             IsLast = isLast;
         }
     }

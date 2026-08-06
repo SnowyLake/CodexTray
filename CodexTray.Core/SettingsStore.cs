@@ -4,19 +4,6 @@ using System.Text.Json.Serialization;
 namespace CodexTray.Core;
 
 [Flags]
-public enum TokenCostItem
-{
-    None = 0,
-    Today = 1 << 0,
-    Yesterday = 1 << 1,
-    ThisWeek = 1 << 2,
-    ThisMonth = 1 << 3,
-    LastSevenDays = 1 << 4,
-    LastThirtyDays = 1 << 5,
-    All = Today | Yesterday | ThisWeek | ThisMonth | LastSevenDays | LastThirtyDays,
-}
-
-[Flags]
 public enum PageItem
 {
     None = 0,
@@ -115,9 +102,7 @@ public sealed class AppSettings
 
     public string TokenUnit { get; set; } = TokenUnitEnglish;
 
-    public TokenCostItem TokenCostItems { get; set; } = TokenCostItem.All;
-
-    public bool MicaEnabled { get; set; }
+    public bool MicaEnabled { get; set; } = true;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? BackdropMode { get; set; }
@@ -185,7 +170,6 @@ public sealed class AppSettings
         }
 
         BackdropMode = null;
-        TokenCostItems &= TokenCostItem.All;
         VisiblePages &= PageItem.All;
         ApiMonitors ??= [];
         ApiMonitors.RemoveAll(monitor => monitor == null || string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase));

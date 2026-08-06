@@ -12,12 +12,12 @@ public static class CodexTrayDefaults
     public const int MinimumRefreshIntervalMinutes = 1;
     public const int MaximumRefreshIntervalMinutes = 1440;
     public const bool ShowResetTimeInPlugins = true;
-    public const bool UseAbsoluteResetTime = false;
+    public const bool UseAbsoluteResetTime = true;
     public const bool HideInvalidProgressBars = true;
-    public const int WindowWidth = 380;
+    public const int WindowWidth = 370;
     public const int MinimumWindowWidth = 280;
     public const int MaximumWindowWidth = 800;
-    public const int WindowHeight = 605;
+    public const int WindowHeight = 620;
     public const int MinimumWindowHeight = 400;
     public const int MaximumWindowHeight = 1200;
     public const string AppName = "CodexTray";

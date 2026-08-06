@@ -22,12 +22,6 @@ public sealed class TokenCostStatistics
 {
     public TokenCostSummary Today { get; init; } = new();
 
-    public TokenCostSummary Yesterday { get; init; } = new();
-
-    public TokenCostSummary ThisWeek { get; init; } = new();
-
-    public TokenCostSummary ThisMonth { get; init; } = new();
-
     public TokenCostSummary LastSevenDays { get; init; } = new();
 
     public TokenCostSummary LastThirtyDays { get; init; } = new();

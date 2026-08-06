@@ -607,12 +607,15 @@ internal static class Program
         AssertEqual(string.Empty, settings.TrafficMonitorDir, "default TrafficMonitor path");
         AssertEqual(CodexTrayDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
         AssertEqual(PageItem.All, settings.VisiblePages, "default visible pages");
+        AssertTrue(!settings.StartWithWindows, "startup should be disabled by default");
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
-        AssertEqual(TokenCostItem.All, settings.TokenCostItems, "default token cost items");
-        AssertTrue(!settings.MicaEnabled, "Mica should be disabled by default");
+        AssertTrue(settings.MicaEnabled, "Mica should be enabled by default");
         AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
         AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
+        AssertTrue(settings.ShowResetTimeInPlugins, "plugin reset time should be shown by default");
+        AssertTrue(settings.UseAbsoluteResetTime, "absolute reset time should be enabled by default");
+        AssertTrue(settings.HideInvalidProgressBars, "invalid progress bars should be hidden by default");
         AssertEqual(0, settings.ApiMonitors.Count, "default API monitors");
 
         string repairedJson = File.ReadAllText(store.SettingsPath);
@@ -623,7 +626,6 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.VisiblePages), out _), "repaired settings should include visible pages");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
-        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenCostItems), out _), "repaired settings should include token cost items");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "repaired settings should include Mica toggle");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowWidth), out _), "repaired settings should include window width");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowHeight), out _), "repaired settings should include window height");
@@ -632,7 +634,7 @@ internal static class Program
 
         using TempDirectory legacyTemp = new();
         SettingsStore legacyStore = new(legacyTemp.Path);
-        File.WriteAllText(legacyStore.SettingsPath, "{\"BackdropMode\":\"Mica\",\"AcrylicEnabled\":true,\"AcrylicOpacityPercent\":80}");
+        File.WriteAllText(legacyStore.SettingsPath, "{\"BackdropMode\":\"Mica\",\"AcrylicEnabled\":true,\"AcrylicOpacityPercent\":80,\"TokenCostItems\":63}");
         AppSettings legacySettings = legacyStore.Load();
         AssertTrue(legacySettings.MicaEnabled, "legacy Mica mode");
         using JsonDocument migratedDocument = JsonDocument.Parse(File.ReadAllText(legacyStore.SettingsPath));
@@ -640,6 +642,7 @@ internal static class Program
         AssertTrue(!migratedDocument.RootElement.TryGetProperty(nameof(AppSettings.BackdropMode), out _), "migrated settings should omit backdrop mode");
         AssertTrue(!migratedDocument.RootElement.TryGetProperty("AcrylicEnabled", out _), "migrated settings should omit legacy acrylic toggle");
         AssertTrue(!migratedDocument.RootElement.TryGetProperty("AcrylicOpacityPercent", out _), "migrated settings should omit acrylic opacity");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("TokenCostItems", out _), "migrated settings should omit token cost selection");
         return Task.CompletedTask;
     }
 
@@ -711,7 +714,6 @@ internal static class Program
             RefreshIntervalMinutes = 0,
             ThemeMode = "unexpected",
             TokenUnit = AppSettings.TokenUnitChinese,
-            TokenCostItems = TokenCostItem.Today | (TokenCostItem)(1 << 10),
             VisiblePages = PageItem.Cursor | (PageItem)(1 << 10),
             BackdropMode = "unexpected",
             WindowWidth = 100,
@@ -724,7 +726,6 @@ internal static class Program
         AssertEqual(CodexTrayDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "Chinese token unit");
-        AssertEqual(TokenCostItem.Today, settings.TokenCostItems, "supported token cost items");
         AssertEqual(PageItem.Cursor, settings.VisiblePages, "supported visible pages");
         AssertTrue(!settings.MicaEnabled, "unexpected backdrop should disable Mica");
         AssertEqual<string?>(null, settings.BackdropMode, "legacy backdrop should be cleared");
@@ -1051,9 +1052,6 @@ internal static class Program
             AssertEqual(6, dashboard.TokenCostDiagnostics.CacheWriteTokenFieldCount, "Cursor diagnostics cache write coverage");
             AssertEqual(160L, dashboard.TokenCost!.Today.TotalTokens, "Cursor cache tokens should contribute to total tokens");
             AssertEqual(1.25m, dashboard.TokenCost.Today.CostUsd, "Cursor cost must use totalCents instead of chargedCents");
-            AssertEqual(4L, dashboard.TokenCost.Yesterday.TotalTokens, "Cursor yesterday boundary");
-            AssertEqual(172L, dashboard.TokenCost.ThisWeek.TotalTokens, "Cursor this week Monday boundary");
-            AssertEqual(192L, dashboard.TokenCost.ThisMonth.TotalTokens, "Cursor this month boundary");
             AssertEqual(192L, dashboard.TokenCost.LastSevenDays.TotalTokens, "Cursor last 7 days boundary");
             AssertEqual(216L, dashboard.TokenCost.LastThirtyDays.TotalTokens, "Cursor last 30 days boundary");
             AssertEqual(244L, dashboard.TokenCost.Lifetime.TotalTokens, "Cursor lifetime boundary");
@@ -1514,7 +1512,6 @@ internal static class Program
         TokenCostStatistics statistics = new()
         {
             Today = new TokenCostSummary { CostUsd = 7 },
-            ThisWeek = new TokenCostSummary { CostUsd = 12 },
             LastSevenDays = new TokenCostSummary { CostUsd = 13 },
             LastThirtyDays = new TokenCostSummary { CostUsd = 30 },
             Lifetime = new TokenCostSummary { CostUsd = 100 },
@@ -1574,7 +1571,7 @@ internal static class Program
 
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
         {
-            cases.Add((nameof(TrayPopupViewModel.MicaEnabled), viewModel => viewModel.MicaEnabled = true, viewModel => viewModel.MicaEnabled = false));
+            cases.Add((nameof(TrayPopupViewModel.MicaEnabled), viewModel => viewModel.MicaEnabled = false, viewModel => viewModel.MicaEnabled = true));
         }
 
         foreach ((string name, Action<TrayPopupViewModel> change, Action<TrayPopupViewModel> restore) in cases)
@@ -1842,9 +1839,6 @@ internal static class Program
         AssertEqual(2900L, summary.TotalTokens, "today total tokens");
         AssertEqual(0.0062m, summary.CostUsd, "today API-equivalent cost");
         TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode);
-        AssertEqual(550L, statistics.Yesterday.TotalTokens, "yesterday total tokens");
-        AssertEqual(3450L, statistics.ThisWeek.TotalTokens, "this week total tokens");
-        AssertEqual(3520L, statistics.ThisMonth.TotalTokens, "this month total tokens");
         AssertEqual(3520L, statistics.LastSevenDays.TotalTokens, "last 7 days total tokens");
         AssertEqual(3560L, statistics.LastThirtyDays.TotalTokens, "last 30 days total tokens");
         AssertEqual(0.00774m, statistics.LastThirtyDays.CostUsd, "last 30 days API-equivalent cost");
