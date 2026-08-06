@@ -366,6 +366,16 @@
                 </Setter>
             </Style>
 
+            <Style x:Key="UsageCardStyle" TargetType="{x:Type Border}">
+                <Setter Property="Margin" Value="0,0,0,12" />
+                <Setter Property="MinHeight" Value="68" />
+                <Setter Property="Padding" Value="14" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+
             <DataTemplate x:Key="QuotaDataTemplate">
                 <StackPanel>
                     <Grid>
@@ -380,10 +390,31 @@
                                    FontWeight="Medium" />
                         <TextBlock Grid.Column="1"
                                    Text="{Binding PercentText}"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                   FontSize="14"
-                                   FontWeight="Normal" />
+                                   VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="{x:Type TextBlock}">
+                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                                    <Setter Property="FontSize" Value="14" />
+                                    <Setter Property="FontWeight" Value="Normal" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DataContext.IsCodexVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
+                                            <Setter Property="Foreground" Value="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding DataContext.IsCursorVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
+                                            <Setter Property="Foreground" Value="{Binding DataContext.CursorStatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Title}" Value="7-Day">
+                                            <Setter Property="FontSize" Value="20" />
+                                            <Setter Property="FontWeight" Value="Medium" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Title}" Value="Total">
+                                            <Setter Property="FontSize" Value="20" />
+                                            <Setter Property="FontWeight" Value="Medium" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                     </Grid>
                     <ProgressBar Margin="0,9,0,0"
                                  Maximum="100"
@@ -419,58 +450,115 @@
             </DataTemplate>
 
             <DataTemplate x:Key="CompactQuotaDataTemplate">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding Title}"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                               FontSize="13.5"
-                               FontWeight="Medium" />
-                    <TextBlock Grid.Column="1"
-                               Text="{Binding PercentText}"
-                               HorizontalAlignment="Right"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                               FontSize="14" />
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Title}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="13.5"
+                                   FontWeight="Medium" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding PercentText}"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   FontSize="14">
+                            <TextBlock.Style>
+                                <Style TargetType="{x:Type TextBlock}">
+                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DataContext.IsCodexVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
+                                            <Setter Property="Foreground" Value="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <ProgressBar Margin="0,9,0,0"
+                                 Maximum="100"
+                                 Value="{Binding RemainingPercent, Mode=OneWay}"
+                                 Foreground="{Binding AccentBrush}"
+                                 Style="{StaticResource QuotaProgressBarStyle}" />
+                </StackPanel>
+            </DataTemplate>
+
+            <DataTemplate x:Key="CompactTokenCostRowDataTemplate">
+                <Grid Visibility="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid MinHeight="38"
+                          Margin="2,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Title}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="13.5"
+                                   FontWeight="Medium" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding Display.Tokens}"
+                                   ToolTip="{Binding Display.Cost, StringFormat=Cost: {0}}"
+                                   ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                   ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="13.5" />
+                    </Grid>
+                    <Border Grid.Row="1"
+                            Height="1"
+                            Background="{DynamicResource ControlStrokeColorDefaultBrush}">
+                        <Border.Style>
+                            <Style TargetType="{x:Type Border}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLast}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
                 </Grid>
             </DataTemplate>
 
-            <DataTemplate x:Key="TokenCostRowDataTemplate">
-                <Grid Visibility="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <Grid.Style>
-                        <Style TargetType="{x:Type Grid}">
-                            <Setter Property="Margin" Value="0,0,0,12" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsLast}" Value="True">
-                                    <Setter Property="Margin" Value="0" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Grid.Style>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding Title}"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                               FontSize="13.5"
-                               FontWeight="Medium" />
-                    <TextBlock Grid.Column="1"
-                               HorizontalAlignment="Right"
-                               VerticalAlignment="Center"
+            <DataTemplate x:Key="TokenCostChartDayDataTemplate">
+                <Grid Margin="2,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="20" />
+                    </Grid.RowDefinitions>
+                    <Border Width="10"
+                            Height="{Binding BarHeight}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Bottom"
+                            ToolTip="{Binding Tooltip}"
+                            ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                            ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
+                        <Border.Style>
+                            <Style TargetType="{x:Type Border}">
+                                <Setter Property="Background" Value="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.IsCursorVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
+                                        <Setter Property="Background" Value="{Binding DataContext.CursorStatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+                    <TextBlock Grid.Row="1"
+                               Text="{Binding Label}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Bottom"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                               FontSize="13.5">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0} · {1}">
-                                <Binding Path="Display.Cost" />
-                                <Binding Path="Display.Tokens" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                               FontSize="12" />
                 </Grid>
             </DataTemplate>
 
@@ -554,83 +642,112 @@
                               Margin="0,24,-8,0"
                               Padding="0,0,8,0"
                               VerticalScrollBarVisibility="Hidden">
-                    <StackPanel VerticalAlignment="Top"
-                                Grid.IsSharedSizeScope="True">
-                    <TextBlock Text="Usage"
-                               Style="{StaticResource SectionHeaderStyle}"
-                               Visibility="{Binding IsUsageSectionHeaderVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <StackPanel VerticalAlignment="Top">
+                        <Border Style="{StaticResource UsageCardStyle}"
+                                Visibility="{Binding FiveHourQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding FiveHourQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
 
-                    <ContentControl Content="{Binding FiveHourQuota}"
-                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Margin="0,0,0,20"
-                                    Visibility="{Binding FiveHourQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Border Style="{StaticResource UsageCardStyle}"
+                                Visibility="{Binding SevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding SevenDayQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
 
-                    <ContentControl Content="{Binding SevenDayQuota}"
-                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Visibility="{Binding SevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Border Style="{StaticResource UsageCardStyle}"
+                                Visibility="{Binding SparkFiveHourQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding SparkFiveHourQuota}"
+                                            ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
 
-                    <StackPanel Margin="0,14,0,0"
-                                Visibility="{Binding IsSparkQuotaSectionVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <ContentControl Content="{Binding SparkFiveHourQuota}"
-                                        ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
-                                        HorizontalContentAlignment="Stretch"
-                                        Visibility="{Binding SparkFiveHourQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <ContentControl Content="{Binding SparkSevenDayQuota}"
-                                        ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
-                                        HorizontalContentAlignment="Stretch"
-                                        Margin="0,6,0,0"
-                                        Visibility="{Binding SparkSevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Border Style="{StaticResource UsageCardStyle}"
+                                Visibility="{Binding SparkSevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding SparkSevenDayQuota}"
+                                            ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
+
+                        <Border Style="{StaticResource UsageCardStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Reset Credits"
+                                           VerticalAlignment="Top"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                           FontSize="13.5"
+                                           FontWeight="Medium" />
+                                <StackPanel Grid.Column="1"
+                                            HorizontalAlignment="Right">
+                                    <TextBlock Text="{Binding ResetCreditsDisplay}"
+                                               HorizontalAlignment="Right"
+                                               Foreground="{Binding StatusDotBrush}"
+                                               FontSize="14" />
+                                    <TextBlock Text="{Binding ResetCreditsExpiryDates}"
+                                               HorizontalAlignment="Right"
+                                               Margin="0,5,0,0"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                               FontSize="12">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding ResetCreditsExpiryDates}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Grid Margin="0,22,0,0"
+                              Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="4*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="5*" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel>
+                                <ItemsControl ItemsSource="{Binding CodexTokenCostRows}"
+                                              ItemTemplate="{StaticResource CompactTokenCostRowDataTemplate}">
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="{x:Type ContentPresenter}">
+                                            <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                </ItemsControl>
+                            </StackPanel>
+
+                            <Border Grid.Column="1"
+                                    Width="1"
+                                    Margin="16,0"
+                                    Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+
+                            <Grid Grid.Column="2"
+                                  Height="132">
+                                <Border Height="1"
+                                        Margin="0,0,0,20"
+                                        VerticalAlignment="Bottom"
+                                        Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                                <ItemsControl ItemsSource="{Binding CodexTokenCostChartDays}"
+                                              ItemTemplate="{StaticResource TokenCostChartDayDataTemplate}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <UniformGrid Columns="7" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </Grid>
+                        </Grid>
                     </StackPanel>
-
-                    <Grid Margin="0,14,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Reset Credits"
-                                   VerticalAlignment="Top"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                   FontSize="13.5"
-                                   FontWeight="Medium" />
-                        <StackPanel Grid.Column="1"
-                                    HorizontalAlignment="Right">
-                            <TextBlock Text="{Binding ResetCreditsDisplay}"
-                                       HorizontalAlignment="Right"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="14" />
-                            <TextBlock Text="{Binding ResetCreditsExpiryDates}"
-                                       HorizontalAlignment="Right"
-                                       Margin="0,5,0,0"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="12">
-                                <TextBlock.Style>
-                                    <Style TargetType="{x:Type TextBlock}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding ResetCreditsExpiryDates}" Value="">
-                                                <Setter Property="Visibility" Value="Collapsed" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </StackPanel>
-                    </Grid>
-
-                    <TextBlock Text="Token Cost"
-                               Style="{StaticResource SectionHeaderSpacedStyle}"
-                               Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <ItemsControl ItemsSource="{Binding CodexTokenCostRows}"
-                                  ItemTemplate="{StaticResource TokenCostRowDataTemplate}"
-                                  Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <ItemsControl.ItemContainerStyle>
-                            <Style TargetType="{x:Type ContentPresenter}">
-                                <Setter Property="HorizontalAlignment" Value="Stretch" />
-                            </Style>
-                        </ItemsControl.ItemContainerStyle>
-                    </ItemsControl>
-                </StackPanel>
                 </ScrollViewer>
 
             </Grid>
@@ -699,38 +816,65 @@
                               Padding="0,0,8,0"
                               VerticalScrollBarVisibility="Hidden">
                     <StackPanel VerticalAlignment="Top">
-                        <TextBlock Text="Usage"
-                                   Style="{StaticResource SectionHeaderStyle}" />
+                        <Border Style="{StaticResource UsageCardStyle}"
+                                Visibility="{Binding CursorTotalQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding CursorTotalQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
 
-                        <ContentControl Content="{Binding CursorTotalQuota}"
-                                        ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                        HorizontalContentAlignment="Stretch"
+                        <Border Style="{StaticResource UsageCardStyle}"
+                                Visibility="{Binding CursorAutoQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding CursorAutoQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
+
+                        <Border Style="{StaticResource UsageCardStyle}"
+                                Visibility="{Binding CursorApiQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding CursorApiQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
+
+                        <Grid Margin="0,22,0,0"
+                              Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="4*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="5*" />
+                            </Grid.ColumnDefinitions>
+
+                            <ItemsControl ItemsSource="{Binding CursorTokenCostRows}"
+                                          ItemTemplate="{StaticResource CompactTokenCostRowDataTemplate}">
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="{x:Type ContentPresenter}">
+                                        <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                            </ItemsControl>
+
+                            <Border Grid.Column="1"
+                                    Width="1"
+                                    Margin="16,0"
+                                    Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+
+                            <Grid Grid.Column="2"
+                                  Height="132">
+                                <Border Height="1"
                                         Margin="0,0,0,20"
-                                        Visibility="{Binding CursorTotalQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
-                        <ContentControl Content="{Binding CursorAutoQuota}"
-                                        ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                        HorizontalContentAlignment="Stretch"
-                                        Margin="0,0,0,20"
-                                        Visibility="{Binding CursorAutoQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
-                        <ContentControl Content="{Binding CursorApiQuota}"
-                                        ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                        HorizontalContentAlignment="Stretch"
-                                        Visibility="{Binding CursorApiQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
-                        <TextBlock Text="Token Cost"
-                                   Style="{StaticResource SectionHeaderSpacedStyle}"
-                                   Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <ItemsControl ItemsSource="{Binding CursorTokenCostRows}"
-                                      ItemTemplate="{StaticResource TokenCostRowDataTemplate}"
-                                      Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <ItemsControl.ItemContainerStyle>
-                                <Style TargetType="{x:Type ContentPresenter}">
-                                    <Setter Property="HorizontalAlignment" Value="Stretch" />
-                                </Style>
-                            </ItemsControl.ItemContainerStyle>
-                        </ItemsControl>
+                                        VerticalAlignment="Bottom"
+                                        Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                                <ItemsControl ItemsSource="{Binding CursorTokenCostChartDays}"
+                                              ItemTemplate="{StaticResource TokenCostChartDayDataTemplate}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <UniformGrid Columns="7" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </Grid>
+                        </Grid>
                     </StackPanel>
                 </ScrollViewer>
             </Grid>

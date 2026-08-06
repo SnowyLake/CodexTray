@@ -62,6 +62,7 @@ internal static class Program
         await RunAsync("includes Cursor Codex pricing", TestCursorCodexPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
+        await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
         await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
@@ -1481,6 +1482,53 @@ internal static class Program
     }
 
     /// <summary>
+    /// Verifies the compact token-cost rows and rolling chart display data.
+    /// </summary>
+    private static Task TestTokenCostChartViewModelAsync()
+    {
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        DateTime firstDate = new(2026, 8, 1);
+        TokenCostDailySummary[] daily = Enumerable.Range(0, 7)
+            .Select(index => new TokenCostDailySummary
+            {
+                Date = firstDate.AddDays(index),
+                Summary = new TokenCostSummary
+                {
+                    CostUsd = index + 1,
+                    TotalTokens = (index + 1) * 100,
+                },
+            })
+            .ToArray();
+        TokenCostStatistics statistics = new()
+        {
+            Today = new TokenCostSummary { CostUsd = 7 },
+            ThisWeek = new TokenCostSummary { CostUsd = 12 },
+            LastSevenDays = new TokenCostSummary { CostUsd = 13 },
+            LastThirtyDays = new TokenCostSummary { CostUsd = 30 },
+            Lifetime = new TokenCostSummary { CostUsd = 100 },
+            LastSevenDaysDaily = daily,
+        };
+        viewModel.UpdateTokenCost(statistics);
+
+        AssertEqual("Today|7D|30D|Lifetime", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Title)), "Codex token cost row titles");
+        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Display.Cost)), "Codex token cost row values");
+        AssertEqual(7, viewModel.CodexTokenCostChartDays.Count, "Codex token cost chart day count");
+        AssertEqual("F", viewModel.CodexTokenCostChartDays[6].Label, "Codex token cost chart today label");
+        AssertEqual(96d, viewModel.CodexTokenCostChartDays[6].BarHeight, "Codex token cost chart maximum height");
+        AssertEqual($"2026-08-07{Environment.NewLine}Tokens: 0.70K{Environment.NewLine}Cost: $7.00", viewModel.CodexTokenCostChartDays[6].Tooltip, "Codex token cost chart tooltip");
+
+        viewModel.UpdateCursorDashboard(new CursorUsageDashboard(null, statistics, "N/A", string.Empty, DateTimeOffset.Now));
+        AssertEqual("Today|7D|30D|Lifetime", string.Join('|', viewModel.CursorTokenCostRows.Select(row => row.Title)), "Cursor token cost row titles");
+        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CursorTokenCostRows.Select(row => row.Display.Cost)), "Cursor token cost row values");
+        AssertEqual(7, viewModel.CursorTokenCostChartDays.Count, "Cursor token cost chart day count");
+        AssertEqual(viewModel.CodexTokenCostChartDays[6].Tooltip, viewModel.CursorTokenCostChartDays[6].Tooltip, "Cursor token cost chart tooltip");
+
+        viewModel.UpdateTokenCost(null);
+        AssertEqual(7, viewModel.CodexTokenCostChartDays.Count, "unavailable Codex token cost chart day count");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Tests dirty tracking for every migrated editable property.
     /// </summary>
     private static Task TestMigratedDirtyPropertiesAsync()
@@ -1785,6 +1833,12 @@ internal static class Program
         AssertEqual(0.00774m, statistics.LastThirtyDays.CostUsd, "last 30 days API-equivalent cost");
         AssertEqual(3660L, statistics.Lifetime.TotalTokens, "lifetime tokens");
         AssertEqual(0.00794m, statistics.Lifetime.CostUsd, "lifetime API-equivalent cost");
+        AssertEqual(7, statistics.LastSevenDaysDaily.Count, "daily chart slot count");
+        AssertEqual(new DateTime(2026, 7, 5), statistics.LastSevenDaysDaily[0].Date, "daily chart first date");
+        AssertEqual(70L, statistics.LastSevenDaysDaily[0].Summary.TotalTokens, "daily chart first tokens");
+        AssertEqual(550L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "daily chart yesterday tokens");
+        AssertEqual(new DateTime(2026, 7, 11), statistics.LastSevenDaysDaily[6].Date, "daily chart today date");
+        AssertEqual(2900L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "daily chart today tokens");
         return Task.CompletedTask;
     }
 

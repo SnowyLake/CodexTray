@@ -34,6 +34,8 @@ internal enum SettingsStatus
 
 internal sealed record TokenCostDisplay(string Cost, string Tokens);
 
+internal sealed record TokenCostChartDay(string Label, double BarHeight, string Tooltip);
+
 internal sealed record InAppDialogRequest(
     string Title,
     string Message,
@@ -49,6 +51,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private const string k_SettingsPageName = "Settings";
     private const string k_AboutPageName = "About";
     private const string k_RepositoryUrl = "https://github.com/SnowyLake/CodexTray";
+    private const double k_TokenCostChartMaximumBarHeight = 96;
 
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_YellowBrush = new Media.SolidColorBrush(Media.Color.FromRgb(226, 176, 54));
@@ -117,9 +120,15 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public QuotaViewModel CursorApiQuota { get; } = new("APIs");
 
-    public IReadOnlyList<TokenCostRowViewModel> CodexTokenCostRows { get; } = CreateTokenCostRows();
+    public IReadOnlyList<TokenCostRowViewModel> CodexTokenCostRows { get; } = CreateCompactTokenCostRows();
 
-    public IReadOnlyList<TokenCostRowViewModel> CursorTokenCostRows { get; } = CreateTokenCostRows();
+    public IReadOnlyList<TokenCostRowViewModel> CursorTokenCostRows { get; } = CreateCompactTokenCostRows();
+
+    [ObservableProperty]
+    public partial IReadOnlyList<TokenCostChartDay> CodexTokenCostChartDays { get; private set; } = [];
+
+    [ObservableProperty]
+    public partial IReadOnlyList<TokenCostChartDay> CursorTokenCostChartDays { get; private set; } = [];
 
     public IRelayCommand OpenRepositoryCommand { get; }
 
@@ -783,18 +792,15 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Creates the fixed token-cost rows shared by each dashboard page.
+    /// Creates the compact token-cost rows shown on usage dashboards.
     /// </summary>
-    private static IReadOnlyList<TokenCostRowViewModel> CreateTokenCostRows()
+    private static IReadOnlyList<TokenCostRowViewModel> CreateCompactTokenCostRows()
     {
         return
         [
             new TokenCostRowViewModel("Today", TokenCostItem.Today),
-            new TokenCostRowViewModel("Yesterday", TokenCostItem.Yesterday),
-            new TokenCostRowViewModel("This week", TokenCostItem.ThisWeek),
-            new TokenCostRowViewModel("This month", TokenCostItem.ThisMonth),
-            new TokenCostRowViewModel("Last 7 days", TokenCostItem.LastSevenDays),
-            new TokenCostRowViewModel("Last 30 days", TokenCostItem.LastThirtyDays),
+            new TokenCostRowViewModel("7D", TokenCostItem.LastSevenDays),
+            new TokenCostRowViewModel("30D", TokenCostItem.LastThirtyDays),
             new TokenCostRowViewModel("Lifetime", TokenCostItem.None, isLast: true),
         ];
     }
@@ -912,6 +918,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public void UpdateTokenCost(TokenCostStatistics? statistics)
     {
         UpdateTokenCostRows(CodexTokenCostRows, statistics);
+        CodexTokenCostChartDays = CreateTokenCostChartDays(statistics);
     }
 
     /// <summary>
@@ -943,6 +950,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         UpdateTokenCostRows(CursorTokenCostRows, dashboard.TokenCost);
+        CursorTokenCostChartDays = CreateTokenCostChartDays(dashboard.TokenCost);
         CursorStatusDotBrush = usageAvailable && tokenCostAvailable
             ? s_GreenBrush
             : usageAvailable || tokenCostAvailable
@@ -963,22 +971,61 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     private void UpdateTokenCostRows(IReadOnlyList<TokenCostRowViewModel> rows, TokenCostStatistics? statistics)
     {
-        TokenCostDisplay[] displays = statistics == null
-            ? Enumerable.Repeat(s_UnavailableTokenCostDisplay, rows.Count).ToArray()
-            :
-            [
-                FormatTokenCost(statistics.Today),
-                FormatTokenCost(statistics.Yesterday),
-                FormatTokenCost(statistics.ThisWeek),
-                FormatTokenCost(statistics.ThisMonth),
-                FormatTokenCost(statistics.LastSevenDays),
-                FormatTokenCost(statistics.LastThirtyDays),
-                FormatTokenCost(statistics.Lifetime),
-            ];
-        for (int index = 0; index < rows.Count; index++)
+        foreach (TokenCostRowViewModel row in rows)
         {
-            rows[index].Display = displays[index];
+            if (statistics == null)
+            {
+                row.Display = s_UnavailableTokenCostDisplay;
+                continue;
+            }
+
+            TokenCostSummary summary = row.Item switch
+            {
+                TokenCostItem.Today => statistics.Today,
+                TokenCostItem.Yesterday => statistics.Yesterday,
+                TokenCostItem.ThisWeek => statistics.ThisWeek,
+                TokenCostItem.ThisMonth => statistics.ThisMonth,
+                TokenCostItem.LastSevenDays => statistics.LastSevenDays,
+                TokenCostItem.LastThirtyDays => statistics.LastThirtyDays,
+                _ => statistics.Lifetime,
+            };
+            row.Display = FormatTokenCost(summary);
         }
+    }
+
+    /// <summary>
+    /// Creates the rolling seven-day chart with today in the final slot.
+    /// </summary>
+    private IReadOnlyList<TokenCostChartDay> CreateTokenCostChartDays(TokenCostStatistics? statistics)
+    {
+        if (statistics == null || statistics.LastSevenDaysDaily.Count == 0)
+        {
+            List<TokenCostChartDay> unavailableDays = new(7);
+            for (int offset = -6; offset <= 0; offset++)
+            {
+                DateTime date = DateTime.Today.AddDays(offset);
+                string tooltip = $"{date:yyyy-MM-dd}{Environment.NewLine}Tokens: N/A{Environment.NewLine}Cost: N/A";
+                unavailableDays.Add(new TokenCostChartDay(date.ToString("ddd", CultureInfo.InvariantCulture)[..1], 0, tooltip));
+            }
+
+            return unavailableDays;
+        }
+
+        decimal maximumCost = statistics.LastSevenDaysDaily.Max(day => day.Summary.CostUsd ?? 0);
+        List<TokenCostChartDay> days = new(statistics.LastSevenDaysDaily.Count);
+        foreach (TokenCostDailySummary day in statistics.LastSevenDaysDaily)
+        {
+            decimal cost = day.Summary.CostUsd ?? 0;
+            double height = maximumCost <= 0 || cost <= 0
+                ? 0
+                : Math.Max(2, (double)(cost / maximumCost) * k_TokenCostChartMaximumBarHeight);
+            string costText = day.Summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
+            string tokensText = AppSettings.FormatTokenCount(day.Summary.TotalTokens, m_Settings.TokenUnit);
+            string tooltip = $"{day.Date:yyyy-MM-dd}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}";
+            days.Add(new TokenCostChartDay(day.Date.ToString("ddd", CultureInfo.InvariantCulture)[..1], height, tooltip));
+        }
+
+        return days;
     }
 
     /// <summary>

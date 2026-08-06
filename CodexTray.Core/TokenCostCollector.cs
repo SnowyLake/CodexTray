@@ -11,6 +11,13 @@ public sealed class TokenCostSummary
     public decimal? CostUsd { get; init; }
 }
 
+public sealed class TokenCostDailySummary
+{
+    public DateTime Date { get; init; }
+
+    public TokenCostSummary Summary { get; init; } = new();
+}
+
 public sealed class TokenCostStatistics
 {
     public TokenCostSummary Today { get; init; } = new();
@@ -26,6 +33,8 @@ public sealed class TokenCostStatistics
     public TokenCostSummary LastThirtyDays { get; init; } = new();
 
     public TokenCostSummary Lifetime { get; init; } = new();
+
+    public IReadOnlyList<TokenCostDailySummary> LastSevenDaysDaily { get; init; } = [];
 }
 
 public sealed class TokenCostCollector
