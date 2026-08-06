@@ -35,7 +35,7 @@
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, 以及 Grok 剩余额度和重置时间监控.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
-- 支持 `System`, `Light`, `Dark` 主题, Windows 11 Acrylic blur, 透明度和窗口尺寸设置. Windows 10 使用纯色背景.
+- 支持 `System`, `Light`, `Dark` 主题, Windows 11 Mica 背景材质和窗口尺寸设置. Windows 10 固定使用纯色背景.
 - 支持隐藏 Codex, Cursor 或 APIs 页面并停止对应后台采集, 以及隐藏没有有效额度窗口的 Codex 进度条.
 - 自动检测 LiteMonitor 与 TrafficMonitor 安装目录, 并一键安装对应插件.
 - 支持插件中显示或隐藏额度重置时间, 以及倒计时或绝对时间格式.

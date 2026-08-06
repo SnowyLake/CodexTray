@@ -66,8 +66,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private string m_TokenUnit = AppSettings.TokenUnitEnglish;
     private TokenCostItem m_TokenCostItems = TokenCostItem.All;
     private PageItem m_VisiblePages = PageItem.All;
-    private bool m_AcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
-    private int m_AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
+    private bool m_MicaEnabled;
     private bool m_HideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
     private bool m_IsInAppDialogOpen;
     private bool m_IsNativeModalOpen;
@@ -88,8 +87,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private TokenCostItem m_SnapshotTokenCostItems = TokenCostItem.All;
     private PageItem m_SnapshotVisiblePages = PageItem.All;
     private bool m_SnapshotStartWithWindows;
-    private bool m_SnapshotAcrylicEnabled = CodexTrayDefaults.AcrylicEnabled;
-    private int m_SnapshotAcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
+    private bool m_SnapshotMicaEnabled;
     private string m_SnapshotWindowWidthText = string.Empty;
     private string m_SnapshotWindowHeightText = string.Empty;
     private bool m_SnapshotShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
@@ -371,13 +369,13 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     [ObservableProperty]
     public partial bool StartWithWindows { get; set; }
 
-    public bool AcrylicEnabled
+    public bool MicaEnabled
     {
-        get => IsAcrylicSupported && m_AcrylicEnabled;
+        get => IsMicaSupported && m_MicaEnabled;
         set
         {
-            bool normalized = IsAcrylicSupported && value;
-            if (SetProperty(ref m_AcrylicEnabled, normalized))
+            bool normalized = IsMicaSupported && value;
+            if (SetProperty(ref m_MicaEnabled, normalized))
             {
                 EvaluateDirtyState();
             }
@@ -385,23 +383,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Returns true when the application is running on Windows 11 or later.
+    /// Returns true when Mica is available on Windows 11 or later.
     /// </summary>
-    public bool IsAcrylicSupported => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
-
-    public int AcrylicOpacityPercent
-    {
-        get => m_AcrylicOpacityPercent;
-        set
-        {
-            int clamped = Math.Clamp(value, CodexTrayDefaults.MinimumAcrylicOpacityPercent, CodexTrayDefaults.MaximumAcrylicOpacityPercent);
-            if (SetProperty(ref m_AcrylicOpacityPercent, clamped))
-            {
-                OnPropertyChanged(nameof(AcrylicOpacityDisplay));
-                EvaluateDirtyState();
-            }
-        }
-    }
+    public bool IsMicaSupported => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
 
     [ObservableProperty]
     public partial string WindowWidthText { get; set; } = CodexTrayDefaults.WindowWidth.ToString(CultureInfo.InvariantCulture);
@@ -431,12 +415,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         !m_HideInvalidProgressBars || FiveHourQuota.IsVisible || SevenDayQuota.IsVisible || SparkFiveHourQuota.IsVisible || SparkSevenDayQuota.IsVisible;
 
     public bool IsSparkQuotaSectionVisible => SparkFiveHourQuota.IsVisible || SparkSevenDayQuota.IsVisible;
-
-    public string AcrylicOpacityDisplay => $"{m_AcrylicOpacityPercent}%";
-
-    public int AcrylicOpacityMinimum => CodexTrayDefaults.MinimumAcrylicOpacityPercent;
-
-    public int AcrylicOpacityMaximum => CodexTrayDefaults.MaximumAcrylicOpacityPercent;
 
     public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
 
@@ -598,8 +576,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             TokenCostItems = settings.TokenCostItems;
             VisiblePages = settings.VisiblePages;
             StartWithWindows = settings.StartWithWindows;
-            AcrylicEnabled = settings.AcrylicEnabled;
-            AcrylicOpacityPercent = settings.AcrylicOpacityPercent;
+            MicaEnabled = settings.MicaEnabled;
             WindowWidthText = settings.WindowWidth.ToString(CultureInfo.InvariantCulture);
             WindowHeightText = settings.WindowHeight.ToString(CultureInfo.InvariantCulture);
             ShowResetTimeInPlugins = settings.ShowResetTimeInPlugins;
@@ -673,8 +650,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_SnapshotTokenCostItems = m_TokenCostItems;
         m_SnapshotVisiblePages = m_VisiblePages;
         m_SnapshotStartWithWindows = StartWithWindows;
-        m_SnapshotAcrylicEnabled = m_AcrylicEnabled;
-        m_SnapshotAcrylicOpacityPercent = m_AcrylicOpacityPercent;
+        m_SnapshotMicaEnabled = m_MicaEnabled;
         m_SnapshotWindowWidthText = WindowWidthText;
         m_SnapshotWindowHeightText = WindowHeightText;
         m_SnapshotShowResetTimeInPlugins = ShowResetTimeInPlugins;
@@ -704,8 +680,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             m_TokenCostItems == m_SnapshotTokenCostItems &&
             m_VisiblePages == m_SnapshotVisiblePages &&
             StartWithWindows == m_SnapshotStartWithWindows &&
-            m_AcrylicEnabled == m_SnapshotAcrylicEnabled &&
-            m_AcrylicOpacityPercent == m_SnapshotAcrylicOpacityPercent &&
+            m_MicaEnabled == m_SnapshotMicaEnabled &&
             WindowWidthText == m_SnapshotWindowWidthText &&
             WindowHeightText == m_SnapshotWindowHeightText &&
             ShowResetTimeInPlugins == m_SnapshotShowResetTimeInPlugins &&
@@ -760,8 +735,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_Settings.TokenUnit = TokenUnit;
         m_Settings.TokenCostItems = TokenCostItems;
         m_Settings.VisiblePages = VisiblePages;
-        m_Settings.AcrylicEnabled = AcrylicEnabled;
-        m_Settings.AcrylicOpacityPercent = AcrylicOpacityPercent;
+        m_Settings.MicaEnabled = MicaEnabled;
         m_Settings.WindowWidth = windowWidth;
         m_Settings.WindowHeight = windowHeight;
         m_Settings.ShowResetTimeInPlugins = ShowResetTimeInPlugins;

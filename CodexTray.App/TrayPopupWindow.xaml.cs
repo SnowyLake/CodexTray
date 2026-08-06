@@ -16,11 +16,13 @@ internal sealed partial class TrayPopupWindow : Window
 {
     private const int k_GwlExStyle = -20;
     private const int k_WsExToolWindow = 0x00000080;
+    private const int k_DwmwaUseImmersiveDarkMode = 20;
     private const int k_DwmwaWindowCornerPreference = 33;
+    private const int k_DwmwaSystemBackdropType = 38;
+    private const int k_DwmwaMicaEffect = 1029;
     private const int k_DwmwcpRound = 2;
-    private const int k_WcaAccentPolicy = 19;
-    private const int k_AccentDisabled = 0;
-    private const int k_AccentEnableAcrylicBlurBehind = 4;
+    private const int k_DwmsbtNone = 1;
+    private const int k_DwmsbtMainWindow = 2;
 
     /// <summary>
     /// Creates the WPF tray popup window.
@@ -39,8 +41,7 @@ internal sealed partial class TrayPopupWindow : Window
                     ApplyThemeMode(viewModel.ThemeMode);
                     ApplyBackdrop();
                     break;
-                case nameof(TrayPopupViewModel.AcrylicEnabled):
-                case nameof(TrayPopupViewModel.AcrylicOpacityPercent):
+                case nameof(TrayPopupViewModel.MicaEnabled):
                     ApplyBackdrop();
                     break;
                 case nameof(TrayPopupViewModel.WindowWidthText):
@@ -105,6 +106,7 @@ internal sealed partial class TrayPopupWindow : Window
 
         Activate();
         ForceForeground();
+        ApplyBackdrop();
     }
 
     /// <summary>
@@ -300,22 +302,12 @@ internal sealed partial class TrayPopupWindow : Window
     /// </summary>
     private void TryApplyRoundedCorners()
     {
-        try
-        {
-            nint handle = new WindowInteropHelper(this).Handle;
-            int cornerPreference = k_DwmwcpRound;
-            DwmSetWindowAttribute(handle, k_DwmwaWindowCornerPreference, ref cornerPreference, sizeof(int));
-        }
-        catch (DllNotFoundException)
-        {
-        }
-        catch (EntryPointNotFoundException)
-        {
-        }
+        nint handle = new WindowInteropHelper(this).Handle;
+        _ = TrySetDwmWindowAttribute(handle, k_DwmwaWindowCornerPreference, k_DwmwcpRound);
     }
 
     /// <summary>
-    /// Applies or removes the acrylic blur backdrop based on the current settings.
+    /// Applies the selected Windows backdrop or a solid fallback.
     /// </summary>
     private void ApplyBackdrop()
     {
@@ -325,37 +317,51 @@ internal sealed partial class TrayPopupWindow : Window
             return;
         }
 
-        bool acrylicSupported = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
-        bool acrylicEnabled = acrylicSupported && DataContext is TrayPopupViewModel { AcrylicEnabled: true };
-        if (acrylicEnabled)
-        {
-            RootBorder.Background = System.Windows.Media.Brushes.Transparent;
-            SetAccentPolicy(handle, k_AccentEnableAcrylicBlurBehind, ResolveAcrylicGradientColor());
-        }
-        else
+        bool micaSupported = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
+        if (!micaSupported || DataContext is not TrayPopupViewModel viewModel)
         {
             RootBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "ApplicationBackgroundBrush");
-            if (acrylicSupported)
-            {
-                SetAccentPolicy(handle, k_AccentDisabled, 0);
-            }
+            return;
         }
+
+        DisableMica(handle);
+        bool applied = viewModel.MicaEnabled && TryEnableMica(handle);
+        if (!applied)
+        {
+            RootBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "ApplicationBackgroundBrush");
+            return;
+        }
+
+        RootBorder.Background = System.Windows.Media.Brushes.Transparent;
     }
 
     /// <summary>
-    /// Builds the acrylic tint color from the active theme and opacity setting.
+    /// Removes the Mica effect before applying the current setting.
     /// </summary>
-    private uint ResolveAcrylicGradientColor()
+    private static void DisableMica(nint handle)
     {
-        int opacityPercent = DataContext is TrayPopupViewModel viewModel
-            ? viewModel.AcrylicOpacityPercent
-            : CodexTrayDefaults.AcrylicOpacityPercent;
-        opacityPercent = Math.Clamp(opacityPercent, CodexTrayDefaults.MinimumAcrylicOpacityPercent, CodexTrayDefaults.MaximumAcrylicOpacityPercent);
-        uint alpha = (uint)Math.Round(opacityPercent * 255.0 / 100.0);
-        (uint red, uint green, uint blue) = IsEffectiveDarkTheme()
-            ? (0x20u, 0x20u, 0x20u)
-            : (0xF3u, 0xF3u, 0xF3u);
-        return (alpha << 24) | (blue << 16) | (green << 8) | red;
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621))
+        {
+            _ = TrySetDwmWindowAttribute(handle, k_DwmwaSystemBackdropType, k_DwmsbtNone);
+            return;
+        }
+
+        _ = TrySetDwmWindowAttribute(handle, k_DwmwaMicaEffect, 0);
+    }
+
+    /// <summary>
+    /// Enables the native Mica backdrop supported by the current Windows 11 build.
+    /// </summary>
+    private bool TryEnableMica(nint handle)
+    {
+        _ = TrySetDwmWindowAttribute(handle, k_DwmwaUseImmersiveDarkMode, IsEffectiveDarkTheme() ? 1 : 0);
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621))
+        {
+            return TrySetDwmWindowAttribute(handle, k_DwmwaSystemBackdropType, k_DwmsbtMainWindow);
+        }
+
+        // Windows 11 21H2 predates the public system backdrop attribute.
+        return TrySetDwmWindowAttribute(handle, k_DwmwaMicaEffect, 1);
     }
 
     /// <summary>
@@ -387,40 +393,21 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
-    /// Sends an accent policy to the window composition service.
+    /// Sets one DWM window attribute and reports whether the platform accepted it.
     /// </summary>
-    private static void SetAccentPolicy(nint handle, int accentState, uint gradientColor)
+    private static bool TrySetDwmWindowAttribute(nint handle, int attribute, int value)
     {
         try
         {
-            AccentPolicy accent = new()
-            {
-                AccentState = accentState,
-                GradientColor = gradientColor,
-            };
-            int accentSize = Marshal.SizeOf<AccentPolicy>();
-            nint accentPointer = Marshal.AllocHGlobal(accentSize);
-            try
-            {
-                Marshal.StructureToPtr(accent, accentPointer, false);
-                WindowCompositionAttributeData data = new()
-                {
-                    Attribute = k_WcaAccentPolicy,
-                    Data = accentPointer,
-                    SizeOfData = accentSize,
-                };
-                SetWindowCompositionAttribute(handle, ref data);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(accentPointer);
-            }
+            return DwmSetWindowAttribute(handle, attribute, ref value, sizeof(int)) >= 0;
         }
         catch (DllNotFoundException)
         {
+            return false;
         }
         catch (EntryPointNotFoundException)
         {
+            return false;
         }
     }
 
@@ -486,33 +473,5 @@ internal sealed partial class TrayPopupWindow : Window
     /// </summary>
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
-
-    /// <summary>
-    /// Sets a Win32 window composition attribute.
-    /// </summary>
-    [DllImport("user32.dll")]
-    private static extern int SetWindowCompositionAttribute(nint hwnd, ref WindowCompositionAttributeData data);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct AccentPolicy
-    {
-        public int AccentState;
-
-        public int AccentFlags;
-
-        public uint GradientColor;
-
-        public int AnimationId;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WindowCompositionAttributeData
-    {
-        public int Attribute;
-
-        public nint Data;
-
-        public int SizeOfData;
-    }
 
 }

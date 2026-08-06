@@ -610,7 +610,7 @@ internal static class Program
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
         AssertEqual(TokenCostItem.All, settings.TokenCostItems, "default token cost items");
-        AssertEqual(CodexTrayDefaults.AcrylicOpacityPercent, settings.AcrylicOpacityPercent, "default acrylic opacity");
+        AssertTrue(!settings.MicaEnabled, "Mica should be disabled by default");
         AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
         AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
         AssertEqual(0, settings.ApiMonitors.Count, "default API monitors");
@@ -624,11 +624,22 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenCostItems), out _), "repaired settings should include token cost items");
-        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.AcrylicOpacityPercent), out _), "repaired settings should include acrylic opacity");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "repaired settings should include Mica toggle");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowWidth), out _), "repaired settings should include window width");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowHeight), out _), "repaired settings should include window height");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
+
+        using TempDirectory legacyTemp = new();
+        SettingsStore legacyStore = new(legacyTemp.Path);
+        File.WriteAllText(legacyStore.SettingsPath, "{\"BackdropMode\":\"Mica\",\"AcrylicEnabled\":true,\"AcrylicOpacityPercent\":80}");
+        AppSettings legacySettings = legacyStore.Load();
+        AssertTrue(legacySettings.MicaEnabled, "legacy Mica mode");
+        using JsonDocument migratedDocument = JsonDocument.Parse(File.ReadAllText(legacyStore.SettingsPath));
+        AssertTrue(migratedDocument.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "migrated settings should include Mica toggle");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty(nameof(AppSettings.BackdropMode), out _), "migrated settings should omit backdrop mode");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("AcrylicEnabled", out _), "migrated settings should omit legacy acrylic toggle");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("AcrylicOpacityPercent", out _), "migrated settings should omit acrylic opacity");
         return Task.CompletedTask;
     }
 
@@ -702,7 +713,7 @@ internal static class Program
             TokenUnit = AppSettings.TokenUnitChinese,
             TokenCostItems = TokenCostItem.Today | (TokenCostItem)(1 << 10),
             VisiblePages = PageItem.Cursor | (PageItem)(1 << 10),
-            AcrylicOpacityPercent = 0,
+            BackdropMode = "unexpected",
             WindowWidth = 100,
             WindowHeight = 9999,
         };
@@ -715,7 +726,8 @@ internal static class Program
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "Chinese token unit");
         AssertEqual(TokenCostItem.Today, settings.TokenCostItems, "supported token cost items");
         AssertEqual(PageItem.Cursor, settings.VisiblePages, "supported visible pages");
-        AssertEqual(CodexTrayDefaults.AcrylicOpacityPercent, settings.AcrylicOpacityPercent, "default acrylic opacity");
+        AssertTrue(!settings.MicaEnabled, "unexpected backdrop should disable Mica");
+        AssertEqual<string?>(null, settings.BackdropMode, "legacy backdrop should be cleared");
         AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
         AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
         settings.TokenUnit = "M/B";
@@ -1533,7 +1545,7 @@ internal static class Program
     /// </summary>
     private static Task TestMigratedDirtyPropertiesAsync()
     {
-        (string Name, Action<TrayPopupViewModel> Change, Action<TrayPopupViewModel> Restore)[] cases =
+        List<(string Name, Action<TrayPopupViewModel> Change, Action<TrayPopupViewModel> Restore)> cases =
         [
             (nameof(TrayPopupViewModel.LiteMonitorDir), viewModel => viewModel.LiteMonitorDir = "C:\\LiteMonitor", viewModel => viewModel.LiteMonitorDir = string.Empty),
             (nameof(TrayPopupViewModel.TrafficMonitorDir),
@@ -1559,6 +1571,11 @@ internal static class Program
              viewModel => viewModel.UseAbsoluteResetTime = !CodexTrayDefaults.UseAbsoluteResetTime,
              viewModel => viewModel.UseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime),
         ];
+
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            cases.Add((nameof(TrayPopupViewModel.MicaEnabled), viewModel => viewModel.MicaEnabled = true, viewModel => viewModel.MicaEnabled = false));
+        }
 
         foreach ((string name, Action<TrayPopupViewModel> change, Action<TrayPopupViewModel> restore) in cases)
         {

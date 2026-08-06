@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace CodexTray.Core;
 
@@ -116,9 +117,10 @@ public sealed class AppSettings
 
     public TokenCostItem TokenCostItems { get; set; } = TokenCostItem.All;
 
-    public bool AcrylicEnabled { get; set; } = CodexTrayDefaults.AcrylicEnabled;
+    public bool MicaEnabled { get; set; }
 
-    public int AcrylicOpacityPercent { get; set; } = CodexTrayDefaults.AcrylicOpacityPercent;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BackdropMode { get; set; }
 
     public int WindowWidth { get; set; } = CodexTrayDefaults.WindowWidth;
 
@@ -161,12 +163,6 @@ public sealed class AppSettings
             RefreshIntervalMinutes = CodexTrayDefaults.RefreshIntervalMinutes;
         }
 
-        if (AcrylicOpacityPercent < CodexTrayDefaults.MinimumAcrylicOpacityPercent ||
-            AcrylicOpacityPercent > CodexTrayDefaults.MaximumAcrylicOpacityPercent)
-        {
-            AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
-        }
-
         if (WindowWidth < CodexTrayDefaults.MinimumWindowWidth ||
             WindowWidth > CodexTrayDefaults.MaximumWindowWidth)
         {
@@ -183,6 +179,12 @@ public sealed class AppSettings
         TrafficMonitorDir = (TrafficMonitorDir ?? string.Empty).Trim();
         ThemeMode = NormalizeThemeMode(ThemeMode);
         TokenUnit = NormalizeTokenUnit(TokenUnit);
+        if (!string.IsNullOrWhiteSpace(BackdropMode))
+        {
+            MicaEnabled = string.Equals(BackdropMode.Trim(), "Mica", StringComparison.OrdinalIgnoreCase);
+        }
+
+        BackdropMode = null;
         TokenCostItems &= TokenCostItem.All;
         VisiblePages &= PageItem.All;
         ApiMonitors ??= [];
