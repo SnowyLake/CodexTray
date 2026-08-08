@@ -33,6 +33,7 @@ internal static class Program
         await RunAsync("collects additional Spark quotas", TestSparkQuotaAsync);
         await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
         await RunAsync("collects Codex reset credits", TestResetCreditsAsync);
+        await RunAsync("applies quota and reset credit color states", TestQuotaAndResetCreditColorStatesAsync);
         await RunAsync("omits reset suffix when disabled", TestDisplayWithoutResetSuffixAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
@@ -1779,6 +1780,46 @@ internal static class Program
             $"{nearestExpiry.AddDays(1).ToLocalTime():MM-dd} · {nearestExpiry.AddDays(2).ToLocalTime():MM-dd}",
             response.ResetCredits.OtherExpiriesLocal,
             "other local reset credit expiries");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies quota thresholds and reset credit availability states used by the UI color bindings.
+    /// </summary>
+    private static Task TestQuotaAndResetCreditColorStatesAsync()
+    {
+        TrayPopupViewModel.QuotaViewModel quota = new("Test");
+        UsageLimit limit = new() { WindowMinutes = 1 };
+        (int remaining, System.Windows.Media.Color color)[] cases =
+        [
+            (0, System.Windows.Media.Color.FromRgb(224, 91, 77)),
+            (19, System.Windows.Media.Color.FromRgb(224, 91, 77)),
+            (20, System.Windows.Media.Color.FromRgb(226, 176, 54)),
+            (49, System.Windows.Media.Color.FromRgb(226, 176, 54)),
+            (50, System.Windows.Media.Color.FromRgb(26, 188, 137)),
+            (100, System.Windows.Media.Color.FromRgb(26, 188, 137)),
+        ];
+
+        foreach ((int remaining, System.Windows.Media.Color expectedColor) in cases)
+        {
+            limit.RemainingPercent = remaining;
+            quota.Update(limit, hideInvalidProgressBars: false);
+            System.Windows.Media.Color actualColor = ((System.Windows.Media.SolidColorBrush)quota.AccentBrush).Color;
+            AssertEqual(expectedColor, actualColor, $"quota color at {remaining}%");
+        }
+
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        UsageResponse response = new()
+        {
+            Available = true,
+            ResetCredits = new ResetCredits { Available = true, AvailableCount = 0 },
+        };
+        viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
+        AssertTrue(!viewModel.HasResetCredits, "zero reset credits should use the inactive color");
+
+        response.ResetCredits.AvailableCount = 1;
+        viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
+        AssertTrue(viewModel.HasResetCredits, "positive reset credits should use the active color");
         return Task.CompletedTask;
     }
 

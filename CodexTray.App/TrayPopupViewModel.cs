@@ -186,6 +186,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial string ResetCreditsExpiryDates { get; private set; } = "unknown";
 
     [ObservableProperty]
+    public partial bool HasResetCredits { get; private set; }
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LiteMonitorDirDisplay))]
     public partial string LiteMonitorDir { get; set; } = string.Empty;
 
@@ -778,6 +781,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         if (resetCredits?.Available == true)
         {
+            HasResetCredits = resetCredits.AvailableCount > 0;
             ResetCreditsDisplay = $"{resetCredits.AvailableCount} Available";
             string nearestExpiry = resetCredits.NearestExpiryLocal.Length >= 10
                 ? resetCredits.NearestExpiryLocal[5..10]
@@ -788,6 +792,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
         else
         {
+            HasResetCredits = false;
             ResetCreditsDisplay = "N/A";
             ResetCreditsExpiryDates = "unknown";
         }
@@ -1616,7 +1621,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// </summary>
         private static Media.Brush GetAccentBrush(int remainingPercent)
         {
-            if (remainingPercent > 50)
+            if (remainingPercent >= 50)
             {
                 return s_GreenBrush;
             }

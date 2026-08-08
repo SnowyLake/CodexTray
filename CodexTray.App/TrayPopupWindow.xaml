@@ -346,6 +346,7 @@
             <Style x:Key="QuotaProgressBarStyle" TargetType="{x:Type ProgressBar}">
                 <Setter Property="Height" Value="6" />
                 <Setter Property="Background" Value="{DynamicResource ControlStrongFillColorDefaultBrush}" />
+                <Setter Property="Foreground" Value="{Binding AccentBrush}" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Template">
                     <Setter.Value>
@@ -364,6 +365,22 @@
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding RemainingPercent}" Value="0">
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="QuotaValueTextStyle" TargetType="{x:Type TextBlock}">
+                <Setter Property="Foreground" Value="{Binding AccentBrush}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="Normal" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding RemainingPercent}" Value="0">
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
             </Style>
 
             <Style x:Key="UsageCardStyle" TargetType="{x:Type Border}">
@@ -392,17 +409,8 @@
                                    Text="{Binding PercentText}"
                                    VerticalAlignment="Center">
                             <TextBlock.Style>
-                                <Style TargetType="{x:Type TextBlock}">
-                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                                    <Setter Property="FontSize" Value="14" />
-                                    <Setter Property="FontWeight" Value="Normal" />
+                                <Style BasedOn="{StaticResource QuotaValueTextStyle}" TargetType="{x:Type TextBlock}">
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding DataContext.IsCodexVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
-                                            <Setter Property="Foreground" Value="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding DataContext.IsCursorVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
-                                            <Setter Property="Foreground" Value="{Binding DataContext.CursorStatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
-                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding Title}" Value="7-Day">
                                             <Setter Property="FontSize" Value="20" />
                                         </DataTrigger>
@@ -420,7 +428,6 @@
                     <ProgressBar Margin="0,9,0,0"
                                  Maximum="100"
                                  Value="{Binding RemainingPercent, Mode=OneWay}"
-                                 Foreground="{Binding AccentBrush}"
                                  Style="{StaticResource QuotaProgressBarStyle}" />
                     <StackPanel Orientation="Horizontal"
                                 HorizontalAlignment="Right"
@@ -466,23 +473,11 @@
                                    Text="{Binding PercentText}"
                                    HorizontalAlignment="Right"
                                    VerticalAlignment="Center"
-                                   FontSize="14">
-                            <TextBlock.Style>
-                                <Style TargetType="{x:Type TextBlock}">
-                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding DataContext.IsCodexVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
-                                            <Setter Property="Foreground" Value="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
+                                   Style="{StaticResource QuotaValueTextStyle}" />
                     </Grid>
                     <ProgressBar Margin="0,9,0,0"
                                  Maximum="100"
                                  Value="{Binding RemainingPercent, Mode=OneWay}"
-                                 Foreground="{Binding AccentBrush}"
                                  Style="{StaticResource QuotaProgressBarStyle}" />
                 </StackPanel>
             </DataTemplate>
@@ -689,8 +684,18 @@
                                             HorizontalAlignment="Right">
                                     <TextBlock Text="{Binding ResetCreditsDisplay}"
                                                HorizontalAlignment="Right"
-                                               Foreground="{Binding StatusDotBrush}"
-                                               FontSize="14" />
+                                               FontSize="14">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}">
+                                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasResetCredits}" Value="True">
+                                                        <Setter Property="Foreground" Value="{Binding StatusDotBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                     <TextBlock Text="{Binding ResetCreditsExpiryDates}"
                                                HorizontalAlignment="Right"
                                                Margin="0,5,0,0"
