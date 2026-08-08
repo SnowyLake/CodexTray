@@ -19,6 +19,10 @@ public sealed class ApiMonitorSettings
 
     public const string NewApiProvider = "NewAPI";
 
+    public const string OpenRouterProvider = "OpenRouter";
+
+    public const string NanoGptProvider = "NanoGPT";
+
     public const string GrokProvider = "Grok";
 
     public const string CursorProvider = "Cursor";
@@ -50,6 +54,8 @@ public sealed class ApiMonitorSettings
         Provider = Provider?.Trim() switch
         {
             string value when string.Equals(value, NewApiProvider, StringComparison.OrdinalIgnoreCase) => NewApiProvider,
+            string value when string.Equals(value, OpenRouterProvider, StringComparison.OrdinalIgnoreCase) => OpenRouterProvider,
+            string value when string.Equals(value, NanoGptProvider, StringComparison.OrdinalIgnoreCase) => NanoGptProvider,
             string value when string.Equals(value, GrokProvider, StringComparison.OrdinalIgnoreCase) => GrokProvider,
             string value when string.Equals(value, CursorProvider, StringComparison.OrdinalIgnoreCase) => CursorProvider,
             _ => DeepSeekProvider,

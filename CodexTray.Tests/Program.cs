@@ -777,6 +777,20 @@ internal static class Program
                 },
                 new ApiMonitorSettings
                 {
+                    Name = "OpenRouter Credits",
+                    Provider = "openrouter",
+                    BaseUrl = "https://openrouter.example/",
+                    ApiKey = "openrouter-management-key",
+                },
+                new ApiMonitorSettings
+                {
+                    Name = "NanoGPT Balance",
+                    Provider = "nanogpt",
+                    BaseUrl = "https://nano-gpt.example/",
+                    ApiKey = "nanogpt-key",
+                },
+                new ApiMonitorSettings
+                {
                     Name = "Local Cursor",
                     Provider = ApiMonitorSettings.CursorProvider,
                     BaseUrl = "https://should-clear.example",
@@ -793,16 +807,22 @@ internal static class Program
         AppSettings loaded = store.Load();
         ApiMonitorSettings deepSeek = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.DeepSeekProvider);
         ApiMonitorSettings grok = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.GrokProvider);
+        ApiMonitorSettings openRouter = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.OpenRouterProvider);
+        ApiMonitorSettings nanoGpt = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.NanoGptProvider);
         AssertEqual("deepseek-secret-token", deepSeek.ApiKey, "saved API key");
         AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
         AssertEqual(ApiMonitorSettings.OpenCodeOAuthSource, grok.GrokOAuthSource, "saved Grok OAuth source");
-        AssertEqual(2, loaded.ApiMonitors.Count, "Cursor API monitor should be removed");
+        AssertEqual("https://openrouter.example", openRouter.BaseUrl, "saved OpenRouter base URL");
+        AssertEqual("openrouter-management-key", openRouter.ApiKey, "saved OpenRouter management key");
+        AssertEqual("https://nano-gpt.example", nanoGpt.BaseUrl, "saved NanoGPT base URL");
+        AssertEqual("nanogpt-key", nanoGpt.ApiKey, "saved NanoGPT API key");
+        AssertEqual(4, loaded.ApiMonitors.Count, "Cursor API monitor should be removed");
         AssertTrue(!json.Contains("Local Cursor", StringComparison.Ordinal), "settings should remove Cursor API monitors");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests DeepSeek CNY balance and NewAPI USD quota parsing.
+    /// Tests supported API provider requests and balance parsing.
     /// </summary>
     private static async Task TestApiUsageCollectorAsync()
     {
@@ -822,12 +842,48 @@ internal static class Program
             ApiKey = "newapi-token",
             UserId = "42",
         };
+        ApiMonitorSettings openRouter = new()
+        {
+            Id = "openrouter",
+            Provider = ApiMonitorSettings.OpenRouterProvider,
+            BaseUrl = "https://openrouter.example/api/v1",
+            ApiKey = "openrouter-management-key",
+        };
+        ApiMonitorSettings openRouterRoot = new()
+        {
+            Id = "openrouter-root",
+            Provider = ApiMonitorSettings.OpenRouterProvider,
+            BaseUrl = "https://openrouter.example",
+            ApiKey = "openrouter-management-key",
+        };
+        ApiMonitorSettings nanoGpt = new()
+        {
+            Id = "nanogpt",
+            Provider = ApiMonitorSettings.NanoGptProvider,
+            BaseUrl = "https://nano-gpt.example/api/v1",
+            ApiKey = "nanogpt-key",
+        };
+        ApiMonitorSettings nanoGptUsageFailure = new()
+        {
+            Id = "nanogpt-failure",
+            Provider = ApiMonitorSettings.NanoGptProvider,
+            BaseUrl = "https://nano-gpt-failure.example",
+            ApiKey = "nanogpt-failure-key",
+        };
 
-        IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync([deepSeek, newApi]);
+        IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync([deepSeek, newApi, openRouter, openRouterRoot, nanoGpt, nanoGptUsageFailure]);
 
         AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
         AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
         AssertEqual("$5.00", results[1].UsedDisplay, "NewAPI used USD quota");
+        AssertEqual("$74.75", results[2].BalanceDisplay, "OpenRouter remaining credits");
+        AssertEqual("$25.75", results[2].UsedDisplay, "OpenRouter used credits");
+        AssertEqual("$74.75", results[3].BalanceDisplay, "OpenRouter root base URL credits");
+        AssertEqual("$12.35", results[4].BalanceDisplay, "NanoGPT USD balance");
+        AssertEqual("$3.00", results[4].UsedDisplay, "NanoGPT 30-day usage");
+        AssertTrue(results[5].Available, "NanoGPT balance should remain available when usage fails");
+        AssertEqual("$12.35", results[5].BalanceDisplay, "NanoGPT balance after usage failure");
+        AssertEqual(string.Empty, results[5].UsedDisplay, "NanoGPT usage failure display");
     }
 
     /// <summary>
@@ -1703,6 +1759,47 @@ internal static class Program
         changedProperties.Clear();
         viewModel.Update(result);
         AssertEqual(0, changedProperties.Count, "unchanged balance tooltip notifications");
+
+        AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.OpenRouterProvider), "OpenRouter provider option");
+        AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.NanoGptProvider), "NanoGPT provider option");
+        viewModel.Provider = ApiMonitorSettings.OpenRouterProvider;
+        AssertEqual("https://openrouter.ai", viewModel.BaseUrl, "OpenRouter default base URL");
+        AssertTrue(!viewModel.HasSecondaryDisplay, "OpenRouter waiting secondary display");
+        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$74.75", "$25.75", string.Empty, DateTimeOffset.UtcNow));
+        AssertTrue(viewModel.HasSecondaryDisplay, "OpenRouter secondary display");
+        viewModel.Provider = ApiMonitorSettings.NanoGptProvider;
+        AssertEqual("https://nano-gpt.com", viewModel.BaseUrl, "NanoGPT default base URL");
+        AssertEqual("N/A", viewModel.BalanceDisplay, "provider switch should clear balance");
+        AssertEqual("N/A", viewModel.UsedDisplay, "provider switch should clear used display");
+        AssertEqual(string.Empty, viewModel.BalanceTooltip, "provider switch should clear tooltip");
+        AssertEqual("Waiting for refresh", viewModel.StatusText, "provider switch should clear status");
+        AssertEqual("30D Used:", viewModel.SecondaryDisplayLabel, "NanoGPT secondary display label");
+        viewModel.Update(new ApiUsageResult(
+            viewModel.Id,
+            true,
+            "$74.75",
+            "$25.75",
+            string.Empty,
+            DateTimeOffset.UtcNow,
+            Provider: ApiMonitorSettings.OpenRouterProvider));
+        AssertEqual("N/A", viewModel.BalanceDisplay, "late OpenRouter result should be ignored");
+        viewModel.Update(new ApiUsageResult(
+            viewModel.Id,
+            true,
+            "$12.35",
+            "$3.00",
+            string.Empty,
+            DateTimeOffset.UtcNow,
+            Provider: ApiMonitorSettings.NanoGptProvider));
+        AssertTrue(viewModel.HasSecondaryDisplay, "NanoGPT successful usage display");
+        AssertEqual("$12.35", viewModel.BalanceDisplay, "current NanoGPT result should update balance");
+        changedProperties.Clear();
+        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$12.35", string.Empty, string.Empty, DateTimeOffset.UtcNow));
+        AssertTrue(!viewModel.HasSecondaryDisplay, "NanoGPT failed usage should hide secondary display");
+        AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.HasSecondaryDisplay)), "NanoGPT secondary visibility notification");
+        viewModel.BaseUrl = "https://custom.example";
+        viewModel.Provider = ApiMonitorSettings.DeepSeekProvider;
+        AssertEqual("https://custom.example", viewModel.BaseUrl, "custom base URL should be preserved");
         return Task.CompletedTask;
     }
 
@@ -2464,31 +2561,60 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
 internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
 {
     /// <summary>
-    /// Returns fixed DeepSeek and NewAPI account responses.
+    /// Returns fixed account responses for supported API providers.
     /// </summary>
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         string host = request.RequestUri?.Host ?? string.Empty;
-        if (request.Headers.Authorization?.Scheme != "Bearer")
-        {
-            throw new InvalidOperationException("missing API authorization header");
-        }
-
         string body;
         if (host == "deepseek.example")
         {
-            AssertRequest(request, "/user/balance", "deepseek-key");
+            AssertBearerRequest(request, HttpMethod.Get, "/user/balance", "deepseek-key");
             body = "{\"is_available\":true,\"balance_infos\":[{\"currency\":\"USD\",\"total_balance\":\"15.00\"},{\"currency\":\"CNY\",\"total_balance\":\"110.00\"}]}";
         }
         else if (host == "newapi.example")
         {
-            AssertRequest(request, "/api/user/self", "newapi-token");
+            AssertBearerRequest(request, HttpMethod.Get, "/api/user/self", "newapi-token");
             if (!request.Headers.TryGetValues("New-Api-User", out IEnumerable<string>? userIds) || userIds.Single() != "42")
             {
                 throw new InvalidOperationException("missing NewAPI user header");
             }
 
             body = "{\"success\":true,\"data\":{\"group\":\"default\",\"quota\":5000000,\"used_quota\":2500000}}";
+        }
+        else if (host == "openrouter.example")
+        {
+            AssertBearerRequest(request, HttpMethod.Get, "/api/v1/credits", "openrouter-management-key");
+            body = "{\"data\":{\"total_credits\":100.5,\"total_usage\":25.75}}";
+        }
+        else if (host is "nano-gpt.example" or "nano-gpt-failure.example")
+        {
+            string token = host == "nano-gpt.example" ? "nanogpt-key" : "nanogpt-failure-key";
+            if (request.RequestUri?.AbsolutePath == "/api/check-balance")
+            {
+                if (request.Method != HttpMethod.Post || request.Headers.Authorization != null ||
+                    !request.Headers.TryGetValues("X-API-Key", out IEnumerable<string>? apiKeys) || apiKeys.Single() != token)
+                {
+                    throw new InvalidOperationException("invalid NanoGPT balance request");
+                }
+
+                body = "{\"usd_balance\":\"12.3456\"}";
+            }
+            else
+            {
+                AssertBearerRequest(request, HttpMethod.Get, "/api/v1/usage", token);
+                if (!string.IsNullOrEmpty(request.RequestUri?.Query))
+                {
+                    throw new InvalidOperationException("unexpected NanoGPT usage query");
+                }
+
+                if (host == "nano-gpt-failure.example")
+                {
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+                }
+
+                body = "{\"totals\":{\"netCostUsd\":3.0}}";
+            }
         }
         else
         {
@@ -2504,9 +2630,10 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
     /// <summary>
     /// Validates a monitored API request path and credential.
     /// </summary>
-    private static void AssertRequest(HttpRequestMessage request, string path, string token)
+    private static void AssertBearerRequest(HttpRequestMessage request, HttpMethod method, string path, string token)
     {
-        if (request.RequestUri?.AbsolutePath != path || request.Headers.Authorization?.Parameter != token)
+        if (request.Method != method || request.RequestUri?.AbsolutePath != path ||
+            request.Headers.Authorization?.Scheme != "Bearer" || request.Headers.Authorization.Parameter != token)
         {
             throw new InvalidOperationException("invalid API usage request");
         }

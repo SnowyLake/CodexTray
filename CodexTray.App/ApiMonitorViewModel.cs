@@ -21,7 +21,9 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     [
         ApiMonitorSettings.DeepSeekProvider,
         ApiMonitorSettings.GrokProvider,
+        ApiMonitorSettings.NanoGptProvider,
         ApiMonitorSettings.NewApiProvider,
+        ApiMonitorSettings.OpenRouterProvider,
     ];
 
     public string[] GrokOAuthSourceOptions { get; } =
@@ -42,6 +44,8 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             string normalized = value switch
             {
                 ApiMonitorSettings.NewApiProvider => ApiMonitorSettings.NewApiProvider,
+                ApiMonitorSettings.OpenRouterProvider => ApiMonitorSettings.OpenRouterProvider,
+                ApiMonitorSettings.NanoGptProvider => ApiMonitorSettings.NanoGptProvider,
                 ApiMonitorSettings.GrokProvider => ApiMonitorSettings.GrokProvider,
                 _ => ApiMonitorSettings.DeepSeekProvider,
             };
@@ -56,10 +60,16 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
                 Name = normalized;
             }
 
-            if (BaseUrl.Length == 0 || BaseUrl == "https://api.deepseek.com")
+            if (BaseUrl.Length == 0 || IsDefaultBaseUrl(BaseUrl))
             {
-                BaseUrl = normalized == ApiMonitorSettings.DeepSeekProvider ? "https://api.deepseek.com" : string.Empty;
+                BaseUrl = GetDefaultBaseUrl(normalized);
             }
+
+            BalanceDisplay = "N/A";
+            BalanceTooltip = string.Empty;
+            UsedDisplay = "N/A";
+            StatusText = "Waiting for refresh";
+            StatusDotBrush = s_RedBrush;
 
             OnPropertyChanged(nameof(IsNewApi));
             OnPropertyChanged(nameof(IsGrok));
@@ -98,11 +108,13 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
 
     public bool IsLocalSessionAuth => IsGrok;
 
-    public bool HasSecondaryDisplay => IsNewApi || IsGrok;
+    public bool HasSecondaryDisplay => IsNewApi || IsGrok ||
+        (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.NanoGptProvider &&
+         !string.IsNullOrEmpty(UsedDisplay) && UsedDisplay != "N/A");
 
     public string PrimaryDisplayLabel => "Balance:";
 
-    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : "Used:";
+    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : m_Provider == ApiMonitorSettings.NanoGptProvider ? "30D Used:" : "Used:";
 
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? m_Provider : Name.Trim();
 
@@ -116,6 +128,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     public bool HasBalanceTooltip => !string.IsNullOrWhiteSpace(BalanceTooltip);
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSecondaryDisplay))]
     public partial string UsedDisplay { get; private set; } = "N/A";
 
     [ObservableProperty]
@@ -164,10 +177,37 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Returns the default base URL for a provider.
+    /// </summary>
+    private static string GetDefaultBaseUrl(string provider)
+    {
+        return provider switch
+        {
+            ApiMonitorSettings.DeepSeekProvider => "https://api.deepseek.com",
+            ApiMonitorSettings.OpenRouterProvider => "https://openrouter.ai",
+            ApiMonitorSettings.NanoGptProvider => "https://nano-gpt.com",
+            _ => string.Empty,
+        };
+    }
+
+    /// <summary>
+    /// Returns whether a URL is one of the built-in provider defaults.
+    /// </summary>
+    private static bool IsDefaultBaseUrl(string baseUrl)
+    {
+        return baseUrl is "https://api.deepseek.com" or "https://openrouter.ai" or "https://nano-gpt.com";
+    }
+
+    /// <summary>
     /// Updates the card with a completed usage query.
     /// </summary>
     public void Update(ApiUsageResult result)
     {
+        if (result.Provider.Length > 0 && result.Provider != m_Provider)
+        {
+            return;
+        }
+
         BalanceDisplay = result.BalanceDisplay;
         BalanceTooltip = result.BalanceTooltip;
         UsedDisplay = result.UsedDisplay;
