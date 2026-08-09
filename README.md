@@ -17,7 +17,7 @@
 
 `CodexTray` 是一个适用于 Windows x64 的托盘应用. 它读取当前 Windows 用户的 Codex 登录信息, 从 ChatGPT 官方接口获取 Session 和 Weekly 额度, 并通过本地服务把 Codex 额度与 Cursor Monthly 额度提供给 LiteMonitor 和 TrafficMonitor 插件.
 
-应用还会统计本机 Codex 会话的 token 用量, 按模型价格估算 API 等价成本. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
+应用还会统计本机 Codex 会话与 OpenCode 中 OpenAI 调用的 token 用量, 按模型价格估算 API 等价成本. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
 
 除了 Codex 额度, 应用还可以在独立的 Cursor 页面查看 Cursor 额度与 token 账单统计, 并在 APIs 页面监控 DeepSeek, NewAPI, OpenRouter, NanoGPT 和 Grok 的余额或用量.
 
@@ -29,8 +29,8 @@
 
 - 显示 Codex 计划状态, Session 与 Weekly 剩余额度和重置时间.
 - 显示可用 Reset Credits 数量及最近到期时间.
-- Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 并支持中英文 token 数量单位.
-- Cursor 页面显示 Monthly, First Party 和 APIs 剩余额度, Monthly 重置时间, 以及 7 个周期的实际账单 token 与成本.
+- Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 提供最近 7 天的成本趋势图, 并支持中英文 token 数量单位.
+- Cursor 页面显示 Monthly, First party 和 APIs 剩余额度, Monthly 重置时间, 以及实际账单 token, 成本和最近 7 天的成本趋势.
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 Grok 剩余额度和重置时间监控.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
@@ -56,7 +56,7 @@
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
 - Codex 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
-- Cursor 页: 查看 Monthly, First Party, APIs 额度和实际账单 Token Cost.
+- Cursor 页: 查看 Monthly, First party, APIs 额度和实际账单 Token Cost.
 - APIs 页: 添加和查看 DeepSeek, NewAPI, OpenRouter, NanoGPT 或 Grok 监控卡片.
 - Settings 页: 调整可见页面, 刷新, 显示, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Cursor 和 APIs 入口并停止对应后台采集. 同时隐藏 Codex 和 Cursor 时会停止本地 HTTP 服务.
 - About 页: 查看当前版本, 项目主页和许可证信息.
@@ -65,7 +65,7 @@
 
 ## Cursor 页面
 
-Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个请求共享一次本地凭据读取和最多一次 OAuth refresh 重试. Monthly, First Party 和 APIs 显示独立剩余额度, 只有 Monthly 显示重置时间. Monthly 同时进入本地插件接口. Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 并与 Codex 页共享 token 单位设置.
+Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个数据区域共享一次本地凭据读取和最多一次 OAuth refresh 重试. Monthly, First party 和 APIs 显示独立剩余额度, 只有 Monthly 显示重置时间. Monthly 同时进入本地插件接口. Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 提供最近 7 天的成本趋势图, 并与 Codex 页共享 token 单位设置.
 
 Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不会用本地模型价格表重算. OAuth token 不会写入 `settings.json`.
 
@@ -86,6 +86,8 @@ Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不�
 CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监控器, 使用 `Browse` 手动选择目录或 `Auto detect` 自动定位, 然后点击 `Setup` 安装插件. 安装完成后重启对应监控器或重新加载插件.
 
 LiteMonitor 显示 `Codex-Session`, `Codex-Weekly` 和 `Cursor-Monthly` 三项, 从 JSON 接口读取数据. TrafficMonitor 原生插件显示同样三项, 从三行文本接口读取数据. 插件默认保留宿主自己的 label 和布局.
+
+隐藏 Codex 或 Cursor 页面会停止对应数据采集, 并让对应插件项显示 `N/A`. 同时隐藏这两个页面后, 本地 HTTP 服务会停止.
 
 如果修改了 CodexTray 的 HTTP 端口, 请重新执行 `Setup`, 让插件配置同步到新端口.
 
@@ -120,7 +122,7 @@ LiteMonitor 显示 `Codex-Session`, `Codex-Weekly` 和 `Cursor-Monthly` 三项, 
 
 ### 为什么 LiteMonitor 或 TrafficMonitor 没有更新
 
-请确认 CodexTray 正在运行且 Settings 中 Codex 页面可见, 在托盘菜单中点击 `Refresh Now`, 再检查监控器路径并重新执行 `Setup`. 如果修改过 HTTP 端口, 必须重新安装插件配置.
+请确认 CodexTray 正在运行, 且 Settings 中 Codex 或 Cursor 至少一个页面可见. 在托盘菜单中点击 `Refresh Now`, 再检查监控器路径并重新执行 `Setup`. 如果修改过 HTTP 端口, 必须重新安装插件配置.
 
 ### 为什么找不到 LiteMonitor 或 TrafficMonitor
 
