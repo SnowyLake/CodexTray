@@ -113,10 +113,6 @@ public sealed class AppSettings
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? BackdropMode { get; set; }
 
-    public int WindowWidth { get; set; } = CodexTrayDefaults.WindowWidth;
-
-    public int WindowHeight { get; set; } = CodexTrayDefaults.WindowHeight;
-
     public bool ShowResetTimeInPlugins { get; set; } = CodexTrayDefaults.ShowResetTimeInPlugins;
 
     public bool UseAbsoluteResetTime { get; set; } = CodexTrayDefaults.UseAbsoluteResetTime;
@@ -152,18 +148,6 @@ public sealed class AppSettings
             RefreshIntervalMinutes > CodexTrayDefaults.MaximumRefreshIntervalMinutes)
         {
             RefreshIntervalMinutes = CodexTrayDefaults.RefreshIntervalMinutes;
-        }
-
-        if (WindowWidth < CodexTrayDefaults.MinimumWindowWidth ||
-            WindowWidth > CodexTrayDefaults.MaximumWindowWidth)
-        {
-            WindowWidth = CodexTrayDefaults.WindowWidth;
-        }
-
-        if (WindowHeight < CodexTrayDefaults.MinimumWindowHeight ||
-            WindowHeight > CodexTrayDefaults.MaximumWindowHeight)
-        {
-            WindowHeight = CodexTrayDefaults.WindowHeight;
         }
 
         LiteMonitorDir = (LiteMonitorDir ?? string.Empty).Trim();

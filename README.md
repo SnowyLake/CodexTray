@@ -34,7 +34,7 @@
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 Grok 剩余额度和重置时间监控.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
-- 支持 `System`, `Light`, `Dark` 主题, Windows 11 Mica 背景材质和窗口尺寸设置. Windows 10 固定使用纯色背景.
+- 支持 `System`, `Light`, `Dark` 主题和 Windows 11 Mica 背景材质, 主面板固定为 360 x 620. Windows 10 固定使用纯色背景.
 - 支持隐藏 Codex, Cursor 或 APIs 页面并停止对应后台采集, 以及隐藏没有有效额度窗口的 Codex 进度条.
 - 自动检测 LiteMonitor 与 TrafficMonitor 安装目录, 并一键安装对应插件.
 - 支持插件中显示或隐藏额度重置时间, 以及倒计时或绝对时间格式.
@@ -58,7 +58,7 @@
 - Codex 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
 - Cursor 页: 查看 Total, First Party, APIs 额度和实际账单 Token Cost.
 - APIs 页: 添加和查看 DeepSeek, NewAPI, OpenRouter, NanoGPT 或 Grok 监控卡片.
-- Settings 页: 调整可见页面, 刷新, 显示, 窗口尺寸, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Cursor 和 APIs 入口并停止对应后台采集, 隐藏 Codex 时还会停止本地 HTTP 服务.
+- Settings 页: 调整可见页面, 刷新, 显示, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Cursor 和 APIs 入口并停止对应后台采集, 隐藏 Codex 时还会停止本地 HTTP 服务.
 - About 页: 查看当前版本, 项目主页和许可证信息.
 
 再次运行 `CodexTray.exe` 不会启动第二个实例, 而是通知已有实例打开主面板.

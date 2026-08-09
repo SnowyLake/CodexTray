@@ -6,8 +6,12 @@
         xmlns:local="clr-namespace:CodexTray.App"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Title="{x:Static core:CodexTrayDefaults.AppName}"
-        Width="380"
-        Height="605"
+        Width="{x:Static core:CodexTrayDefaults.PopupWindowWidth}"
+        Height="{x:Static core:CodexTrayDefaults.PopupWindowHeight}"
+        MinWidth="{x:Static core:CodexTrayDefaults.PopupWindowWidth}"
+        MaxWidth="{x:Static core:CodexTrayDefaults.PopupWindowWidth}"
+        MinHeight="{x:Static core:CodexTrayDefaults.PopupWindowHeight}"
+        MaxHeight="{x:Static core:CodexTrayDefaults.PopupWindowHeight}"
         WindowStyle="None"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
@@ -1339,44 +1343,6 @@
                                       ItemsSource="{Binding ThemeModeOptions}"
                                       SelectedItem="{Binding ThemeMode, UpdateSourceTrigger=PropertyChanged}"
                                       Style="{StaticResource SettingsComboBoxStyle}" />
-                        </Grid>
-
-                        <Grid ToolTip="Unit: pixels"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Window width"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <local:NumericUpDown Grid.Column="1"
-                                                 VerticalAlignment="Center"
-                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                 ToolTip="Unit: pixels"
-                                                 Minimum="{x:Static core:CodexTrayDefaults.MinimumWindowWidth}"
-                                                 Maximum="{x:Static core:CodexTrayDefaults.MaximumWindowWidth}"
-                                                 DefaultValue="{x:Static core:CodexTrayDefaults.WindowWidth}"
-                                                 Value="{Binding WindowWidthText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
-                        </Grid>
-
-                        <Grid ToolTip="Unit: pixels"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Window height"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <local:NumericUpDown Grid.Column="1"
-                                                 VerticalAlignment="Center"
-                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                 ToolTip="Unit: pixels"
-                                                 Minimum="{x:Static core:CodexTrayDefaults.MinimumWindowHeight}"
-                                                 Maximum="{x:Static core:CodexTrayDefaults.MaximumWindowHeight}"
-                                                 DefaultValue="{x:Static core:CodexTrayDefaults.WindowHeight}"
-                                                 Value="{Binding WindowHeightText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
                         </Grid>
 
                         <Grid Margin="{StaticResource SettingsSectionEndMargin}"

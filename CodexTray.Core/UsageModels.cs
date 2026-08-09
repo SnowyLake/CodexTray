@@ -14,12 +14,8 @@ public static class CodexTrayDefaults
     public const bool ShowResetTimeInPlugins = true;
     public const bool UseAbsoluteResetTime = true;
     public const bool HideInvalidProgressBars = true;
-    public const int WindowWidth = 370;
-    public const int MinimumWindowWidth = 280;
-    public const int MaximumWindowWidth = 800;
-    public const int WindowHeight = 620;
-    public const int MinimumWindowHeight = 400;
-    public const int MaximumWindowHeight = 1200;
+    public const double PopupWindowWidth = 360;
+    public const double PopupWindowHeight = 620;
     public const string AppName = "CodexTray";
     public const string SettingsFileName = "settings.json";
     public const string ModelPricingFileName = "model-pricing.json";

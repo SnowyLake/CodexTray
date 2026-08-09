@@ -25,6 +25,7 @@ internal static class Program
             return await RunCursorLiveAsync();
         }
 
+        await RunAsync("creates the fixed-size popup", TestPopupFixedSizeAsync);
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
         await RunAsync("uses countdown label for same-day seven day reset", TestSevenDayCountdownLabelAsync);
         await RunAsync("uses countdown label for next-day seven day reset", TestNextDaySevenDayCountdownLabelAsync);
@@ -73,6 +74,42 @@ internal static class Program
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Tests loading the popup XAML with the fixed window dimensions.
+    /// </summary>
+    private static Task TestPopupFixedSizeAsync()
+    {
+        Exception? failure = null;
+        Thread thread = new(() =>
+        {
+            try
+            {
+                TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+                TrayPopupWindow window = new(viewModel);
+                AssertEqual(CodexTrayDefaults.PopupWindowWidth, window.Width, "fixed popup width");
+                AssertEqual(CodexTrayDefaults.PopupWindowHeight, window.Height, "fixed popup height");
+                AssertEqual(window.Width, window.MinWidth, "fixed popup minimum width");
+                AssertEqual(window.Width, window.MaxWidth, "fixed popup maximum width");
+                AssertEqual(window.Height, window.MinHeight, "fixed popup minimum height");
+                AssertEqual(window.Height, window.MaxHeight, "fixed popup maximum height");
+                window.Close();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (failure != null)
+        {
+            throw new InvalidOperationException(failure.ToString(), failure);
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -612,8 +649,6 @@ internal static class Program
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
         AssertTrue(settings.MicaEnabled, "Mica should be enabled by default");
-        AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
-        AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
         AssertTrue(settings.ShowResetTimeInPlugins, "plugin reset time should be shown by default");
         AssertTrue(settings.UseAbsoluteResetTime, "absolute reset time should be enabled by default");
         AssertTrue(settings.HideInvalidProgressBars, "invalid progress bars should be hidden by default");
@@ -628,14 +663,12 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "repaired settings should include Mica toggle");
-        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowWidth), out _), "repaired settings should include window width");
-        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowHeight), out _), "repaired settings should include window height");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
 
         using TempDirectory legacyTemp = new();
         SettingsStore legacyStore = new(legacyTemp.Path);
-        File.WriteAllText(legacyStore.SettingsPath, "{\"BackdropMode\":\"Mica\",\"AcrylicEnabled\":true,\"AcrylicOpacityPercent\":80,\"TokenCostItems\":63}");
+        File.WriteAllText(legacyStore.SettingsPath, "{\"BackdropMode\":\"Mica\",\"AcrylicEnabled\":true,\"AcrylicOpacityPercent\":80,\"TokenCostItems\":63,\"WindowWidth\":800,\"WindowHeight\":1200}");
         AppSettings legacySettings = legacyStore.Load();
         AssertTrue(legacySettings.MicaEnabled, "legacy Mica mode");
         using JsonDocument migratedDocument = JsonDocument.Parse(File.ReadAllText(legacyStore.SettingsPath));
@@ -644,6 +677,8 @@ internal static class Program
         AssertTrue(!migratedDocument.RootElement.TryGetProperty("AcrylicEnabled", out _), "migrated settings should omit legacy acrylic toggle");
         AssertTrue(!migratedDocument.RootElement.TryGetProperty("AcrylicOpacityPercent", out _), "migrated settings should omit acrylic opacity");
         AssertTrue(!migratedDocument.RootElement.TryGetProperty("TokenCostItems", out _), "migrated settings should omit token cost selection");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("WindowWidth", out _), "migrated settings should omit window width");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("WindowHeight", out _), "migrated settings should omit window height");
         return Task.CompletedTask;
     }
 
@@ -717,8 +752,6 @@ internal static class Program
             TokenUnit = AppSettings.TokenUnitChinese,
             VisiblePages = PageItem.Cursor | (PageItem)(1 << 10),
             BackdropMode = "unexpected",
-            WindowWidth = 100,
-            WindowHeight = 9999,
         };
 
         settings.Normalize();
@@ -730,8 +763,6 @@ internal static class Program
         AssertEqual(PageItem.Cursor, settings.VisiblePages, "supported visible pages");
         AssertTrue(!settings.MicaEnabled, "unexpected backdrop should disable Mica");
         AssertEqual<string?>(null, settings.BackdropMode, "legacy backdrop should be cleared");
-        AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
-        AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
         settings.TokenUnit = "M/B";
         settings.Normalize();
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "legacy English token unit");
@@ -1612,12 +1643,6 @@ internal static class Program
              viewModel => viewModel.RefreshIntervalText = "2",
              viewModel => viewModel.RefreshIntervalText = CodexTrayDefaults.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture)),
             (nameof(TrayPopupViewModel.StartWithWindows), viewModel => viewModel.StartWithWindows = true, viewModel => viewModel.StartWithWindows = false),
-            (nameof(TrayPopupViewModel.WindowWidthText),
-             viewModel => viewModel.WindowWidthText = "381",
-             viewModel => viewModel.WindowWidthText = CodexTrayDefaults.WindowWidth.ToString(CultureInfo.InvariantCulture)),
-            (nameof(TrayPopupViewModel.WindowHeightText),
-             viewModel => viewModel.WindowHeightText = "606",
-             viewModel => viewModel.WindowHeightText = CodexTrayDefaults.WindowHeight.ToString(CultureInfo.InvariantCulture)),
             (nameof(TrayPopupViewModel.ShowResetTimeInPlugins),
              viewModel => viewModel.ShowResetTimeInPlugins = !CodexTrayDefaults.ShowResetTimeInPlugins,
              viewModel => viewModel.ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins),

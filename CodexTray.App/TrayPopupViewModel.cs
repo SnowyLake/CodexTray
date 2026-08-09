@@ -53,11 +53,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private const string k_RepositoryUrl = "https://github.com/SnowyLake/CodexTray";
     private const double k_TokenCostChartMaximumBarHeight = 96;
 
-    private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
-    private static readonly Media.Brush s_YellowBrush = new Media.SolidColorBrush(Media.Color.FromRgb(226, 176, 54));
-    private static readonly Media.Brush s_RedBrush = new Media.SolidColorBrush(Media.Color.FromRgb(224, 91, 77));
+    private static readonly Media.Brush s_GreenBrush = CreateFrozenBrush(26, 188, 137);
+    private static readonly Media.Brush s_YellowBrush = CreateFrozenBrush(226, 176, 54);
+    private static readonly Media.Brush s_RedBrush = CreateFrozenBrush(224, 91, 77);
     private static readonly Media.Brush s_PlanBadgeActiveBrush = s_GreenBrush;
-    private static readonly Media.Brush s_PlanBadgeInactiveBrush = new Media.SolidColorBrush(Media.Color.FromRgb(107, 122, 117));
+    private static readonly Media.Brush s_PlanBadgeInactiveBrush = CreateFrozenBrush(107, 122, 117);
     private static readonly TokenCostDisplay s_UnavailableTokenCostDisplay = new("N/A", "N/A");
 
     private readonly AppSettings m_Settings;
@@ -86,8 +86,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private PageItem m_SnapshotVisiblePages = PageItem.All;
     private bool m_SnapshotStartWithWindows;
     private bool m_SnapshotMicaEnabled;
-    private string m_SnapshotWindowWidthText = string.Empty;
-    private string m_SnapshotWindowHeightText = string.Empty;
     private bool m_SnapshotShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
     private bool m_SnapshotUseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
     private bool m_SnapshotHideInvalidProgressBars = CodexTrayDefaults.HideInvalidProgressBars;
@@ -323,12 +321,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public bool IsMicaSupported => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
 
     [ObservableProperty]
-    public partial string WindowWidthText { get; set; } = CodexTrayDefaults.WindowWidth.ToString(CultureInfo.InvariantCulture);
-
-    [ObservableProperty]
-    public partial string WindowHeightText { get; set; } = CodexTrayDefaults.WindowHeight.ToString(CultureInfo.InvariantCulture);
-
-    [ObservableProperty]
     public partial bool ShowResetTimeInPlugins { get; set; } = CodexTrayDefaults.ShowResetTimeInPlugins;
 
     [ObservableProperty]
@@ -487,6 +479,16 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Creates an immutable brush that can be shared across UI threads.
+    /// </summary>
+    private static Media.Brush CreateFrozenBrush(byte red, byte green, byte blue)
+    {
+        Media.SolidColorBrush brush = new(Media.Color.FromRgb(red, green, blue));
+        brush.Freeze();
+        return brush;
+    }
+
+    /// <summary>
     /// Returns whether settings contain unsaved changes.
     /// </summary>
     private bool CanSaveSettings()
@@ -511,8 +513,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             VisiblePages = settings.VisiblePages;
             StartWithWindows = settings.StartWithWindows;
             MicaEnabled = settings.MicaEnabled;
-            WindowWidthText = settings.WindowWidth.ToString(CultureInfo.InvariantCulture);
-            WindowHeightText = settings.WindowHeight.ToString(CultureInfo.InvariantCulture);
             ShowResetTimeInPlugins = settings.ShowResetTimeInPlugins;
             UseAbsoluteResetTime = settings.UseAbsoluteResetTime;
             HideInvalidProgressBars = settings.HideInvalidProgressBars;
@@ -551,16 +551,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     partial void OnStartWithWindowsChanged(bool value) => EvaluateDirtyState();
 
     /// <summary>
-    /// Recomputes dirty state after the window width text changes.
-    /// </summary>
-    partial void OnWindowWidthTextChanged(string value) => EvaluateDirtyState();
-
-    /// <summary>
-    /// Recomputes dirty state after the window height text changes.
-    /// </summary>
-    partial void OnWindowHeightTextChanged(string value) => EvaluateDirtyState();
-
-    /// <summary>
     /// Recomputes dirty state after the plugin reset-time setting changes.
     /// </summary>
     partial void OnShowResetTimeInPluginsChanged(bool value) => EvaluateDirtyState();
@@ -584,8 +574,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_SnapshotVisiblePages = m_VisiblePages;
         m_SnapshotStartWithWindows = StartWithWindows;
         m_SnapshotMicaEnabled = m_MicaEnabled;
-        m_SnapshotWindowWidthText = WindowWidthText;
-        m_SnapshotWindowHeightText = WindowHeightText;
         m_SnapshotShowResetTimeInPlugins = ShowResetTimeInPlugins;
         m_SnapshotUseAbsoluteResetTime = UseAbsoluteResetTime;
         m_SnapshotHideInvalidProgressBars = m_HideInvalidProgressBars;
@@ -613,8 +601,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             m_VisiblePages == m_SnapshotVisiblePages &&
             StartWithWindows == m_SnapshotStartWithWindows &&
             m_MicaEnabled == m_SnapshotMicaEnabled &&
-            WindowWidthText == m_SnapshotWindowWidthText &&
-            WindowHeightText == m_SnapshotWindowHeightText &&
             ShowResetTimeInPlugins == m_SnapshotShowResetTimeInPlugins &&
             UseAbsoluteResetTime == m_SnapshotUseAbsoluteResetTime &&
             m_HideInvalidProgressBars == m_SnapshotHideInvalidProgressBars;
@@ -633,23 +619,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             CodexTrayDefaults.MinimumRefreshIntervalMinutes,
             CodexTrayDefaults.MaximumRefreshIntervalMinutes,
             CodexTrayDefaults.RefreshIntervalMinutes);
-        int windowWidth = ClampOrDefault(
-            WindowWidthText,
-            CodexTrayDefaults.MinimumWindowWidth,
-            CodexTrayDefaults.MaximumWindowWidth,
-            CodexTrayDefaults.WindowWidth);
-        int windowHeight = ClampOrDefault(
-            WindowHeightText,
-            CodexTrayDefaults.MinimumWindowHeight,
-            CodexTrayDefaults.MaximumWindowHeight,
-            CodexTrayDefaults.WindowHeight);
         m_SuppressDirtyTracking = true;
         try
         {
             PortText = port.ToString(CultureInfo.InvariantCulture);
             RefreshIntervalText = refreshInterval.ToString(CultureInfo.InvariantCulture);
-            WindowWidthText = windowWidth.ToString(CultureInfo.InvariantCulture);
-            WindowHeightText = windowHeight.ToString(CultureInfo.InvariantCulture);
             LiteMonitorDir = LiteMonitorDir.Trim();
             TrafficMonitorDir = TrafficMonitorDir.Trim();
         }
@@ -667,8 +641,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_Settings.TokenUnit = TokenUnit;
         m_Settings.VisiblePages = VisiblePages;
         m_Settings.MicaEnabled = MicaEnabled;
-        m_Settings.WindowWidth = windowWidth;
-        m_Settings.WindowHeight = windowHeight;
         m_Settings.ShowResetTimeInPlugins = ShowResetTimeInPlugins;
         m_Settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
         m_Settings.HideInvalidProgressBars = HideInvalidProgressBars;
