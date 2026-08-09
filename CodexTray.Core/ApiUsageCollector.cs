@@ -11,7 +11,8 @@ public sealed record ApiUsageResult(
     string UsedDisplay,
     string Error,
     DateTimeOffset UpdatedAt,
-    string BalanceTooltip = "");
+    string BalanceTooltip = "",
+    string Provider = "");
 
 public enum ApiUsageRefreshStatus
 {
@@ -96,7 +97,9 @@ public sealed class ApiUsageCollector
         bool useAbsoluteResetTime = false,
         CancellationToken cancellationToken = default)
     {
-        Task<ApiUsageResult>[] queries = monitors.Select(monitor => CollectOneAsync(monitor, useAbsoluteResetTime, cancellationToken)).ToArray();
+        cancellationToken.ThrowIfCancellationRequested();
+        Task<ApiUsageResult>[] queries = monitors.Select(async monitor =>
+            (await CollectOneAsync(monitor, useAbsoluteResetTime, cancellationToken).ConfigureAwait(false)) with { Provider = monitor.Provider }).ToArray();
         return await Task.WhenAll(queries).ConfigureAwait(false);
     }
 
@@ -105,6 +108,7 @@ public sealed class ApiUsageCollector
     /// </summary>
     private async Task<ApiUsageResult> CollectOneAsync(ApiMonitorSettings monitor, bool useAbsoluteResetTime, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset now = DateTimeOffset.Now;
         if (monitor.Provider == ApiMonitorSettings.GrokProvider)
         {
@@ -116,7 +120,18 @@ public sealed class ApiUsageCollector
             return Unavailable(monitor.Id, "Enter an API key", now);
         }
 
-        if (!TryBuildUri(monitor.BaseUrl, monitor.Provider == ApiMonitorSettings.NewApiProvider ? "/api/user/self" : "/user/balance", out Uri? uri))
+        if (monitor.Provider == ApiMonitorSettings.NanoGptProvider)
+        {
+            return await CollectNanoGptAsync(monitor, now, cancellationToken).ConfigureAwait(false);
+        }
+
+        string endpointPath = monitor.Provider switch
+        {
+            ApiMonitorSettings.NewApiProvider => "/api/user/self",
+            ApiMonitorSettings.OpenRouterProvider => "/api/v1/credits",
+            _ => "/user/balance",
+        };
+        if (!TryBuildUri(monitor.BaseUrl, endpointPath, out Uri? uri, monitor.Provider == ApiMonitorSettings.OpenRouterProvider))
         {
             return Unavailable(monitor.Id, "Enter a valid HTTP or HTTPS base URL", now);
         }
@@ -144,9 +159,85 @@ public sealed class ApiUsageCollector
             }
 
             using JsonDocument document = JsonDocument.Parse(body);
-            return monitor.Provider == ApiMonitorSettings.NewApiProvider
-                ? ParseNewApi(monitor.Id, document.RootElement, now)
-                : ParseDeepSeek(monitor.Id, document.RootElement, now);
+            return monitor.Provider switch
+            {
+                ApiMonitorSettings.NewApiProvider => ParseNewApi(monitor.Id, document.RootElement, now),
+                ApiMonitorSettings.OpenRouterProvider => ParseOpenRouter(monitor.Id, document.RootElement, now),
+                _ => ParseDeepSeek(monitor.Id, document.RootElement, now),
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException)
+        {
+            return Unavailable(monitor.Id, exception is TaskCanceledException ? "Request timed out" : "Invalid API response", now);
+        }
+    }
+
+    /// <summary>
+    /// Queries NanoGPT balance and optional 30-day usage data.
+    /// </summary>
+    private async Task<ApiUsageResult> CollectNanoGptAsync(ApiMonitorSettings monitor, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (!TryBuildUri(monitor.BaseUrl, "/api/check-balance", out Uri? balanceUri, stripApiV1: true) ||
+            !TryBuildUri(monitor.BaseUrl, "/api/v1/usage", out Uri? usageUri, stripApiV1: true))
+        {
+            return Unavailable(monitor.Id, "Enter a valid HTTP or HTTPS base URL", now);
+        }
+
+        try
+        {
+            using HttpRequestMessage balanceRequest = new(HttpMethod.Post, balanceUri);
+            balanceRequest.Headers.TryAddWithoutValidation("X-API-Key", monitor.ApiKey);
+            balanceRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            using HttpResponseMessage balanceResponse = await m_HttpClient.SendAsync(balanceRequest, cancellationToken).ConfigureAwait(false);
+            string balanceBody = await balanceResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!balanceResponse.IsSuccessStatusCode)
+            {
+                return Unavailable(monitor.Id, $"Request failed: {(int)balanceResponse.StatusCode} {balanceResponse.ReasonPhrase}", now);
+            }
+
+            using JsonDocument balanceDocument = JsonDocument.Parse(balanceBody);
+            if (!TryGetDecimal(balanceDocument.RootElement, "usd_balance", out decimal balance))
+            {
+                return Unavailable(monitor.Id, "Balance data is missing", now);
+            }
+
+            string usedDisplay = string.Empty;
+            try
+            {
+                using HttpRequestMessage usageRequest = new(HttpMethod.Get, usageUri);
+                usageRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", monitor.ApiKey);
+                usageRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                using HttpResponseMessage usageResponse = await m_HttpClient.SendAsync(usageRequest, cancellationToken).ConfigureAwait(false);
+                string usageBody = await usageResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                if (usageResponse.IsSuccessStatusCode)
+                {
+                    using JsonDocument usageDocument = JsonDocument.Parse(usageBody);
+                    if (usageDocument.RootElement.TryGetProperty("totals", out JsonElement totals) &&
+                        totals.ValueKind == JsonValueKind.Object &&
+                        TryGetDecimal(totals, "netCostUsd", out decimal used))
+                    {
+                        usedDisplay = $"${used:0.00}";
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException)
+            {
+                usedDisplay = string.Empty;
+            }
+
+            return new ApiUsageResult(monitor.Id, true, $"${balance:0.00}", usedDisplay, string.Empty, now);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException)
         {
@@ -159,6 +250,7 @@ public sealed class ApiUsageCollector
     /// </summary>
     private async Task<ApiUsageResult> CollectGrokAsync(ApiMonitorSettings monitor, DateTimeOffset now, bool useAbsoluteResetTime, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             GrokUsageSnapshot snapshot = await m_GrokUsageCollector
@@ -169,10 +261,14 @@ public sealed class ApiUsageCollector
                 true,
                 FormatRemainingPercent(snapshot.UsedPercent),
                 useAbsoluteResetTime
-                    ? CodexTrayCollector.FormatSevenDayResetDate(snapshot.ResetsAt, now)
-                    : CodexTrayCollector.FormatSevenDayResetLabel(snapshot.ResetsAt, now),
+                    ? CodexTrayCollector.FormatWeeklyResetDate(snapshot.ResetsAt, now)
+                    : CodexTrayCollector.FormatWeeklyResetLabel(snapshot.ResetsAt, now),
                 string.Empty,
                 now);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {
@@ -246,6 +342,22 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
+    /// Parses OpenRouter management credit totals.
+    /// </summary>
+    private static ApiUsageResult ParseOpenRouter(string monitorId, JsonElement root, DateTimeOffset now)
+    {
+        if (!root.TryGetProperty("data", out JsonElement data) || data.ValueKind != JsonValueKind.Object ||
+            !TryGetDecimal(data, "total_credits", out decimal totalCredits) ||
+            !TryGetDecimal(data, "total_usage", out decimal totalUsage))
+        {
+            return Unavailable(monitorId, "Credit data is missing", now);
+        }
+
+        decimal remaining = Math.Max(0, totalCredits - totalUsage);
+        return new ApiUsageResult(monitorId, true, $"${remaining:0.00}", $"${totalUsage:0.00}", string.Empty, now);
+    }
+
+    /// <summary>
     /// Reads a JSON number that may be encoded as a number or string.
     /// </summary>
     private static bool TryGetDecimal(JsonElement parent, string propertyName, out decimal value)
@@ -268,7 +380,7 @@ public sealed class ApiUsageCollector
     /// <summary>
     /// Builds an account endpoint from a user-provided base URL.
     /// </summary>
-    private static bool TryBuildUri(string baseUrl, string endpointPath, out Uri? uri)
+    private static bool TryBuildUri(string baseUrl, string endpointPath, out Uri? uri, bool stripApiV1 = false)
     {
         uri = null;
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? baseUri) ||
@@ -278,7 +390,11 @@ public sealed class ApiUsageCollector
         }
 
         string path = baseUri.AbsolutePath.TrimEnd('/');
-        if (path.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
+        if (stripApiV1 && path.EndsWith("/api/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            path = path[..^7];
+        }
+        else if (path.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
         {
             path = path[..^3];
         }

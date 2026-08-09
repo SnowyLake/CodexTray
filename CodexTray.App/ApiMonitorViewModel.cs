@@ -1,27 +1,17 @@
 using CodexTray.Core;
-using System.Windows.Input;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Media = System.Windows.Media;
 
 namespace CodexTray.App;
 
-internal sealed class ApiMonitorViewModel : ObservableObject
+internal sealed partial class ApiMonitorViewModel : ObservableObject
 {
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_RedBrush = new Media.SolidColorBrush(Media.Color.FromRgb(224, 91, 77));
 
-    private string m_Name;
     private string m_Provider;
-    private string m_BaseUrl;
-    private string m_ApiKey;
-    private string m_UserId;
     private string m_GrokOAuthSource;
-    private string m_BalanceDisplay = "N/A";
-    private string m_BalanceTooltip = string.Empty;
-    private string m_UsedDisplay = "N/A";
-    private string m_StatusText = "Waiting for refresh";
-    private Media.Brush m_StatusDotBrush = s_RedBrush;
-    private bool m_IsEditing;
-    private bool m_IsPending;
 
     public event EventHandler? EditingSaved;
 
@@ -31,7 +21,9 @@ internal sealed class ApiMonitorViewModel : ObservableObject
     [
         ApiMonitorSettings.DeepSeekProvider,
         ApiMonitorSettings.GrokProvider,
+        ApiMonitorSettings.NanoGptProvider,
         ApiMonitorSettings.NewApiProvider,
+        ApiMonitorSettings.OpenRouterProvider,
     ];
 
     public string[] GrokOAuthSourceOptions { get; } =
@@ -40,19 +32,9 @@ internal sealed class ApiMonitorViewModel : ObservableObject
         ApiMonitorSettings.OpenCodeOAuthSource,
     ];
 
-    public ICommand ToggleEditingCommand { get; }
-
-    public string Name
-    {
-        get => m_Name;
-        set
-        {
-            if (SetField(ref m_Name, value))
-            {
-                OnPropertyChanged(nameof(DisplayName));
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DisplayName))]
+    public partial string Name { get; set; }
 
     public string Provider
     {
@@ -62,24 +44,32 @@ internal sealed class ApiMonitorViewModel : ObservableObject
             string normalized = value switch
             {
                 ApiMonitorSettings.NewApiProvider => ApiMonitorSettings.NewApiProvider,
+                ApiMonitorSettings.OpenRouterProvider => ApiMonitorSettings.OpenRouterProvider,
+                ApiMonitorSettings.NanoGptProvider => ApiMonitorSettings.NanoGptProvider,
                 ApiMonitorSettings.GrokProvider => ApiMonitorSettings.GrokProvider,
                 _ => ApiMonitorSettings.DeepSeekProvider,
             };
             string previousProvider = m_Provider;
-            if (!SetField(ref m_Provider, normalized))
+            if (!SetProperty(ref m_Provider, normalized))
             {
                 return;
             }
 
-            if (m_Name == previousProvider)
+            if (Name == previousProvider)
             {
                 Name = normalized;
             }
 
-            if (m_BaseUrl.Length == 0 || m_BaseUrl == "https://api.deepseek.com")
+            if (BaseUrl.Length == 0 || IsDefaultBaseUrl(BaseUrl))
             {
-                BaseUrl = normalized == ApiMonitorSettings.DeepSeekProvider ? "https://api.deepseek.com" : string.Empty;
+                BaseUrl = GetDefaultBaseUrl(normalized);
             }
+
+            BalanceDisplay = "N/A";
+            BalanceTooltip = string.Empty;
+            UsedDisplay = "N/A";
+            StatusText = "Waiting for refresh";
+            StatusDotBrush = s_RedBrush;
 
             OnPropertyChanged(nameof(IsNewApi));
             OnPropertyChanged(nameof(IsGrok));
@@ -91,23 +81,14 @@ internal sealed class ApiMonitorViewModel : ObservableObject
         }
     }
 
-    public string BaseUrl
-    {
-        get => m_BaseUrl;
-        set => SetField(ref m_BaseUrl, value);
-    }
+    [ObservableProperty]
+    public partial string BaseUrl { get; set; }
 
-    public string ApiKey
-    {
-        get => m_ApiKey;
-        set => SetField(ref m_ApiKey, value);
-    }
+    [ObservableProperty]
+    public partial string ApiKey { get; set; }
 
-    public string UserId
-    {
-        get => m_UserId;
-        set => SetField(ref m_UserId, value);
-    }
+    [ObservableProperty]
+    public partial string UserId { get; set; }
 
     public string GrokOAuthSource
     {
@@ -117,7 +98,7 @@ internal sealed class ApiMonitorViewModel : ObservableObject
             string normalized = string.Equals(value, ApiMonitorSettings.OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
                 ? ApiMonitorSettings.OpenCodeOAuthSource
                 : ApiMonitorSettings.GrokBuildOAuthSource;
-            SetField(ref m_GrokOAuthSource, normalized);
+            SetProperty(ref m_GrokOAuthSource, normalized);
         }
     }
 
@@ -127,57 +108,40 @@ internal sealed class ApiMonitorViewModel : ObservableObject
 
     public bool IsLocalSessionAuth => IsGrok;
 
-    public bool HasSecondaryDisplay => IsNewApi || IsGrok;
+    public bool HasSecondaryDisplay => IsNewApi || IsGrok ||
+        (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.NanoGptProvider &&
+         !string.IsNullOrEmpty(UsedDisplay) && UsedDisplay != "N/A");
 
     public string PrimaryDisplayLabel => "Balance:";
 
-    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : "Used:";
+    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : m_Provider == ApiMonitorSettings.NanoGptProvider ? "Used(30d):" : "Used:";
 
-    public string DisplayName => string.IsNullOrWhiteSpace(m_Name) ? m_Provider : m_Name.Trim();
+    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? m_Provider : Name.Trim();
 
-    public string BalanceDisplay
-    {
-        get => m_BalanceDisplay;
-        private set => SetField(ref m_BalanceDisplay, value);
-    }
+    [ObservableProperty]
+    public partial string BalanceDisplay { get; private set; } = "N/A";
 
-    public string BalanceTooltip
-    {
-        get => m_BalanceTooltip;
-        private set => SetField(ref m_BalanceTooltip, value);
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBalanceTooltip))]
+    public partial string BalanceTooltip { get; private set; } = string.Empty;
 
-    public bool HasBalanceTooltip => !string.IsNullOrWhiteSpace(m_BalanceTooltip);
+    public bool HasBalanceTooltip => !string.IsNullOrWhiteSpace(BalanceTooltip);
 
-    public string UsedDisplay
-    {
-        get => m_UsedDisplay;
-        private set => SetField(ref m_UsedDisplay, value);
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSecondaryDisplay))]
+    public partial string UsedDisplay { get; private set; } = "N/A";
 
-    public bool IsEditing
-    {
-        get => m_IsEditing;
-        private set => SetField(ref m_IsEditing, value);
-    }
+    [ObservableProperty]
+    public partial bool IsEditing { get; private set; }
 
-    public bool IsPending
-    {
-        get => m_IsPending;
-        private set => SetField(ref m_IsPending, value);
-    }
+    [ObservableProperty]
+    public partial bool IsPending { get; private set; }
 
-    public string StatusText
-    {
-        get => m_StatusText;
-        private set => SetField(ref m_StatusText, value);
-    }
+    [ObservableProperty]
+    public partial string StatusText { get; private set; } = "Waiting for refresh";
 
-    public Media.Brush StatusDotBrush
-    {
-        get => m_StatusDotBrush;
-        private set => SetField(ref m_StatusDotBrush, value);
-    }
+    [ObservableProperty]
+    public partial Media.Brush StatusDotBrush { get; private set; } = s_RedBrush;
 
     /// <summary>
     /// Creates an editable API monitor view model.
@@ -185,15 +149,14 @@ internal sealed class ApiMonitorViewModel : ObservableObject
     public ApiMonitorViewModel(ApiMonitorSettings settings, bool isEditing = false, bool isPending = false)
     {
         Id = settings.Id;
-        m_Name = settings.Name;
+        Name = settings.Name;
         m_Provider = settings.Provider;
-        m_BaseUrl = settings.BaseUrl;
-        m_ApiKey = settings.ApiKey;
-        m_UserId = settings.UserId;
+        BaseUrl = settings.BaseUrl;
+        ApiKey = settings.ApiKey;
+        UserId = settings.UserId;
         m_GrokOAuthSource = settings.GrokOAuthSource;
-        m_IsEditing = isEditing;
-        m_IsPending = isPending;
-        ToggleEditingCommand = new RelayCommand(_ => ToggleEditing());
+        IsEditing = isEditing;
+        IsPending = isPending;
     }
 
     /// <summary>
@@ -214,13 +177,39 @@ internal sealed class ApiMonitorViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Returns the default base URL for a provider.
+    /// </summary>
+    private static string GetDefaultBaseUrl(string provider)
+    {
+        return provider switch
+        {
+            ApiMonitorSettings.DeepSeekProvider => "https://api.deepseek.com",
+            ApiMonitorSettings.OpenRouterProvider => "https://openrouter.ai",
+            ApiMonitorSettings.NanoGptProvider => "https://nano-gpt.com",
+            _ => string.Empty,
+        };
+    }
+
+    /// <summary>
+    /// Returns whether a URL is one of the built-in provider defaults.
+    /// </summary>
+    private static bool IsDefaultBaseUrl(string baseUrl)
+    {
+        return baseUrl is "https://api.deepseek.com" or "https://openrouter.ai" or "https://nano-gpt.com";
+    }
+
+    /// <summary>
     /// Updates the card with a completed usage query.
     /// </summary>
     public void Update(ApiUsageResult result)
     {
+        if (result.Provider.Length > 0 && result.Provider != m_Provider)
+        {
+            return;
+        }
+
         BalanceDisplay = result.BalanceDisplay;
         BalanceTooltip = result.BalanceTooltip;
-        OnPropertyChanged(nameof(HasBalanceTooltip));
         UsedDisplay = result.UsedDisplay;
         StatusText = result.Available
             ? $"Updated {result.UpdatedAt:HH:mm}"
@@ -231,6 +220,7 @@ internal sealed class ApiMonitorViewModel : ObservableObject
     /// <summary>
     /// Toggles editing and commits a pending monitor when editing is saved.
     /// </summary>
+    [RelayCommand]
     private void ToggleEditing()
     {
         IsEditing = !IsEditing;

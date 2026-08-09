@@ -7,10 +7,10 @@ namespace CodexTray.Core;
 
 public sealed class CodexTrayCollector
 {
-    private const int k_FiveHourWindowSeconds = 18000;
-    private const int k_SevenDayWindowSeconds = 604800;
-    private const string k_FiveHourDisplayLabel = "Codex 5-Hour";
-    private const string k_SevenDayDisplayLabel = "Codex 7-Day";
+    private const int k_SessionWindowSeconds = 18000;
+    private const int k_WeeklyWindowSeconds = 604800;
+    private const string k_PluginSessionDisplayLabel = "Codex Session";
+    private const string k_PluginWeeklyDisplayLabel = "Codex Weekly";
     private const string k_ResetCreditsEndpoint = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
 
     private static readonly HttpClient s_HttpClient = new()
@@ -35,7 +35,15 @@ public sealed class CodexTrayCollector
     /// </summary>
     public UsageResponse Collect(bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false)
     {
-        return Collect(GetDefaultCodexDirectory(), showResetTimeInPlugins, useAbsoluteResetTime);
+        return CollectAsync(showResetTimeInPlugins, useAbsoluteResetTime).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Collects the latest Codex usage response asynchronously from the default Codex directory.
+    /// </summary>
+    public Task<UsageResponse> CollectAsync(bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
+    {
+        return CollectAsync(GetDefaultCodexDirectory(), showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
     }
 
     /// <summary>
@@ -43,7 +51,15 @@ public sealed class CodexTrayCollector
     /// </summary>
     public UsageResponse Collect(string codexDirectory, bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false)
     {
-        return CollectOfficialUsage(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime);
+        return CollectAsync(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Collects the latest Codex usage response asynchronously from a Codex directory.
+    /// </summary>
+    public Task<UsageResponse> CollectAsync(string codexDirectory, bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
+    {
+        return CollectOfficialUsageAsync(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
     }
 
     /// <summary>
@@ -57,8 +73,9 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Collects Codex usage from the official ChatGPT quota endpoint.
     /// </summary>
-    private UsageResponse CollectOfficialUsage(string codexDirectory, bool showResetTimeInPlugins, bool useAbsoluteResetTime)
+    private async Task<UsageResponse> CollectOfficialUsageAsync(string codexDirectory, bool showResetTimeInPlugins, bool useAbsoluteResetTime, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset now = m_NowProvider();
         string authPath = Path.Combine(codexDirectory, "auth.json");
         CodexCredentials credentials = ReadCodexCredentials(authPath);
@@ -67,7 +84,7 @@ public sealed class CodexTrayCollector
             return CreateEmptyResponse(codexDirectory, now, credentials.Error ?? "Codex OAuth credentials unavailable");
         }
 
-        HttpRequestMessage request = new(HttpMethod.Get, "https://chatgpt.com/backend-api/wham/usage");
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://chatgpt.com/backend-api/wham/usage");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
         request.Headers.UserAgent.ParseAdd("codex-cli");
         request.Headers.Accept.ParseAdd("application/json");
@@ -78,13 +95,13 @@ public sealed class CodexTrayCollector
 
         try
         {
-            using HttpResponseMessage response = m_HttpClient.Send(request);
+            using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
             {
                 return CreateEmptyResponse(codexDirectory, now, $"Codex OAuth token expired or unauthorized: HTTP {(int)response.StatusCode}");
             }
 
-            string body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return CreateEmptyResponse(codexDirectory, now, $"Codex usage API failed: HTTP {(int)response.StatusCode}");
@@ -94,10 +111,14 @@ public sealed class CodexTrayCollector
             UsageResponse usage = BuildOfficialResponse(codexDirectory, authPath, document.RootElement, now, showResetTimeInPlugins, useAbsoluteResetTime);
             if (usage.Available)
             {
-                usage.ResetCredits = CollectResetCredits(credentials, now);
+                usage.ResetCredits = await CollectResetCreditsAsync(credentials, now, cancellationToken).ConfigureAwait(false);
             }
 
             return usage;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
         {
@@ -113,34 +134,22 @@ public sealed class CodexTrayCollector
         JsonElement rateLimit = GetObjectProperty(root, "rate_limit");
         JsonElement primary = GetObjectProperty(rateLimit, "primary_window");
         JsonElement secondary = GetObjectProperty(rateLimit, "secondary_window");
-        UsageLimit fiveHour = BuildOfficialLimit("five_hour", default, now);
-        UsageLimit sevenDay = BuildOfficialLimit("seven_day", default, now);
-        foreach (JsonElement window in new[] { primary, secondary })
-        {
-            switch (GetInt32Property(window, "limit_window_seconds", 0))
-            {
-                case k_FiveHourWindowSeconds:
-                    fiveHour = BuildOfficialLimit("five_hour", window, now);
-                    break;
-                case k_SevenDayWindowSeconds:
-                    sevenDay = BuildOfficialLimit("seven_day", window, now);
-                    break;
-            }
-        }
+        UsageLimit session = BuildOfficialLimitFromRateLimit("session", rateLimit, k_SessionWindowSeconds, now);
+        UsageLimit weekly = BuildOfficialLimitFromRateLimit("weekly", rateLimit, k_WeeklyWindowSeconds, now);
 
-        fiveHour.ResetLabel = useAbsoluteResetTime
-            ? FormatFiveHourResetClock(fiveHour.ResetsAt, now)
-            : FormatFiveHourResetLabel(fiveHour.ResetsAt, now);
-        sevenDay.ResetLabel = useAbsoluteResetTime
-            ? FormatSevenDayResetDate(sevenDay.ResetsAt, now)
-            : FormatSevenDayResetLabel(sevenDay.ResetsAt, now);
+        session.ResetLabel = useAbsoluteResetTime
+            ? FormatSessionResetClock(session.ResetsAt, now)
+            : FormatSessionResetLabel(session.ResetsAt, now);
+        weekly.ResetLabel = useAbsoluteResetTime
+            ? FormatWeeklyResetDate(weekly.ResetsAt, now)
+            : FormatWeeklyResetLabel(weekly.ResetsAt, now);
 
         if (primary.ValueKind != JsonValueKind.Object && secondary.ValueKind != JsonValueKind.Object)
         {
             return CreateEmptyResponse(codexDirectory, now, "Codex usage API did not return rate_limit windows");
         }
 
-        UsageDisplay display = BuildDisplay(fiveHour, sevenDay, showResetTimeInPlugins);
+        UsageDisplay display = BuildDisplay(session, weekly, showResetTimeInPlugins);
         string planType = GetStringProperty(root, "plan_type", "unknown");
         return new UsageResponse
         {
@@ -153,8 +162,8 @@ public sealed class CodexTrayCollector
             UpdatedAt = now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture),
             Limits = new UsageLimits
             {
-                FiveHour = fiveHour,
-                SevenDay = sevenDay,
+                Session = session,
+                Weekly = weekly,
             },
             Display = display,
         };
@@ -163,7 +172,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Collects reset credit availability without affecting the main quota response.
     /// </summary>
-    private ResetCredits CollectResetCredits(CodexCredentials credentials, DateTimeOffset now)
+    private async Task<ResetCredits> CollectResetCreditsAsync(CodexCredentials credentials, DateTimeOffset now, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(credentials.AccountId))
         {
@@ -178,14 +187,18 @@ public sealed class CodexTrayCollector
 
         try
         {
-            using HttpResponseMessage response = m_HttpClient.Send(request);
+            using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return new ResetCredits();
             }
 
-            using JsonDocument document = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+            using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
             return BuildResetCredits(document.RootElement, now);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
         {
@@ -232,15 +245,15 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Builds all display strings for monitor plugins.
     /// </summary>
-    private static UsageDisplay BuildDisplay(UsageLimit fiveHour, UsageLimit sevenDay, bool showResetTimeInPlugins)
+    private static UsageDisplay BuildDisplay(UsageLimit session, UsageLimit weekly, bool showResetTimeInPlugins)
     {
-        string codex5HDisplay = FormatDisplayValue(fiveHour, showResetTimeInPlugins);
-        string codex7DDisplay = FormatDisplayValue(sevenDay, showResetTimeInPlugins);
+        string sessionDisplay = FormatDisplayValue(session, showResetTimeInPlugins);
+        string weeklyDisplay = FormatDisplayValue(weekly, showResetTimeInPlugins);
         return new UsageDisplay
         {
-            Codex5H = codex5HDisplay,
-            Codex7D = codex7DDisplay,
-            Summary = $"{k_FiveHourDisplayLabel}: {codex5HDisplay} | {k_SevenDayDisplayLabel}: {codex7DDisplay}",
+            Session = sessionDisplay,
+            Weekly = weeklyDisplay,
+            Summary = $"{k_PluginSessionDisplayLabel}: {sessionDisplay} | {k_PluginWeeklyDisplayLabel}: {weeklyDisplay}",
         };
     }
 
@@ -277,6 +290,22 @@ public sealed class CodexTrayCollector
             ResetAtLocal = FormatResetLocal(resetsAt, now),
             ResetTime = FormatResetClock(resetsAt, now),
         };
+    }
+
+    /// <summary>
+    /// Builds one quota limit from the matching window in a rate-limit object.
+    /// </summary>
+    private static UsageLimit BuildOfficialLimitFromRateLimit(string name, JsonElement rateLimit, int windowSeconds, DateTimeOffset now)
+    {
+        foreach (JsonElement window in new[] { GetObjectProperty(rateLimit, "primary_window"), GetObjectProperty(rateLimit, "secondary_window") })
+        {
+            if (GetInt32Property(window, "limit_window_seconds", 0) == windowSeconds)
+            {
+                return BuildOfficialLimit(name, window, now);
+            }
+        }
+
+        return BuildOfficialLimit(name, default, now);
     }
 
     /// <summary>
@@ -328,8 +357,8 @@ public sealed class CodexTrayCollector
             UpdatedAt = now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture),
             Limits = new UsageLimits
             {
-                FiveHour = BuildOfficialLimit("five_hour", default, now),
-                SevenDay = BuildOfficialLimit("seven_day", default, now),
+                Session = BuildOfficialLimit("session", default, now),
+                Weekly = BuildOfficialLimit("weekly", default, now),
             },
             Display = new UsageDisplay(),
         };
@@ -349,9 +378,9 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
-    /// Formats the five hour reset as a countdown label.
+    /// Formats the session reset as a countdown label.
     /// </summary>
-    private static string FormatFiveHourResetLabel(long epochSeconds, DateTimeOffset now)
+    private static string FormatSessionResetLabel(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {
@@ -364,9 +393,9 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
-    /// Formats the seven day reset as a countdown label.
+    /// Formats the weekly reset as a countdown label.
     /// </summary>
-    public static string FormatSevenDayResetLabel(long epochSeconds, DateTimeOffset now)
+    public static string FormatWeeklyResetLabel(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {
@@ -379,9 +408,9 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
-    /// Formats the five hour reset as an absolute local clock label.
+    /// Formats the session reset as an absolute local clock label.
     /// </summary>
-    private static string FormatFiveHourResetClock(long epochSeconds, DateTimeOffset now)
+    private static string FormatSessionResetClock(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {
@@ -392,9 +421,9 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
-    /// Formats the seven day reset as an absolute local month-day label.
+    /// Formats the weekly reset as an absolute local month-day label.
     /// </summary>
-    public static string FormatSevenDayResetDate(long epochSeconds, DateTimeOffset now)
+    public static string FormatWeeklyResetDate(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {

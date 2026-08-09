@@ -26,15 +26,23 @@ internal sealed class TrayController : IDisposable
     private readonly Forms.NotifyIcon m_NotifyIcon;
     private readonly System.Drawing.Icon m_AppIcon;
     private readonly DispatcherTimer m_RefreshTimer;
-    private readonly CancellationTokenSource m_SignalCancellation = new();
+    private readonly CancellationTokenSource m_LifetimeCancellation = new();
+    private readonly Lock m_TaskLock = new();
     private AppSettings m_Settings;
     private LightweightHttpServer? m_Server;
     private TrayPopupWindow? m_TrayPopupWindow;
     private TrayPopupViewModel? m_PopupViewModel;
-    private int m_IsRefreshing;
-    private bool m_IsExiting;
+    private Task m_RefreshTask = Task.CompletedTask;
+    private Task m_StartupAutoDetectTask = Task.CompletedTask;
+    private Task m_SignalListenerTask = Task.CompletedTask;
+    private Task m_ServiceTransitionTask = Task.CompletedTask;
+    private int m_IsExiting;
     private bool m_StartupDetectingLiteMonitor;
     private bool m_StartupDetectingTrafficMonitor;
+
+    private bool IsExiting => Volatile.Read(ref m_IsExiting) != 0;
+
+    private bool IsPluginServiceRequired => (m_Settings.VisiblePages & (PageItem.Codex | PageItem.Cursor)) != 0;
 
     /// <summary>
     /// Creates the tray controller and starts background work.
@@ -54,22 +62,28 @@ internal sealed class TrayController : IDisposable
         m_Settings = m_SettingsStore.Load();
         m_NotifyIcon = CreateNotifyIcon();
         m_RefreshTimer = new DispatcherTimer(DispatcherPriority.Background, m_Dispatcher);
-        m_RefreshTimer.Tick += async (_, _) => await RefreshUsageAsync();
-        if ((m_Settings.VisiblePages & PageItem.Codex) != 0)
+        m_RefreshTimer.Tick += async (_, _) => await RequestRefreshAsync();
+        if (IsPluginServiceRequired)
         {
-            StartService();
+            QueueServiceReconcile();
         }
         ConfigureRefreshTimer();
-        _ = RefreshUsageAsync();
+        _ = RequestRefreshAsync();
         StartSignalListener();
         SyncStartupRegistration();
         if (!settingsExists)
         {
             m_SettingsStore.Save(m_Settings);
-            m_Dispatcher.BeginInvoke(new Action(() => ShowPanel()));
+            m_Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!IsExiting)
+                {
+                    ShowPanel();
+                }
+            }));
         }
 
-        _ = AutoDetectMissingPluginPathsAsync();
+        m_StartupAutoDetectTask = AutoDetectMissingPluginPathsAsync(m_LifetimeCancellation.Token);
     }
 
     /// <summary>
@@ -94,7 +108,7 @@ internal sealed class TrayController : IDisposable
     /// <summary>
     /// Auto detects plugin folders whose configured path is still empty, writing the None sentinel when nothing is found.
     /// </summary>
-    private async Task AutoDetectMissingPluginPathsAsync()
+    private async Task AutoDetectMissingPluginPathsAsync(CancellationToken cancellationToken)
     {
         bool detectLite = m_Settings.LiteMonitorDir.Length == 0;
         bool detectTraffic = m_Settings.TrafficMonitorDir.Length == 0;
@@ -107,28 +121,47 @@ internal sealed class TrayController : IDisposable
         m_StartupDetectingTrafficMonitor = detectTraffic;
         ApplyStartupDetectingState();
 
-        (string liteResult, string trafficResult) = await Task.Run(() =>
+        try
         {
-            string lite = detectLite ? LiteMonitorLocator.AutoDetect() : m_Settings.LiteMonitorDir;
-            string traffic = detectTraffic ? TrafficMonitorLocator.AutoDetect() : m_Settings.TrafficMonitorDir;
-            return (lite, traffic);
-        }).ConfigureAwait(true);
+            (string liteResult, string trafficResult) = await Task.Run(() =>
+            {
+                string lite = detectLite ? LiteMonitorLocator.AutoDetect(cancellationToken: cancellationToken) : m_Settings.LiteMonitorDir;
+                string traffic = detectTraffic ? TrafficMonitorLocator.AutoDetect(cancellationToken: cancellationToken) : m_Settings.TrafficMonitorDir;
+                return (lite, traffic);
+            }, cancellationToken).ConfigureAwait(true);
 
-        if (detectLite)
-        {
-            m_Settings.LiteMonitorDir = string.IsNullOrWhiteSpace(liteResult) ? CodexTrayDefaults.PluginPathNone : liteResult;
+            cancellationToken.ThrowIfCancellationRequested();
+            bool changed = false;
+            if (detectLite && m_Settings.LiteMonitorDir.Length == 0)
+            {
+                m_Settings.LiteMonitorDir = string.IsNullOrWhiteSpace(liteResult) ? CodexTrayDefaults.PluginPathNone : liteResult;
+                changed = true;
+            }
+
+            if (detectTraffic && m_Settings.TrafficMonitorDir.Length == 0)
+            {
+                m_Settings.TrafficMonitorDir = string.IsNullOrWhiteSpace(trafficResult) ? CodexTrayDefaults.PluginPathNone : trafficResult;
+                changed = true;
+            }
+
+            if (changed && !IsExiting)
+            {
+                m_SettingsStore.Save(m_Settings);
+                m_PopupViewModel?.LoadSettings(m_Settings);
+            }
         }
-
-        if (detectTraffic)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            m_Settings.TrafficMonitorDir = string.IsNullOrWhiteSpace(trafficResult) ? CodexTrayDefaults.PluginPathNone : trafficResult;
         }
-
-        m_StartupDetectingLiteMonitor = false;
-        m_StartupDetectingTrafficMonitor = false;
-        m_SettingsStore.Save(m_Settings);
-        m_PopupViewModel?.LoadSettings(m_Settings);
-        ApplyStartupDetectingState();
+        finally
+        {
+            m_StartupDetectingLiteMonitor = false;
+            m_StartupDetectingTrafficMonitor = false;
+            if (!IsExiting)
+            {
+                ApplyStartupDetectingState();
+            }
+        }
     }
 
     /// <summary>
@@ -150,12 +183,19 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     public void Dispose()
     {
-        m_SignalCancellation.Cancel();
+        if (Interlocked.Exchange(ref m_IsExiting, 1) == 0)
+        {
+            m_LifetimeCancellation.Cancel();
+        }
+
         m_RefreshTimer.Stop();
-        m_Server?.Dispose();
+        if (m_Server != null)
+        {
+            m_Server.Dispose();
+        }
+
         m_NotifyIcon.Dispose();
         m_AppIcon.Dispose();
-        m_SignalCancellation.Dispose();
     }
 
     /// <summary>
@@ -166,9 +206,9 @@ internal sealed class TrayController : IDisposable
         Drawing.Point? trayIconPosition = null;
         Forms.ContextMenuStrip menu = new();
         menu.Items.Add("Open Panel", null, (_, _) => ShowPanel(trayIconPosition));
-        menu.Items.Add("Refresh Now", null, async (_, _) => await RefreshUsageAsync());
+        menu.Items.Add("Refresh Now", null, async (_, _) => await RequestRefreshAsync());
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("Exit", null, (_, _) => ExitApplication());
+        menu.Items.Add("Exit", null, async (_, _) => await ExitApplicationAsync());
 
         Forms.NotifyIcon notifyIcon = new()
         {
@@ -193,11 +233,17 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void StartService()
     {
+        if (IsExiting)
+        {
+            return;
+        }
+
         try
         {
-            m_Server = new LightweightHttpServer(m_UsageCache, m_Settings.Port);
-            m_Server.Start();
-            m_NotifyIcon.Text = $"{CodexTrayDefaults.AppName} :{m_Server.Port}";
+            LightweightHttpServer server = new(m_UsageCache, m_Settings.Port);
+            server.Start();
+            m_Server = server;
+            m_NotifyIcon.Text = $"{CodexTrayDefaults.AppName} :{server.Port}";
         }
         catch (SocketException exception)
         {
@@ -210,14 +256,70 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Restarts the local HTTP service.
+    /// Queues one serialized reconciliation of the local HTTP service.
     /// </summary>
-    private void RestartService()
+    private void QueueServiceReconcile()
     {
-        m_Server?.Dispose();
+        Task previous = m_ServiceTransitionTask;
+        m_ServiceTransitionTask = ReconcileServiceAsync(previous, m_LifetimeCancellation.Token);
+    }
+
+    /// <summary>
+    /// Serially stops the old HTTP server and starts the currently configured service.
+    /// </summary>
+    private async Task ReconcileServiceAsync(Task previous, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await previous.ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            ReportBackgroundFailure("Service transition failed", exception);
+        }
+
+        LightweightHttpServer? server = m_Server;
         m_Server = null;
-        StartService();
-        RefreshPopupStatus();
+        if (server != null)
+        {
+            try
+            {
+                await server.StopAsync().ConfigureAwait(true);
+            }
+            catch (Exception exception)
+            {
+                ReportBackgroundFailure("Service stop failed", exception);
+            }
+            finally
+            {
+                server.Dispose();
+            }
+        }
+
+        if (IsExiting || cancellationToken.IsCancellationRequested || !IsPluginServiceRequired)
+        {
+            m_NotifyIcon.Text = CodexTrayDefaults.AppName;
+            return;
+        }
+
+        try
+        {
+            StartService();
+            if (!IsExiting)
+            {
+                RefreshPopupStatus();
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            ReportBackgroundFailure("Service transition failed", exception);
+        }
     }
 
     /// <summary>
@@ -225,16 +327,32 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void StartSignalListener()
     {
-        Task.Run(() =>
+        CancellationToken cancellationToken = m_LifetimeCancellation.Token;
+        m_SignalListenerTask = Task.Run(async () =>
         {
-            while (!m_SignalCancellation.IsCancellationRequested)
+            try
             {
-                if (m_ShowPanelEvent.WaitOne(TimeSpan.FromMilliseconds(500)))
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    m_Dispatcher.BeginInvoke(new Action(() => ShowPanel()));
+                    if (m_ShowPanelEvent.WaitOne(TimeSpan.FromMilliseconds(500)))
+                    {
+                        await m_Dispatcher.InvokeAsync(() =>
+                        {
+                            if (!IsExiting)
+                            {
+                                ShowPanel();
+                            }
+                        }, DispatcherPriority.Normal, cancellationToken);
+                    }
                 }
             }
-        }, m_SignalCancellation.Token);
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -242,6 +360,11 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void TogglePanel(Drawing.Point? trayIconPosition)
     {
+        if (IsExiting)
+        {
+            return;
+        }
+
         if (m_PopupViewModel?.IsModalOpen == true)
         {
             return;
@@ -264,10 +387,15 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void ShowPanel(Drawing.Point? trayIconPosition = null)
     {
+        if (IsExiting)
+        {
+            return;
+        }
+
         EnsurePopup();
         RefreshPopupStatus();
         m_TrayPopupWindow?.ShowNearTray(trayIconPosition);
-        _ = RefreshUsageAsync();
+        _ = RequestRefreshAsync();
     }
 
     /// <summary>
@@ -275,6 +403,11 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void PresentInAppDialog(InAppDialogRequest request)
     {
+        if (IsExiting)
+        {
+            return;
+        }
+
         if (m_TrayPopupWindow?.IsVisible != true)
         {
             ShowPanel();
@@ -293,14 +426,12 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        m_PopupViewModel = new TrayPopupViewModel(m_Settings);
-        m_PopupViewModel.RefreshRequested += async (_, _) => await RefreshUsageAsync();
+        m_PopupViewModel = new TrayPopupViewModel(m_Settings, RequestRefreshAsync);
         m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
         m_PopupViewModel.ApiMonitorsChanged += (_, _) => m_SettingsStore.Save(m_Settings);
         m_PopupViewModel.InAppDialogRequested += PresentInAppDialog;
         m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
         m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
-        m_PopupViewModel.ExitRequested += (_, _) => ExitApplication();
         ApplyStartupDetectingState();
         m_TrayPopupWindow = new TrayPopupWindow(m_PopupViewModel);
         m_TrayPopupWindow.Closed += (_, _) =>
@@ -315,27 +446,40 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void SaveSettings()
     {
+        if (IsExiting)
+        {
+            return;
+        }
+
         int previousPort = m_Settings.Port;
         bool codexWasEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
+        bool cursorWasEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
+        bool serviceWasRequired = IsPluginServiceRequired;
         m_PopupViewModel?.ApplySettings();
 
         StartupManager.SetEnabled(Environment.ProcessPath ?? string.Empty, m_Settings.StartWithWindows);
         m_SettingsStore.Save(m_Settings);
         ConfigureRefreshTimer();
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
-        if (!codexIsEnabled)
+        bool cursorIsEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
+        if (codexWasEnabled && !codexIsEnabled)
         {
-            m_Server?.Dispose();
-            m_Server = null;
-            m_NotifyIcon.Text = CodexTrayDefaults.AppName;
+            m_UsageCache.ClearCodex();
         }
-        else if (!codexWasEnabled || previousPort != m_Settings.Port)
+
+        if (cursorWasEnabled && !cursorIsEnabled)
         {
-            RestartService();
+            m_UsageCache.ClearCursor();
+        }
+
+        bool serviceIsRequired = IsPluginServiceRequired;
+        if (serviceWasRequired != serviceIsRequired || (serviceIsRequired && previousPort != m_Settings.Port))
+        {
+            QueueServiceReconcile();
         }
 
         RefreshPopupStatus();
-        _ = RefreshUsageAsync();
+        _ = RequestRefreshAsync();
     }
 
     /// <summary>
@@ -421,17 +565,34 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Collects fresh usage data and publishes it to the cache.
+    /// Returns the active refresh task or starts one refresh operation.
     /// </summary>
-    private async Task RefreshUsageAsync()
+    private Task RequestRefreshAsync()
+    {
+        lock (m_TaskLock)
+        {
+            if (IsExiting)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (!m_RefreshTask.IsCompleted)
+            {
+                return m_RefreshTask;
+            }
+
+            m_RefreshTask = RefreshUsageAsync(m_LifetimeCancellation.Token);
+            return m_RefreshTask;
+        }
+    }
+
+    /// <summary>
+    /// Collects fresh usage data and publishes it after every child completes.
+    /// </summary>
+    private async Task RefreshUsageAsync(CancellationToken cancellationToken)
     {
         PageItem visiblePages = m_Settings.VisiblePages;
-        if (visiblePages == PageItem.None)
-        {
-            return;
-        }
-
-        if (Interlocked.Exchange(ref m_IsRefreshing, 1) == 1)
+        if (visiblePages == PageItem.None || IsExiting)
         {
             return;
         }
@@ -444,67 +605,80 @@ internal sealed class TrayController : IDisposable
         try
         {
             bool useAbsoluteResetTime = m_Settings.UseAbsoluteResetTime;
+            bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
             Task<UsageResponse>? codexUsageTask = null;
             Task<TokenCostStatistics?>? tokenCostTask = null;
             Task<CursorUsageDashboard>? cursorDashboardTask = null;
             Task<IReadOnlyList<ApiUsageResult>>? apiUsageTask = null;
             if ((visiblePages & PageItem.Codex) != 0)
             {
-                bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
-                codexUsageTask = Task.Run(() => m_Collector.Collect(showResetTimeInPlugins, useAbsoluteResetTime));
-                tokenCostTask = Task.Run(() =>
+                codexUsageTask = m_Collector.CollectAsync(showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
+                tokenCostTask = Task.Run<TokenCostStatistics?>(() =>
                 {
                     try
                     {
-                        return m_TokenCostCollector.Collect();
+                        return m_TokenCostCollector.Collect(cancellationToken: cancellationToken);
                     }
                     catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
                     {
                         return null;
                     }
-                });
+                }, cancellationToken);
             }
 
             if ((visiblePages & PageItem.Cursor) != 0)
             {
-                cursorDashboardTask = m_CursorUsageCollector.CollectDashboardAsync();
+                cursorDashboardTask = m_CursorUsageCollector.CollectDashboardAsync(cancellationToken: cancellationToken);
             }
 
             if ((visiblePages & PageItem.Apis) != 0)
             {
                 ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
-                apiUsageTask = m_ApiUsageCollector.CollectAsync(apiMonitors, useAbsoluteResetTime);
+                apiUsageTask = m_ApiUsageCollector.CollectAsync(apiMonitors, useAbsoluteResetTime, cancellationToken);
+            }
+
+            Task[] children = new Task?[] { codexUsageTask, tokenCostTask, cursorDashboardTask, apiUsageTask }.Where(task => task != null).Cast<Task>().ToArray();
+            await Task.WhenAll(children).ConfigureAwait(true);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsExiting)
+            {
+                return;
             }
 
             if (codexUsageTask != null && tokenCostTask != null)
             {
-                UsageResponse response = await codexUsageTask.ConfigureAwait(true);
-                m_UsageCache.Update(response);
+                UsageResponse response = codexUsageTask.Result;
+                m_UsageCache.UpdateCodex(response);
                 RefreshPopupStatus();
-                TokenCostStatistics? tokenCost = await tokenCostTask.ConfigureAwait(true);
-                m_PopupViewModel?.UpdateTokenCost(tokenCost);
+                m_PopupViewModel?.UpdateTokenCost(tokenCostTask.Result);
             }
 
             if (cursorDashboardTask != null)
             {
-                CursorUsageDashboard cursorDashboard = await cursorDashboardTask.ConfigureAwait(true);
-                m_PopupViewModel?.UpdateCursorDashboard(cursorDashboard);
+                CursorUsageDashboard dashboard = cursorDashboardTask.Result;
+                m_UsageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(dashboard, showResetTimeInPlugins, useAbsoluteResetTime));
+                RefreshPopupStatus();
+                m_PopupViewModel?.UpdateCursorDashboard(dashboard);
             }
 
             if (apiUsageTask != null)
             {
-                IReadOnlyList<ApiUsageResult> apiUsage = await apiUsageTask.ConfigureAwait(true);
-                m_PopupViewModel?.UpdateApiUsage(apiUsage);
+                m_PopupViewModel?.UpdateApiUsage(apiUsageTask.Result);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            ReportBackgroundFailure("Usage refresh failed", exception);
         }
         finally
         {
-            if (m_PopupViewModel != null)
+            if (!IsExiting && m_PopupViewModel != null)
             {
                 m_PopupViewModel.IsRefreshing = false;
             }
-
-            Interlocked.Exchange(ref m_IsRefreshing, 0);
         }
     }
 
@@ -526,20 +700,84 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Stops the service and exits the tray application.
+    /// Reports one observed background failure without allowing it to escape its owner task.
     /// </summary>
-    private void ExitApplication()
+    private void ReportBackgroundFailure(string title, Exception exception)
     {
-        if (m_IsExiting)
+        if (IsExiting)
         {
             return;
         }
 
-        m_IsExiting = true;
-        m_TrayPopupWindow?.Close();
-        m_NotifyIcon.Visible = false;
-        m_Server?.Stop();
-        m_Application.Shutdown();
+        try
+        {
+            PresentInAppDialog(new InAppDialogRequest(title, exception.Message, "OK"));
+        }
+        catch (Exception)
+        {
+            // Background owner tasks must remain observed during dispatcher teardown.
+        }
+    }
+
+    /// <summary>
+    /// Cancels owned work, drains it, and exits the tray application.
+    /// </summary>
+    private async Task ExitApplicationAsync()
+    {
+        if (Interlocked.Exchange(ref m_IsExiting, 1) != 0)
+        {
+            return;
+        }
+
+        TrayPopupViewModel? popupViewModel = m_PopupViewModel;
+        try
+        {
+            m_RefreshTimer.Stop();
+            m_NotifyIcon.Visible = false;
+            m_TrayPopupWindow?.Close();
+            m_LifetimeCancellation.Cancel();
+            popupViewModel?.AutoDetectLiteMonitorCommand.Cancel();
+            popupViewModel?.AutoDetectTrafficMonitorCommand.Cancel();
+
+            Task[] ownedTasks =
+            [
+                m_RefreshTask,
+                m_StartupAutoDetectTask,
+                m_SignalListenerTask,
+                m_ServiceTransitionTask,
+                popupViewModel?.AutoDetectLiteMonitorCommand.ExecutionTask ?? Task.CompletedTask,
+                popupViewModel?.AutoDetectTrafficMonitorCommand.ExecutionTask ?? Task.CompletedTask,
+            ];
+            try
+            {
+                await Task.WhenAll(ownedTasks).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException) when (m_LifetimeCancellation.IsCancellationRequested)
+            {
+            }
+            catch (Exception)
+            {
+                // Exit must continue draining the remaining lifecycle resources.
+            }
+
+            if (m_Server != null)
+            {
+                await m_Server.StopAsync().ConfigureAwait(true);
+                m_Server.Dispose();
+                m_Server = null;
+            }
+        }
+        catch (Exception)
+        {
+            // Application exit must not leak exceptions through the async event handler.
+        }
+        finally
+        {
+            m_NotifyIcon.Dispose();
+            m_AppIcon.Dispose();
+            m_LifetimeCancellation.Dispose();
+            m_Application.Shutdown();
+        }
     }
 
     /// <summary>

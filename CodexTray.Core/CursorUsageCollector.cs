@@ -9,7 +9,7 @@ namespace CodexTray.Core;
 
 public sealed record CursorUsageSnapshot(
     string PlanType,
-    double TotalUsedPercent,
+    double MonthlyUsedPercent,
     double AutoUsedPercent,
     double ApiUsedPercent,
     long ResetsAt);
@@ -77,11 +77,16 @@ public sealed class CursorUsageCollector
     /// </summary>
     public async Task<CursorUsageDashboard> CollectDashboardAsync(DateTimeOffset? now = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset refreshedAt = now ?? DateTimeOffset.Now;
         CursorCredentialResult initialCredential;
         try
         {
             initialCredential = await ResolveInitialCredentialAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {
@@ -91,6 +96,7 @@ public sealed class CursorUsageCollector
 
         CursorCredential credential = initialCredential.Credential;
         bool refreshUsed = false;
+        cancellationToken.ThrowIfCancellationRequested();
         CursorEndpointResult<CursorUsageSnapshot> usageResult = await CollectEndpointAsync(
             current => FetchUsageAsync(current, refreshedAt, cancellationToken),
             credential,
@@ -99,6 +105,7 @@ public sealed class CursorUsageCollector
         credential = usageResult.Credential;
         refreshUsed = usageResult.RefreshUsed;
 
+        cancellationToken.ThrowIfCancellationRequested();
         CursorEndpointResult<CursorUsageEventsCollection> tokenCostResult = await CollectEndpointAsync(
             current => FetchUsageEventsAsync(current, refreshedAt, cancellationToken),
             credential,
@@ -121,6 +128,7 @@ public sealed class CursorUsageCollector
     /// </summary>
     public async Task<CursorUsageSnapshot> CollectAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         CursorCredential credential = (await ResolveInitialCredentialAsync(cancellationToken).ConfigureAwait(false)).Credential;
         try
         {
@@ -141,7 +149,7 @@ public sealed class CursorUsageCollector
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
         if (!TryGetPlan(root, out JsonElement plan) ||
-            !TryGetPlanPercent(plan, "totalPercentUsed", out double totalUsedPercent) ||
+            !TryGetPlanPercent(plan, "totalPercentUsed", out double monthlyUsedPercent) ||
             !TryGetPlanPercent(plan, "autoPercentUsed", out double autoUsedPercent) ||
             !TryGetPlanPercent(plan, "apiPercentUsed", out double apiUsedPercent))
         {
@@ -155,10 +163,42 @@ public sealed class CursorUsageCollector
 
         return new CursorUsageSnapshot(
             GetStringProperty(root, "membershipType", "unknown"),
-            totalUsedPercent,
+            monthlyUsedPercent,
             autoUsedPercent,
             apiUsedPercent,
             resetsAt.ToUnixTimeSeconds());
+    }
+
+    /// <summary>
+    /// Builds the Cursor Monthly value exposed to monitor plugins.
+    /// </summary>
+    public static CursorPluginUsage BuildPluginUsage(CursorUsageDashboard dashboard, bool showResetTime, bool useAbsoluteResetTime)
+    {
+        CursorUsageSnapshot? usage = dashboard.Usage;
+        if (usage == null)
+        {
+            return new CursorPluginUsage(
+                new UsageLimit { Name = "monthly", UsedPercent = 100, RemainingPercent = 0 },
+                CodexTrayDefaults.UnavailableDisplay);
+        }
+
+        int usedPercent = (int)Math.Round(Math.Clamp(usage.MonthlyUsedPercent, 0, 100), MidpointRounding.AwayFromZero);
+        int remainingPercent = 100 - usedPercent;
+        string resetLabel = useAbsoluteResetTime
+            ? CodexTrayCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
+            : CodexTrayCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
+        UsageLimit monthly = new()
+        {
+            Name = "monthly",
+            UsedPercent = usedPercent,
+            RemainingPercent = remainingPercent,
+            ResetsAt = usage.ResetsAt,
+            ResetLabel = resetLabel,
+        };
+        string display = showResetTime
+            ? $"{remainingPercent}% {resetLabel}"
+            : $"{remainingPercent}%";
+        return new CursorPluginUsage(monthly, display);
     }
 
     /// <summary>
@@ -225,6 +265,7 @@ public sealed class CursorUsageCollector
         bool refreshUsed,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             return new CursorEndpointResult<T>(await collect(credential).ConfigureAwait(false), string.Empty, credential, refreshUsed);
@@ -234,13 +275,23 @@ public sealed class CursorUsageCollector
             CursorCredential refreshed = credential;
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 refreshed = await RefreshCredentialAsync(credential, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 return new CursorEndpointResult<T>(await collect(refreshed).ConfigureAwait(false), string.Empty, refreshed, true);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception retryException) when (retryException is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
             {
                 return new CursorEndpointResult<T>(default, FormatError(retryException), refreshed, true);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {

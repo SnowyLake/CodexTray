@@ -1,5 +1,5 @@
 $CodexTrayRuntime = "win-x64"
-$CodexTrayTargetFramework = "net9.0-windows"
+$CodexTrayTargetFramework = "net10.0-windows"
 
 function Invoke-CodexTrayPublish {
     param(

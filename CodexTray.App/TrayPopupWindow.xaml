@@ -6,13 +6,17 @@
         xmlns:local="clr-namespace:CodexTray.App"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Title="{x:Static core:CodexTrayDefaults.AppName}"
-        Width="380"
-        Height="605"
+        Width="{x:Static core:CodexTrayDefaults.PopupWindowWidth}"
+        Height="{x:Static core:CodexTrayDefaults.PopupWindowHeight}"
+        MinWidth="{x:Static core:CodexTrayDefaults.PopupWindowWidth}"
+        MaxWidth="{x:Static core:CodexTrayDefaults.PopupWindowWidth}"
+        MinHeight="{x:Static core:CodexTrayDefaults.PopupWindowHeight}"
+        MaxHeight="{x:Static core:CodexTrayDefaults.PopupWindowHeight}"
         WindowStyle="None"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         AllowsTransparency="False"
-        Background="#01131A1C"
+        Background="Transparent"
         Topmost="True"
         TextOptions.TextFormattingMode="Ideal"
         TextOptions.TextRenderingMode="ClearType"
@@ -346,6 +350,7 @@
             <Style x:Key="QuotaProgressBarStyle" TargetType="{x:Type ProgressBar}">
                 <Setter Property="Height" Value="6" />
                 <Setter Property="Background" Value="{DynamicResource ControlStrongFillColorDefaultBrush}" />
+                <Setter Property="Foreground" Value="{Binding AccentBrush}" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Template">
                     <Setter.Value>
@@ -364,6 +369,44 @@
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding RemainingPercent}" Value="0">
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="QuotaValueTextStyle" TargetType="{x:Type TextBlock}">
+                <Setter Property="Foreground" Value="{Binding AccentBrush}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="Normal" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding RemainingPercent}" Value="0">
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="UsageCardStyle" TargetType="{x:Type Border}">
+                <Setter Property="Margin" Value="0,0,0,12" />
+                <Setter Property="MinHeight" Value="68" />
+                <Setter Property="Padding" Value="14" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+
+            <Style x:Key="LargeUsageCardStyle"
+                   BasedOn="{StaticResource UsageCardStyle}"
+                   TargetType="{x:Type Border}">
+                <Setter Property="Height" Value="91" />
+            </Style>
+
+            <Style x:Key="SmallUsageCardStyle"
+                   BasedOn="{StaticResource UsageCardStyle}"
+                   TargetType="{x:Type Border}">
+                <Setter Property="Height" Value="68" />
             </Style>
 
             <DataTemplate x:Key="QuotaDataTemplate">
@@ -380,15 +423,27 @@
                                    FontWeight="Medium" />
                         <TextBlock Grid.Column="1"
                                    Text="{Binding PercentText}"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                   FontSize="14"
-                                   FontWeight="Normal" />
+                                   VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style BasedOn="{StaticResource QuotaValueTextStyle}" TargetType="{x:Type TextBlock}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Title}" Value="Weekly">
+                                            <Setter Property="FontSize" Value="20" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Title}" Value="Session">
+                                            <Setter Property="FontSize" Value="20" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Title}" Value="Monthly">
+                                            <Setter Property="FontSize" Value="20" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                     </Grid>
                     <ProgressBar Margin="0,9,0,0"
                                  Maximum="100"
                                  Value="{Binding RemainingPercent, Mode=OneWay}"
-                                 Foreground="{Binding AccentBrush}"
                                  Style="{StaticResource QuotaProgressBarStyle}" />
                     <StackPanel Orientation="Horizontal"
                                 HorizontalAlignment="Right"
@@ -418,39 +473,104 @@
                 </StackPanel>
             </DataTemplate>
 
-            <DataTemplate x:Key="TokenCostRowDataTemplate">
-                <Grid Visibility="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <Grid.Style>
-                        <Style TargetType="{x:Type Grid}">
-                            <Setter Property="Margin" Value="0,0,0,12" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsLast}" Value="True">
-                                    <Setter Property="Margin" Value="0" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Grid.Style>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding Title}"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                               FontSize="13.5"
-                               FontWeight="Medium" />
-                    <TextBlock Grid.Column="1"
-                               HorizontalAlignment="Right"
-                               VerticalAlignment="Center"
+            <DataTemplate x:Key="CompactQuotaDataTemplate">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Title}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="13.5"
+                                   FontWeight="Medium" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding PercentText}"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource QuotaValueTextStyle}" />
+                    </Grid>
+                    <ProgressBar Margin="0,9,0,0"
+                                 Maximum="100"
+                                 Value="{Binding RemainingPercent, Mode=OneWay}"
+                                 Style="{StaticResource QuotaProgressBarStyle}" />
+                </StackPanel>
+            </DataTemplate>
+
+            <DataTemplate x:Key="CompactTokenCostRowDataTemplate">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid MinHeight="38"
+                          Margin="2,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Title}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                   FontSize="13.5"
+                                   FontWeight="Medium" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding Display.Tokens}"
+                                   ToolTip="{Binding Display.Cost, StringFormat=Cost: {0}}"
+                                   ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                   ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="13.5" />
+                    </Grid>
+                    <Border Grid.Row="1"
+                            Height="1"
+                            Background="{DynamicResource ControlStrokeColorDefaultBrush}">
+                        <Border.Style>
+                            <Style TargetType="{x:Type Border}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLast}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="TokenCostChartDayDataTemplate">
+                <Grid Margin="2,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="20" />
+                    </Grid.RowDefinitions>
+                    <Border Width="10"
+                            Height="{Binding BarHeight}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Bottom"
+                            ToolTip="{Binding Tooltip}"
+                            ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                            ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
+                        <Border.Style>
+                            <Style TargetType="{x:Type Border}">
+                                <Setter Property="Background" Value="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.IsCursorVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
+                                        <Setter Property="Background" Value="{Binding DataContext.CursorStatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+                    <TextBlock Grid.Row="1"
+                               Text="{Binding Label}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Bottom"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                               FontSize="13.5">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0} · {1}">
-                                <Binding Path="Display.Cost" />
-                                <Binding Path="Display.Tokens" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                               FontSize="12" />
                 </Grid>
             </DataTemplate>
 
@@ -475,6 +595,7 @@
                   Visibility="{Binding IsCodexVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="298" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
@@ -530,81 +651,122 @@
                 </StackPanel>
 
                 <!-- Quota list -->
-                <ScrollViewer Grid.Row="1"
+                <ScrollViewer x:Name="CodexQuotaScrollViewer"
+                              Grid.Row="1"
                               Margin="0,24,-8,0"
                               Padding="0,0,8,0"
+                              HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Hidden">
-                    <StackPanel VerticalAlignment="Top"
-                                Grid.IsSharedSizeScope="True">
-                    <TextBlock Text="Usage"
-                               Style="{StaticResource SectionHeaderStyle}"
-                               Visibility="{Binding IsUsageSectionHeaderVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <StackPanel VerticalAlignment="Top">
+                        <Border x:Name="CodexSessionCard"
+                                Margin="0,0,0,12"
+                                Style="{StaticResource LargeUsageCardStyle}"
+                                Visibility="{Binding SessionQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding SessionQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
 
-                    <ContentControl Content="{Binding FiveHourQuota}"
-                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Margin="0,0,0,20"
-                                    Visibility="{Binding FiveHourQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Border x:Name="CodexWeeklyCard"
+                                Margin="0,0,0,12"
+                                Style="{StaticResource LargeUsageCardStyle}"
+                                Visibility="{Binding WeeklyQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding WeeklyQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
 
-                    <ContentControl Content="{Binding SevenDayQuota}"
-                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Visibility="{Binding SevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Border x:Name="CodexResetCreditsCard"
+                                Margin="0"
+                                Style="{StaticResource SmallUsageCardStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Reset credits"
+                                           VerticalAlignment="Top"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                           FontSize="13.5"
+                                           FontWeight="Medium" />
+                                <StackPanel Grid.Column="1"
+                                            HorizontalAlignment="Right">
+                                    <TextBlock Text="{Binding ResetCreditsDisplay}"
+                                               HorizontalAlignment="Right"
+                                               FontSize="14">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}">
+                                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasResetCredits}" Value="True">
+                                                        <Setter Property="Foreground" Value="{Binding StatusDotBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding ResetCreditsExpiryDates}"
+                                               HorizontalAlignment="Right"
+                                               Margin="0,5,0,0"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                               FontSize="12">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding ResetCreditsExpiryDates}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
 
-                    <TextBlock Text="Resets"
-                               Style="{StaticResource SectionHeaderSpacedStyle}" />
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Grid Grid.Row="2"
+                      Margin="0,22,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
                     <StackPanel>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding ResetCreditsDisplay}"
-                                       VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                       FontSize="13.5"
-                                       FontWeight="Medium" />
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding ResetCreditsResetTime}"
-                                       HorizontalAlignment="Right"
-                                       VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                       FontSize="13.5"
-                                       FontWeight="Normal"
-                                       Visibility="{Binding IsResetCreditsResetTimeVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        </Grid>
-                        <TextBlock Text="{Binding ResetCreditsOtherResetTimes}"
-                                   HorizontalAlignment="Right"
-                                   Margin="0,5,0,0"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   FontSize="12">
-                            <TextBlock.Style>
-                                <Style TargetType="{x:Type TextBlock}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding ResetCreditsOtherResetTimes}" Value="">
-                                            <Setter Property="Visibility" Value="Collapsed" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
+                        <ItemsControl ItemsSource="{Binding CodexTokenCostRows}"
+                                      ItemTemplate="{StaticResource CompactTokenCostRowDataTemplate}">
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="{x:Type ContentPresenter}">
+                                    <Setter Property="HorizontalAlignment" Value="Stretch" />
                                 </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
+                            </ItemsControl.ItemContainerStyle>
+                        </ItemsControl>
                     </StackPanel>
 
-                    <TextBlock Text="Token Cost"
-                               Style="{StaticResource SectionHeaderSpacedStyle}"
-                               Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <ItemsControl ItemsSource="{Binding CodexTokenCostRows}"
-                                  ItemTemplate="{StaticResource TokenCostRowDataTemplate}"
-                                  Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <ItemsControl.ItemContainerStyle>
-                            <Style TargetType="{x:Type ContentPresenter}">
-                                <Setter Property="HorizontalAlignment" Value="Stretch" />
-                            </Style>
-                        </ItemsControl.ItemContainerStyle>
-                    </ItemsControl>
-                </StackPanel>
-                </ScrollViewer>
+                    <Border Grid.Column="1"
+                            Width="1"
+                            Margin="16,0"
+                            Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+
+                    <Grid Grid.Column="2"
+                          Height="132">
+                        <Border Height="1"
+                                Margin="0,0,0,20"
+                                VerticalAlignment="Bottom"
+                                Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                        <ItemsControl ItemsSource="{Binding CodexTokenCostChartDays}"
+                                      ItemTemplate="{StaticResource TokenCostChartDayDataTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="7" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </Grid>
+                </Grid>
 
             </Grid>
 
@@ -613,6 +775,7 @@
                   Visibility="{Binding IsCursorVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="298" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
@@ -667,45 +830,81 @@
                     </StackPanel>
                 </StackPanel>
 
-                <ScrollViewer Grid.Row="1"
+                <ScrollViewer x:Name="CursorQuotaScrollViewer"
+                              Grid.Row="1"
                               Margin="0,24,-8,0"
                               Padding="0,0,8,0"
+                              HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Hidden">
                     <StackPanel VerticalAlignment="Top">
-                        <TextBlock Text="Usage"
-                                   Style="{StaticResource SectionHeaderStyle}" />
+                        <Border x:Name="CursorMonthlyCard"
+                                Margin="0,0,0,12"
+                                Style="{StaticResource LargeUsageCardStyle}"
+                                Visibility="{Binding CursorMonthlyQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding CursorMonthlyQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
 
-                        <ContentControl Content="{Binding CursorTotalQuota}"
-                                        ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                        HorizontalContentAlignment="Stretch"
-                                        Margin="0,0,0,20"
-                                        Visibility="{Binding CursorTotalQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Border x:Name="CursorAutoCard"
+                                Margin="0,0,0,12"
+                                Style="{StaticResource SmallUsageCardStyle}"
+                                Visibility="{Binding CursorAutoQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding CursorAutoQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
 
-                        <ContentControl Content="{Binding CursorAutoQuota}"
-                                        ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                        HorizontalContentAlignment="Stretch"
-                                        Margin="0,0,0,20"
-                                        Visibility="{Binding CursorAutoQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Border x:Name="CursorApiCard"
+                                Margin="0"
+                                Style="{StaticResource SmallUsageCardStyle}"
+                                Visibility="{Binding CursorApiQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding CursorApiQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
 
-                        <ContentControl Content="{Binding CursorApiQuota}"
-                                        ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                        HorizontalContentAlignment="Stretch"
-                                        Visibility="{Binding CursorApiQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
-                        <TextBlock Text="Token Cost"
-                                   Style="{StaticResource SectionHeaderSpacedStyle}"
-                                   Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <ItemsControl ItemsSource="{Binding CursorTokenCostRows}"
-                                      ItemTemplate="{StaticResource TokenCostRowDataTemplate}"
-                                      Visibility="{Binding IsTokenCostVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <ItemsControl.ItemContainerStyle>
-                                <Style TargetType="{x:Type ContentPresenter}">
-                                    <Setter Property="HorizontalAlignment" Value="Stretch" />
-                                </Style>
-                            </ItemsControl.ItemContainerStyle>
-                        </ItemsControl>
                     </StackPanel>
                 </ScrollViewer>
+
+                <Grid Grid.Row="2"
+                      Margin="0,22,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <ItemsControl ItemsSource="{Binding CursorTokenCostRows}"
+                                  ItemTemplate="{StaticResource CompactTokenCostRowDataTemplate}">
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="{x:Type ContentPresenter}">
+                                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                    </ItemsControl>
+
+                    <Border Grid.Column="1"
+                            Width="1"
+                            Margin="16,0"
+                            Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+
+                    <Grid Grid.Column="2"
+                          Height="132">
+                        <Border Height="1"
+                                Margin="0,0,0,20"
+                                VerticalAlignment="Bottom"
+                                Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                        <ItemsControl ItemsSource="{Binding CursorTokenCostChartDays}"
+                                      ItemTemplate="{StaticResource TokenCostChartDayDataTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="7" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </Grid>
+                </Grid>
             </Grid>
 
             <!-- ===================== APIs ===================== -->
@@ -770,10 +969,13 @@
                                    FontSize="13"
                                    Visibility="{Binding IsApiEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
-                        <ItemsControl ItemsSource="{Binding ApiMonitors}">
+                        <ItemsControl x:Name="ApiMonitorItemsControl"
+                                      ItemsSource="{Binding ApiMonitors}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Margin="0,0,0,12"
+                                    <Border x:Name="ApiMonitorCard"
+                                            MinHeight="91"
+                                            Margin="0,0,0,12"
                                             Padding="14"
                                             CornerRadius="10"
                                             Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
@@ -1048,7 +1250,7 @@
                                     HorizontalAlignment="Stretch"
                                     Padding="11,0"
                                     HorizontalContentAlignment="Stretch"
-                                    Click="OpenTokenCostItemsMenu">
+                                    Click="OpenSelectionMenu">
                                 <Grid>
                                     <TextBlock Text="{Binding VisiblePagesDisplay}"
                                                VerticalAlignment="Center" />
@@ -1095,14 +1297,14 @@
                                       ToolTip="Start with Windows" />
                         </Grid>
 
-                        <Grid ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown"
+                        <Grid ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Resets use absolute time"
-                                       ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown"
+                                       ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -1110,17 +1312,17 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding UseAbsoluteResetTime}"
-                                      ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown" />
+                                      ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown" />
                         </Grid>
 
-                        <Grid ToolTip="Hide 5-Hour and 7-Day rows when the account has no active window for that limit"
+                        <Grid ToolTip="Hide Codex quota rows when the account has no active window for that limit"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Hide invalid progress bars"
-                                       ToolTip="Hide 5-Hour and 7-Day rows when the account has no active window for that limit"
+                                       ToolTip="Hide Codex quota rows when the account has no active window for that limit"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -1128,62 +1330,7 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding HideInvalidProgressBars}"
-                                      ToolTip="Hide 5-Hour and 7-Day rows when the account has no active window for that limit" />
-                        </Grid>
-
-                        <Grid Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Token Cost items"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <Button Grid.Column="1"
-                                    Height="34"
-                                    HorizontalAlignment="Stretch"
-                                    Padding="11,0"
-                                    HorizontalContentAlignment="Stretch"
-                                    Click="OpenTokenCostItemsMenu">
-                                <Grid>
-                                    <TextBlock Text="{Binding TokenCostItemsDisplay}"
-                                               VerticalAlignment="Center" />
-                                    <TextBlock Text="&#xE70D;"
-                                               HorizontalAlignment="Right"
-                                               VerticalAlignment="Center"
-                                               FontFamily="Segoe MDL2 Assets"
-                                               FontSize="12" />
-                                </Grid>
-                                <Button.ContextMenu>
-                                    <ContextMenu MinWidth="140"
-                                                 Placement="Bottom"
-                                                 DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                                        <MenuItem Header="Today"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowTodayTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="Yesterday"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowYesterdayTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="Week"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowWeekTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="Month"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowMonthTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="Last 7 days"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowSevenDayTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="Last 30 days"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowThirtyDayTokenCost, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                    </ContextMenu>
-                                </Button.ContextMenu>
-                            </Button>
+                                      ToolTip="Hide Codex quota rows when the account has no active window for that limit" />
                         </Grid>
 
                         <Grid Margin="{StaticResource SettingsSectionEndMargin}"
@@ -1219,89 +1366,19 @@
                                       Style="{StaticResource SettingsComboBoxStyle}" />
                         </Grid>
 
-                        <Grid ToolTip="Unit: pixels"
-                              Style="{StaticResource SettingsRowGridStyle}">
+                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
+                              Style="{StaticResource SettingsRowGridStyle}"
+                              Visibility="{Binding IsMicaSupported, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Window width"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <local:NumericUpDown Grid.Column="1"
-                                                 VerticalAlignment="Center"
-                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                 ToolTip="Unit: pixels"
-                                                 Minimum="{x:Static core:CodexTrayDefaults.MinimumWindowWidth}"
-                                                 Maximum="{x:Static core:CodexTrayDefaults.MaximumWindowWidth}"
-                                                 DefaultValue="{x:Static core:CodexTrayDefaults.WindowWidth}"
-                                                 Value="{Binding WindowWidthText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
-                        </Grid>
-
-                        <Grid ToolTip="Unit: pixels"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Window height"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <local:NumericUpDown Grid.Column="1"
-                                                 VerticalAlignment="Center"
-                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                 ToolTip="Unit: pixels"
-                                                 Minimum="{x:Static core:CodexTrayDefaults.MinimumWindowHeight}"
-                                                 Maximum="{x:Static core:CodexTrayDefaults.MaximumWindowHeight}"
-                                                 DefaultValue="{x:Static core:CodexTrayDefaults.WindowHeight}"
-                                                 Value="{Binding WindowHeightText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
-                        </Grid>
-
-                        <Grid Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Acrylic blur"
+                            <TextBlock Text="Mica"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
                                       VerticalAlignment="Center"
-                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                      IsChecked="{Binding AcrylicEnabled}"
-                                      ToolTip="Acrylic blur" />
-                        </Grid>
-
-                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
-                              Style="{StaticResource SettingsRowGridStyle}"
-                              Visibility="{Binding AcrylicEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Opacity"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <Grid Grid.Column="1"
-                                  VerticalAlignment="Center">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="40" />
-                                </Grid.ColumnDefinitions>
-                                <Slider VerticalAlignment="Center"
-                                        Minimum="{Binding AcrylicOpacityMinimum, Mode=OneTime}"
-                                        Maximum="{Binding AcrylicOpacityMaximum, Mode=OneTime}"
-                                        IsSnapToTickEnabled="True"
-                                        TickFrequency="1"
-                                        Value="{Binding AcrylicOpacityPercent, Mode=TwoWay}" />
-                                <TextBlock Grid.Column="1"
-                                           Margin="8,0,0,0"
-                                           VerticalAlignment="Center"
-                                           HorizontalAlignment="Right"
-                                           Text="{Binding AcrylicOpacityDisplay}"
-                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" />
-                            </Grid>
+                                      IsChecked="{Binding MicaEnabled}" />
                         </Grid>
 
                         <!-- Plugins -->
@@ -1512,6 +1589,8 @@
                                 CornerRadius="20">
                             <Image Width="72"
                                    Height="72"
+                                   RenderOptions.BitmapScalingMode="HighQuality"
+                                   SnapsToDevicePixels="True"
                                    Source="pack://siteoforigin:,,,/Resources/icon.png" />
                         </Border>
                         <TextBlock Margin="0,16,0,0"

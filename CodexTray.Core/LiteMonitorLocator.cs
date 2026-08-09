@@ -15,8 +15,8 @@ public static class LiteMonitorLocator
     /// <summary>
     /// Attempts to find a LiteMonitor installation directory.
     /// </summary>
-    public static string AutoDetect(string? savedDirectory = null)
+    public static string AutoDetect(string? savedDirectory = null, CancellationToken cancellationToken = default)
     {
-        return MonitorLocator.AutoDetect(k_ExecutableName, savedDirectory);
+        return MonitorLocator.AutoDetect(k_ExecutableName, savedDirectory, cancellationToken);
     }
 }

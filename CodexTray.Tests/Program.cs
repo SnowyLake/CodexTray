@@ -1,8 +1,11 @@
+using CodexTray.App;
 using CodexTray.Core;
 using Microsoft.Data.Sqlite;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 
@@ -22,16 +25,24 @@ internal static class Program
             return await RunCursorLiveAsync();
         }
 
+        await RunAsync("creates the fixed-size popup", TestPopupFixedSizeAsync);
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
-        await RunAsync("uses countdown label for same-day seven day reset", TestSevenDayCountdownLabelAsync);
-        await RunAsync("uses countdown label for next-day seven day reset", TestNextDaySevenDayCountdownLabelAsync);
+        await RunAsync("uses countdown label for same-day weekly reset", TestWeeklyCountdownLabelAsync);
+        await RunAsync("uses countdown label for next-day weekly reset", TestNextDayWeeklyCountdownLabelAsync);
         await RunAsync("returns unavailable response without OAuth credentials", TestEmptyResponseAsync);
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
         await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
         await RunAsync("collects Codex reset credits", TestResetCreditsAsync);
+        await RunAsync("applies quota and reset credit color states", TestQuotaAndResetCreditColorStatesAsync);
         await RunAsync("omits reset suffix when disabled", TestDisplayWithoutResetSuffixAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
+        await RunAsync("merges and clears plugin usage sources", TestUsageCacheSourcesAsync);
+        await RunAsync("drains active HTTP clients on stop", TestHttpServerActiveClientStopAsync);
+        await RunAsync("recovers HTTP server after bind failure", TestHttpServerBindFailureRecoveryAsync);
+        await RunAsync("supports idempotent stop and restart", TestHttpServerStopRestartAsync);
+        await RunAsync("propagates collector cancellation", TestCollectorCancellationAsync);
+        await RunAsync("distinguishes API cancellation from timeout", TestApiUsageCancellationAsync);
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
         await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
@@ -52,10 +63,122 @@ internal static class Program
         await RunAsync("shares one Cursor dashboard OAuth refresh", TestCursorDashboardRefreshBudgetAsync);
         await RunAsync("includes Cursor Codex pricing", TestCursorCodexPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
+        await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
+        await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
+        await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
+        await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
+        await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
+        await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
+        await RunAsync("collects local OpenCode token cost", TestOpenCodeTokenCostAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Tests loading the popup XAML with the fixed window dimensions.
+    /// </summary>
+    private static Task TestPopupFixedSizeAsync()
+    {
+        Exception? failure = null;
+        Thread thread = new(() =>
+        {
+            try
+            {
+                AppSettings settings = new()
+                {
+                    ApiMonitors = [new ApiMonitorSettings()],
+                };
+                TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
+                AssertEqual("Session", viewModel.SessionQuota.Title, "Codex session quota title");
+                AssertEqual("Weekly", viewModel.WeeklyQuota.Title, "Codex weekly quota title");
+                AssertEqual("Monthly", viewModel.CursorMonthlyQuota.Title, "Cursor monthly quota title");
+                viewModel.UpdateStatus(
+                    isRunning: true,
+                    CodexTrayDefaults.Port,
+                    new UsageResponse
+                    {
+                        Available = true,
+                        Limits = new UsageLimits
+                        {
+                            Session = new UsageLimit { WindowMinutes = 300, RemainingPercent = 100 },
+                            Weekly = new UsageLimit { WindowMinutes = 10_080, RemainingPercent = 98 },
+                        },
+                        ResetCredits = new ResetCredits { Available = true, AvailableCount = 1 },
+                    },
+                    error: null);
+                TrayPopupWindow window = new(viewModel);
+                AssertEqual(CodexTrayDefaults.PopupWindowWidth, window.Width, "fixed popup width");
+                AssertEqual(CodexTrayDefaults.PopupWindowHeight, window.Height, "fixed popup height");
+                AssertEqual(window.Width, window.MinWidth, "fixed popup minimum width");
+                AssertEqual(window.Width, window.MaxWidth, "fixed popup maximum width");
+                AssertEqual(window.Height, window.MinHeight, "fixed popup minimum height");
+                AssertEqual(window.Height, window.MaxHeight, "fixed popup maximum height");
+
+                System.Windows.FrameworkElement content = (System.Windows.FrameworkElement)window.Content;
+                content.Measure(new System.Windows.Size(window.Width, window.Height));
+                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                content.UpdateLayout();
+                System.Windows.Controls.ScrollViewer codexQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CodexQuotaScrollViewer");
+                AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"default Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
+                System.Windows.Controls.Border codexSessionCard = (System.Windows.Controls.Border)window.FindName("CodexSessionCard");
+                System.Windows.Controls.Border codexWeeklyCard = (System.Windows.Controls.Border)window.FindName("CodexWeeklyCard");
+                System.Windows.Controls.Border codexResetCreditsCard = (System.Windows.Controls.Border)window.FindName("CodexResetCreditsCard");
+                AssertEqual(91d, codexSessionCard.ActualHeight, "Codex Session card height");
+                AssertEqual(codexSessionCard.ActualHeight, codexWeeklyCard.ActualHeight, "Codex large card heights");
+                AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex small card height");
+
+                viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
+                    new CursorUsageSnapshot("Pro", 2, 3, 4, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds()),
+                    null,
+                    string.Empty,
+                    string.Empty,
+                    DateTimeOffset.Now));
+                viewModel.ShowCursor();
+                content.InvalidateMeasure();
+                content.Measure(new System.Windows.Size(window.Width, window.Height));
+                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                content.UpdateLayout();
+                System.Windows.Controls.ScrollViewer cursorQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CursorQuotaScrollViewer");
+                AssertTrue(cursorQuotaScrollViewer.ScrollableHeight == 0, $"default Cursor quota cards should not scroll, actual {cursorQuotaScrollViewer.ScrollableHeight}");
+                System.Windows.Controls.Border cursorMonthlyCard = (System.Windows.Controls.Border)window.FindName("CursorMonthlyCard");
+                System.Windows.Controls.Border cursorAutoCard = (System.Windows.Controls.Border)window.FindName("CursorAutoCard");
+                System.Windows.Controls.Border cursorApiCard = (System.Windows.Controls.Border)window.FindName("CursorApiCard");
+                AssertEqual(codexSessionCard.ActualHeight, cursorMonthlyCard.ActualHeight, "Codex and Cursor large card heights");
+                AssertEqual(codexResetCreditsCard.ActualHeight, cursorAutoCard.ActualHeight, "Codex and Cursor small card heights");
+                AssertEqual(cursorAutoCard.ActualHeight, cursorApiCard.ActualHeight, "Cursor small card heights");
+
+                viewModel.ShowApi();
+                content.InvalidateMeasure();
+                content.Measure(new System.Windows.Size(window.Width, window.Height));
+                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                content.UpdateLayout();
+                System.Windows.Controls.ItemsControl apiMonitorItemsControl = (System.Windows.Controls.ItemsControl)window.FindName("ApiMonitorItemsControl");
+                System.Windows.Controls.ContentPresenter apiMonitorPresenter = (System.Windows.Controls.ContentPresenter)apiMonitorItemsControl.ItemContainerGenerator.ContainerFromIndex(0);
+                System.Windows.DataTemplate apiMonitorTemplate = apiMonitorPresenter.ContentTemplate;
+                System.Windows.Controls.Border apiMonitorCard = (System.Windows.Controls.Border)apiMonitorTemplate.FindName("ApiMonitorCard", apiMonitorPresenter);
+                AssertEqual(apiMonitorCard.ActualHeight, codexSessionCard.ActualHeight, "API monitor and quota large card heights");
+                AssertEqual(apiMonitorCard.Margin.Bottom, codexSessionCard.Margin.Bottom, "API monitor and Codex card spacing");
+                AssertEqual(apiMonitorCard.Margin.Bottom, codexWeeklyCard.Margin.Bottom, "API monitor and Codex second card spacing");
+                AssertEqual(apiMonitorCard.Margin.Bottom, cursorMonthlyCard.Margin.Bottom, "API monitor and Cursor card spacing");
+                AssertEqual(apiMonitorCard.Margin.Bottom, cursorAutoCard.Margin.Bottom, "API monitor and Cursor second card spacing");
+                window.Close();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (failure != null)
+        {
+            throw new InvalidOperationException(failure.ToString(), failure);
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -134,57 +257,57 @@ internal static class Program
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(2).AddMinutes(5).ToUnixTimeSeconds();
-        long resetSevenDay = now.AddDays(3).AddHours(4).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 12.0, 34.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(2).AddMinutes(5).ToUnixTimeSeconds();
+        long weeklyResetAt = now.AddDays(3).AddHours(4).ToUnixTimeSeconds();
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 12.0, 34.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(response.Available, "response should be available");
-        AssertEqual(12, response.Limits.FiveHour.UsedPercent, "five hour used percent");
-        AssertEqual(88, response.Limits.FiveHour.RemainingPercent, "five hour remaining percent");
-        AssertEqual(34, response.Limits.SevenDay.UsedPercent, "seven day used percent");
-        AssertEqual(66, response.Limits.SevenDay.RemainingPercent, "seven day remaining percent");
+        AssertEqual(12, response.Limits.Session.UsedPercent, "session used percent");
+        AssertEqual(88, response.Limits.Session.RemainingPercent, "session remaining percent");
+        AssertEqual(34, response.Limits.Weekly.UsedPercent, "weekly used percent");
+        AssertEqual(66, response.Limits.Weekly.RemainingPercent, "weekly remaining percent");
         AssertEqual("pro", response.PlanType, "plan type");
-        AssertEqual("88% 2h05m", response.Display.Codex5H, "five hour display");
-        AssertEqual("66% 3d04h", response.Display.Codex7D, "seven day display");
+        AssertEqual("88% 2h05m", response.Display.Session, "session display");
+        AssertEqual("66% 3d04h", response.Display.Weekly, "weekly display");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests seven day countdown labels on the current day.
+    /// Tests weekly countdown labels on the current day.
     /// </summary>
-    private static Task TestSevenDayCountdownLabelAsync()
+    private static Task TestWeeklyCountdownLabelAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(1).ToUnixTimeSeconds();
-        long resetSevenDay = now.AddHours(3).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 20.0, 40.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
+        long weeklyResetAt = now.AddHours(3).ToUnixTimeSeconds();
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
 
-        AssertEqual("60% 0d03h", response.Display.Codex7D, "seven day countdown display");
+        AssertEqual("60% 0d03h", response.Display.Weekly, "weekly countdown display");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests seven day countdown labels on the next day even when below twenty four hours.
+    /// Tests weekly countdown labels on the next day even when below twenty four hours.
     /// </summary>
-    private static Task TestNextDaySevenDayCountdownLabelAsync()
+    private static Task TestNextDayWeeklyCountdownLabelAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 23, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(1).ToUnixTimeSeconds();
-        DateTimeOffset resetSevenDay = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
+        DateTimeOffset weeklyResetAt = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
 
-        AssertEqual("60% 0d03h", response.Display.Codex7D, "seven day next-day countdown display");
+        AssertEqual("60% 0d03h", response.Display.Weekly, "weekly next-day countdown display");
         return Task.CompletedTask;
     }
 
@@ -198,7 +321,7 @@ internal static class Program
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(!response.Available, "response should be unavailable");
-        AssertEqual("N/A", response.Display.Codex5H, "five hour unavailable display");
+        AssertEqual("N/A", response.Display.Session, "session unavailable display");
         AssertEqual("N/A", response.Display.Summary, "summary unavailable display");
         return Task.CompletedTask;
     }
@@ -246,10 +369,10 @@ internal static class Program
         AssertTrue(response.Available, "official response should be available");
         AssertEqual("official_api", response.Source, "official source");
         AssertEqual("unknown", response.PlanType, "missing plan type");
-        AssertEqual(75, response.Limits.FiveHour.RemainingPercent, "official five hour remaining percent");
-        AssertEqual(60, response.Limits.SevenDay.RemainingPercent, "official seven day remaining percent");
-        AssertEqual("75% 1h15m", response.Display.Codex5H, "official five hour display");
-        AssertEqual("60% 2d12h", response.Display.Codex7D, "official seven day display");
+        AssertEqual(75, response.Limits.Session.RemainingPercent, "official session remaining percent");
+        AssertEqual(60, response.Limits.Weekly.RemainingPercent, "official weekly remaining percent");
+        AssertEqual("75% 1h15m", response.Display.Session, "official session display");
+        AssertEqual("60% 2d12h", response.Display.Weekly, "official weekly display");
         return Task.CompletedTask;
     }
 
@@ -260,16 +383,16 @@ internal static class Program
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
-        long resetSevenDay = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 25.0, 40.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
+        long weeklyResetAt = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path, showResetTimeInPlugins: false);
 
-        AssertEqual("75%", response.Display.Codex5H, "five hour display without reset suffix");
-        AssertEqual("60%", response.Display.Codex7D, "seven day display without reset suffix");
-        AssertEqual("1h15m", response.Limits.FiveHour.ResetLabel, "reset label remains available for the panel");
+        AssertEqual("75%", response.Display.Session, "session display without reset suffix");
+        AssertEqual("60%", response.Display.Weekly, "weekly display without reset suffix");
+        AssertEqual("1h15m", response.Limits.Session.ResetLabel, "reset label remains available for the panel");
         return Task.CompletedTask;
     }
 
@@ -280,17 +403,17 @@ internal static class Program
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
-        long resetSevenDay = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 25.0, 40.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
+        long weeklyResetAt = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path, showResetTimeInPlugins: true, useAbsoluteResetTime: true);
 
-        AssertEqual("13:15", response.Limits.FiveHour.ResetLabel, "five hour absolute reset clock");
-        AssertEqual("07-04", response.Limits.SevenDay.ResetLabel, "seven day absolute reset date");
-        AssertEqual("75% 13:15", response.Display.Codex5H, "five hour display with absolute reset");
-        AssertEqual("60% 07-04", response.Display.Codex7D, "seven day display with absolute reset");
+        AssertEqual("13:15", response.Limits.Session.ResetLabel, "session absolute reset clock");
+        AssertEqual("07-04", response.Limits.Weekly.ResetLabel, "weekly absolute reset date");
+        AssertEqual("75% 13:15", response.Display.Session, "session display with absolute reset");
+        AssertEqual("60% 07-04", response.Display.Weekly, "weekly display with absolute reset");
         return Task.CompletedTask;
     }
 
@@ -304,7 +427,16 @@ internal static class Program
         CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient collectorClient);
         using HttpClient _ = collectorClient;
         UsageCache usageCache = new();
-        usageCache.Update(collector.Collect(temp.Path));
+        usageCache.UpdateCodex(collector.Collect(temp.Path));
+        usageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(
+            new CursorUsageDashboard(
+                new CursorUsageSnapshot("Pro", 25, 0, 0, now.AddDays(30).ToUnixTimeSeconds()),
+                null,
+                string.Empty,
+                string.Empty,
+                now),
+            showResetTime: true,
+            useAbsoluteResetTime: false));
         using LightweightHttpServer server = new(usageCache, 0);
         server.Start();
 
@@ -314,12 +446,181 @@ internal static class Program
 
         string usageJson = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageEndpointPath}");
         using JsonDocument document = JsonDocument.Parse(usageJson);
-        string display = document.RootElement.GetProperty("display").GetProperty("codex_5h").GetString() ?? string.Empty;
-        AssertEqual("90% 1h00m", display, "HTTP five hour display");
+        JsonElement display = document.RootElement.GetProperty("display");
+        JsonElement limits = document.RootElement.GetProperty("limits");
+        AssertEqual("90% 1h00m", display.GetProperty("session").GetString(), "HTTP plugin session display");
+        AssertEqual("80% 2d00h", display.GetProperty("weekly").GetString(), "HTTP plugin weekly display");
+        AssertEqual("75% 30d00h", display.GetProperty("cursor_monthly").GetString(), "HTTP plugin Cursor monthly display");
+        AssertEqual(75, limits.GetProperty("cursor_monthly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Cursor monthly remaining percent");
+        AssertTrue(!display.TryGetProperty("codex_5h", out JsonElement legacySession), "legacy session plugin field should be removed");
+        AssertTrue(!display.TryGetProperty("codex_7d", out JsonElement legacyWeekly), "legacy weekly plugin field should be removed");
 
         string usageText = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageTextEndpointPath}");
-        AssertTrue(usageText.Contains("90% 1h00m", StringComparison.Ordinal), "text endpoint should include five hour display");
-        AssertTrue(usageText.Contains("80% 2d00h", StringComparison.Ordinal), "text endpoint should include seven day display");
+        string[] usageLines = usageText.Split(Environment.NewLine);
+        AssertEqual(3, usageLines.Length, "text endpoint line count");
+        AssertEqual("90% 1h00m", usageLines[0], "text endpoint session display");
+        AssertEqual("80% 2d00h", usageLines[1], "text endpoint weekly display");
+        AssertEqual("75% 30d00h", usageLines[2], "text endpoint Cursor monthly display");
+        await server.StopAsync();
+    }
+
+    /// <summary>
+    /// Tests independent merging and clearing of Codex and Cursor plugin values.
+    /// </summary>
+    private static Task TestUsageCacheSourcesAsync()
+    {
+        UsageCache usageCache = new();
+        usageCache.UpdateCodex(new UsageResponse
+        {
+            Available = true,
+            Limits = new UsageLimits
+            {
+                Session = new UsageLimit { Name = "session", RemainingPercent = 90 },
+                Weekly = new UsageLimit { Name = "weekly", RemainingPercent = 80 },
+            },
+            Display = new UsageDisplay
+            {
+                Session = "90%",
+                Weekly = "80%",
+                Summary = "Codex Session: 90% | Codex Weekly: 80%",
+            },
+        });
+        usageCache.UpdateCursor(new CursorPluginUsage(
+            new UsageLimit { Name = "monthly", RemainingPercent = 70 },
+            "70%"));
+
+        UsageResponse merged = usageCache.Get() ?? throw new InvalidOperationException("merged usage should be available");
+        AssertEqual("90%", merged.Display.Session, "merged Codex session display");
+        AssertEqual("70%", merged.Display.CursorMonthly, "merged Cursor monthly display");
+
+        usageCache.ClearCodex();
+        UsageResponse cursorOnly = usageCache.Get() ?? throw new InvalidOperationException("Cursor-only usage should be available");
+        AssertEqual("N/A", cursorOnly.Display.Session, "cleared Codex session display");
+        AssertEqual("70%", cursorOnly.Display.CursorMonthly, "preserved Cursor monthly display");
+
+        usageCache.ClearCursor();
+        AssertTrue(usageCache.Get() == null, "cleared plugin usage should be empty");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests that stopping the HTTP server cancels and drains a partial-header client.
+    /// </summary>
+    private static async Task TestHttpServerActiveClientStopAsync()
+    {
+        using LightweightHttpServer server = new(new UsageCache(), 0);
+        server.Start();
+        using TcpClient client = new();
+        await client.ConnectAsync(CodexTrayDefaults.Host, server.Port);
+        await client.GetStream().WriteAsync(Encoding.ASCII.GetBytes("GET /health HTTP/1.1\r\nHost: localhost\r\n"));
+        await WaitForTrackedClientAsync(server);
+
+        Task firstStop = server.StopAsync();
+        Task secondStop = server.StopAsync();
+        AssertTrue(ReferenceEquals(firstStop, secondStop), "concurrent stop calls should share one task");
+        await firstStop.WaitAsync(TimeSpan.FromSeconds(2));
+        AssertTrue(!server.IsRunning, "server should stop after draining the partial request");
+    }
+
+    /// <summary>
+    /// Waits until the HTTP server has accepted and tracked a test client.
+    /// </summary>
+    private static async Task WaitForTrackedClientAsync(LightweightHttpServer server)
+    {
+        PropertyInfo property = typeof(LightweightHttpServer).GetProperty("ActiveClientCount", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("active client count property was not found");
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
+        while ((int)(property.GetValue(server) ?? 0) == 0)
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
+    /// <summary>
+    /// Tests that a failed bind leaves the same HTTP server instance restartable.
+    /// </summary>
+    private static async Task TestHttpServerBindFailureRecoveryAsync()
+    {
+        TcpListener blocker = new(IPAddress.Loopback, 0);
+        blocker.Start();
+        int port = ((IPEndPoint)blocker.LocalEndpoint).Port;
+        using LightweightHttpServer server = new(new UsageCache(), port);
+        bool failed = false;
+        try
+        {
+            server.Start();
+        }
+        catch (SocketException)
+        {
+            failed = true;
+        }
+
+        AssertTrue(failed, "occupied port should reject the first bind");
+        blocker.Stop();
+        server.Start();
+        AssertTrue(server.IsRunning, "same server instance should start after bind cleanup");
+        await server.StopAsync();
+    }
+
+    /// <summary>
+    /// Tests stop idempotence, the in-progress restart guard, and restart after completion.
+    /// </summary>
+    private static async Task TestHttpServerStopRestartAsync()
+    {
+        using LightweightHttpServer server = new(new UsageCache(), 0);
+        server.Start();
+        Task stop = server.StopAsync();
+        bool restartGuarded = false;
+        try
+        {
+            server.Start();
+        }
+        catch (InvalidOperationException)
+        {
+            restartGuarded = true;
+        }
+
+        AssertTrue(restartGuarded, "start should reject an in-progress stop");
+        AssertTrue(ReferenceEquals(stop, server.StopAsync()), "stop should be idempotent while active");
+        await stop;
+        await server.StopAsync();
+        server.Start();
+        AssertTrue(server.IsRunning, "server should restart after stop completion");
+        await server.StopAsync();
+    }
+
+    /// <summary>
+    /// Tests pre-canceled Codex, token-cost, Cursor, and monitor locator operations.
+    /// </summary>
+    private static async Task TestCollectorCancellationAsync()
+    {
+        using TempDirectory temp = new();
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        await AssertCanceledAsync(() => new CodexTrayCollector().CollectAsync(temp.Path, cancellationToken: cancellation.Token));
+        await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().Collect(temp.Path, openCodeDirectory: temp.Path, cancellationToken: cancellation.Token)));
+        await AssertCanceledAsync(() => Task.Run(() => LiteMonitorLocator.AutoDetect(cancellationToken: cancellation.Token)));
+        await AssertCanceledAsync(() => new CursorUsageCollector().CollectDashboardAsync(cancellationToken: cancellation.Token));
+    }
+
+    /// <summary>
+    /// Tests caller cancellation propagation and non-caller timeout mapping for API monitors.
+    /// </summary>
+    private static async Task TestApiUsageCancellationAsync()
+    {
+        ApiMonitorSettings monitor = new()
+        {
+            Provider = ApiMonitorSettings.DeepSeekProvider,
+            ApiKey = "test-key",
+            BaseUrl = "https://example.test",
+        };
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        await AssertCanceledAsync(() => new ApiUsageCollector().CollectAsync([monitor], cancellationToken: cancellation.Token));
+
+        using HttpClient client = new(new CanceledHttpMessageHandler());
+        IReadOnlyList<ApiUsageResult> results = await new ApiUsageCollector(client).CollectAsync([monitor]);
+        AssertEqual("Request timed out", results[0].Error, "non-caller TaskCanceledException should remain a timeout");
     }
 
     /// <summary>
@@ -334,8 +635,13 @@ internal static class Program
         string targetPath = LiteMonitorPluginInstaller.Install(temp.Path, 17998);
         AssertTrue(File.Exists(targetPath), "plugin file should exist");
         string content = File.ReadAllText(targetPath);
-        AssertTrue(content.Contains("\"format_val\": \"{{codex_5h_display}}\"", StringComparison.Ordinal), "plugin content should include five hour value");
-        AssertTrue(content.Contains("\"format_val\": \"{{codex_7d_display}}\"", StringComparison.Ordinal), "plugin content should include seven day value");
+        using JsonDocument pluginDocument = JsonDocument.Parse(content);
+        string expectedVersion = typeof(TrayPopupViewModel).Assembly.GetName().Version?.ToString(3) ?? string.Empty;
+        AssertEqual(expectedVersion, pluginDocument.RootElement.GetProperty("meta").GetProperty("version").GetString(), "plugin version should match the app version");
+        AssertTrue(content.Contains("\"short_label\": \"Codex-Session\"", StringComparison.Ordinal), "plugin content should include Codex Session item");
+        AssertTrue(content.Contains("\"short_label\": \"Codex-Weekly\"", StringComparison.Ordinal), "plugin content should include Codex Weekly item");
+        AssertTrue(content.Contains("\"short_label\": \"Cursor-Monthly\"", StringComparison.Ordinal), "plugin content should include Cursor Monthly item");
+        AssertTrue(content.Contains("\"format_val\": \"{{cursor_monthly_display}}\"", StringComparison.Ordinal), "plugin content should include Cursor Monthly value");
         AssertTrue(content.Contains($"http://{CodexTrayDefaults.Host}:17998{CodexTrayDefaults.UsageEndpointPath}", StringComparison.Ordinal), "plugin content should include bridge URL");
         return Task.CompletedTask;
     }
@@ -402,11 +708,13 @@ internal static class Program
         AssertEqual(string.Empty, settings.TrafficMonitorDir, "default TrafficMonitor path");
         AssertEqual(CodexTrayDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
         AssertEqual(PageItem.All, settings.VisiblePages, "default visible pages");
+        AssertTrue(!settings.StartWithWindows, "startup should be disabled by default");
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
-        AssertEqual(TokenCostItem.All, settings.TokenCostItems, "default token cost items");
-        AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
-        AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
+        AssertTrue(settings.MicaEnabled, "Mica should be enabled by default");
+        AssertTrue(settings.ShowResetTimeInPlugins, "plugin reset time should be shown by default");
+        AssertTrue(settings.UseAbsoluteResetTime, "absolute reset time should be enabled by default");
+        AssertTrue(settings.HideInvalidProgressBars, "invalid progress bars should be hidden by default");
         AssertEqual(0, settings.ApiMonitors.Count, "default API monitors");
 
         string repairedJson = File.ReadAllText(store.SettingsPath);
@@ -417,11 +725,23 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.VisiblePages), out _), "repaired settings should include visible pages");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
-        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenCostItems), out _), "repaired settings should include token cost items");
-        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowWidth), out _), "repaired settings should include window width");
-        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.WindowHeight), out _), "repaired settings should include window height");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "repaired settings should include Mica toggle");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
+
+        using TempDirectory legacyTemp = new();
+        SettingsStore legacyStore = new(legacyTemp.Path);
+        File.WriteAllText(legacyStore.SettingsPath, "{\"BackdropMode\":\"Mica\",\"AcrylicEnabled\":true,\"AcrylicOpacityPercent\":80,\"TokenCostItems\":63,\"WindowWidth\":800,\"WindowHeight\":1200}");
+        AppSettings legacySettings = legacyStore.Load();
+        AssertTrue(legacySettings.MicaEnabled, "legacy Mica mode");
+        using JsonDocument migratedDocument = JsonDocument.Parse(File.ReadAllText(legacyStore.SettingsPath));
+        AssertTrue(migratedDocument.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "migrated settings should include Mica toggle");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty(nameof(AppSettings.BackdropMode), out _), "migrated settings should omit backdrop mode");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("AcrylicEnabled", out _), "migrated settings should omit legacy acrylic toggle");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("AcrylicOpacityPercent", out _), "migrated settings should omit acrylic opacity");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("TokenCostItems", out _), "migrated settings should omit token cost selection");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("WindowWidth", out _), "migrated settings should omit window width");
+        AssertTrue(!migratedDocument.RootElement.TryGetProperty("WindowHeight", out _), "migrated settings should omit window height");
         return Task.CompletedTask;
     }
 
@@ -493,10 +813,8 @@ internal static class Program
             RefreshIntervalMinutes = 0,
             ThemeMode = "unexpected",
             TokenUnit = AppSettings.TokenUnitChinese,
-            TokenCostItems = TokenCostItem.Today | (TokenCostItem)(1 << 10),
             VisiblePages = PageItem.Cursor | (PageItem)(1 << 10),
-            WindowWidth = 100,
-            WindowHeight = 9999,
+            BackdropMode = "unexpected",
         };
 
         settings.Normalize();
@@ -505,10 +823,9 @@ internal static class Program
         AssertEqual(CodexTrayDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "Chinese token unit");
-        AssertEqual(TokenCostItem.Today, settings.TokenCostItems, "supported token cost items");
         AssertEqual(PageItem.Cursor, settings.VisiblePages, "supported visible pages");
-        AssertEqual(CodexTrayDefaults.WindowWidth, settings.WindowWidth, "default window width");
-        AssertEqual(CodexTrayDefaults.WindowHeight, settings.WindowHeight, "default window height");
+        AssertTrue(!settings.MicaEnabled, "unexpected backdrop should disable Mica");
+        AssertEqual<string?>(null, settings.BackdropMode, "legacy backdrop should be cleared");
         settings.TokenUnit = "M/B";
         settings.Normalize();
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "legacy English token unit");
@@ -554,6 +871,20 @@ internal static class Program
                 },
                 new ApiMonitorSettings
                 {
+                    Name = "OpenRouter Credits",
+                    Provider = "openrouter",
+                    BaseUrl = "https://openrouter.example/",
+                    ApiKey = "openrouter-management-key",
+                },
+                new ApiMonitorSettings
+                {
+                    Name = "NanoGPT Balance",
+                    Provider = "nanogpt",
+                    BaseUrl = "https://nano-gpt.example/",
+                    ApiKey = "nanogpt-key",
+                },
+                new ApiMonitorSettings
+                {
                     Name = "Local Cursor",
                     Provider = ApiMonitorSettings.CursorProvider,
                     BaseUrl = "https://should-clear.example",
@@ -570,16 +901,22 @@ internal static class Program
         AppSettings loaded = store.Load();
         ApiMonitorSettings deepSeek = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.DeepSeekProvider);
         ApiMonitorSettings grok = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.GrokProvider);
+        ApiMonitorSettings openRouter = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.OpenRouterProvider);
+        ApiMonitorSettings nanoGpt = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.NanoGptProvider);
         AssertEqual("deepseek-secret-token", deepSeek.ApiKey, "saved API key");
         AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
         AssertEqual(ApiMonitorSettings.OpenCodeOAuthSource, grok.GrokOAuthSource, "saved Grok OAuth source");
-        AssertEqual(2, loaded.ApiMonitors.Count, "Cursor API monitor should be removed");
+        AssertEqual("https://openrouter.example", openRouter.BaseUrl, "saved OpenRouter base URL");
+        AssertEqual("openrouter-management-key", openRouter.ApiKey, "saved OpenRouter management key");
+        AssertEqual("https://nano-gpt.example", nanoGpt.BaseUrl, "saved NanoGPT base URL");
+        AssertEqual("nanogpt-key", nanoGpt.ApiKey, "saved NanoGPT API key");
+        AssertEqual(4, loaded.ApiMonitors.Count, "Cursor API monitor should be removed");
         AssertTrue(!json.Contains("Local Cursor", StringComparison.Ordinal), "settings should remove Cursor API monitors");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests DeepSeek CNY balance and NewAPI USD quota parsing.
+    /// Tests supported API provider requests and balance parsing.
     /// </summary>
     private static async Task TestApiUsageCollectorAsync()
     {
@@ -599,12 +936,48 @@ internal static class Program
             ApiKey = "newapi-token",
             UserId = "42",
         };
+        ApiMonitorSettings openRouter = new()
+        {
+            Id = "openrouter",
+            Provider = ApiMonitorSettings.OpenRouterProvider,
+            BaseUrl = "https://openrouter.example/api/v1",
+            ApiKey = "openrouter-management-key",
+        };
+        ApiMonitorSettings openRouterRoot = new()
+        {
+            Id = "openrouter-root",
+            Provider = ApiMonitorSettings.OpenRouterProvider,
+            BaseUrl = "https://openrouter.example",
+            ApiKey = "openrouter-management-key",
+        };
+        ApiMonitorSettings nanoGpt = new()
+        {
+            Id = "nanogpt",
+            Provider = ApiMonitorSettings.NanoGptProvider,
+            BaseUrl = "https://nano-gpt.example/api/v1",
+            ApiKey = "nanogpt-key",
+        };
+        ApiMonitorSettings nanoGptUsageFailure = new()
+        {
+            Id = "nanogpt-failure",
+            Provider = ApiMonitorSettings.NanoGptProvider,
+            BaseUrl = "https://nano-gpt-failure.example",
+            ApiKey = "nanogpt-failure-key",
+        };
 
-        IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync([deepSeek, newApi]);
+        IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync([deepSeek, newApi, openRouter, openRouterRoot, nanoGpt, nanoGptUsageFailure]);
 
         AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
         AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
         AssertEqual("$5.00", results[1].UsedDisplay, "NewAPI used USD quota");
+        AssertEqual("$74.75", results[2].BalanceDisplay, "OpenRouter remaining credits");
+        AssertEqual("$25.75", results[2].UsedDisplay, "OpenRouter used credits");
+        AssertEqual("$74.75", results[3].BalanceDisplay, "OpenRouter root base URL credits");
+        AssertEqual("$12.35", results[4].BalanceDisplay, "NanoGPT USD balance");
+        AssertEqual("$3.00", results[4].UsedDisplay, "NanoGPT 30-day usage");
+        AssertTrue(results[5].Available, "NanoGPT balance should remain available when usage fails");
+        AssertEqual("$12.35", results[5].BalanceDisplay, "NanoGPT balance after usage failure");
+        AssertEqual(string.Empty, results[5].UsedDisplay, "NanoGPT usage failure display");
     }
 
     /// <summary>
@@ -730,7 +1103,7 @@ internal static class Program
             DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
 
         AssertEqual("pro_plus", snapshot.PlanType, "Cursor plan type");
-        AssertEqual(10, snapshot.TotalUsedPercent, "Cursor total used percentage");
+        AssertEqual(10, snapshot.MonthlyUsedPercent, "Cursor monthly used percentage");
         AssertEqual(12, snapshot.AutoUsedPercent, "Cursor first-party used percentage");
         AssertEqual(0, snapshot.ApiUsedPercent, "Cursor API used percentage");
         AssertEqual(resetAt, snapshot.ResetsAt, "Cursor reset timestamp");
@@ -762,7 +1135,7 @@ internal static class Program
             CursorUsageCollector collector = new(client);
             CursorUsageSnapshot snapshot = await collector.CollectAsync();
 
-            AssertEqual(12.5, snapshot.TotalUsedPercent, "refreshed Cursor total used percentage");
+            AssertEqual(12.5, snapshot.MonthlyUsedPercent, "refreshed Cursor monthly used percentage");
             AssertEqual(20, snapshot.AutoUsedPercent, "refreshed Cursor first-party used percentage");
             AssertEqual(5, snapshot.ApiUsedPercent, "refreshed Cursor API used percentage");
             AssertEqual(1_802_592_000, snapshot.ResetsAt, "refreshed Cursor reset timestamp");
@@ -830,13 +1203,10 @@ internal static class Program
             AssertEqual(6, dashboard.TokenCostDiagnostics.CacheWriteTokenFieldCount, "Cursor diagnostics cache write coverage");
             AssertEqual(160L, dashboard.TokenCost!.Today.TotalTokens, "Cursor cache tokens should contribute to total tokens");
             AssertEqual(1.25m, dashboard.TokenCost.Today.CostUsd, "Cursor cost must use totalCents instead of chargedCents");
-            AssertEqual(4L, dashboard.TokenCost.Yesterday.TotalTokens, "Cursor yesterday boundary");
-            AssertEqual(172L, dashboard.TokenCost.Week.TotalTokens, "Cursor week Monday boundary");
-            AssertEqual(192L, dashboard.TokenCost.Month.TotalTokens, "Cursor month boundary");
-            AssertEqual(192L, dashboard.TokenCost.SevenDay.TotalTokens, "Cursor last seven day boundary");
-            AssertEqual(216L, dashboard.TokenCost.ThirtyDay.TotalTokens, "Cursor last thirty day boundary");
-            AssertEqual(244L, dashboard.TokenCost.Total.TotalTokens, "Cursor historical total boundary");
-            AssertEqual(2.75m, dashboard.TokenCost.Total.CostUsd, "Cursor total event cents");
+            AssertEqual(192L, dashboard.TokenCost.LastSevenDays.TotalTokens, "Cursor last 7 days boundary");
+            AssertEqual(216L, dashboard.TokenCost.LastThirtyDays.TotalTokens, "Cursor last 30 days boundary");
+            AssertEqual(244L, dashboard.TokenCost.Lifetime.TotalTokens, "Cursor lifetime boundary");
+            AssertEqual(2.75m, dashboard.TokenCost.Lifetime.CostUsd, "Cursor lifetime event cents");
         }
         finally
         {
@@ -889,8 +1259,8 @@ internal static class Program
                 now,
                 CreateCursorTokenUsageEvent(now, 0, 0, 0, 0, includeTotalCents: false));
             AssertTrue(zeroTokenMissingCost.TokenCost != null, "zero-token event without cost should not clear token cost");
-            AssertEqual(0L, zeroTokenMissingCost.TokenCost!.Total.TotalTokens, "zero-token event total");
-            AssertEqual(0m, zeroTokenMissingCost.TokenCost.Total.CostUsd, "zero-token event cost");
+            AssertEqual(0L, zeroTokenMissingCost.TokenCost!.Lifetime.TotalTokens, "zero-token event lifetime");
+            AssertEqual(0m, zeroTokenMissingCost.TokenCost.Lifetime.CostUsd, "zero-token event cost");
             AssertEqual(1, zeroTokenMissingCost.TokenCostDiagnostics!.ZeroTokenMissingCostEventCount, "zero-token missing-cost diagnostics");
             AssertEqual(0, zeroTokenMissingCost.TokenCostDiagnostics.TokenEventCount, "zero-token missing-cost should not count as a token event");
         }
@@ -1014,7 +1384,7 @@ internal static class Program
     /// Builds a redacted Cursor usage-summary fixture for parser tests.
     /// </summary>
     private static string CreateCursorUsageSummaryJson(
-        double totalUsedPercent,
+        double monthlyUsedPercent,
         double firstPartyUsedPercent,
         double apiUsedPercent,
         DateTimeOffset billingCycleEnd)
@@ -1027,7 +1397,7 @@ internal static class Program
             {
                 plan = new
                 {
-                    totalPercentUsed = totalUsedPercent,
+                    totalPercentUsed = monthlyUsedPercent,
                     autoPercentUsed = firstPartyUsedPercent,
                     apiPercentUsed = apiUsedPercent,
                 },
@@ -1235,6 +1605,293 @@ internal static class Program
     }
 
     /// <summary>
+    /// Tests that the refresh command tracks its task and prevents concurrent execution.
+    /// </summary>
+    private static async Task TestRefreshCommandAsync()
+    {
+        TaskCompletionSource<bool> started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<bool> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int refreshCount = 0;
+        Func<Task> refreshAsync = async () =>
+        {
+            refreshCount++;
+            started.TrySetResult(true);
+            await release.Task;
+        };
+        TrayPopupViewModel viewModel = new(new AppSettings(), refreshAsync);
+
+        viewModel.RefreshCommand.Execute(null);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        AssertTrue(viewModel.RefreshCommand.IsRunning, "refresh command should report a running task");
+        AssertTrue(!viewModel.RefreshCommand.CanExecute(null), "refresh command should reject concurrent execution");
+        Task? executionTask = viewModel.RefreshCommand.ExecutionTask;
+        AssertTrue(executionTask != null, "refresh command should expose its execution task");
+
+        viewModel.AddApiMonitorCommand.Execute(null);
+        viewModel.ApiMonitors[0].ToggleEditingCommand.Execute(null);
+
+        AssertEqual(1, refreshCount, "programmatic refresh should not reenter a running command");
+        AssertTrue(ReferenceEquals(executionTask, viewModel.RefreshCommand.ExecutionTask), "programmatic refresh should preserve the active execution task");
+
+        release.TrySetResult(true);
+        await executionTask!;
+
+        AssertEqual(1, refreshCount, "refresh command invocation count");
+        AssertTrue(!viewModel.RefreshCommand.IsRunning, "refresh command should stop running after completion");
+        AssertTrue(viewModel.RefreshCommand.CanExecute(null), "refresh command should become executable after completion");
+    }
+
+    /// <summary>
+    /// Verifies the compact token-cost rows and rolling chart display data.
+    /// </summary>
+    private static Task TestTokenCostChartViewModelAsync()
+    {
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        DateTime firstDate = new(2026, 8, 1);
+        TokenCostDailySummary[] daily = Enumerable.Range(0, 7)
+            .Select(index => new TokenCostDailySummary
+            {
+                Date = firstDate.AddDays(index),
+                Summary = new TokenCostSummary
+                {
+                    CostUsd = index + 1,
+                    TotalTokens = (index + 1) * 100,
+                },
+            })
+            .ToArray();
+        TokenCostStatistics statistics = new()
+        {
+            Today = new TokenCostSummary { CostUsd = 7 },
+            LastSevenDays = new TokenCostSummary { CostUsd = 13 },
+            LastThirtyDays = new TokenCostSummary { CostUsd = 30 },
+            Lifetime = new TokenCostSummary { CostUsd = 100 },
+            LastSevenDaysDaily = daily,
+        };
+        viewModel.UpdateTokenCost(statistics);
+
+        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Title)), "Codex token cost row titles");
+        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Display.Cost)), "Codex token cost row values");
+        AssertEqual(7, viewModel.CodexTokenCostChartDays.Count, "Codex token cost chart day count");
+        AssertEqual("F", viewModel.CodexTokenCostChartDays[6].Label, "Codex token cost chart today label");
+        AssertEqual(96d, viewModel.CodexTokenCostChartDays[6].BarHeight, "Codex token cost chart maximum height");
+        AssertEqual($"2026-08-07{Environment.NewLine}Tokens: 0.70K{Environment.NewLine}Cost: $7.00", viewModel.CodexTokenCostChartDays[6].Tooltip, "Codex token cost chart tooltip");
+
+        viewModel.UpdateCursorDashboard(new CursorUsageDashboard(null, statistics, "N/A", string.Empty, DateTimeOffset.Now));
+        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CursorTokenCostRows.Select(row => row.Title)), "Cursor token cost row titles");
+        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CursorTokenCostRows.Select(row => row.Display.Cost)), "Cursor token cost row values");
+        AssertEqual(7, viewModel.CursorTokenCostChartDays.Count, "Cursor token cost chart day count");
+        AssertEqual(viewModel.CodexTokenCostChartDays[6].Tooltip, viewModel.CursorTokenCostChartDays[6].Tooltip, "Cursor token cost chart tooltip");
+
+        viewModel.UpdateTokenCost(null);
+        AssertEqual(7, viewModel.CodexTokenCostChartDays.Count, "unavailable Codex token cost chart day count");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests dirty tracking for every migrated editable property.
+    /// </summary>
+    private static Task TestMigratedDirtyPropertiesAsync()
+    {
+        List<(string Name, Action<TrayPopupViewModel> Change, Action<TrayPopupViewModel> Restore)> cases =
+        [
+            (nameof(TrayPopupViewModel.LiteMonitorDir), viewModel => viewModel.LiteMonitorDir = "C:\\LiteMonitor", viewModel => viewModel.LiteMonitorDir = string.Empty),
+            (nameof(TrayPopupViewModel.TrafficMonitorDir),
+             viewModel => viewModel.TrafficMonitorDir = "C:\\TrafficMonitor",
+             viewModel => viewModel.TrafficMonitorDir = string.Empty),
+            (nameof(TrayPopupViewModel.PortText),
+             viewModel => viewModel.PortText = "17891",
+             viewModel => viewModel.PortText = CodexTrayDefaults.Port.ToString(CultureInfo.InvariantCulture)),
+            (nameof(TrayPopupViewModel.RefreshIntervalText),
+             viewModel => viewModel.RefreshIntervalText = "2",
+             viewModel => viewModel.RefreshIntervalText = CodexTrayDefaults.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture)),
+            (nameof(TrayPopupViewModel.StartWithWindows), viewModel => viewModel.StartWithWindows = true, viewModel => viewModel.StartWithWindows = false),
+            (nameof(TrayPopupViewModel.ShowResetTimeInPlugins),
+             viewModel => viewModel.ShowResetTimeInPlugins = !CodexTrayDefaults.ShowResetTimeInPlugins,
+             viewModel => viewModel.ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins),
+            (nameof(TrayPopupViewModel.UseAbsoluteResetTime),
+             viewModel => viewModel.UseAbsoluteResetTime = !CodexTrayDefaults.UseAbsoluteResetTime,
+             viewModel => viewModel.UseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime),
+        ];
+
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            cases.Add((nameof(TrayPopupViewModel.MicaEnabled), viewModel => viewModel.MicaEnabled = false, viewModel => viewModel.MicaEnabled = true));
+        }
+
+        foreach ((string name, Action<TrayPopupViewModel> change, Action<TrayPopupViewModel> restore) in cases)
+        {
+            TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+            change(viewModel);
+            AssertEqual(SettingsStatus.Unsaved, viewModel.SettingsStatus, $"{name} should mark settings dirty");
+            AssertTrue(viewModel.SaveSettingsCommand.CanExecute(null), $"{name} should enable save");
+            restore(viewModel);
+            AssertEqual(SettingsStatus.Clean, viewModel.SettingsStatus, $"{name} should restore clean status");
+            AssertTrue(!viewModel.SaveSettingsCommand.CanExecute(null), $"{name} should disable save after restore");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests exact dependent and unchanged-value notifications for migrated tray properties.
+    /// </summary>
+    private static Task TestMigratedTrayNotificationsAsync()
+    {
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        List<string?> changedProperties = [];
+        viewModel.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+        viewModel.LiteMonitorDir = "C:\\LiteMonitor";
+        AssertEqual(
+            "LiteMonitorDir|LiteMonitorDirDisplay|SettingsStatus|SettingsStatusBrush|SettingsStatusText",
+            string.Join('|', changedProperties.Order()),
+            "LiteMonitor path notifications");
+        changedProperties.Clear();
+        viewModel.LiteMonitorDir = "C:\\LiteMonitor";
+        AssertEqual(0, changedProperties.Count, "unchanged LiteMonitor path notifications");
+
+        viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        changedProperties = [];
+        viewModel.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+        viewModel.TrafficMonitorDir = "C:\\TrafficMonitor";
+        AssertEqual(
+            "SettingsStatus|SettingsStatusBrush|SettingsStatusText|TrafficMonitorDir|TrafficMonitorDirDisplay",
+            string.Join('|', changedProperties.Order()),
+            "TrafficMonitor path notifications");
+
+        viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        changedProperties = [];
+        viewModel.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+        viewModel.IsDetectingLiteMonitor = true;
+        AssertEqual("IsDetectingLiteMonitor|IsLiteMonitorActionsEnabled", string.Join('|', changedProperties.Order()), "LiteMonitor detecting notifications");
+        changedProperties.Clear();
+        viewModel.IsDetectingLiteMonitor = true;
+        AssertEqual(0, changedProperties.Count, "unchanged LiteMonitor detecting notifications");
+        viewModel.IsDetectingTrafficMonitor = true;
+        AssertEqual("IsDetectingTrafficMonitor|IsTrafficMonitorActionsEnabled", string.Join('|', changedProperties.Order()), "TrafficMonitor detecting notifications");
+
+        changedProperties.Clear();
+        viewModel.IsRefreshing = true;
+        AssertEqual(nameof(TrayPopupViewModel.IsRefreshing), string.Join('|', changedProperties), "pure generated property notification");
+        changedProperties.Clear();
+        viewModel.IsRefreshing = true;
+        AssertEqual(0, changedProperties.Count, "unchanged pure generated property notifications");
+
+        InAppDialogRequest initialDialog = new("Title", "Message", "OK");
+        viewModel.ShowInAppDialog(initialDialog);
+        changedProperties.Clear();
+        InAppDialogRequest secondaryDialog = initialDialog with { SecondaryButtonText = "Cancel" };
+        viewModel.ShowInAppDialog(secondaryDialog);
+        AssertEqual(
+            "HasInAppDialogSecondaryButton|InAppDialogSecondaryButtonText",
+            string.Join('|', changedProperties.Order()),
+            "dialog secondary button notifications");
+        changedProperties.Clear();
+        viewModel.ShowInAppDialog(secondaryDialog);
+        AssertEqual(0, changedProperties.Count, "unchanged dialog secondary button notifications");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests save and API monitor move command states.
+    /// </summary>
+    private static Task TestApiMonitorCommandStatesAsync()
+    {
+        AppSettings settings = new();
+        TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
+
+        AssertTrue(!viewModel.SaveSettingsCommand.CanExecute(null), "save command should be disabled for clean settings");
+        viewModel.PortText = (CodexTrayDefaults.Port + 1).ToString(CultureInfo.InvariantCulture);
+        AssertTrue(viewModel.SaveSettingsCommand.CanExecute(null), "save command should be enabled for dirty settings");
+
+        viewModel.AddApiMonitorCommand.Execute(null);
+        viewModel.AddApiMonitorCommand.Execute(null);
+        ApiMonitorViewModel first = viewModel.ApiMonitors[0];
+        ApiMonitorViewModel second = viewModel.ApiMonitors[1];
+
+        AssertTrue(!viewModel.MoveApiMonitorUpCommand.CanExecute(first), "first API monitor should not move up");
+        AssertTrue(viewModel.MoveApiMonitorDownCommand.CanExecute(first), "first API monitor should move down");
+        AssertTrue(viewModel.MoveApiMonitorUpCommand.CanExecute(second), "last API monitor should move up");
+        AssertTrue(!viewModel.MoveApiMonitorDownCommand.CanExecute(second), "last API monitor should not move down");
+
+        viewModel.MoveApiMonitorDownCommand.Execute(first);
+
+        AssertEqual(first, viewModel.ApiMonitors[1], "API monitor should move down");
+        AssertTrue(viewModel.MoveApiMonitorUpCommand.CanExecute(first), "moved API monitor should move up");
+        AssertTrue(!viewModel.MoveApiMonitorDownCommand.CanExecute(first), "moved API monitor should not move below the last position");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tests dependent property notifications after migrating to Toolkit ObservableObject.
+    /// </summary>
+    private static Task TestApiMonitorNotificationsAsync()
+    {
+        ApiMonitorViewModel viewModel = new(new ApiMonitorSettings());
+        List<string?> changedProperties = [];
+        viewModel.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+        viewModel.Name = "Personal";
+        AssertEqual("DisplayName|Name", string.Join('|', changedProperties.Order()), "API monitor name notifications");
+        changedProperties.Clear();
+        viewModel.Name = "Personal";
+        AssertEqual(0, changedProperties.Count, "unchanged API monitor name notifications");
+
+        ApiUsageResult result = new(viewModel.Id, false, "N/A", "N/A", "Waiting for refresh", DateTimeOffset.UtcNow, "USD balance");
+        viewModel.Update(result);
+        AssertEqual(
+            "BalanceTooltip|HasBalanceTooltip",
+            string.Join('|', changedProperties.Order()),
+            "balance tooltip notifications");
+        changedProperties.Clear();
+        viewModel.Update(result);
+        AssertEqual(0, changedProperties.Count, "unchanged balance tooltip notifications");
+
+        AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.OpenRouterProvider), "OpenRouter provider option");
+        AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.NanoGptProvider), "NanoGPT provider option");
+        viewModel.Provider = ApiMonitorSettings.OpenRouterProvider;
+        AssertEqual("https://openrouter.ai", viewModel.BaseUrl, "OpenRouter default base URL");
+        AssertTrue(!viewModel.HasSecondaryDisplay, "OpenRouter waiting secondary display");
+        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$74.75", "$25.75", string.Empty, DateTimeOffset.UtcNow));
+        AssertTrue(viewModel.HasSecondaryDisplay, "OpenRouter secondary display");
+        viewModel.Provider = ApiMonitorSettings.NanoGptProvider;
+        AssertEqual("https://nano-gpt.com", viewModel.BaseUrl, "NanoGPT default base URL");
+        AssertEqual("N/A", viewModel.BalanceDisplay, "provider switch should clear balance");
+        AssertEqual("N/A", viewModel.UsedDisplay, "provider switch should clear used display");
+        AssertEqual(string.Empty, viewModel.BalanceTooltip, "provider switch should clear tooltip");
+        AssertEqual("Waiting for refresh", viewModel.StatusText, "provider switch should clear status");
+        AssertEqual("Used(30d):", viewModel.SecondaryDisplayLabel, "NanoGPT secondary display label");
+        viewModel.Update(new ApiUsageResult(
+            viewModel.Id,
+            true,
+            "$74.75",
+            "$25.75",
+            string.Empty,
+            DateTimeOffset.UtcNow,
+            Provider: ApiMonitorSettings.OpenRouterProvider));
+        AssertEqual("N/A", viewModel.BalanceDisplay, "late OpenRouter result should be ignored");
+        viewModel.Update(new ApiUsageResult(
+            viewModel.Id,
+            true,
+            "$12.35",
+            "$3.00",
+            string.Empty,
+            DateTimeOffset.UtcNow,
+            Provider: ApiMonitorSettings.NanoGptProvider));
+        AssertTrue(viewModel.HasSecondaryDisplay, "NanoGPT successful usage display");
+        AssertEqual("$12.35", viewModel.BalanceDisplay, "current NanoGPT result should update balance");
+        changedProperties.Clear();
+        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$12.35", string.Empty, string.Empty, DateTimeOffset.UtcNow));
+        AssertTrue(!viewModel.HasSecondaryDisplay, "NanoGPT failed usage should hide secondary display");
+        AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.HasSecondaryDisplay)), "NanoGPT secondary visibility notification");
+        viewModel.BaseUrl = "https://custom.example";
+        viewModel.Provider = ApiMonitorSettings.DeepSeekProvider;
+        AssertEqual("https://custom.example", viewModel.BaseUrl, "custom base URL should be preserved");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Tests that a weekly window in the primary slot is not mistaken for a five hour window.
     /// </summary>
     private static Task TestLoneWeeklyQuotaAsync()
@@ -1269,11 +1926,11 @@ internal static class Program
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(response.Available, "response should be available");
-        AssertEqual(0, response.Limits.FiveHour.WindowMinutes, "five hour window should be absent");
-        AssertEqual("N/A", response.Display.Codex5H, "five hour display should be unavailable");
-        AssertEqual(10080, response.Limits.SevenDay.WindowMinutes, "weekly window duration");
-        AssertEqual(42, response.Limits.SevenDay.RemainingPercent, "weekly remaining percent");
-        AssertEqual("42% 6d23h", response.Display.Codex7D, "weekly display");
+        AssertEqual(0, response.Limits.Session.WindowMinutes, "session window should be absent");
+        AssertEqual("N/A", response.Display.Session, "session display should be unavailable");
+        AssertEqual(10080, response.Limits.Weekly.WindowMinutes, "weekly window duration");
+        AssertEqual(42, response.Limits.Weekly.RemainingPercent, "weekly remaining percent");
+        AssertEqual("42% 6d23h", response.Display.Weekly, "weekly display");
         return Task.CompletedTask;
     }
 
@@ -1308,6 +1965,52 @@ internal static class Program
             $"{nearestExpiry.AddDays(1).ToLocalTime():MM-dd} · {nearestExpiry.AddDays(2).ToLocalTime():MM-dd}",
             response.ResetCredits.OtherExpiriesLocal,
             "other local reset credit expiries");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies quota thresholds and reset credit availability states used by the UI color bindings.
+    /// </summary>
+    private static Task TestQuotaAndResetCreditColorStatesAsync()
+    {
+        TrayPopupViewModel.QuotaViewModel quota = new("Test");
+        UsageLimit limit = new() { WindowMinutes = 1 };
+        (int remaining, System.Windows.Media.Color color)[] cases =
+        [
+            (0, System.Windows.Media.Color.FromRgb(224, 91, 77)),
+            (19, System.Windows.Media.Color.FromRgb(224, 91, 77)),
+            (20, System.Windows.Media.Color.FromRgb(226, 176, 54)),
+            (49, System.Windows.Media.Color.FromRgb(226, 176, 54)),
+            (50, System.Windows.Media.Color.FromRgb(26, 188, 137)),
+            (100, System.Windows.Media.Color.FromRgb(26, 188, 137)),
+        ];
+
+        foreach ((int remaining, System.Windows.Media.Color expectedColor) in cases)
+        {
+            limit.RemainingPercent = remaining;
+            quota.Update(limit, hideInvalidProgressBars: false);
+            System.Windows.Media.Color actualColor = ((System.Windows.Media.SolidColorBrush)quota.AccentBrush).Color;
+            AssertEqual(expectedColor, actualColor, $"quota color at {remaining}%");
+        }
+
+        limit.WindowMinutes = 0;
+        quota.Update(limit, hideInvalidProgressBars: false);
+        AssertEqual("N/A", quota.PercentText, "inactive quota percent text");
+        AssertEqual("unknown", quota.ResetText, "inactive quota reset text");
+        AssertTrue(quota.IsResetVisible, "inactive visible quota should show the unknown reset text");
+
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        UsageResponse response = new()
+        {
+            Available = true,
+            ResetCredits = new ResetCredits { Available = true, AvailableCount = 0 },
+        };
+        viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
+        AssertTrue(!viewModel.HasResetCredits, "zero reset credits should use the inactive color");
+
+        response.ResetCredits.AvailableCount = 1;
+        viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
+        AssertTrue(viewModel.HasResetCredits, "positive reset credits should use the active color");
         return Task.CompletedTask;
     }
 
@@ -1363,18 +2066,56 @@ internal static class Program
             "{\"timestamp\":\"2026-07-12T10:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10000,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
         ]);
 
-        TokenCostSummary summary = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Today;
+        string missingOpenCode = Path.Combine(temp.Path, "missing-opencode");
+        TokenCostSummary summary = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode).Today;
         AssertEqual(2900L, summary.TotalTokens, "today total tokens");
         AssertEqual(0.0062m, summary.CostUsd, "today API-equivalent cost");
-        TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)));
-        AssertEqual(550L, statistics.Yesterday.TotalTokens, "yesterday total tokens");
-        AssertEqual(3450L, statistics.Week.TotalTokens, "calendar week total tokens");
-        AssertEqual(3520L, statistics.Month.TotalTokens, "calendar month total tokens");
-        AssertEqual(3520L, statistics.SevenDay.TotalTokens, "seven day total tokens");
-        AssertEqual(3560L, statistics.ThirtyDay.TotalTokens, "thirty day total tokens");
-        AssertEqual(0.00774m, statistics.ThirtyDay.CostUsd, "thirty day API-equivalent cost");
-        AssertEqual(3660L, statistics.Total.TotalTokens, "historical total tokens");
-        AssertEqual(0.00794m, statistics.Total.CostUsd, "historical API-equivalent cost");
+        TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode);
+        AssertEqual(3520L, statistics.LastSevenDays.TotalTokens, "last 7 days total tokens");
+        AssertEqual(3560L, statistics.LastThirtyDays.TotalTokens, "last 30 days total tokens");
+        AssertEqual(0.00774m, statistics.LastThirtyDays.CostUsd, "last 30 days API-equivalent cost");
+        AssertEqual(3660L, statistics.Lifetime.TotalTokens, "lifetime tokens");
+        AssertEqual(0.00794m, statistics.Lifetime.CostUsd, "lifetime API-equivalent cost");
+        AssertEqual(7, statistics.LastSevenDaysDaily.Count, "daily chart slot count");
+        AssertEqual(new DateTime(2026, 7, 5), statistics.LastSevenDaysDaily[0].Date, "daily chart first date");
+        AssertEqual(70L, statistics.LastSevenDaysDaily[0].Summary.TotalTokens, "daily chart first tokens");
+        AssertEqual(550L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "daily chart yesterday tokens");
+        AssertEqual(new DateTime(2026, 7, 11), statistics.LastSevenDaysDaily[6].Date, "daily chart today date");
+        AssertEqual(2900L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "daily chart today tokens");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies OpenCode OpenAI messages use cached and reasoning token pricing.
+    /// </summary>
+    private static Task TestOpenCodeTokenCostAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{\"gpt-test\":{\"input\":2,\"cachedInput\":0.2,\"output\":10}}");
+        string codexRoot = Path.Combine(temp.Path, "codex");
+        string openCodeRoot = Path.Combine(temp.Path, "opencode");
+        Directory.CreateDirectory(codexRoot);
+        Directory.CreateDirectory(openCodeRoot);
+        using (SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = Path.Combine(openCodeRoot, "opencode.db"), Pooling = false }.ToString()))
+        {
+            connection.Open();
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "CREATE TABLE message (time_created INTEGER NOT NULL, data TEXT NOT NULL);";
+            command.ExecuteNonQuery();
+            command.CommandText = "INSERT INTO message VALUES ($time, $data);";
+            command.Parameters.AddWithValue("$time", new DateTimeOffset(2026, 7, 11, 9, 0, 0, TimeSpan.FromHours(8)).ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$data", "{\"role\":\"assistant\",\"providerID\":\"openai\",\"modelID\":\"gpt-test\",\"tokens\":{\"input\":600,\"output\":100,\"reasoning\":50,\"cache\":{\"read\":400,\"write\":0}}}");
+            command.ExecuteNonQuery();
+            command.Parameters["$data"].Value = "{\"role\":\"assistant\",\"providerID\":\"deepseek\",\"modelID\":\"gpt-test\",\"tokens\":{\"input\":1000,\"output\":1000}}";
+            command.ExecuteNonQuery();
+        }
+
+        TokenCostSummary summary = new TokenCostCollector(pricingPath)
+            .Collect(codexRoot, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), openCodeRoot)
+            .Today;
+        AssertEqual(1150L, summary.TotalTokens, "OpenCode total tokens");
+        AssertEqual(0.00278m, summary.CostUsd, "OpenCode API-equivalent cost");
         return Task.CompletedTask;
     }
 
@@ -1414,16 +2155,19 @@ internal static class Program
         ]);
 
         TokenCostCollector collector = new(pricingPath);
-        TokenCostSummary total = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Total;
-        AssertEqual(2860L, total.TotalTokens, "subagent total excludes only matching replay prefix");
-        AssertEqual(0.006m, total.CostUsd, "subagent total cost");
+        TokenCostSummary lifetime = collector.Collect(
+            temp.Path,
+            new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)),
+            Path.Combine(temp.Path, "missing-opencode")).Lifetime;
+        AssertEqual(2860L, lifetime.TotalTokens, "subagent lifetime excludes only matching replay prefix");
+        AssertEqual(0.006m, lifetime.CostUsd, "subagent lifetime cost");
         return Task.CompletedTask;
     }
 
     /// <summary>
     /// Creates a collector backed by fake OAuth credentials and a fixed official quota response.
     /// </summary>
-    private static CodexTrayCollector CreateOfficialCollector(string codexRoot, DateTimeOffset now, long reset5H, long resetSevenDay, double primaryUsed, double secondaryUsed, out HttpClient client, string? resetCreditsBody = null)
+    private static CodexTrayCollector CreateOfficialCollector(string codexRoot, DateTimeOffset now, long sessionResetAt, long weeklyResetAt, double primaryUsed, double secondaryUsed, out HttpClient client, string? resetCreditsBody = null)
     {
         File.WriteAllText(Path.Combine(codexRoot, "auth.json"), JsonSerializer.Serialize(new
         {
@@ -1444,13 +2188,13 @@ internal static class Program
                 {
                     used_percent = primaryUsed,
                     limit_window_seconds = 18000,
-                    reset_at = reset5H,
+                    reset_at = sessionResetAt,
                 },
                 secondary_window = new
                 {
                     used_percent = secondaryUsed,
                     limit_window_seconds = 604800,
-                    reset_at = resetSevenDay,
+                    reset_at = weeklyResetAt,
                 },
             },
         });
@@ -1479,6 +2223,23 @@ internal static class Program
             throw new InvalidOperationException($"{message}: expected {expected}, got {actual}");
         }
     }
+
+    /// <summary>
+    /// Asserts that an asynchronous operation propagates cancellation.
+    /// </summary>
+    private static async Task AssertCanceledAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("operation should have propagated cancellation");
+    }
 }
 
 internal sealed class TempDirectory : IDisposable
@@ -1499,6 +2260,17 @@ internal sealed class TempDirectory : IDisposable
     public void Dispose()
     {
         Directory.Delete(Path, true);
+    }
+}
+
+internal sealed class CanceledHttpMessageHandler : HttpMessageHandler
+{
+    /// <summary>
+    /// Simulates an HttpClient timeout that was not caused by the caller token.
+    /// </summary>
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        return Task.FromException<HttpResponseMessage>(new TaskCanceledException("simulated timeout"));
     }
 }
 
@@ -1883,31 +2655,60 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
 internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
 {
     /// <summary>
-    /// Returns fixed DeepSeek and NewAPI account responses.
+    /// Returns fixed account responses for supported API providers.
     /// </summary>
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         string host = request.RequestUri?.Host ?? string.Empty;
-        if (request.Headers.Authorization?.Scheme != "Bearer")
-        {
-            throw new InvalidOperationException("missing API authorization header");
-        }
-
         string body;
         if (host == "deepseek.example")
         {
-            AssertRequest(request, "/user/balance", "deepseek-key");
+            AssertBearerRequest(request, HttpMethod.Get, "/user/balance", "deepseek-key");
             body = "{\"is_available\":true,\"balance_infos\":[{\"currency\":\"USD\",\"total_balance\":\"15.00\"},{\"currency\":\"CNY\",\"total_balance\":\"110.00\"}]}";
         }
         else if (host == "newapi.example")
         {
-            AssertRequest(request, "/api/user/self", "newapi-token");
+            AssertBearerRequest(request, HttpMethod.Get, "/api/user/self", "newapi-token");
             if (!request.Headers.TryGetValues("New-Api-User", out IEnumerable<string>? userIds) || userIds.Single() != "42")
             {
                 throw new InvalidOperationException("missing NewAPI user header");
             }
 
             body = "{\"success\":true,\"data\":{\"group\":\"default\",\"quota\":5000000,\"used_quota\":2500000}}";
+        }
+        else if (host == "openrouter.example")
+        {
+            AssertBearerRequest(request, HttpMethod.Get, "/api/v1/credits", "openrouter-management-key");
+            body = "{\"data\":{\"total_credits\":100.5,\"total_usage\":25.75}}";
+        }
+        else if (host is "nano-gpt.example" or "nano-gpt-failure.example")
+        {
+            string token = host == "nano-gpt.example" ? "nanogpt-key" : "nanogpt-failure-key";
+            if (request.RequestUri?.AbsolutePath == "/api/check-balance")
+            {
+                if (request.Method != HttpMethod.Post || request.Headers.Authorization != null ||
+                    !request.Headers.TryGetValues("X-API-Key", out IEnumerable<string>? apiKeys) || apiKeys.Single() != token)
+                {
+                    throw new InvalidOperationException("invalid NanoGPT balance request");
+                }
+
+                body = "{\"usd_balance\":\"12.3456\"}";
+            }
+            else
+            {
+                AssertBearerRequest(request, HttpMethod.Get, "/api/v1/usage", token);
+                if (!string.IsNullOrEmpty(request.RequestUri?.Query))
+                {
+                    throw new InvalidOperationException("unexpected NanoGPT usage query");
+                }
+
+                if (host == "nano-gpt-failure.example")
+                {
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+                }
+
+                body = "{\"totals\":{\"netCostUsd\":3.0}}";
+            }
         }
         else
         {
@@ -1923,9 +2724,10 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
     /// <summary>
     /// Validates a monitored API request path and credential.
     /// </summary>
-    private static void AssertRequest(HttpRequestMessage request, string path, string token)
+    private static void AssertBearerRequest(HttpRequestMessage request, HttpMethod method, string path, string token)
     {
-        if (request.RequestUri?.AbsolutePath != path || request.Headers.Authorization?.Parameter != token)
+        if (request.Method != method || request.RequestUri?.AbsolutePath != path ||
+            request.Headers.Authorization?.Scheme != "Bearer" || request.Headers.Authorization.Parameter != token)
         {
             throw new InvalidOperationException("invalid API usage request");
         }

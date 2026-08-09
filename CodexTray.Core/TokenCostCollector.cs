@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 
 namespace CodexTray.Core;
 
@@ -10,21 +11,24 @@ public sealed class TokenCostSummary
     public decimal? CostUsd { get; init; }
 }
 
+public sealed class TokenCostDailySummary
+{
+    public DateTime Date { get; init; }
+
+    public TokenCostSummary Summary { get; init; } = new();
+}
+
 public sealed class TokenCostStatistics
 {
     public TokenCostSummary Today { get; init; } = new();
 
-    public TokenCostSummary Yesterday { get; init; } = new();
+    public TokenCostSummary LastSevenDays { get; init; } = new();
 
-    public TokenCostSummary Week { get; init; } = new();
+    public TokenCostSummary LastThirtyDays { get; init; } = new();
 
-    public TokenCostSummary Month { get; init; } = new();
+    public TokenCostSummary Lifetime { get; init; } = new();
 
-    public TokenCostSummary SevenDay { get; init; } = new();
-
-    public TokenCostSummary ThirtyDay { get; init; } = new();
-
-    public TokenCostSummary Total { get; init; } = new();
+    public IReadOnlyList<TokenCostDailySummary> LastSevenDaysDaily { get; init; } = [];
 }
 
 public sealed class TokenCostCollector
@@ -48,34 +52,40 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Collects Codex token usage for the supported calendar periods.
+    /// Collects Codex and OpenCode token usage for the supported calendar periods.
     /// </summary>
-    public TokenCostStatistics Collect(string? codexDirectory = null, DateTimeOffset? now = null)
+    public TokenCostStatistics Collect(string? codexDirectory = null, DateTimeOffset? now = null, string? openCodeDirectory = null, CancellationToken cancellationToken = default)
     {
-        string root = codexDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+        cancellationToken.ThrowIfCancellationRequested();
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string root = codexDirectory ?? Path.Combine(userProfile, ".codex");
+        string openCodeRoot = openCodeDirectory ?? Path.Combine(userProfile, ".local", "share", "opencode");
         DateTimeOffset current = now ?? DateTimeOffset.Now;
-        Dictionary<string, ModelPricing> pricing = LoadPricing();
+        Dictionary<string, ModelPricing> pricing = LoadPricing(cancellationToken);
         TokenCostPeriodAccumulator accumulator = new(current);
-        string[] sessionFiles = EnumerateSessionFiles(root).ToArray();
-        Dictionary<string, string> rolloutIndex = BuildRolloutIndex(sessionFiles);
+        string[] sessionFiles = EnumerateSessionFiles(root, cancellationToken).ToArray();
+        Dictionary<string, string> rolloutIndex = BuildRolloutIndex(sessionFiles, cancellationToken);
 
         foreach (string path in sessionFiles)
         {
-            CollectFile(path, pricing, rolloutIndex, accumulator);
+            cancellationToken.ThrowIfCancellationRequested();
+            CollectFile(path, pricing, rolloutIndex, accumulator, cancellationToken);
         }
 
+        CollectOpenCode(Path.Combine(openCodeRoot, "opencode.db"), pricing, accumulator, cancellationToken);
         return accumulator.ToStatistics();
     }
 
     /// <summary>
     /// Reads pricing entries from the external JSON resource.
     /// </summary>
-    private Dictionary<string, ModelPricing> LoadPricing()
+    private Dictionary<string, ModelPricing> LoadPricing(CancellationToken cancellationToken)
     {
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(m_PricingPath));
         Dictionary<string, ModelPricing> pricing = new(StringComparer.OrdinalIgnoreCase);
         foreach (JsonProperty property in document.RootElement.EnumerateObject())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             pricing[property.Name] = new ModelPricing(
                 property.Value.GetProperty("input").GetDecimal(),
                 property.Value.GetProperty("cachedInput").GetDecimal(),
@@ -88,7 +98,7 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Enumerates active and archived Codex session logs.
     /// </summary>
-    private static IEnumerable<string> EnumerateSessionFiles(string codexDirectory)
+    private static IEnumerable<string> EnumerateSessionFiles(string codexDirectory, CancellationToken cancellationToken)
     {
         string sessions = Path.Combine(codexDirectory, "sessions");
         string archived = Path.Combine(codexDirectory, "archived_sessions");
@@ -98,7 +108,11 @@ public sealed class TokenCostCollector
         IEnumerable<string> archivedFiles = Directory.Exists(archived)
             ? Directory.EnumerateFiles(archived, "*.jsonl", SearchOption.TopDirectoryOnly)
             : Enumerable.Empty<string>();
-        return activeFiles.Concat(archivedFiles);
+        foreach (string path in activeFiles.Concat(archivedFiles))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return path;
+        }
     }
 
     /// <summary>
@@ -108,15 +122,18 @@ public sealed class TokenCostCollector
         string path,
         Dictionary<string, ModelPricing> pricing,
         Dictionary<string, string> rolloutIndex,
-        TokenCostPeriodAccumulator accumulator)
+        TokenCostPeriodAccumulator accumulator,
+        CancellationToken cancellationToken)
     {
         string model = "unknown";
         TokenCounts? previous = null;
-        IReadOnlyList<TokenUsageSignature>? parentSignatures = LoadParentSignatures(path, rolloutIndex);
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<TokenUsageSignature>? parentSignatures = LoadParentSignatures(path, rolloutIndex, cancellationToken);
         int parentOffset = 0;
         bool matchingReplay = parentSignatures?.Count > 0;
-        foreach (string line in ReadLinesShared(path))
+        foreach (string line in ReadLinesShared(path, cancellationToken))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!line.Contains("\"session_meta\"", StringComparison.Ordinal)
                 && !line.Contains("\"turn_context\"", StringComparison.Ordinal)
                 && !line.Contains("\"token_count\"", StringComparison.Ordinal)
@@ -159,7 +176,7 @@ public sealed class TokenCostCollector
                 bool isReplay = false;
                 if (matchingReplay && TryParseTokenSignature(info, out TokenUsageSignature signature))
                 {
-                    int match = FindSignature(parentSignatures!, parentOffset, signature);
+                    int match = FindSignature(parentSignatures!, parentOffset, signature, cancellationToken);
                     if (match >= 0)
                     {
                         parentOffset = match + 1;
@@ -189,15 +206,7 @@ public sealed class TokenCostCollector
                     continue;
                 }
 
-                decimal? cost = null;
-                if (TryFindPricing(pricing, model, out ModelPricing modelPricing))
-                {
-                    long cached = Math.Min(delta.CachedInput, delta.Input);
-                    long freshInput = delta.Input - cached;
-                    cost = (freshInput * modelPricing.Input + cached * modelPricing.CachedInput + delta.Output * modelPricing.Output) / 1_000_000m;
-                }
-
-                accumulator.Add(timestamp, delta.Total, cost);
+                accumulator.Add(timestamp, delta.Total, CalculateCost(pricing, model, delta));
             }
             catch (JsonException)
             {
@@ -207,13 +216,96 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
+    /// Adds OpenAI token usage from the local OpenCode database.
+    /// </summary>
+    private static void CollectOpenCode(
+        string databasePath,
+        Dictionary<string, ModelPricing> pricing,
+        TokenCostPeriodAccumulator accumulator,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!File.Exists(databasePath))
+        {
+            return;
+        }
+
+        try
+        {
+            using SqliteConnection connection = new(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+            }.ToString());
+            connection.Open();
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "SELECT time_created, data FROM message;";
+            using SqliteDataReader reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    using JsonDocument document = JsonDocument.Parse(reader.GetString(1));
+                    JsonElement root = document.RootElement;
+                    if (GetString(root, "role") != "assistant"
+                        || !string.Equals(GetString(root, "providerID"), "openai", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    JsonElement tokens = GetObject(root, "tokens");
+                    JsonElement cache = GetObject(tokens, "cache");
+                    TokenCounts counts = new(
+                        checked(GetInt64(tokens, "input") + GetInt64(cache, "read") + GetInt64(cache, "write")),
+                        GetInt64(cache, "read"),
+                        checked(GetInt64(tokens, "output") + GetInt64(tokens, "reasoning")));
+                    if (counts.Total == 0)
+                    {
+                        continue;
+                    }
+
+                    DateTimeOffset timestamp = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(0));
+                    string model = NormalizeModel(GetString(root, "modelID"));
+                    accumulator.Add(timestamp, counts.Total, CalculateCost(pricing, model, counts));
+                }
+                catch (Exception exception) when (exception is JsonException or OverflowException or ArgumentOutOfRangeException)
+                {
+                    // Ignore one malformed or partially written OpenCode message.
+                }
+            }
+        }
+        catch (Exception exception) when (exception is SqliteException or IOException or UnauthorizedAccessException)
+        {
+            // OpenCode usage is optional and must not hide available Codex usage.
+        }
+    }
+
+    /// <summary>
+    /// Calculates API-equivalent cost for one model usage event.
+    /// </summary>
+    private static decimal? CalculateCost(Dictionary<string, ModelPricing> pricing, string model, TokenCounts counts)
+    {
+        if (!TryFindPricing(pricing, model, out ModelPricing modelPricing))
+        {
+            return null;
+        }
+
+        long cached = Math.Min(counts.CachedInput, counts.Input);
+        long freshInput = counts.Input - cached;
+        return (freshInput * modelPricing.Input + cached * modelPricing.CachedInput + counts.Output * modelPricing.Output) / 1_000_000m;
+    }
+
+    /// <summary>
     /// Indexes rollout files by the thread UUID at the end of each filename.
     /// </summary>
-    private static Dictionary<string, string> BuildRolloutIndex(IEnumerable<string> paths)
+    private static Dictionary<string, string> BuildRolloutIndex(IEnumerable<string> paths, CancellationToken cancellationToken)
     {
         Dictionary<string, string> result = new(StringComparer.OrdinalIgnoreCase);
         foreach (string path in paths)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string name = Path.GetFileNameWithoutExtension(path);
             if (name.Length >= 36 && Guid.TryParse(name[^36..], out Guid threadId))
             {
@@ -227,17 +319,18 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Loads token signatures from the explicit parent rollout before the child starts.
     /// </summary>
-    private static IReadOnlyList<TokenUsageSignature>? LoadParentSignatures(string path, Dictionary<string, string> rolloutIndex)
+    private static IReadOnlyList<TokenUsageSignature>? LoadParentSignatures(string path, Dictionary<string, string> rolloutIndex, CancellationToken cancellationToken)
     {
-        ReplayContext? context = ReadReplayContext(path);
+        ReplayContext? context = ReadReplayContext(path, cancellationToken);
         if (context == null || !rolloutIndex.TryGetValue(context.Value.ParentId, out string? parentPath))
         {
             return null;
         }
 
         List<TokenUsageSignature> result = [];
-        foreach (string line in ReadLinesShared(parentPath))
+        foreach (string line in ReadLinesShared(parentPath, cancellationToken))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!line.Contains("\"token_count\"", StringComparison.Ordinal))
             {
                 continue;
@@ -271,10 +364,11 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Reads the explicit parent identity and fork timestamp from a rollout.
     /// </summary>
-    private static ReplayContext? ReadReplayContext(string path)
+    private static ReplayContext? ReadReplayContext(string path, CancellationToken cancellationToken)
     {
-        foreach (string line in ReadLinesShared(path))
+        foreach (string line in ReadLinesShared(path, cancellationToken))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!line.Contains("\"session_meta\"", StringComparison.Ordinal))
             {
                 continue;
@@ -320,10 +414,11 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Finds a child token signature in the remaining ordered parent sequence.
     /// </summary>
-    private static int FindSignature(IReadOnlyList<TokenUsageSignature> signatures, int start, TokenUsageSignature target)
+    private static int FindSignature(IReadOnlyList<TokenUsageSignature> signatures, int start, TokenUsageSignature target, CancellationToken cancellationToken)
     {
         for (int index = start; index < signatures.Count; index++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (signatures[index] == target)
             {
                 return index;
@@ -336,12 +431,13 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Reads an active Codex JSONL file without blocking its writer.
     /// </summary>
-    private static IEnumerable<string> ReadLinesShared(string path)
+    private static IEnumerable<string> ReadLinesShared(string path, CancellationToken cancellationToken)
     {
         using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using StreamReader reader = new(stream);
         while (reader.ReadLine() is string line)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             yield return line;
         }
     }

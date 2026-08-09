@@ -1,19 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace CodexTray.Core;
-
-[Flags]
-public enum TokenCostItem
-{
-    None = 0,
-    Today = 1 << 0,
-    Yesterday = 1 << 1,
-    Week = 1 << 2,
-    Month = 1 << 3,
-    SevenDay = 1 << 4,
-    ThirtyDay = 1 << 5,
-    All = Today | Yesterday | Week | Month | SevenDay | ThirtyDay,
-}
 
 [Flags]
 public enum PageItem
@@ -30,6 +18,10 @@ public sealed class ApiMonitorSettings
     public const string DeepSeekProvider = "DeepSeek";
 
     public const string NewApiProvider = "NewAPI";
+
+    public const string OpenRouterProvider = "OpenRouter";
+
+    public const string NanoGptProvider = "NanoGPT";
 
     public const string GrokProvider = "Grok";
 
@@ -62,6 +54,8 @@ public sealed class ApiMonitorSettings
         Provider = Provider?.Trim() switch
         {
             string value when string.Equals(value, NewApiProvider, StringComparison.OrdinalIgnoreCase) => NewApiProvider,
+            string value when string.Equals(value, OpenRouterProvider, StringComparison.OrdinalIgnoreCase) => OpenRouterProvider,
+            string value when string.Equals(value, NanoGptProvider, StringComparison.OrdinalIgnoreCase) => NanoGptProvider,
             string value when string.Equals(value, GrokProvider, StringComparison.OrdinalIgnoreCase) => GrokProvider,
             string value when string.Equals(value, CursorProvider, StringComparison.OrdinalIgnoreCase) => CursorProvider,
             _ => DeepSeekProvider,
@@ -114,15 +108,10 @@ public sealed class AppSettings
 
     public string TokenUnit { get; set; } = TokenUnitEnglish;
 
-    public TokenCostItem TokenCostItems { get; set; } = TokenCostItem.All;
+    public bool MicaEnabled { get; set; } = true;
 
-    public bool AcrylicEnabled { get; set; } = CodexTrayDefaults.AcrylicEnabled;
-
-    public int AcrylicOpacityPercent { get; set; } = CodexTrayDefaults.AcrylicOpacityPercent;
-
-    public int WindowWidth { get; set; } = CodexTrayDefaults.WindowWidth;
-
-    public int WindowHeight { get; set; } = CodexTrayDefaults.WindowHeight;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BackdropMode { get; set; }
 
     public bool ShowResetTimeInPlugins { get; set; } = CodexTrayDefaults.ShowResetTimeInPlugins;
 
@@ -161,29 +150,16 @@ public sealed class AppSettings
             RefreshIntervalMinutes = CodexTrayDefaults.RefreshIntervalMinutes;
         }
 
-        if (AcrylicOpacityPercent < CodexTrayDefaults.MinimumAcrylicOpacityPercent ||
-            AcrylicOpacityPercent > CodexTrayDefaults.MaximumAcrylicOpacityPercent)
-        {
-            AcrylicOpacityPercent = CodexTrayDefaults.AcrylicOpacityPercent;
-        }
-
-        if (WindowWidth < CodexTrayDefaults.MinimumWindowWidth ||
-            WindowWidth > CodexTrayDefaults.MaximumWindowWidth)
-        {
-            WindowWidth = CodexTrayDefaults.WindowWidth;
-        }
-
-        if (WindowHeight < CodexTrayDefaults.MinimumWindowHeight ||
-            WindowHeight > CodexTrayDefaults.MaximumWindowHeight)
-        {
-            WindowHeight = CodexTrayDefaults.WindowHeight;
-        }
-
         LiteMonitorDir = (LiteMonitorDir ?? string.Empty).Trim();
         TrafficMonitorDir = (TrafficMonitorDir ?? string.Empty).Trim();
         ThemeMode = NormalizeThemeMode(ThemeMode);
         TokenUnit = NormalizeTokenUnit(TokenUnit);
-        TokenCostItems &= TokenCostItem.All;
+        if (!string.IsNullOrWhiteSpace(BackdropMode))
+        {
+            MicaEnabled = string.Equals(BackdropMode.Trim(), "Mica", StringComparison.OrdinalIgnoreCase);
+        }
+
+        BackdropMode = null;
         VisiblePages &= PageItem.All;
         ApiMonitors ??= [];
         ApiMonitors.RemoveAll(monitor => monitor == null || string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase));

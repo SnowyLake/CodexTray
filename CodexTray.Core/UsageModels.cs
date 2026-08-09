@@ -11,19 +11,11 @@ public static class CodexTrayDefaults
     public const int RefreshIntervalMinutes = 1;
     public const int MinimumRefreshIntervalMinutes = 1;
     public const int MaximumRefreshIntervalMinutes = 1440;
-    public const bool AcrylicEnabled = true;
     public const bool ShowResetTimeInPlugins = true;
-    public const bool UseAbsoluteResetTime = false;
+    public const bool UseAbsoluteResetTime = true;
     public const bool HideInvalidProgressBars = true;
-    public const int AcrylicOpacityPercent = 80;
-    public const int MinimumAcrylicOpacityPercent = 10;
-    public const int MaximumAcrylicOpacityPercent = 100;
-    public const int WindowWidth = 380;
-    public const int MinimumWindowWidth = 280;
-    public const int MaximumWindowWidth = 800;
-    public const int WindowHeight = 605;
-    public const int MinimumWindowHeight = 400;
-    public const int MaximumWindowHeight = 1200;
+    public const double PopupWindowWidth = 360;
+    public const double PopupWindowHeight = 620;
     public const string AppName = "CodexTray";
     public const string SettingsFileName = "settings.json";
     public const string ModelPricingFileName = "model-pricing.json";
@@ -109,11 +101,14 @@ public sealed class UsageResponse
 
 public sealed class UsageLimits
 {
-    [JsonPropertyName("five_hour")]
-    public UsageLimit FiveHour { get; set; } = new() { Name = "five_hour" };
+    [JsonPropertyName("session")]
+    public UsageLimit Session { get; set; } = new() { Name = "session" };
 
-    [JsonPropertyName("seven_day")]
-    public UsageLimit SevenDay { get; set; } = new() { Name = "seven_day" };
+    [JsonPropertyName("weekly")]
+    public UsageLimit Weekly { get; set; } = new() { Name = "weekly" };
+
+    [JsonPropertyName("cursor_monthly")]
+    public UsageLimit CursorMonthly { get; set; } = new() { Name = "monthly", RemainingPercent = 0 };
 }
 
 public sealed class UsageLimit
@@ -160,12 +155,17 @@ public sealed class ResetCredits
 
 public sealed class UsageDisplay
 {
-    [JsonPropertyName("codex_5h")]
-    public string Codex5H { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+    [JsonPropertyName("session")]
+    public string Session { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
-    [JsonPropertyName("codex_7d")]
-    public string Codex7D { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+    [JsonPropertyName("weekly")]
+    public string Weekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+
+    [JsonPropertyName("cursor_monthly")]
+    public string CursorMonthly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
     [JsonPropertyName("summary")]
     public string Summary { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 }
+
+public sealed record CursorPluginUsage(UsageLimit Monthly, string Display);
