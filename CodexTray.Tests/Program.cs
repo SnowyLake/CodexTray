@@ -1607,7 +1607,7 @@ internal static class Program
         };
         viewModel.UpdateTokenCost(statistics);
 
-        AssertEqual("Today|7D|30D|Lifetime", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Title)), "Codex token cost row titles");
+        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Title)), "Codex token cost row titles");
         AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Display.Cost)), "Codex token cost row values");
         AssertEqual(7, viewModel.CodexTokenCostChartDays.Count, "Codex token cost chart day count");
         AssertEqual("F", viewModel.CodexTokenCostChartDays[6].Label, "Codex token cost chart today label");
@@ -1615,7 +1615,7 @@ internal static class Program
         AssertEqual($"2026-08-07{Environment.NewLine}Tokens: 0.70K{Environment.NewLine}Cost: $7.00", viewModel.CodexTokenCostChartDays[6].Tooltip, "Codex token cost chart tooltip");
 
         viewModel.UpdateCursorDashboard(new CursorUsageDashboard(null, statistics, "N/A", string.Empty, DateTimeOffset.Now));
-        AssertEqual("Today|7D|30D|Lifetime", string.Join('|', viewModel.CursorTokenCostRows.Select(row => row.Title)), "Cursor token cost row titles");
+        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CursorTokenCostRows.Select(row => row.Title)), "Cursor token cost row titles");
         AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CursorTokenCostRows.Select(row => row.Display.Cost)), "Cursor token cost row values");
         AssertEqual(7, viewModel.CursorTokenCostChartDays.Count, "Cursor token cost chart day count");
         AssertEqual(viewModel.CodexTokenCostChartDays[6].Tooltip, viewModel.CursorTokenCostChartDays[6].Tooltip, "Cursor token cost chart tooltip");
@@ -1798,7 +1798,7 @@ internal static class Program
         AssertEqual("N/A", viewModel.UsedDisplay, "provider switch should clear used display");
         AssertEqual(string.Empty, viewModel.BalanceTooltip, "provider switch should clear tooltip");
         AssertEqual("Waiting for refresh", viewModel.StatusText, "provider switch should clear status");
-        AssertEqual("30D Used:", viewModel.SecondaryDisplayLabel, "NanoGPT secondary display label");
+        AssertEqual("Used(30d):", viewModel.SecondaryDisplayLabel, "NanoGPT secondary display label");
         viewModel.Update(new ApiUsageResult(
             viewModel.Id,
             true,

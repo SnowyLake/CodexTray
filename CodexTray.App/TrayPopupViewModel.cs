@@ -655,8 +655,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         return
         [
             new TokenCostRowViewModel("Today"),
-            new TokenCostRowViewModel("7D"),
-            new TokenCostRowViewModel("30D"),
+            new TokenCostRowViewModel("7d"),
+            new TokenCostRowViewModel("30d"),
             new TokenCostRowViewModel("Lifetime", isLast: true),
         ];
     }

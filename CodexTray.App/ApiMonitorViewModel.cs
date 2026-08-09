@@ -114,7 +114,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
 
     public string PrimaryDisplayLabel => "Balance:";
 
-    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : m_Provider == ApiMonitorSettings.NanoGptProvider ? "30D Used:" : "Used:";
+    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : m_Provider == ApiMonitorSettings.NanoGptProvider ? "Used(30d):" : "Used:";
 
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? m_Provider : Name.Trim();
 

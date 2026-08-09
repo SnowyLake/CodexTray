@@ -29,7 +29,7 @@
 
 - 显示 Codex 计划状态, 5-Hour, 7-Day 与 Pro 用户的 GPT-5.3-Codex-Spark 剩余额度和重置时间.
 - 显示可用 Reset Credits 数量及最近到期时间.
-- Token Cost 固定显示 Today, 7D, 30D 和 Lifetime, 并支持中英文 token 数量单位.
+- Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 并支持中英文 token 数量单位.
 - Cursor 页面显示 Total, First Party 和 APIs 剩余额度, Total 重置时间, 以及 7 个周期的实际账单 token 与成本.
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 Grok 剩余额度和重置时间监控.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
@@ -65,7 +65,7 @@
 
 ## Cursor 页面
 
-Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个请求共享一次本地凭据读取和最多一次 OAuth refresh 重试. Total, First Party 和 APIs 显示独立剩余额度, 只有 Total 显示重置时间. Token Cost 固定显示 Today, 7D, 30D 和 Lifetime, 并与 Codex 页共享 token 单位设置.
+Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个请求共享一次本地凭据读取和最多一次 OAuth refresh 重试. Total, First Party 和 APIs 显示独立剩余额度, 只有 Total 显示重置时间. Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 并与 Codex 页共享 token 单位设置.
 
 Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不会用本地模型价格表重算. OAuth token 不会写入 `settings.json`.
 
