@@ -100,17 +100,13 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public event Action<InAppDialogRequest>? InAppDialogRequested;
 
-    public QuotaViewModel FiveHourQuota { get; } = new("5-Hour");
+    public QuotaViewModel SessionQuota { get; } = new("Session");
 
-    public QuotaViewModel SevenDayQuota { get; } = new("7-Day");
+    public QuotaViewModel WeeklyQuota { get; } = new("Weekly");
 
-    public QuotaViewModel SparkFiveHourQuota { get; } = new("GPT-5.3 Spark 5-Hour");
+    public QuotaViewModel CursorMonthlyQuota { get; } = new("Monthly");
 
-    public QuotaViewModel SparkSevenDayQuota { get; } = new("GPT-5.3 Spark 7-Day");
-
-    public QuotaViewModel CursorTotalQuota { get; } = new("Total");
-
-    public QuotaViewModel CursorAutoQuota { get; } = new("First Party");
+    public QuotaViewModel CursorAutoQuota { get; } = new("First party");
 
     public QuotaViewModel CursorApiQuota { get; } = new("APIs");
 
@@ -339,9 +335,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     public bool IsUsageSectionHeaderVisible =>
-        !m_HideInvalidProgressBars || FiveHourQuota.IsVisible || SevenDayQuota.IsVisible || SparkFiveHourQuota.IsVisible || SparkSevenDayQuota.IsVisible;
-
-    public bool IsSparkQuotaSectionVisible => SparkFiveHourQuota.IsVisible || SparkSevenDayQuota.IsVisible;
+        !m_HideInvalidProgressBars || SessionQuota.IsVisible || WeeklyQuota.IsVisible;
 
     public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
 
@@ -701,10 +695,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
             StatusDotBrush = s_RedBrush;
             UpdatedAtDisplay = FormatUpdatedAt(null);
-            FiveHourQuota.UpdateUnavailable();
-            SevenDayQuota.UpdateUnavailable();
-            SparkFiveHourQuota.UpdateUnavailable();
-            SparkSevenDayQuota.UpdateUnavailable();
+            SessionQuota.UpdateUnavailable();
+            WeeklyQuota.UpdateUnavailable();
             UpdateResetCredits(null);
             NotifyUsageSectionVisibilityChanged();
             return;
@@ -716,10 +708,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             PlanBadgeBrush = s_PlanBadgeInactiveBrush;
             StatusDotBrush = s_RedBrush;
             UpdatedAtDisplay = $"Error{FormatResponseError(response)}";
-            FiveHourQuota.UpdateUnavailable();
-            SevenDayQuota.UpdateUnavailable();
-            SparkFiveHourQuota.UpdateUnavailable();
-            SparkSevenDayQuota.UpdateUnavailable();
+            SessionQuota.UpdateUnavailable();
+            WeeklyQuota.UpdateUnavailable();
             UpdateResetCredits(null);
             NotifyUsageSectionVisibilityChanged();
             return;
@@ -729,10 +719,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         PlanBadgeBrush = s_PlanBadgeActiveBrush;
         StatusDotBrush = s_GreenBrush;
         UpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
-        FiveHourQuota.Update(response.Limits.FiveHour, HideInvalidProgressBars);
-        SevenDayQuota.Update(response.Limits.SevenDay, HideInvalidProgressBars);
-        SparkFiveHourQuota.Update(response.Limits.SparkFiveHour, HideInvalidProgressBars);
-        SparkSevenDayQuota.Update(response.Limits.SparkSevenDay, HideInvalidProgressBars);
+        SessionQuota.Update(response.Limits.Session, HideInvalidProgressBars);
+        WeeklyQuota.Update(response.Limits.Weekly, HideInvalidProgressBars);
         UpdateResetCredits(response.ResetCredits);
         NotifyUsageSectionVisibilityChanged();
     }
@@ -743,7 +731,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private void NotifyUsageSectionVisibilityChanged()
     {
         OnPropertyChanged(nameof(IsUsageSectionHeaderVisible));
-        OnPropertyChanged(nameof(IsSparkQuotaSectionVisible));
     }
 
     /// <summary>
@@ -754,7 +741,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         if (resetCredits?.Available == true)
         {
             HasResetCredits = resetCredits.AvailableCount > 0;
-            ResetCreditsDisplay = $"{resetCredits.AvailableCount} Available";
+            ResetCreditsDisplay = $"{resetCredits.AvailableCount} available";
             string nearestExpiry = resetCredits.NearestExpiryLocal.Length >= 10
                 ? resetCredits.NearestExpiryLocal[5..10]
                 : resetCredits.NearestExpiryLocal;
@@ -792,9 +779,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             CursorPlanDisplay = FormatCursorPlan(usage.PlanType);
             CursorPlanBadgeBrush = CursorPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
             string reset = m_Settings.UseAbsoluteResetTime
-                ? CodexTrayCollector.FormatSevenDayResetDate(usage.ResetsAt, dashboard.UpdatedAt)
-                : CodexTrayCollector.FormatSevenDayResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
-            CursorTotalQuota.UpdateCursorUsage(usage.TotalUsedPercent, reset, showReset: true);
+                ? CodexTrayCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
+                : CodexTrayCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
+            CursorMonthlyQuota.UpdateCursorUsage(usage.MonthlyUsedPercent, reset, showReset: true);
             CursorAutoQuota.UpdateCursorUsage(usage.AutoUsedPercent, string.Empty, showReset: false);
             CursorApiQuota.UpdateCursorUsage(usage.ApiUsedPercent, string.Empty, showReset: false);
         }
@@ -802,7 +789,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             CursorPlanDisplay = "UNKNOWN";
             CursorPlanBadgeBrush = s_PlanBadgeInactiveBrush;
-            CursorTotalQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
+            CursorMonthlyQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
             CursorAutoQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
             CursorApiQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
         }

@@ -261,8 +261,8 @@ public sealed class ApiUsageCollector
                 true,
                 FormatRemainingPercent(snapshot.UsedPercent),
                 useAbsoluteResetTime
-                    ? CodexTrayCollector.FormatSevenDayResetDate(snapshot.ResetsAt, now)
-                    : CodexTrayCollector.FormatSevenDayResetLabel(snapshot.ResetsAt, now),
+                    ? CodexTrayCollector.FormatWeeklyResetDate(snapshot.ResetsAt, now)
+                    : CodexTrayCollector.FormatWeeklyResetLabel(snapshot.ResetsAt, now),
                 string.Empty,
                 now);
         }

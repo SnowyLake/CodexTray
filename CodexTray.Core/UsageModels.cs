@@ -101,17 +101,14 @@ public sealed class UsageResponse
 
 public sealed class UsageLimits
 {
-    [JsonPropertyName("five_hour")]
-    public UsageLimit FiveHour { get; set; } = new() { Name = "five_hour" };
+    [JsonPropertyName("session")]
+    public UsageLimit Session { get; set; } = new() { Name = "session" };
 
-    [JsonPropertyName("seven_day")]
-    public UsageLimit SevenDay { get; set; } = new() { Name = "seven_day" };
+    [JsonPropertyName("weekly")]
+    public UsageLimit Weekly { get; set; } = new() { Name = "weekly" };
 
-    [JsonIgnore]
-    public UsageLimit SparkFiveHour { get; set; } = new() { Name = "spark_five_hour" };
-
-    [JsonIgnore]
-    public UsageLimit SparkSevenDay { get; set; } = new() { Name = "spark_seven_day" };
+    [JsonPropertyName("cursor_monthly")]
+    public UsageLimit CursorMonthly { get; set; } = new() { Name = "monthly", RemainingPercent = 0 };
 }
 
 public sealed class UsageLimit
@@ -158,12 +155,17 @@ public sealed class ResetCredits
 
 public sealed class UsageDisplay
 {
-    [JsonPropertyName("codex_5h")]
-    public string Codex5H { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+    [JsonPropertyName("session")]
+    public string Session { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
-    [JsonPropertyName("codex_7d")]
-    public string Codex7D { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+    [JsonPropertyName("weekly")]
+    public string Weekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+
+    [JsonPropertyName("cursor_monthly")]
+    public string CursorMonthly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
     [JsonPropertyName("summary")]
     public string Summary { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 }
+
+public sealed record CursorPluginUsage(UsageLimit Monthly, string Display);

@@ -2,9 +2,9 @@
   "id": "CodexTray",
   "meta": {
     "name": "CodexTray",
-    "version": "1.0.0",
+    "version": "3.0.1",
     "author": "SnowyLake",
-    "description": "显示 OpenAI Codex 5 小时额度和一周额度的剩余百分比与重置时间"
+    "description": "显示 Codex Session, Codex Weekly 和 Cursor Monthly 的剩余百分比与重置时间"
   },
   "inputs": [
     {
@@ -26,15 +26,17 @@
         "method": "GET",
         "response_format": "json",
         "extract": {
-          "codex_5h_display": "display.codex_5h",
-          "codex_7d_display": "display.codex_7d",
-          "codex_5h_remaining": "limits.five_hour.remaining_percent",
-          "codex_7d_remaining": "limits.seven_day.remaining_percent"
+          "codex_session_display": "display.session",
+          "codex_weekly_display": "display.weekly",
+          "cursor_monthly_display": "display.cursor_monthly",
+          "codex_session_remaining": "limits.session.remaining_percent",
+          "codex_weekly_remaining": "limits.weekly.remaining_percent",
+          "cursor_monthly_remaining": "limits.cursor_monthly.remaining_percent"
         },
         "process": [
           {
-            "var": "codex_5h_color",
-            "source": "codex_5h_remaining",
+            "var": "codex_session_color",
+            "source": "codex_session_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -43,8 +45,18 @@
             }
           },
           {
-            "var": "codex_7d_color",
-            "source": "codex_7d_remaining",
+            "var": "codex_weekly_color",
+            "source": "codex_weekly_remaining",
+            "function": "threshold_switch",
+            "value_map": {
+              "0": "2",
+              "20": "1",
+              "50": "0"
+            }
+          },
+          {
+            "var": "cursor_monthly_color",
+            "source": "cursor_monthly_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -58,20 +70,28 @@
   },
   "outputs": [
     {
-      "key": "codex_5h",
-      "label": "Codex 5-Hour",
-      "short_label": "Codex-5H",
-      "format_val": "{{codex_5h_display}}",
+      "key": "codex_session",
+      "label": "Codex Session",
+      "short_label": "Codex-Session",
+      "format_val": "{{codex_session_display}}",
       "unit": "",
-      "color": "{{codex_5h_color}}"
+      "color": "{{codex_session_color}}"
     },
     {
-      "key": "codex_7d",
-      "label": "Codex 7-Day",
-      "short_label": "Codex-7D",
-      "format_val": "{{codex_7d_display}}",
+      "key": "codex_weekly",
+      "label": "Codex Weekly",
+      "short_label": "Codex-Weekly",
+      "format_val": "{{codex_weekly_display}}",
       "unit": "",
-      "color": "{{codex_7d_color}}"
+      "color": "{{codex_weekly_color}}"
+    },
+    {
+      "key": "cursor_monthly",
+      "label": "Cursor Monthly",
+      "short_label": "Cursor-Monthly",
+      "format_val": "{{cursor_monthly_display}}",
+      "unit": "",
+      "color": "{{cursor_monthly_color}}"
     }
   ]
 }

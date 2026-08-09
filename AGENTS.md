@@ -102,6 +102,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek 与 NewAPI,
 - 数值设置使用现有 `NumericUpDown` 和 `NumericInput`.
 - 监控器磁盘搜索复用 `MonitorLocator`, `LiteMonitorLocator` 和 `TrafficMonitorLocator`.
 - LiteMonitor 模板文件名保持为 `Plugins/LiteMonitor/CodexTray.json`. TrafficMonitor 模板文件名保持为 `Plugins/TrafficMonitor/CodexTray.ini`.
+- 应用版本与插件版本必须保持一致: `CodexTray.App/CodexTray.App.csproj` 中的 `<Version>`, `Plugins/LiteMonitor/CodexTray.json` 中的 `meta.version`, 以及 `Plugins/TrafficMonitor/TrafficMonitorPlugin.cpp` 中 `TMI_VERSION` 的返回值必须使用同一规范化版本号 `X.Y.Z`.
 - 修改插件字段, HTTP 路径或显示格式时, 同步检查两个插件模板, `TrafficMonitorPlugin.cpp`, `CodexTray.Tests/Program.cs` 和 README 的相关说明.
 - 修改 Token Cost 解析或定价结构时, 同步检查 `Resources/model-pricing.json` 和对应测试.
 - 修改 API provider, 请求字段或凭据来源时, 同步检查 `ApiUsageCollector`, `GrokUsageCollector`, `ApiMonitorSettings`, `ApiMonitorViewModel`, `TrayPopupWindow.xaml`, 对应测试和 README 的用户说明.
@@ -164,13 +165,13 @@ dotnet run --project .\CodexTray.Tests\CodexTray.Tests.csproj
 
 1. 读取 Git 规则模块, 再检查 `git status --short --branch`, 确认当前分支为 `develop`, 并区分本次发布修改与已有修改.
 2. 提交并推送本次发布涉及的源码, 脚本, 文档和资源修改. 不提交任何生成产物.
-3. 将 `CodexTray.App/CodexTray.App.csproj` 中的 `<Version>` 更新为规范化后的不带 `v` 版本号 `X.Y.Z`, 使用 `upgrade: X.Y.Z` 单独提交并推送. 此提交不得混入其他修改.
+3. 将 `CodexTray.App/CodexTray.App.csproj` 中的 `<Version>`, `Plugins/LiteMonitor/CodexTray.json` 中的 `meta.version`, 以及 `Plugins/TrafficMonitor/TrafficMonitorPlugin.cpp` 中 `TMI_VERSION` 的返回值同时更新为规范化后的不带 `v` 版本号 `X.Y.Z`, 并确认三处完全一致. 使用 `upgrade: X.Y.Z` 单独提交并推送. 此提交不得混入其他修改.
 4. 再次确认工作区干净, `develop` 与 `origin/develop` 同步, 本地可以安全切换分支. 同时确认目标 tag 和 GitHub Release 尚不存在.
 5. 切换到 `main`, 确认工作区干净且 `main` 与 `origin/main` 同步. 使用 `git merge --no-ff develop -m "feat: 合并 develop 以发布 vX.Y.Z"` 合并 `develop`, 必须保留明确的 merge commit. 如果发生冲突, 停止并报告状态.
 6. 推送 `main`, 并确认远端 `main` 已指向 merge commit.
 7. 执行 `dotnet build .\CodexTray.sln -m:1` 和 `dotnet run --project .\CodexTray.Tests\CodexTray.Tests.csproj`.
 8. 执行 `.\Scripts\Build-TrafficMonitorPlugin.ps1`, 确认 release 包需要的原生 DLL 已生成.
-9. 执行 `.\Scripts\Package-Release.ps1 -Version X.Y.Z -NoPause`, 传入的版本必须与 `CodexTray.App/CodexTray.App.csproj` 中的 `<Version>` 一致.
+9. 执行 `.\Scripts\Package-Release.ps1 -Version X.Y.Z -NoPause`, 传入的版本必须与 App, LiteMonitor 和 TrafficMonitor 的三处版本声明一致.
 10. 确认 `Builds/Release/vX.Y.Z/CodexTray-vX.Y.Z-win-x64.zip` 存在.
 11. 在已推送的 `main` merge commit 上创建 annotated tag `vX.Y.Z`, 再推送 tag.
 12. 获取上一个版本 tag, 检查从该 tag 到 `vX.Y.Z` 之间的 commit 和实际变更. 由 AI 合并同类改动, 去除仅用于发布, 格式化或内部维护且不影响用户的噪声, 编写准确, 面向用户的 Markdown Release Notes. 不直接复制 commit 列表, 不使用 `--generate-notes`, 不写入未在 diff 中确认的内容. 将结果保存到 `Builds/Release/vX.Y.Z/release-notes.md`.

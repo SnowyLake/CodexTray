@@ -27,17 +27,17 @@ internal static class Program
 
         await RunAsync("creates the fixed-size popup", TestPopupFixedSizeAsync);
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
-        await RunAsync("uses countdown label for same-day seven day reset", TestSevenDayCountdownLabelAsync);
-        await RunAsync("uses countdown label for next-day seven day reset", TestNextDaySevenDayCountdownLabelAsync);
+        await RunAsync("uses countdown label for same-day weekly reset", TestWeeklyCountdownLabelAsync);
+        await RunAsync("uses countdown label for next-day weekly reset", TestNextDayWeeklyCountdownLabelAsync);
         await RunAsync("returns unavailable response without OAuth credentials", TestEmptyResponseAsync);
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
-        await RunAsync("collects additional Spark quotas", TestSparkQuotaAsync);
         await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
         await RunAsync("collects Codex reset credits", TestResetCreditsAsync);
         await RunAsync("applies quota and reset credit color states", TestQuotaAndResetCreditColorStatesAsync);
         await RunAsync("omits reset suffix when disabled", TestDisplayWithoutResetSuffixAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
+        await RunAsync("merges and clears plugin usage sources", TestUsageCacheSourcesAsync);
         await RunAsync("drains active HTTP clients on stop", TestHttpServerActiveClientStopAsync);
         await RunAsync("recovers HTTP server after bind failure", TestHttpServerBindFailureRecoveryAsync);
         await RunAsync("supports idempotent stop and restart", TestHttpServerStopRestartAsync);
@@ -91,6 +91,9 @@ internal static class Program
                     ApiMonitors = [new ApiMonitorSettings()],
                 };
                 TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
+                AssertEqual("Session", viewModel.SessionQuota.Title, "Codex session quota title");
+                AssertEqual("Weekly", viewModel.WeeklyQuota.Title, "Codex weekly quota title");
+                AssertEqual("Monthly", viewModel.CursorMonthlyQuota.Title, "Cursor monthly quota title");
                 viewModel.UpdateStatus(
                     isRunning: true,
                     CodexTrayDefaults.Port,
@@ -99,8 +102,8 @@ internal static class Program
                         Available = true,
                         Limits = new UsageLimits
                         {
-                            FiveHour = new UsageLimit { WindowMinutes = 300, RemainingPercent = 100 },
-                            SevenDay = new UsageLimit { WindowMinutes = 10_080, RemainingPercent = 98 },
+                            Session = new UsageLimit { WindowMinutes = 300, RemainingPercent = 100 },
+                            Weekly = new UsageLimit { WindowMinutes = 10_080, RemainingPercent = 98 },
                         },
                         ResetCredits = new ResetCredits { Available = true, AvailableCount = 1 },
                     },
@@ -119,11 +122,11 @@ internal static class Program
                 content.UpdateLayout();
                 System.Windows.Controls.ScrollViewer codexQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CodexQuotaScrollViewer");
                 AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"default Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
-                System.Windows.Controls.Border codexFiveHourCard = (System.Windows.Controls.Border)window.FindName("CodexFiveHourCard");
-                System.Windows.Controls.Border codexSevenDayCard = (System.Windows.Controls.Border)window.FindName("CodexSevenDayCard");
+                System.Windows.Controls.Border codexSessionCard = (System.Windows.Controls.Border)window.FindName("CodexSessionCard");
+                System.Windows.Controls.Border codexWeeklyCard = (System.Windows.Controls.Border)window.FindName("CodexWeeklyCard");
                 System.Windows.Controls.Border codexResetCreditsCard = (System.Windows.Controls.Border)window.FindName("CodexResetCreditsCard");
-                AssertEqual(91d, codexFiveHourCard.ActualHeight, "Codex 5-Hour card height");
-                AssertEqual(codexFiveHourCard.ActualHeight, codexSevenDayCard.ActualHeight, "Codex large card heights");
+                AssertEqual(91d, codexSessionCard.ActualHeight, "Codex Session card height");
+                AssertEqual(codexSessionCard.ActualHeight, codexWeeklyCard.ActualHeight, "Codex large card heights");
                 AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex small card height");
 
                 viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
@@ -139,10 +142,10 @@ internal static class Program
                 content.UpdateLayout();
                 System.Windows.Controls.ScrollViewer cursorQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CursorQuotaScrollViewer");
                 AssertTrue(cursorQuotaScrollViewer.ScrollableHeight == 0, $"default Cursor quota cards should not scroll, actual {cursorQuotaScrollViewer.ScrollableHeight}");
-                System.Windows.Controls.Border cursorTotalCard = (System.Windows.Controls.Border)window.FindName("CursorTotalCard");
+                System.Windows.Controls.Border cursorMonthlyCard = (System.Windows.Controls.Border)window.FindName("CursorMonthlyCard");
                 System.Windows.Controls.Border cursorAutoCard = (System.Windows.Controls.Border)window.FindName("CursorAutoCard");
                 System.Windows.Controls.Border cursorApiCard = (System.Windows.Controls.Border)window.FindName("CursorApiCard");
-                AssertEqual(codexFiveHourCard.ActualHeight, cursorTotalCard.ActualHeight, "Codex and Cursor large card heights");
+                AssertEqual(codexSessionCard.ActualHeight, cursorMonthlyCard.ActualHeight, "Codex and Cursor large card heights");
                 AssertEqual(codexResetCreditsCard.ActualHeight, cursorAutoCard.ActualHeight, "Codex and Cursor small card heights");
                 AssertEqual(cursorAutoCard.ActualHeight, cursorApiCard.ActualHeight, "Cursor small card heights");
 
@@ -155,10 +158,10 @@ internal static class Program
                 System.Windows.Controls.ContentPresenter apiMonitorPresenter = (System.Windows.Controls.ContentPresenter)apiMonitorItemsControl.ItemContainerGenerator.ContainerFromIndex(0);
                 System.Windows.DataTemplate apiMonitorTemplate = apiMonitorPresenter.ContentTemplate;
                 System.Windows.Controls.Border apiMonitorCard = (System.Windows.Controls.Border)apiMonitorTemplate.FindName("ApiMonitorCard", apiMonitorPresenter);
-                AssertEqual(apiMonitorCard.ActualHeight, codexFiveHourCard.ActualHeight, "API monitor and quota large card heights");
-                AssertEqual(apiMonitorCard.Margin.Bottom, codexFiveHourCard.Margin.Bottom, "API monitor and Codex card spacing");
-                AssertEqual(apiMonitorCard.Margin.Bottom, codexSevenDayCard.Margin.Bottom, "API monitor and Codex second card spacing");
-                AssertEqual(apiMonitorCard.Margin.Bottom, cursorTotalCard.Margin.Bottom, "API monitor and Cursor card spacing");
+                AssertEqual(apiMonitorCard.ActualHeight, codexSessionCard.ActualHeight, "API monitor and quota large card heights");
+                AssertEqual(apiMonitorCard.Margin.Bottom, codexSessionCard.Margin.Bottom, "API monitor and Codex card spacing");
+                AssertEqual(apiMonitorCard.Margin.Bottom, codexWeeklyCard.Margin.Bottom, "API monitor and Codex second card spacing");
+                AssertEqual(apiMonitorCard.Margin.Bottom, cursorMonthlyCard.Margin.Bottom, "API monitor and Cursor card spacing");
                 AssertEqual(apiMonitorCard.Margin.Bottom, cursorAutoCard.Margin.Bottom, "API monitor and Cursor second card spacing");
                 window.Close();
             }
@@ -254,57 +257,57 @@ internal static class Program
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(2).AddMinutes(5).ToUnixTimeSeconds();
-        long resetSevenDay = now.AddDays(3).AddHours(4).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 12.0, 34.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(2).AddMinutes(5).ToUnixTimeSeconds();
+        long weeklyResetAt = now.AddDays(3).AddHours(4).ToUnixTimeSeconds();
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 12.0, 34.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(response.Available, "response should be available");
-        AssertEqual(12, response.Limits.FiveHour.UsedPercent, "five hour used percent");
-        AssertEqual(88, response.Limits.FiveHour.RemainingPercent, "five hour remaining percent");
-        AssertEqual(34, response.Limits.SevenDay.UsedPercent, "seven day used percent");
-        AssertEqual(66, response.Limits.SevenDay.RemainingPercent, "seven day remaining percent");
+        AssertEqual(12, response.Limits.Session.UsedPercent, "session used percent");
+        AssertEqual(88, response.Limits.Session.RemainingPercent, "session remaining percent");
+        AssertEqual(34, response.Limits.Weekly.UsedPercent, "weekly used percent");
+        AssertEqual(66, response.Limits.Weekly.RemainingPercent, "weekly remaining percent");
         AssertEqual("pro", response.PlanType, "plan type");
-        AssertEqual("88% 2h05m", response.Display.Codex5H, "five hour display");
-        AssertEqual("66% 3d04h", response.Display.Codex7D, "seven day display");
+        AssertEqual("88% 2h05m", response.Display.Session, "session display");
+        AssertEqual("66% 3d04h", response.Display.Weekly, "weekly display");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests seven day countdown labels on the current day.
+    /// Tests weekly countdown labels on the current day.
     /// </summary>
-    private static Task TestSevenDayCountdownLabelAsync()
+    private static Task TestWeeklyCountdownLabelAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(1).ToUnixTimeSeconds();
-        long resetSevenDay = now.AddHours(3).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 20.0, 40.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
+        long weeklyResetAt = now.AddHours(3).ToUnixTimeSeconds();
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
 
-        AssertEqual("60% 0d03h", response.Display.Codex7D, "seven day countdown display");
+        AssertEqual("60% 0d03h", response.Display.Weekly, "weekly countdown display");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests seven day countdown labels on the next day even when below twenty four hours.
+    /// Tests weekly countdown labels on the next day even when below twenty four hours.
     /// </summary>
-    private static Task TestNextDaySevenDayCountdownLabelAsync()
+    private static Task TestNextDayWeeklyCountdownLabelAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 23, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(1).ToUnixTimeSeconds();
-        DateTimeOffset resetSevenDay = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
+        DateTimeOffset weeklyResetAt = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
 
-        AssertEqual("60% 0d03h", response.Display.Codex7D, "seven day next-day countdown display");
+        AssertEqual("60% 0d03h", response.Display.Weekly, "weekly next-day countdown display");
         return Task.CompletedTask;
     }
 
@@ -318,7 +321,7 @@ internal static class Program
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(!response.Available, "response should be unavailable");
-        AssertEqual("N/A", response.Display.Codex5H, "five hour unavailable display");
+        AssertEqual("N/A", response.Display.Session, "session unavailable display");
         AssertEqual("N/A", response.Display.Summary, "summary unavailable display");
         return Task.CompletedTask;
     }
@@ -366,78 +369,10 @@ internal static class Program
         AssertTrue(response.Available, "official response should be available");
         AssertEqual("official_api", response.Source, "official source");
         AssertEqual("unknown", response.PlanType, "missing plan type");
-        AssertEqual(75, response.Limits.FiveHour.RemainingPercent, "official five hour remaining percent");
-        AssertEqual(60, response.Limits.SevenDay.RemainingPercent, "official seven day remaining percent");
-        AssertEqual("75% 1h15m", response.Display.Codex5H, "official five hour display");
-        AssertEqual("60% 2d12h", response.Display.Codex7D, "official seven day display");
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Tests the Pro-only Spark quotas in the additional rate-limit collection.
-    /// </summary>
-    private static Task TestSparkQuotaAsync()
-    {
-        using TempDirectory temp = new();
-        DateTimeOffset now = new(2026, 8, 4, 12, 0, 0, TimeSpan.FromHours(8));
-        File.WriteAllText(Path.Combine(temp.Path, "auth.json"), JsonSerializer.Serialize(new
-        {
-            auth_mode = "chatgpt",
-            tokens = new
-            {
-                access_token = "test-token",
-                account_id = "account-123",
-            },
-        }));
-
-        string body = JsonSerializer.Serialize(new
-        {
-            plan_type = "pro",
-            rate_limit = new
-            {
-                primary_window = new
-                {
-                    used_percent = 20.0,
-                    limit_window_seconds = 604800,
-                    reset_at = now.AddDays(5).ToUnixTimeSeconds(),
-                },
-            },
-            additional_rate_limits = new[]
-            {
-                new
-                {
-                    limit_name = "GPT-5.3-Codex-Spark",
-                    rate_limit = new
-                    {
-                        primary_window = new
-                        {
-                            used_percent = 15.0,
-                            limit_window_seconds = 18000,
-                            reset_at = now.AddHours(4).ToUnixTimeSeconds(),
-                        },
-                        secondary_window = new
-                        {
-                            used_percent = 35.0,
-                            limit_window_seconds = 604800,
-                            reset_at = now.AddDays(6).ToUnixTimeSeconds(),
-                        },
-                    },
-                },
-            },
-        });
-        using HttpClient client = new(new FakeHttpMessageHandler(body));
-        CodexTrayCollector collector = new(() => now, client);
-
-        UsageResponse response = collector.Collect(temp.Path);
-
-        AssertEqual(300, response.Limits.SparkFiveHour.WindowMinutes, "Spark five hour window duration");
-        AssertEqual(85, response.Limits.SparkFiveHour.RemainingPercent, "Spark five hour remaining percent");
-        AssertEqual("4h00m", response.Limits.SparkFiveHour.ResetLabel, "Spark five hour reset label");
-        AssertEqual(10080, response.Limits.SparkSevenDay.WindowMinutes, "Spark weekly window duration");
-        AssertEqual(65, response.Limits.SparkSevenDay.RemainingPercent, "Spark weekly remaining percent");
-        AssertEqual("6d00h", response.Limits.SparkSevenDay.ResetLabel, "Spark weekly reset label");
-        string serialized = JsonSerializer.Serialize(response);
-        AssertTrue(!serialized.Contains("spark_seven_day", StringComparison.Ordinal), "Spark quota should not change the plugin JSON contract");
+        AssertEqual(75, response.Limits.Session.RemainingPercent, "official session remaining percent");
+        AssertEqual(60, response.Limits.Weekly.RemainingPercent, "official weekly remaining percent");
+        AssertEqual("75% 1h15m", response.Display.Session, "official session display");
+        AssertEqual("60% 2d12h", response.Display.Weekly, "official weekly display");
         return Task.CompletedTask;
     }
 
@@ -448,16 +383,16 @@ internal static class Program
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
-        long resetSevenDay = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 25.0, 40.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
+        long weeklyResetAt = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path, showResetTimeInPlugins: false);
 
-        AssertEqual("75%", response.Display.Codex5H, "five hour display without reset suffix");
-        AssertEqual("60%", response.Display.Codex7D, "seven day display without reset suffix");
-        AssertEqual("1h15m", response.Limits.FiveHour.ResetLabel, "reset label remains available for the panel");
+        AssertEqual("75%", response.Display.Session, "session display without reset suffix");
+        AssertEqual("60%", response.Display.Weekly, "weekly display without reset suffix");
+        AssertEqual("1h15m", response.Limits.Session.ResetLabel, "reset label remains available for the panel");
         return Task.CompletedTask;
     }
 
@@ -468,17 +403,17 @@ internal static class Program
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long reset5H = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
-        long resetSevenDay = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, reset5H, resetSevenDay, 25.0, 40.0, out HttpClient client);
+        long sessionResetAt = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
+        long weeklyResetAt = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
+        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path, showResetTimeInPlugins: true, useAbsoluteResetTime: true);
 
-        AssertEqual("13:15", response.Limits.FiveHour.ResetLabel, "five hour absolute reset clock");
-        AssertEqual("07-04", response.Limits.SevenDay.ResetLabel, "seven day absolute reset date");
-        AssertEqual("75% 13:15", response.Display.Codex5H, "five hour display with absolute reset");
-        AssertEqual("60% 07-04", response.Display.Codex7D, "seven day display with absolute reset");
+        AssertEqual("13:15", response.Limits.Session.ResetLabel, "session absolute reset clock");
+        AssertEqual("07-04", response.Limits.Weekly.ResetLabel, "weekly absolute reset date");
+        AssertEqual("75% 13:15", response.Display.Session, "session display with absolute reset");
+        AssertEqual("60% 07-04", response.Display.Weekly, "weekly display with absolute reset");
         return Task.CompletedTask;
     }
 
@@ -492,7 +427,16 @@ internal static class Program
         CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient collectorClient);
         using HttpClient _ = collectorClient;
         UsageCache usageCache = new();
-        usageCache.Update(collector.Collect(temp.Path));
+        usageCache.UpdateCodex(collector.Collect(temp.Path));
+        usageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(
+            new CursorUsageDashboard(
+                new CursorUsageSnapshot("Pro", 25, 0, 0, now.AddDays(30).ToUnixTimeSeconds()),
+                null,
+                string.Empty,
+                string.Empty,
+                now),
+            showResetTime: true,
+            useAbsoluteResetTime: false));
         using LightweightHttpServer server = new(usageCache, 0);
         server.Start();
 
@@ -502,13 +446,61 @@ internal static class Program
 
         string usageJson = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageEndpointPath}");
         using JsonDocument document = JsonDocument.Parse(usageJson);
-        string display = document.RootElement.GetProperty("display").GetProperty("codex_5h").GetString() ?? string.Empty;
-        AssertEqual("90% 1h00m", display, "HTTP five hour display");
+        JsonElement display = document.RootElement.GetProperty("display");
+        JsonElement limits = document.RootElement.GetProperty("limits");
+        AssertEqual("90% 1h00m", display.GetProperty("session").GetString(), "HTTP plugin session display");
+        AssertEqual("80% 2d00h", display.GetProperty("weekly").GetString(), "HTTP plugin weekly display");
+        AssertEqual("75% 30d00h", display.GetProperty("cursor_monthly").GetString(), "HTTP plugin Cursor monthly display");
+        AssertEqual(75, limits.GetProperty("cursor_monthly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Cursor monthly remaining percent");
+        AssertTrue(!display.TryGetProperty("codex_5h", out JsonElement legacySession), "legacy session plugin field should be removed");
+        AssertTrue(!display.TryGetProperty("codex_7d", out JsonElement legacyWeekly), "legacy weekly plugin field should be removed");
 
         string usageText = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageTextEndpointPath}");
-        AssertTrue(usageText.Contains("90% 1h00m", StringComparison.Ordinal), "text endpoint should include five hour display");
-        AssertTrue(usageText.Contains("80% 2d00h", StringComparison.Ordinal), "text endpoint should include seven day display");
+        string[] usageLines = usageText.Split(Environment.NewLine);
+        AssertEqual(3, usageLines.Length, "text endpoint line count");
+        AssertEqual("90% 1h00m", usageLines[0], "text endpoint session display");
+        AssertEqual("80% 2d00h", usageLines[1], "text endpoint weekly display");
+        AssertEqual("75% 30d00h", usageLines[2], "text endpoint Cursor monthly display");
         await server.StopAsync();
+    }
+
+    /// <summary>
+    /// Tests independent merging and clearing of Codex and Cursor plugin values.
+    /// </summary>
+    private static Task TestUsageCacheSourcesAsync()
+    {
+        UsageCache usageCache = new();
+        usageCache.UpdateCodex(new UsageResponse
+        {
+            Available = true,
+            Limits = new UsageLimits
+            {
+                Session = new UsageLimit { Name = "session", RemainingPercent = 90 },
+                Weekly = new UsageLimit { Name = "weekly", RemainingPercent = 80 },
+            },
+            Display = new UsageDisplay
+            {
+                Session = "90%",
+                Weekly = "80%",
+                Summary = "Codex Session: 90% | Codex Weekly: 80%",
+            },
+        });
+        usageCache.UpdateCursor(new CursorPluginUsage(
+            new UsageLimit { Name = "monthly", RemainingPercent = 70 },
+            "70%"));
+
+        UsageResponse merged = usageCache.Get() ?? throw new InvalidOperationException("merged usage should be available");
+        AssertEqual("90%", merged.Display.Session, "merged Codex session display");
+        AssertEqual("70%", merged.Display.CursorMonthly, "merged Cursor monthly display");
+
+        usageCache.ClearCodex();
+        UsageResponse cursorOnly = usageCache.Get() ?? throw new InvalidOperationException("Cursor-only usage should be available");
+        AssertEqual("N/A", cursorOnly.Display.Session, "cleared Codex session display");
+        AssertEqual("70%", cursorOnly.Display.CursorMonthly, "preserved Cursor monthly display");
+
+        usageCache.ClearCursor();
+        AssertTrue(usageCache.Get() == null, "cleared plugin usage should be empty");
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -643,8 +635,13 @@ internal static class Program
         string targetPath = LiteMonitorPluginInstaller.Install(temp.Path, 17998);
         AssertTrue(File.Exists(targetPath), "plugin file should exist");
         string content = File.ReadAllText(targetPath);
-        AssertTrue(content.Contains("\"format_val\": \"{{codex_5h_display}}\"", StringComparison.Ordinal), "plugin content should include five hour value");
-        AssertTrue(content.Contains("\"format_val\": \"{{codex_7d_display}}\"", StringComparison.Ordinal), "plugin content should include seven day value");
+        using JsonDocument pluginDocument = JsonDocument.Parse(content);
+        string expectedVersion = typeof(TrayPopupViewModel).Assembly.GetName().Version?.ToString(3) ?? string.Empty;
+        AssertEqual(expectedVersion, pluginDocument.RootElement.GetProperty("meta").GetProperty("version").GetString(), "plugin version should match the app version");
+        AssertTrue(content.Contains("\"short_label\": \"Codex-Session\"", StringComparison.Ordinal), "plugin content should include Codex Session item");
+        AssertTrue(content.Contains("\"short_label\": \"Codex-Weekly\"", StringComparison.Ordinal), "plugin content should include Codex Weekly item");
+        AssertTrue(content.Contains("\"short_label\": \"Cursor-Monthly\"", StringComparison.Ordinal), "plugin content should include Cursor Monthly item");
+        AssertTrue(content.Contains("\"format_val\": \"{{cursor_monthly_display}}\"", StringComparison.Ordinal), "plugin content should include Cursor Monthly value");
         AssertTrue(content.Contains($"http://{CodexTrayDefaults.Host}:17998{CodexTrayDefaults.UsageEndpointPath}", StringComparison.Ordinal), "plugin content should include bridge URL");
         return Task.CompletedTask;
     }
@@ -1106,7 +1103,7 @@ internal static class Program
             DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
 
         AssertEqual("pro_plus", snapshot.PlanType, "Cursor plan type");
-        AssertEqual(10, snapshot.TotalUsedPercent, "Cursor total used percentage");
+        AssertEqual(10, snapshot.MonthlyUsedPercent, "Cursor monthly used percentage");
         AssertEqual(12, snapshot.AutoUsedPercent, "Cursor first-party used percentage");
         AssertEqual(0, snapshot.ApiUsedPercent, "Cursor API used percentage");
         AssertEqual(resetAt, snapshot.ResetsAt, "Cursor reset timestamp");
@@ -1138,7 +1135,7 @@ internal static class Program
             CursorUsageCollector collector = new(client);
             CursorUsageSnapshot snapshot = await collector.CollectAsync();
 
-            AssertEqual(12.5, snapshot.TotalUsedPercent, "refreshed Cursor total used percentage");
+            AssertEqual(12.5, snapshot.MonthlyUsedPercent, "refreshed Cursor monthly used percentage");
             AssertEqual(20, snapshot.AutoUsedPercent, "refreshed Cursor first-party used percentage");
             AssertEqual(5, snapshot.ApiUsedPercent, "refreshed Cursor API used percentage");
             AssertEqual(1_802_592_000, snapshot.ResetsAt, "refreshed Cursor reset timestamp");
@@ -1387,7 +1384,7 @@ internal static class Program
     /// Builds a redacted Cursor usage-summary fixture for parser tests.
     /// </summary>
     private static string CreateCursorUsageSummaryJson(
-        double totalUsedPercent,
+        double monthlyUsedPercent,
         double firstPartyUsedPercent,
         double apiUsedPercent,
         DateTimeOffset billingCycleEnd)
@@ -1400,7 +1397,7 @@ internal static class Program
             {
                 plan = new
                 {
-                    totalPercentUsed = totalUsedPercent,
+                    totalPercentUsed = monthlyUsedPercent,
                     autoPercentUsed = firstPartyUsedPercent,
                     apiPercentUsed = apiUsedPercent,
                 },
@@ -1929,11 +1926,11 @@ internal static class Program
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(response.Available, "response should be available");
-        AssertEqual(0, response.Limits.FiveHour.WindowMinutes, "five hour window should be absent");
-        AssertEqual("N/A", response.Display.Codex5H, "five hour display should be unavailable");
-        AssertEqual(10080, response.Limits.SevenDay.WindowMinutes, "weekly window duration");
-        AssertEqual(42, response.Limits.SevenDay.RemainingPercent, "weekly remaining percent");
-        AssertEqual("42% 6d23h", response.Display.Codex7D, "weekly display");
+        AssertEqual(0, response.Limits.Session.WindowMinutes, "session window should be absent");
+        AssertEqual("N/A", response.Display.Session, "session display should be unavailable");
+        AssertEqual(10080, response.Limits.Weekly.WindowMinutes, "weekly window duration");
+        AssertEqual(42, response.Limits.Weekly.RemainingPercent, "weekly remaining percent");
+        AssertEqual("42% 6d23h", response.Display.Weekly, "weekly display");
         return Task.CompletedTask;
     }
 
@@ -2170,7 +2167,7 @@ internal static class Program
     /// <summary>
     /// Creates a collector backed by fake OAuth credentials and a fixed official quota response.
     /// </summary>
-    private static CodexTrayCollector CreateOfficialCollector(string codexRoot, DateTimeOffset now, long reset5H, long resetSevenDay, double primaryUsed, double secondaryUsed, out HttpClient client, string? resetCreditsBody = null)
+    private static CodexTrayCollector CreateOfficialCollector(string codexRoot, DateTimeOffset now, long sessionResetAt, long weeklyResetAt, double primaryUsed, double secondaryUsed, out HttpClient client, string? resetCreditsBody = null)
     {
         File.WriteAllText(Path.Combine(codexRoot, "auth.json"), JsonSerializer.Serialize(new
         {
@@ -2191,13 +2188,13 @@ internal static class Program
                 {
                     used_percent = primaryUsed,
                     limit_window_seconds = 18000,
-                    reset_at = reset5H,
+                    reset_at = sessionResetAt,
                 },
                 secondary_window = new
                 {
                     used_percent = secondaryUsed,
                     limit_window_seconds = 604800,
-                    reset_at = resetSevenDay,
+                    reset_at = weeklyResetAt,
                 },
             },
         });

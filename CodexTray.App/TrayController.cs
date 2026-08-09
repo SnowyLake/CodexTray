@@ -42,6 +42,8 @@ internal sealed class TrayController : IDisposable
 
     private bool IsExiting => Volatile.Read(ref m_IsExiting) != 0;
 
+    private bool IsPluginServiceRequired => (m_Settings.VisiblePages & (PageItem.Codex | PageItem.Cursor)) != 0;
+
     /// <summary>
     /// Creates the tray controller and starts background work.
     /// </summary>
@@ -61,7 +63,7 @@ internal sealed class TrayController : IDisposable
         m_NotifyIcon = CreateNotifyIcon();
         m_RefreshTimer = new DispatcherTimer(DispatcherPriority.Background, m_Dispatcher);
         m_RefreshTimer.Tick += async (_, _) => await RequestRefreshAsync();
-        if ((m_Settings.VisiblePages & PageItem.Codex) != 0)
+        if (IsPluginServiceRequired)
         {
             QueueServiceReconcile();
         }
@@ -297,7 +299,7 @@ internal sealed class TrayController : IDisposable
             }
         }
 
-        if (IsExiting || cancellationToken.IsCancellationRequested || (m_Settings.VisiblePages & PageItem.Codex) == 0)
+        if (IsExiting || cancellationToken.IsCancellationRequested || !IsPluginServiceRequired)
         {
             m_NotifyIcon.Text = CodexTrayDefaults.AppName;
             return;
@@ -451,17 +453,27 @@ internal sealed class TrayController : IDisposable
 
         int previousPort = m_Settings.Port;
         bool codexWasEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
+        bool cursorWasEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
+        bool serviceWasRequired = IsPluginServiceRequired;
         m_PopupViewModel?.ApplySettings();
 
         StartupManager.SetEnabled(Environment.ProcessPath ?? string.Empty, m_Settings.StartWithWindows);
         m_SettingsStore.Save(m_Settings);
         ConfigureRefreshTimer();
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
-        if (!codexIsEnabled)
+        bool cursorIsEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
+        if (codexWasEnabled && !codexIsEnabled)
         {
-            QueueServiceReconcile();
+            m_UsageCache.ClearCodex();
         }
-        else if (!codexWasEnabled || previousPort != m_Settings.Port)
+
+        if (cursorWasEnabled && !cursorIsEnabled)
+        {
+            m_UsageCache.ClearCursor();
+        }
+
+        bool serviceIsRequired = IsPluginServiceRequired;
+        if (serviceWasRequired != serviceIsRequired || (serviceIsRequired && previousPort != m_Settings.Port))
         {
             QueueServiceReconcile();
         }
@@ -593,13 +605,13 @@ internal sealed class TrayController : IDisposable
         try
         {
             bool useAbsoluteResetTime = m_Settings.UseAbsoluteResetTime;
+            bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
             Task<UsageResponse>? codexUsageTask = null;
             Task<TokenCostStatistics?>? tokenCostTask = null;
             Task<CursorUsageDashboard>? cursorDashboardTask = null;
             Task<IReadOnlyList<ApiUsageResult>>? apiUsageTask = null;
             if ((visiblePages & PageItem.Codex) != 0)
             {
-                bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
                 codexUsageTask = m_Collector.CollectAsync(showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
                 tokenCostTask = Task.Run<TokenCostStatistics?>(() =>
                 {
@@ -636,14 +648,17 @@ internal sealed class TrayController : IDisposable
             if (codexUsageTask != null && tokenCostTask != null)
             {
                 UsageResponse response = codexUsageTask.Result;
-                m_UsageCache.Update(response);
+                m_UsageCache.UpdateCodex(response);
                 RefreshPopupStatus();
                 m_PopupViewModel?.UpdateTokenCost(tokenCostTask.Result);
             }
 
             if (cursorDashboardTask != null)
             {
-                m_PopupViewModel?.UpdateCursorDashboard(cursorDashboardTask.Result);
+                CursorUsageDashboard dashboard = cursorDashboardTask.Result;
+                m_UsageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(dashboard, showResetTimeInPlugins, useAbsoluteResetTime));
+                RefreshPopupStatus();
+                m_PopupViewModel?.UpdateCursorDashboard(dashboard);
             }
 
             if (apiUsageTask != null)

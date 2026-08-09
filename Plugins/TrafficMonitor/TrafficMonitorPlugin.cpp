@@ -24,8 +24,9 @@ HMODULE g_Module = nullptr;
 
 struct UsageValues
 {
-    std::wstring fiveHour;
-    std::wstring sevenDay;
+    std::wstring session;
+    std::wstring weekly;
+    std::wstring monthly;
 };
 
 struct OptionsDialogState
@@ -467,7 +468,7 @@ bool FetchUrl(const std::wstring& url, std::string& body)
     return !body.empty();
 }
 
-/// Fetches Codex usage display values from the local bridge service.
+/// Fetches plugin usage display values from the local bridge service.
 bool FetchUsageValues(UsageValues& values)
 {
     std::string body;
@@ -477,22 +478,29 @@ bool FetchUsageValues(UsageValues& values)
     }
 
     std::wstring text = Utf8ToWide(body);
-    size_t separator = text.find(L'\n');
-    if (separator == std::wstring::npos)
+    size_t firstSeparator = text.find(L'\n');
+    if (firstSeparator == std::wstring::npos)
     {
         return false;
     }
 
-    values.fiveHour = TrimString(text.substr(0, separator));
-    values.sevenDay = TrimString(text.substr(separator + 1));
-    return !values.fiveHour.empty() && !values.sevenDay.empty();
+    size_t secondSeparator = text.find(L'\n', firstSeparator + 1);
+    if (secondSeparator == std::wstring::npos)
+    {
+        return false;
+    }
+
+    values.session = TrimString(text.substr(0, firstSeparator));
+    values.weekly = TrimString(text.substr(firstSeparator + 1, secondSeparator - firstSeparator - 1));
+    values.monthly = TrimString(text.substr(secondSeparator + 1));
+    return !values.session.empty() && !values.weekly.empty() && !values.monthly.empty();
 }
 
-class CodexUsageItem final : public IPluginItem
+class UsageItem final : public IPluginItem
 {
 public:
-    /// Creates one Codex usage display item.
-    CodexUsageItem(const wchar_t* name, const wchar_t* id, const wchar_t* label, const wchar_t* sampleText)
+    /// Creates one usage display item.
+    UsageItem(const wchar_t* name, const wchar_t* id, const wchar_t* label, const wchar_t* sampleText)
         : m_Name(name), m_Id(id), m_Label(label), m_SampleText(sampleText), m_Value(k_FallbackValue)
     {
     }
@@ -552,8 +560,9 @@ class CodexTrayPlugin final : public ITMPlugin
 public:
     /// Creates the TrafficMonitor plugin singleton.
     CodexTrayPlugin()
-        : m_FiveHourItem(L"Codex 5-Hour", L"CodexTray5H", L"Codex-5H", L"100% 4h59m"),
-          m_SevenDayItem(L"Codex 7-Day", L"CodexTray7D", L"Codex-7D", L"100% 6d23h"),
+        : m_SessionItem(L"Codex Session", L"CodexTraySession", L"Codex-Session", L"100% 4h59m"),
+          m_WeeklyItem(L"Codex Weekly", L"CodexTrayWeekly", L"Codex-Weekly", L"100% 6d23h"),
+          m_MonthlyItem(L"Cursor Monthly", L"CodexTrayCursorMonthly", L"Cursor-Monthly", L"100% 08-31"),
           m_Tooltip(L"CodexTray waiting for data")
     {
     }
@@ -564,9 +573,11 @@ public:
         switch (index)
         {
         case 0:
-            return &m_FiveHourItem;
+            return &m_SessionItem;
         case 1:
-            return &m_SevenDayItem;
+            return &m_WeeklyItem;
+        case 2:
+            return &m_MonthlyItem;
         default:
             return nullptr;
         }
@@ -578,15 +589,17 @@ public:
         UsageValues values;
         if (!FetchUsageValues(values))
         {
-            m_FiveHourItem.SetFallback();
-            m_SevenDayItem.SetFallback();
+            m_SessionItem.SetFallback();
+            m_WeeklyItem.SetFallback();
+            m_MonthlyItem.SetFallback();
             m_Tooltip = L"CodexTray bridge unavailable";
             return;
         }
 
-        m_FiveHourItem.SetValue(values.fiveHour);
-        m_SevenDayItem.SetValue(values.sevenDay);
-        m_Tooltip = L"Codex 5-Hour: " + values.fiveHour + L"\nCodex 7-Day: " + values.sevenDay;
+        m_SessionItem.SetValue(values.session);
+        m_WeeklyItem.SetValue(values.weekly);
+        m_MonthlyItem.SetValue(values.monthly);
+        m_Tooltip = L"Codex Session: " + values.session + L"\nCodex Weekly: " + values.weekly + L"\nCursor Monthly: " + values.monthly;
     }
 
     /// Shows plugin options for editing the backend URL.
@@ -622,13 +635,13 @@ public:
         case TMI_NAME:
             return L"CodexTray";
         case TMI_DESCRIPTION:
-            return L"Displays Codex 5-Hour and 7-Day quota from CodexTray.";
+            return L"Displays Codex Session, Codex Weekly, and Cursor Monthly quota from CodexTray.";
         case TMI_AUTHOR:
             return L"SnowyLake";
         case TMI_COPYRIGHT:
             return L"MIT";
         case TMI_VERSION:
-            return L"1.0.0";
+            return L"3.0.1";
         case TMI_URL:
             return L"";
         default:
@@ -643,8 +656,9 @@ public:
     }
 
 private:
-    CodexUsageItem m_FiveHourItem;
-    CodexUsageItem m_SevenDayItem;
+    UsageItem m_SessionItem;
+    UsageItem m_WeeklyItem;
+    UsageItem m_MonthlyItem;
     std::wstring m_Tooltip;
 };
 

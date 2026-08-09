@@ -9,9 +9,9 @@
 
 ## 概览
 
-这个目录包含 CodexTray 的 TrafficMonitor 原生插件源码. 插件实现 TrafficMonitor 的 `ITMPlugin` 和 `IPluginItem` 接口, 提供 `Codex 5-Hour` 和 `Codex 7-Day` 两个显示项.
+这个目录包含 CodexTray 的 TrafficMonitor 原生插件源码. 插件实现 TrafficMonitor 的 `ITMPlugin` 和 `IPluginItem` 接口, 提供 `Codex-Session`, `Codex-Weekly` 和 `Cursor-Monthly` 三个显示项.
 
-插件会请求本机 CodexTray 桥接服务的 `/codex-tray.txt` 接口, 并读取两行文本值.
+插件会请求本机 CodexTray 桥接服务的 `/codex-tray.txt` 接口, 并依次读取 Codex Session, Codex Weekly 和 Cursor Monthly 三行文本值.
 
 ## 构建
 

@@ -427,13 +427,13 @@
                             <TextBlock.Style>
                                 <Style BasedOn="{StaticResource QuotaValueTextStyle}" TargetType="{x:Type TextBlock}">
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Title}" Value="7-Day">
+                                        <DataTrigger Binding="{Binding Title}" Value="Weekly">
                                             <Setter Property="FontSize" Value="20" />
                                         </DataTrigger>
-                                        <DataTrigger Binding="{Binding Title}" Value="5-Hour">
+                                        <DataTrigger Binding="{Binding Title}" Value="Session">
                                             <Setter Property="FontSize" Value="20" />
                                         </DataTrigger>
-                                        <DataTrigger Binding="{Binding Title}" Value="Total">
+                                        <DataTrigger Binding="{Binding Title}" Value="Monthly">
                                             <Setter Property="FontSize" Value="20" />
                                         </DataTrigger>
                                     </Style.Triggers>
@@ -658,20 +658,20 @@
                               HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Hidden">
                     <StackPanel VerticalAlignment="Top">
-                        <Border x:Name="CodexFiveHourCard"
+                        <Border x:Name="CodexSessionCard"
                                 Margin="0,0,0,12"
                                 Style="{StaticResource LargeUsageCardStyle}"
-                                Visibility="{Binding FiveHourQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <ContentControl Content="{Binding FiveHourQuota}"
+                                Visibility="{Binding SessionQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding SessionQuota}"
                                             ContentTemplate="{StaticResource QuotaDataTemplate}"
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
 
-                        <Border x:Name="CodexSevenDayCard"
+                        <Border x:Name="CodexWeeklyCard"
                                 Margin="0,0,0,12"
                                 Style="{StaticResource LargeUsageCardStyle}"
-                                Visibility="{Binding SevenDayQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <ContentControl Content="{Binding SevenDayQuota}"
+                                Visibility="{Binding WeeklyQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding WeeklyQuota}"
                                             ContentTemplate="{StaticResource QuotaDataTemplate}"
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
@@ -684,7 +684,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="Reset Credits"
+                                <TextBlock Text="Reset credits"
                                            VerticalAlignment="Top"
                                            Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                            FontSize="13.5"
@@ -837,11 +837,11 @@
                               HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Hidden">
                     <StackPanel VerticalAlignment="Top">
-                        <Border x:Name="CursorTotalCard"
+                        <Border x:Name="CursorMonthlyCard"
                                 Margin="0,0,0,12"
                                 Style="{StaticResource LargeUsageCardStyle}"
-                                Visibility="{Binding CursorTotalQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <ContentControl Content="{Binding CursorTotalQuota}"
+                                Visibility="{Binding CursorMonthlyQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding CursorMonthlyQuota}"
                                             ContentTemplate="{StaticResource QuotaDataTemplate}"
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
@@ -1297,14 +1297,14 @@
                                       ToolTip="Start with Windows" />
                         </Grid>
 
-                        <Grid ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown"
+                        <Grid ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Resets use absolute time"
-                                       ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown"
+                                       ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -1312,17 +1312,17 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding UseAbsoluteResetTime}"
-                                      ToolTip="Show resets as absolute time (5-Hour as HH:mm, 7-Day, Grok and Cursor as MM-dd) instead of a countdown" />
+                                      ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown" />
                         </Grid>
 
-                        <Grid ToolTip="Hide Codex and Spark quota rows when the account has no active window for that limit"
+                        <Grid ToolTip="Hide Codex quota rows when the account has no active window for that limit"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Hide invalid progress bars"
-                                       ToolTip="Hide Codex and Spark quota rows when the account has no active window for that limit"
+                                       ToolTip="Hide Codex quota rows when the account has no active window for that limit"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -1330,7 +1330,7 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding HideInvalidProgressBars}"
-                                      ToolTip="Hide Codex and Spark quota rows when the account has no active window for that limit" />
+                                      ToolTip="Hide Codex quota rows when the account has no active window for that limit" />
                         </Grid>
 
                         <Grid Margin="{StaticResource SettingsSectionEndMargin}"

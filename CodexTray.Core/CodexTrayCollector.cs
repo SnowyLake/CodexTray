@@ -7,11 +7,10 @@ namespace CodexTray.Core;
 
 public sealed class CodexTrayCollector
 {
-    private const int k_FiveHourWindowSeconds = 18000;
-    private const int k_SevenDayWindowSeconds = 604800;
-    private const string k_SparkLimitName = "GPT-5.3-Codex-Spark";
-    private const string k_FiveHourDisplayLabel = "Codex 5-Hour";
-    private const string k_SevenDayDisplayLabel = "Codex 7-Day";
+    private const int k_SessionWindowSeconds = 18000;
+    private const int k_WeeklyWindowSeconds = 604800;
+    private const string k_PluginSessionDisplayLabel = "Codex Session";
+    private const string k_PluginWeeklyDisplayLabel = "Codex Weekly";
     private const string k_ResetCreditsEndpoint = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
 
     private static readonly HttpClient s_HttpClient = new()
@@ -135,31 +134,22 @@ public sealed class CodexTrayCollector
         JsonElement rateLimit = GetObjectProperty(root, "rate_limit");
         JsonElement primary = GetObjectProperty(rateLimit, "primary_window");
         JsonElement secondary = GetObjectProperty(rateLimit, "secondary_window");
-        UsageLimit fiveHour = BuildOfficialLimitFromRateLimit("five_hour", rateLimit, k_FiveHourWindowSeconds, now);
-        UsageLimit sevenDay = BuildOfficialLimitFromRateLimit("seven_day", rateLimit, k_SevenDayWindowSeconds, now);
-        JsonElement sparkRateLimit = FindAdditionalRateLimit(root, k_SparkLimitName);
-        UsageLimit sparkFiveHour = BuildOfficialLimitFromRateLimit("spark_five_hour", sparkRateLimit, k_FiveHourWindowSeconds, now);
-        UsageLimit sparkSevenDay = BuildOfficialLimitFromRateLimit("spark_seven_day", sparkRateLimit, k_SevenDayWindowSeconds, now);
+        UsageLimit session = BuildOfficialLimitFromRateLimit("session", rateLimit, k_SessionWindowSeconds, now);
+        UsageLimit weekly = BuildOfficialLimitFromRateLimit("weekly", rateLimit, k_WeeklyWindowSeconds, now);
 
-        fiveHour.ResetLabel = useAbsoluteResetTime
-            ? FormatFiveHourResetClock(fiveHour.ResetsAt, now)
-            : FormatFiveHourResetLabel(fiveHour.ResetsAt, now);
-        sevenDay.ResetLabel = useAbsoluteResetTime
-            ? FormatSevenDayResetDate(sevenDay.ResetsAt, now)
-            : FormatSevenDayResetLabel(sevenDay.ResetsAt, now);
-        sparkFiveHour.ResetLabel = useAbsoluteResetTime
-            ? FormatFiveHourResetClock(sparkFiveHour.ResetsAt, now)
-            : FormatFiveHourResetLabel(sparkFiveHour.ResetsAt, now);
-        sparkSevenDay.ResetLabel = useAbsoluteResetTime
-            ? FormatSevenDayResetDate(sparkSevenDay.ResetsAt, now)
-            : FormatSevenDayResetLabel(sparkSevenDay.ResetsAt, now);
+        session.ResetLabel = useAbsoluteResetTime
+            ? FormatSessionResetClock(session.ResetsAt, now)
+            : FormatSessionResetLabel(session.ResetsAt, now);
+        weekly.ResetLabel = useAbsoluteResetTime
+            ? FormatWeeklyResetDate(weekly.ResetsAt, now)
+            : FormatWeeklyResetLabel(weekly.ResetsAt, now);
 
         if (primary.ValueKind != JsonValueKind.Object && secondary.ValueKind != JsonValueKind.Object)
         {
             return CreateEmptyResponse(codexDirectory, now, "Codex usage API did not return rate_limit windows");
         }
 
-        UsageDisplay display = BuildDisplay(fiveHour, sevenDay, showResetTimeInPlugins);
+        UsageDisplay display = BuildDisplay(session, weekly, showResetTimeInPlugins);
         string planType = GetStringProperty(root, "plan_type", "unknown");
         return new UsageResponse
         {
@@ -172,10 +162,8 @@ public sealed class CodexTrayCollector
             UpdatedAt = now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture),
             Limits = new UsageLimits
             {
-                FiveHour = fiveHour,
-                SevenDay = sevenDay,
-                SparkFiveHour = sparkFiveHour,
-                SparkSevenDay = sparkSevenDay,
+                Session = session,
+                Weekly = weekly,
             },
             Display = display,
         };
@@ -257,15 +245,15 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Builds all display strings for monitor plugins.
     /// </summary>
-    private static UsageDisplay BuildDisplay(UsageLimit fiveHour, UsageLimit sevenDay, bool showResetTimeInPlugins)
+    private static UsageDisplay BuildDisplay(UsageLimit session, UsageLimit weekly, bool showResetTimeInPlugins)
     {
-        string codex5HDisplay = FormatDisplayValue(fiveHour, showResetTimeInPlugins);
-        string codex7DDisplay = FormatDisplayValue(sevenDay, showResetTimeInPlugins);
+        string sessionDisplay = FormatDisplayValue(session, showResetTimeInPlugins);
+        string weeklyDisplay = FormatDisplayValue(weekly, showResetTimeInPlugins);
         return new UsageDisplay
         {
-            Codex5H = codex5HDisplay,
-            Codex7D = codex7DDisplay,
-            Summary = $"{k_FiveHourDisplayLabel}: {codex5HDisplay} | {k_SevenDayDisplayLabel}: {codex7DDisplay}",
+            Session = sessionDisplay,
+            Weekly = weeklyDisplay,
+            Summary = $"{k_PluginSessionDisplayLabel}: {sessionDisplay} | {k_PluginWeeklyDisplayLabel}: {weeklyDisplay}",
         };
     }
 
@@ -321,27 +309,6 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
-    /// Finds a named additional quota and returns its rate-limit object.
-    /// </summary>
-    private static JsonElement FindAdditionalRateLimit(JsonElement root, string limitName)
-    {
-        if (!root.TryGetProperty("additional_rate_limits", out JsonElement additionalRateLimits) || additionalRateLimits.ValueKind != JsonValueKind.Array)
-        {
-            return default;
-        }
-
-        foreach (JsonElement additionalRateLimit in additionalRateLimits.EnumerateArray())
-        {
-            if (GetStringProperty(additionalRateLimit, "limit_name", string.Empty) == limitName)
-            {
-                return GetObjectProperty(additionalRateLimit, "rate_limit");
-            }
-        }
-
-        return default;
-    }
-
-    /// <summary>
     /// Reads Codex OAuth credentials from auth.json.
     /// </summary>
     private static CodexCredentials ReadCodexCredentials(string authPath)
@@ -390,10 +357,8 @@ public sealed class CodexTrayCollector
             UpdatedAt = now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture),
             Limits = new UsageLimits
             {
-                FiveHour = BuildOfficialLimit("five_hour", default, now),
-                SevenDay = BuildOfficialLimit("seven_day", default, now),
-                SparkFiveHour = BuildOfficialLimit("spark_five_hour", default, now),
-                SparkSevenDay = BuildOfficialLimit("spark_seven_day", default, now),
+                Session = BuildOfficialLimit("session", default, now),
+                Weekly = BuildOfficialLimit("weekly", default, now),
             },
             Display = new UsageDisplay(),
         };
@@ -413,9 +378,9 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
-    /// Formats the five hour reset as a countdown label.
+    /// Formats the session reset as a countdown label.
     /// </summary>
-    private static string FormatFiveHourResetLabel(long epochSeconds, DateTimeOffset now)
+    private static string FormatSessionResetLabel(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {
@@ -428,9 +393,9 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
-    /// Formats the seven day reset as a countdown label.
+    /// Formats the weekly reset as a countdown label.
     /// </summary>
-    public static string FormatSevenDayResetLabel(long epochSeconds, DateTimeOffset now)
+    public static string FormatWeeklyResetLabel(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {
@@ -443,9 +408,9 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
-    /// Formats the five hour reset as an absolute local clock label.
+    /// Formats the session reset as an absolute local clock label.
     /// </summary>
-    private static string FormatFiveHourResetClock(long epochSeconds, DateTimeOffset now)
+    private static string FormatSessionResetClock(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {
@@ -456,9 +421,9 @@ public sealed class CodexTrayCollector
     }
 
     /// <summary>
-    /// Formats the seven day reset as an absolute local month-day label.
+    /// Formats the weekly reset as an absolute local month-day label.
     /// </summary>
-    public static string FormatSevenDayResetDate(long epochSeconds, DateTimeOffset now)
+    public static string FormatWeeklyResetDate(long epochSeconds, DateTimeOffset now)
     {
         if (epochSeconds <= 0)
         {
