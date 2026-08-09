@@ -86,7 +86,11 @@ internal static class Program
         {
             try
             {
-                TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+                AppSettings settings = new()
+                {
+                    ApiMonitors = [new ApiMonitorSettings()],
+                };
+                TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
                 viewModel.UpdateStatus(
                     isRunning: true,
                     CodexTrayDefaults.Port,
@@ -115,6 +119,12 @@ internal static class Program
                 content.UpdateLayout();
                 System.Windows.Controls.ScrollViewer codexQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CodexQuotaScrollViewer");
                 AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"default Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
+                System.Windows.Controls.Border codexFiveHourCard = (System.Windows.Controls.Border)window.FindName("CodexFiveHourCard");
+                System.Windows.Controls.Border codexSevenDayCard = (System.Windows.Controls.Border)window.FindName("CodexSevenDayCard");
+                System.Windows.Controls.Border codexResetCreditsCard = (System.Windows.Controls.Border)window.FindName("CodexResetCreditsCard");
+                AssertEqual(91d, codexFiveHourCard.ActualHeight, "Codex 5-Hour card height");
+                AssertEqual(codexFiveHourCard.ActualHeight, codexSevenDayCard.ActualHeight, "Codex large card heights");
+                AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex small card height");
 
                 viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
                     new CursorUsageSnapshot("Pro", 2, 3, 4, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds()),
@@ -129,6 +139,27 @@ internal static class Program
                 content.UpdateLayout();
                 System.Windows.Controls.ScrollViewer cursorQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CursorQuotaScrollViewer");
                 AssertTrue(cursorQuotaScrollViewer.ScrollableHeight == 0, $"default Cursor quota cards should not scroll, actual {cursorQuotaScrollViewer.ScrollableHeight}");
+                System.Windows.Controls.Border cursorTotalCard = (System.Windows.Controls.Border)window.FindName("CursorTotalCard");
+                System.Windows.Controls.Border cursorAutoCard = (System.Windows.Controls.Border)window.FindName("CursorAutoCard");
+                System.Windows.Controls.Border cursorApiCard = (System.Windows.Controls.Border)window.FindName("CursorApiCard");
+                AssertEqual(codexFiveHourCard.ActualHeight, cursorTotalCard.ActualHeight, "Codex and Cursor large card heights");
+                AssertEqual(codexResetCreditsCard.ActualHeight, cursorAutoCard.ActualHeight, "Codex and Cursor small card heights");
+                AssertEqual(cursorAutoCard.ActualHeight, cursorApiCard.ActualHeight, "Cursor small card heights");
+
+                viewModel.ShowApi();
+                content.InvalidateMeasure();
+                content.Measure(new System.Windows.Size(window.Width, window.Height));
+                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                content.UpdateLayout();
+                System.Windows.Controls.ItemsControl apiMonitorItemsControl = (System.Windows.Controls.ItemsControl)window.FindName("ApiMonitorItemsControl");
+                System.Windows.Controls.ContentPresenter apiMonitorPresenter = (System.Windows.Controls.ContentPresenter)apiMonitorItemsControl.ItemContainerGenerator.ContainerFromIndex(0);
+                System.Windows.DataTemplate apiMonitorTemplate = apiMonitorPresenter.ContentTemplate;
+                System.Windows.Controls.Border apiMonitorCard = (System.Windows.Controls.Border)apiMonitorTemplate.FindName("ApiMonitorCard", apiMonitorPresenter);
+                AssertEqual(apiMonitorCard.ActualHeight, codexFiveHourCard.ActualHeight, "API monitor and quota large card heights");
+                AssertEqual(apiMonitorCard.Margin.Bottom, codexFiveHourCard.Margin.Bottom, "API monitor and Codex card spacing");
+                AssertEqual(apiMonitorCard.Margin.Bottom, codexSevenDayCard.Margin.Bottom, "API monitor and Codex second card spacing");
+                AssertEqual(apiMonitorCard.Margin.Bottom, cursorTotalCard.Margin.Bottom, "API monitor and Cursor card spacing");
+                AssertEqual(apiMonitorCard.Margin.Bottom, cursorAutoCard.Margin.Bottom, "API monitor and Cursor second card spacing");
                 window.Close();
             }
             catch (Exception exception)
