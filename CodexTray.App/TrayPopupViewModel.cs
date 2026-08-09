@@ -1545,7 +1545,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     return;
                 }
 
-                UpdateUnavailable(showReset: false);
+                UpdateUnavailable();
                 return;
             }
 

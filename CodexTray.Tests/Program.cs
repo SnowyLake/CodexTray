@@ -87,6 +87,20 @@ internal static class Program
             try
             {
                 TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+                viewModel.UpdateStatus(
+                    isRunning: true,
+                    CodexTrayDefaults.Port,
+                    new UsageResponse
+                    {
+                        Available = true,
+                        Limits = new UsageLimits
+                        {
+                            FiveHour = new UsageLimit { WindowMinutes = 300, RemainingPercent = 100 },
+                            SevenDay = new UsageLimit { WindowMinutes = 10_080, RemainingPercent = 98 },
+                        },
+                        ResetCredits = new ResetCredits { Available = true, AvailableCount = 1 },
+                    },
+                    error: null);
                 TrayPopupWindow window = new(viewModel);
                 AssertEqual(CodexTrayDefaults.PopupWindowWidth, window.Width, "fixed popup width");
                 AssertEqual(CodexTrayDefaults.PopupWindowHeight, window.Height, "fixed popup height");
@@ -94,6 +108,27 @@ internal static class Program
                 AssertEqual(window.Width, window.MaxWidth, "fixed popup maximum width");
                 AssertEqual(window.Height, window.MinHeight, "fixed popup minimum height");
                 AssertEqual(window.Height, window.MaxHeight, "fixed popup maximum height");
+
+                System.Windows.FrameworkElement content = (System.Windows.FrameworkElement)window.Content;
+                content.Measure(new System.Windows.Size(window.Width, window.Height));
+                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                content.UpdateLayout();
+                System.Windows.Controls.ScrollViewer codexQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CodexQuotaScrollViewer");
+                AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"default Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
+
+                viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
+                    new CursorUsageSnapshot("Pro", 2, 3, 4, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds()),
+                    null,
+                    string.Empty,
+                    string.Empty,
+                    DateTimeOffset.Now));
+                viewModel.ShowCursor();
+                content.InvalidateMeasure();
+                content.Measure(new System.Windows.Size(window.Width, window.Height));
+                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                content.UpdateLayout();
+                System.Windows.Controls.ScrollViewer cursorQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CursorQuotaScrollViewer");
+                AssertTrue(cursorQuotaScrollViewer.ScrollableHeight == 0, $"default Cursor quota cards should not scroll, actual {cursorQuotaScrollViewer.ScrollableHeight}");
                 window.Close();
             }
             catch (Exception exception)
@@ -1929,6 +1964,12 @@ internal static class Program
             System.Windows.Media.Color actualColor = ((System.Windows.Media.SolidColorBrush)quota.AccentBrush).Color;
             AssertEqual(expectedColor, actualColor, $"quota color at {remaining}%");
         }
+
+        limit.WindowMinutes = 0;
+        quota.Update(limit, hideInvalidProgressBars: false);
+        AssertEqual("N/A", quota.PercentText, "inactive quota percent text");
+        AssertEqual("unknown", quota.ResetText, "inactive quota reset text");
+        AssertTrue(quota.IsResetVisible, "inactive visible quota should show the unknown reset text");
 
         TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
         UsageResponse response = new()
