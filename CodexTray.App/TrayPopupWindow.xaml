@@ -1589,6 +1589,8 @@
                                 CornerRadius="20">
                             <Image Width="72"
                                    Height="72"
+                                   RenderOptions.BitmapScalingMode="HighQuality"
+                                   SnapsToDevicePixels="True"
                                    Source="pack://siteoforigin:,,,/Resources/icon.png" />
                         </Border>
                         <TextBlock Margin="0,16,0,0"
