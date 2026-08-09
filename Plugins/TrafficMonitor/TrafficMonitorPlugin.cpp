@@ -641,7 +641,7 @@ public:
         case TMI_COPYRIGHT:
             return L"MIT";
         case TMI_VERSION:
-            return L"3.0.1";
+            return L"4.0.0";
         case TMI_URL:
             return L"";
         default:

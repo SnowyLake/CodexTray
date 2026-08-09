@@ -2,7 +2,7 @@
   "id": "CodexTray",
   "meta": {
     "name": "CodexTray",
-    "version": "3.0.1",
+    "version": "4.0.0",
     "author": "SnowyLake",
     "description": "显示 Codex Session, Codex Weekly 和 Cursor Monthly 的剩余百分比与重置时间"
   },
