@@ -5,19 +5,23 @@ internal sealed class TokenCostPeriodAccumulator
     private readonly DateTime m_Today;
     private readonly DateTime m_LastSevenDaysStart;
     private readonly PeriodAccumulator[] m_LastSevenDaysDailyPeriods;
-    private readonly PeriodAccumulator m_TodayPeriod = new();
-    private readonly PeriodAccumulator m_LastSevenDaysPeriod = new();
-    private readonly PeriodAccumulator m_LastThirtyDaysPeriod = new();
-    private readonly PeriodAccumulator m_LifetimePeriod = new();
+    private readonly PeriodAccumulator m_TodayPeriod;
+    private readonly PeriodAccumulator m_LastSevenDaysPeriod;
+    private readonly PeriodAccumulator m_LastThirtyDaysPeriod;
+    private readonly PeriodAccumulator m_LifetimePeriod;
 
     /// <summary>
-    /// Creates calendar periods relative to one local timestamp.
+    /// Creates calendar periods relative to one local timestamp with optional complete-cost enforcement.
     /// </summary>
-    public TokenCostPeriodAccumulator(DateTimeOffset asOf)
+    public TokenCostPeriodAccumulator(DateTimeOffset asOf, bool requireCompleteCosts = false)
     {
         m_Today = asOf.LocalDateTime.Date;
         m_LastSevenDaysStart = m_Today.AddDays(-6);
-        m_LastSevenDaysDailyPeriods = Enumerable.Range(0, 7).Select(_ => new PeriodAccumulator()).ToArray();
+        m_TodayPeriod = new PeriodAccumulator(requireCompleteCosts);
+        m_LastSevenDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
+        m_LastThirtyDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
+        m_LifetimePeriod = new PeriodAccumulator(requireCompleteCosts);
+        m_LastSevenDaysDailyPeriods = Enumerable.Range(0, 7).Select(_ => new PeriodAccumulator(requireCompleteCosts)).ToArray();
     }
 
     /// <summary>
@@ -73,8 +77,18 @@ internal sealed class TokenCostPeriodAccumulator
 
     private sealed class PeriodAccumulator
     {
+        private readonly bool m_RequireCompleteCosts;
+        private bool m_HasUnpricedUsage;
         private long m_TotalTokens;
         private decimal m_TotalCost;
+
+        /// <summary>
+        /// Creates one period accumulator with the requested missing-cost behavior.
+        /// </summary>
+        public PeriodAccumulator(bool requireCompleteCosts)
+        {
+            m_RequireCompleteCosts = requireCompleteCosts;
+        }
 
         /// <summary>
         /// Adds one usage value to this period.
@@ -86,6 +100,10 @@ internal sealed class TokenCostPeriodAccumulator
             {
                 m_TotalCost += costUsd.Value;
             }
+            else if (tokens > 0)
+            {
+                m_HasUnpricedUsage = true;
+            }
         }
 
         /// <summary>
@@ -96,7 +114,7 @@ internal sealed class TokenCostPeriodAccumulator
             return new TokenCostSummary
             {
                 TotalTokens = m_TotalTokens,
-                CostUsd = m_TotalCost,
+                CostUsd = m_RequireCompleteCosts && m_HasUnpricedUsage ? null : m_TotalCost,
             };
         }
     }

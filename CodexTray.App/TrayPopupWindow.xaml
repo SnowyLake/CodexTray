@@ -33,6 +33,7 @@
             <sys:Int32 x:Key="ToolTipShowDuration">6000</sys:Int32>
             <sys:String x:Key="PluginDetectingText">Detecting...</sys:String>
             <Geometry x:Key="OpenAiLogoGeometry">M9.205,8.658 V6.398 C9.205,6.208 9.277,6.065 9.443,5.97 L13.986,3.354 C14.605,2.997 15.342,2.831 16.103,2.831 C18.957,2.831 20.765,5.043 20.765,7.397 C20.765,7.564 20.765,7.754 20.741,7.944 L16.031,5.185 C15.746,5.019 15.461,5.019 15.175,5.185 L9.205,8.658 Z M19.814,17.458 V12.06 C19.814,11.727 19.671,11.49 19.385,11.323 L13.415,7.85 L15.365,6.732 C15.532,6.637 15.674,6.637 15.841,6.732 L20.384,9.349 C21.693,10.109 22.573,11.727 22.573,13.298 C22.573,15.106 21.503,16.771 19.814,17.458 Z M7.802,12.703 L5.852,11.561 C5.685,11.466 5.613,11.323 5.613,11.133 V5.899 C5.613,3.354 7.563,1.427 10.204,1.427 C11.204,1.427 12.131,1.76 12.916,2.355 L8.23,5.067 C7.945,5.233 7.802,5.471 7.802,5.804 V12.703 Z M12,15.128 L9.205,13.558 V10.228 L12,8.658 L14.795,10.228 V13.558 L12,15.128 Z M13.796,22.358 C12.796,22.358 11.869,22.026 11.084,21.431 L15.77,18.719 C16.055,18.553 16.198,18.315 16.198,17.982 V11.084 L18.172,12.226 C18.339,12.321 18.41,12.464 18.41,12.654 V17.887 C18.41,20.432 16.436,22.359 13.796,22.359 Z M8.159,17.055 L3.615,14.438 C2.307,13.677 1.427,12.06 1.427,10.49 A4.482,4.482 0 0 1 4.21,6.327 V11.75 C4.21,12.083 4.353,12.321 4.638,12.488 L10.585,15.937 L8.635,17.055 C8.468,17.15 8.326,17.15 8.159,17.055 Z M7.897,20.955 C5.209,20.955 3.235,18.934 3.235,16.436 C3.235,16.246 3.259,16.056 3.282,15.866 L7.968,18.576 C8.254,18.743 8.539,18.743 8.824,18.576 L14.794,15.128 V17.388 C14.794,17.578 14.724,17.721 14.557,17.816 L10.014,20.432 C9.395,20.789 8.658,20.955 7.897,20.955 Z M13.796,23.785 A5.947,5.947 0 0 0 19.623,19.029 C22.287,18.339 24,15.84 24,13.296 C24,11.631 23.287,10.014 22.002,8.848 C22.121,8.348 22.192,7.849 22.192,7.35 C22.192,3.949 19.433,1.403 16.246,1.403 C15.604,1.403 14.986,1.498 14.366,1.713 A5.962,5.962 0 0 0 10.205,0 A5.947,5.947 0 0 0 4.378,4.757 C1.713,5.447 0,7.945 0,10.49 C0,12.156 0.713,13.773 1.998,14.938 C1.879,15.438 1.808,15.937 1.808,16.437 C1.808,19.838 4.567,22.384 7.754,22.384 C8.396,22.384 9.014,22.289 9.634,22.075 A5.96,5.96 0 0 0 13.796,23.788 Z</Geometry>
+            <Geometry x:Key="GrokLogoGeometry">M9.27,15.29 l7.978,-5.897 c0.391,-0.29 0.95,-0.177 1.137,0.272 c0.98,2.369 0.542,5.215 -1.41,7.169 c-1.951,1.954 -4.667,2.382 -7.149,1.406 l-2.711,1.257 c3.889,2.661 8.611,2.003 11.562,-0.953 c2.341,-2.344 3.066,-5.539 2.388,-8.42 l0.006,0.007 c-0.983,-4.232 0.242,-5.924 2.75,-9.383 c0.06,-0.082 0.12,-0.164 0.179,-0.248 l-3.301,3.305 v-0.01 L9.267,15.292 M7.623,16.723 c-2.792,-2.67 -2.31,-6.801 0.071,-9.184 c1.761,-1.763 4.647,-2.483 7.166,-1.425 l2.705,-1.25 a7.808,7.808 0 0 0 -1.829,-1 a8.975,8.975 0 0 0 -9.752,1.966 c-2.533,2.536 -3.33,6.436 -1.962,9.764 c1.022,2.487 -0.653,4.246 -2.34,6.022 c-0.599,0.63 -1.199,1.259 -1.682,1.925 l7.62,-6.815</Geometry>
             <Geometry x:Key="CursorLogoGeometry">M22.106,5.68 L12.5,0.135 A0.998,0.998 0 0 0 11.502,0.135 L1.893,5.68 A0.84,0.84 0 0 0 1.474,6.406 V17.592 C1.474,17.892 1.634,18.169 1.894,18.319 L11.501,23.866 A0.999,0.999 0 0 0 12.499,23.866 L22.107,18.319 A0.84,0.84 0 0 0 22.527,17.592 V6.407 A0.84,0.84 0 0 0 22.107,5.681 Z M21.503,6.856 L12.228,22.92 C12.165,23.028 12,22.984 12,22.859 V12.34 A0.59,0.59 0 0 0 11.705,11.83 L2.595,6.57 C2.488,6.508 2.532,6.342 2.657,6.342 H21.207 C21.471,6.342 21.635,6.628 21.503,6.856 Z</Geometry>
 
             <Style TargetType="{x:Type ToolTip}">
@@ -276,6 +277,28 @@
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </Trigger>
                     <DataTrigger Binding="{Binding IsCodexSelected}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="GrokTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="Margin" Value="0,0,4,0" />
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                    </Trigger>
+                    <Trigger Property="IsPressed" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                    </Trigger>
+                    <DataTrigger Binding="{Binding IsGrokSelected}" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </DataTrigger>
                 </Style.Triggers>
@@ -547,7 +570,8 @@
                         <RowDefinition Height="*" />
                         <RowDefinition Height="20" />
                     </Grid.RowDefinitions>
-                    <Border Width="10"
+                    <Border x:Name="TokenCostChartBar"
+                            Width="10"
                             Height="{Binding BarHeight}"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Bottom"
@@ -558,6 +582,9 @@
                             <Style TargetType="{x:Type Border}">
                                 <Setter Property="Background" Value="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
                                 <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.IsGrokVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
+                                        <Setter Property="Background" Value="{Binding DataContext.GrokStatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                    </DataTrigger>
                                     <DataTrigger Binding="{Binding DataContext.IsCursorVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
                                         <Setter Property="Background" Value="{Binding DataContext.CursorStatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
                                     </DataTrigger>
@@ -618,9 +645,11 @@
                                     VerticalAlignment="Top"
                                     Padding="6,0"
                                     CornerRadius="4"
-                                    Background="{Binding PlanBadgeBrush}">
+                                    Background="Transparent"
+                                    BorderBrush="{Binding PlanBadgeBrush}"
+                                    BorderThickness="1">
                                 <TextBlock Text="{Binding PlanDisplay}"
-                                           Foreground="#FFFFFF"
+                                           Foreground="{Binding PlanBadgeBrush}"
                                            FontWeight="Normal"
                                            FontSize="9.5"
                                            HorizontalAlignment="Center"
@@ -770,6 +799,127 @@
 
             </Grid>
 
+            <!-- ===================== GROK ===================== -->
+            <Grid Grid.Row="0"
+                  Visibility="{Binding IsGrokVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="298" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Grok"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                       FontSize="26"
+                                       FontWeight="Medium"
+                                       VerticalAlignment="Center" />
+                            <Border MinWidth="32"
+                                    Height="16"
+                                    Margin="6,6,0,0"
+                                    VerticalAlignment="Top"
+                                    Padding="6,0"
+                                    CornerRadius="4"
+                                    Background="Transparent"
+                                    BorderBrush="{Binding GrokPlanBadgeBrush}"
+                                    BorderThickness="1">
+                                <TextBlock Text="{Binding GrokPlanDisplay}"
+                                           Foreground="{Binding GrokPlanBadgeBrush}"
+                                           FontWeight="Normal"
+                                           FontSize="9.5"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Command="{Binding RefreshCommand}"
+                                ToolTip="Refresh"
+                                Style="{StaticResource IconButtonStyle}">
+                            <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
+                        </Button>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal"
+                                Margin="2,6,0,0"
+                                VerticalAlignment="Center"
+                                ToolTip="{Binding GrokStatusTooltip}">
+                        <Ellipse Width="7"
+                                 Height="7"
+                                 Margin="0,0,6,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{Binding GrokStatusDotBrush}" />
+                        <TextBlock Text="{Binding GrokUpdatedAtDisplay}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="12" />
+                    </StackPanel>
+                </StackPanel>
+
+                <ScrollViewer x:Name="GrokQuotaScrollViewer"
+                              Grid.Row="1"
+                              Margin="0,24,-8,0"
+                              Padding="0,0,8,0"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Hidden">
+                    <StackPanel x:Name="GrokQuotaCardPanel"
+                                VerticalAlignment="Top">
+                        <Border x:Name="GrokWeeklyCard"
+                                Margin="0,0,0,12"
+                                Style="{StaticResource LargeUsageCardStyle}">
+                            <ContentControl Content="{Binding GrokWeeklyQuota}"
+                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Grid Grid.Row="2"
+                      Margin="0,22,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <ItemsControl ItemsSource="{Binding GrokTokenCostRows}"
+                                  ItemTemplate="{StaticResource CompactTokenCostRowDataTemplate}">
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="{x:Type ContentPresenter}">
+                                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                    </ItemsControl>
+
+                    <Border Grid.Column="1"
+                            Width="1"
+                            Margin="16,0"
+                            Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+
+                    <Grid Grid.Column="2"
+                          Height="132">
+                        <Border Height="1"
+                                Margin="0,0,0,20"
+                                VerticalAlignment="Bottom"
+                                Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                        <ItemsControl x:Name="GrokTokenCostChartItemsControl"
+                                      ItemsSource="{Binding GrokTokenCostChartDays}"
+                                      ItemTemplate="{StaticResource TokenCostChartDayDataTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="7" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </Grid>
+                </Grid>
+            </Grid>
+
             <!-- ===================== CURSOR ===================== -->
             <Grid Grid.Row="0"
                   Visibility="{Binding IsCursorVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -797,9 +947,11 @@
                                     VerticalAlignment="Top"
                                     Padding="6,0"
                                     CornerRadius="4"
-                                    Background="{Binding CursorPlanBadgeBrush}">
+                                    Background="Transparent"
+                                    BorderBrush="{Binding CursorPlanBadgeBrush}"
+                                    BorderThickness="1">
                                 <TextBlock Text="{Binding CursorPlanDisplay}"
-                                           Foreground="#FFFFFF"
+                                           Foreground="{Binding CursorPlanBadgeBrush}"
                                            FontWeight="Normal"
                                            FontSize="9.5"
                                            HorizontalAlignment="Center"
@@ -1125,22 +1277,7 @@
                                                 <TextBox Text="{Binding Name}"
                                                          Style="{StaticResource SettingsTextBoxStyle}" />
 
-                                                <StackPanel Visibility="{Binding IsGrok, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                    <TextBlock Margin="0,12,0,5"
-                                                               Text="OAuth source"
-                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                               FontSize="12" />
-                                                    <ComboBox ItemsSource="{Binding GrokOAuthSourceOptions}"
-                                                              SelectedItem="{Binding GrokOAuthSource}"
-                                                              Style="{StaticResource SettingsComboBoxStyle}" />
-                                                    <TextBlock Margin="0,8,0,0"
-                                                               Text="Reads the local OAuth session. Tokens are not stored here."
-                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                               FontSize="12"
-                                                               TextWrapping="Wrap" />
-                                                </StackPanel>
-
-                                                <StackPanel Visibility="{Binding IsLocalSessionAuth, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                                <StackPanel>
                                                     <TextBlock Margin="0,12,0,5"
                                                                Text="Base URL"
                                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
@@ -1267,6 +1404,10 @@
                                         <MenuItem Header="Codex"
                                                   IsCheckable="True"
                                                   IsChecked="{Binding ShowCodexPage, Mode=TwoWay}"
+                                                  StaysOpenOnClick="True" />
+                                        <MenuItem Header="Grok"
+                                                  IsCheckable="True"
+                                                  IsChecked="{Binding ShowGrokPage, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
                                         <MenuItem Header="Cursor"
                                                   IsCheckable="True"
@@ -1670,6 +1811,17 @@
                         <Path Width="18"
                               Height="18"
                               Data="{StaticResource OpenAiLogoGeometry}"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                              Stretch="Uniform" />
+                    </Button>
+                    <Button x:Name="GrokTabButton"
+                            Command="{Binding ShowGrokCommand}"
+                            ToolTip="Grok"
+                            Visibility="{Binding IsGrokTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            Style="{StaticResource GrokTabButtonStyle}">
+                        <Path Width="18"
+                              Height="18"
+                              Data="{StaticResource GrokLogoGeometry}"
                               Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
                               Stretch="Uniform" />
                     </Button>

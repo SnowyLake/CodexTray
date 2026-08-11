@@ -7,6 +7,7 @@
 - [功能](#功能)
 - [安装](#安装)
 - [使用](#使用)
+- [Grok 页面](#grok-页面)
 - [Cursor 页面](#cursor-页面)
 - [API 监控](#api-监控)
 - [插件支持](#插件支持)
@@ -17,9 +18,9 @@
 
 `CodexTray` 是一个适用于 Windows x64 的托盘应用. 它读取当前 Windows 用户的 Codex 登录信息, 从 ChatGPT 官方接口获取 Session 和 Weekly 额度, 并通过本地服务把 Codex 额度与 Cursor Monthly 额度提供给 LiteMonitor 和 TrafficMonitor 插件.
 
-应用还会统计本机 Codex 会话与 OpenCode 中 OpenAI 调用的 token 用量, 按模型价格估算 API 等价成本. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
+应用还会统计本机 Codex 会话与 OpenCode 中 OpenAI 调用的 token 用量, 按模型价格估算 API 等价成本. Grok 页面会另外统计本机 Grok Build session 中记录的 token 与费用. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
 
-除了 Codex 额度, 应用还可以在独立的 Cursor 页面查看 Cursor 额度与 token 账单统计, 并在 APIs 页面监控 DeepSeek, NewAPI, OpenRouter, NanoGPT 和 Grok 的余额或用量.
+除了 Codex 额度, 应用还可以在独立的 Grok 页面查看 Weekly 额度, 在独立的 Cursor 页面查看 Cursor 额度与 token 账单统计, 并在 APIs 页面监控 DeepSeek, NewAPI, OpenRouter 和 NanoGPT 的余额或用量.
 
 ## 效果展示
 
@@ -30,12 +31,13 @@
 - 显示 Codex 计划状态, Session 与 Weekly 剩余额度和重置时间.
 - 显示可用 Reset Credits 数量及最近到期时间.
 - Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 提供最近 7 天的成本趋势图, 并支持中英文 token 数量单位.
+- Grok 页面显示订阅类型, Weekly 剩余额度和重置时间, 并统计本机 Grok Build session 的 Today, 7d, 30d 和 Lifetime token 与费用. 登录信息仅从本机 Grok Build OAuth session 读取.
 - Cursor 页面显示 Monthly, First party 和 APIs 剩余额度, Monthly 重置时间, 以及实际账单 token, 成本和最近 7 天的成本趋势.
-- 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 Grok 剩余额度和重置时间监控.
+- 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, 以及 NanoGPT USD 余额与最近 30 天用量.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
 - 支持 `System`, `Light`, `Dark` 主题和 Windows 11 Mica 背景材质, 主面板固定为 360 x 620. Windows 10 固定使用纯色背景.
-- 支持隐藏 Codex, Cursor 或 APIs 页面并停止对应后台采集, 以及隐藏没有有效额度窗口的 Codex 进度条.
+- 支持隐藏 Codex, Grok, Cursor 或 APIs 页面并停止对应后台采集, 以及隐藏没有有效额度窗口的 Codex 进度条.
 - 自动检测 LiteMonitor 与 TrafficMonitor 安装目录, 并一键安装对应插件.
 - 支持插件中显示或隐藏额度重置时间, 以及倒计时或绝对时间格式.
 - 支持随 Windows 启动, 自定义本地 HTTP 端口和单实例运行.
@@ -56,12 +58,23 @@
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
 - Codex 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
+- Grok 页: 查看从本机 Grok Build 登录信息获取的 Weekly 额度, 重置时间和本地 Token Cost 统计.
 - Cursor 页: 查看 Monthly, First party, APIs 额度和实际账单 Token Cost.
-- APIs 页: 添加和查看 DeepSeek, NewAPI, OpenRouter, NanoGPT 或 Grok 监控卡片.
-- Settings 页: 调整可见页面, 刷新, 显示, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Cursor 和 APIs 入口并停止对应后台采集. 同时隐藏 Codex 和 Cursor 时会停止本地 HTTP 服务.
+- APIs 页: 添加和查看 DeepSeek, NewAPI, OpenRouter 或 NanoGPT 监控卡片.
+- Settings 页: 调整可见页面, 刷新, 显示, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Grok, Cursor 和 APIs 入口并停止对应后台采集. 同时隐藏 Codex 和 Cursor 时会停止本地 HTTP 服务.
 - About 页: 查看当前版本, 项目主页和许可证信息.
 
 再次运行 `CodexTray.exe` 不会启动第二个实例, 而是通知已有实例打开主面板.
+
+## Grok 页面
+
+Grok 页面只读取本机 Grok Build 保存在 `~/.grok/auth.json` 中的 xAI OAuth session, 并向 Grok 官方 billing 接口查询 Weekly 额度和重置时间. 订阅类型显示在页面标题旁, 使用 Grok Build 本地 billing 日志中的最近类型; 日志中没有有效记录时, 仅检查当前 access token 对应的 auth 条目, 不会从未知 protobuf 字段猜测套餐. 常见返回值包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列. 上方额度区域只有一张 Weekly 大卡片, 重置时间遵循 Settings 页中的倒计时或绝对时间格式设置.
+
+页面下方会读取 `~/.grok/sessions/**/updates.jsonl` 与 `~/.grok/archived_sessions/**/updates.jsonl`, 按 `turn_completed` 事件汇总 Today, 7d, 30d 和 Lifetime token 与费用, 并显示最近 7 天的趋势. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在 output 中, 不会重复相加.
+
+费用规则与 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs) 保持一致. 完整的 `costUsdTicks` 是 Grok Build 自报的本轮精确费用, CodexTray 会优先使用它, 因而可以保留工具调用与实际长上下文产生的费用. 当自报费用缺失或被 `costIsPartial` 标记为部分费用时, 再使用 `Resources/model-pricing.json` 中对应模型的标准输入, 缓存输入和输出价格回算. `turn_completed` 可能聚合一轮中的多次模型调用, 无法仅凭聚合 token 判断某一次调用是否达到长上下文阈值, 因此本地兜底不会把聚合输入量直接套用长上下文价格. 如果既没有可用的自报费用也找不到模型价格, 对应周期的 Cost 显示为 `N/A`.
+
+access token 临近过期或被接口拒绝时, CodexTray 会使用 refresh token 自动续期并写回 Grok Build 的 `auth.json`. OAuth token 不会复制到 `settings.json`. 隐藏 Grok 页面后会停止 Grok 用量采集.
 
 ## Cursor 页面
 
@@ -77,9 +90,8 @@ Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不�
 - NewAPI: 填写实例 Base URL, access token 和 User ID.
 - OpenRouter: 填写 Base URL 和 Management Key, 默认 Base URL 为 `https://openrouter.ai`. 普通 API key 的 `/key` limit 不是账户余额, 因此不用于此卡片.
 - NanoGPT: 填写 Base URL 和 API key, 默认 Base URL 为 `https://nano-gpt.com`. 卡片优先显示 USD 余额, 并在接口可用时显示最近 30 个 UTC 日的已用金额; 用量查询失败不会影响余额显示.
-- Grok: 选择 `Grok Build` 或 `OpenCode` OAuth source. CodexTray 直接读取所选工具已保存的本地 OAuth session, 不要求复制 token. access token 临近过期时会自动刷新并写回对应 auth 文件.
 
-卡片支持自定义显示名称, 调整顺序和删除. Grok 的重置时间遵循 Settings 页中的倒计时或绝对时间格式设置. Cursor 已使用独立页面, 不再作为 API 监控卡片.
+卡片支持自定义显示名称, 调整顺序和删除. Grok 与 Cursor 均使用独立页面, 不作为 API 监控卡片.
 
 ## 插件支持
 
@@ -94,9 +106,9 @@ LiteMonitor 显示 `Codex-Session`, `Codex-Weekly` 和 `Cursor-Monthly` 三项, 
 ## 数据与隐私
 
 - 额度和 Reset Credits 来自 ChatGPT 官方接口. 应用读取 `~/.codex/auth.json` 中的 Codex OAuth 凭据.
-- Token Cost 来自本机 Codex session 日志与 OpenCode `opencode.db` 中的 OpenAI 调用, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本.
+- Codex Token Cost 来自本机 Codex session 日志与 OpenCode `opencode.db` 中的 OpenAI 调用, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本. Grok Token Cost 只读取本机 `~/.grok/sessions` 和 `~/.grok/archived_sessions` 中的逐轮用量, 优先采用 Grok Build 自报费用并以本地价格表兜底, 不读取 OpenCode.
 - DeepSeek, NewAPI, OpenRouter 与 NanoGPT 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
-- Grok 监控读取 Grok Build 或 OpenCode 已保存的本地 OAuth session, 并向 Grok 官方接口查询用量. access token 过期前会通过 xAI OAuth refresh 自动续期并写回原 auth 文件. OAuth token 不会复制到 `settings.json`.
+- Grok 页面只读取 Grok Build 已保存的本地 OAuth session, 并向 Grok 官方接口查询用量. access token 过期前会通过 xAI OAuth refresh 自动续期并写回 `~/.grok/auth.json`. OAuth token 不会复制到 `settings.json`.
 - Cursor 页面读取本机 Cursor IDE 的 `state.vscdb` OAuth session, 并向 Cursor 官方 usage-summary 与 usage-events 接口查询额度和账单用量. access token 过期前会通过 Cursor OAuth refresh 自动续期并写回原数据库. OAuth token 不会复制到 `settings.json`.
 - 本地 HTTP 服务默认仅监听 `127.0.0.1:17890`, 不向局域网开放.
 - OAuth token 不会写入日志, 插件配置或本地 HTTP 响应.
@@ -110,11 +122,15 @@ LiteMonitor 显示 `Codex-Session`, `Codex-Weekly` 和 `Cursor-Monthly` 三项, 
 
 ### 为什么 Token Cost 显示 N/A
 
-请确认发布目录包含 `Resources/model-pricing.json`, 并且当前用户存在 Codex session 日志或 OpenCode OpenAI 调用记录. 未收录价格的模型可以统计 token, 但无法计算成本.
+Codex 页请确认发布目录包含 `Resources/model-pricing.json`, 并且当前用户存在 Codex session 日志或 OpenCode OpenAI 调用记录. 未收录价格的模型可以统计 token, 但无法计算成本. Grok 页请确认 session 日志中存在 `turn_completed` usage. 完整的自报费用不依赖本地价格表, 但缺少自报费用的模型必须能在 `Resources/model-pricing.json` 中匹配, 否则包含该模型的周期会显示 `N/A`.
 
 ### 为什么 API 卡片显示 N/A
 
-将鼠标悬停在卡片名称或状态圆点上查看错误信息. DeepSeek, NewAPI, OpenRouter 和 NanoGPT 需要有效的 Base URL 与凭据, NewAPI 还需要 User ID, OpenRouter 必须使用 Management Key. Grok 需要先在所选的 Grok Build 或 OpenCode 中完成 xAI OAuth 登录. CodexTray 会自动刷新 Grok access token; 若 refresh token 也失效, 请回到对应工具重新登录.
+将鼠标悬停在卡片名称或状态圆点上查看错误信息. DeepSeek, NewAPI, OpenRouter 和 NanoGPT 需要有效的 Base URL 与凭据, NewAPI 还需要 User ID, OpenRouter 必须使用 Management Key.
+
+### 为什么 Grok 页面显示 N/A
+
+请先在 Grok Build 中完成 xAI OAuth 登录, 并确认 `~/.grok/auth.json` 存在. CodexTray 会自动刷新 Grok access token; 若 refresh token 也失效, 请运行 `grok login` 重新登录.
 
 ### 为什么 Cursor 页面显示 N/A
 

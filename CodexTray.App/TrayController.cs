@@ -19,6 +19,7 @@ internal sealed class TrayController : IDisposable
     private readonly Dispatcher m_Dispatcher;
     private readonly SettingsStore m_SettingsStore;
     private readonly CodexTrayCollector m_Collector;
+    private readonly GrokUsageCollector m_GrokUsageCollector;
     private readonly ApiUsageCollector m_ApiUsageCollector;
     private readonly CursorUsageCollector m_CursorUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
@@ -54,6 +55,7 @@ internal sealed class TrayController : IDisposable
         m_Dispatcher = dispatcher;
         m_SettingsStore = new SettingsStore();
         m_Collector = new CodexTrayCollector();
+        m_GrokUsageCollector = new GrokUsageCollector();
         m_ApiUsageCollector = new ApiUsageCollector();
         m_CursorUsageCollector = new CursorUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
@@ -608,6 +610,8 @@ internal sealed class TrayController : IDisposable
             bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
             Task<UsageResponse>? codexUsageTask = null;
             Task<TokenCostStatistics?>? tokenCostTask = null;
+            Task<GrokUsageDashboard>? grokDashboardTask = null;
+            Task<TokenCostStatistics?>? grokTokenCostTask = null;
             Task<CursorUsageDashboard>? cursorDashboardTask = null;
             Task<IReadOnlyList<ApiUsageResult>>? apiUsageTask = null;
             if ((visiblePages & PageItem.Codex) != 0)
@@ -626,6 +630,22 @@ internal sealed class TrayController : IDisposable
                 }, cancellationToken);
             }
 
+            if ((visiblePages & PageItem.Grok) != 0)
+            {
+                grokDashboardTask = m_GrokUsageCollector.CollectDashboardAsync(cancellationToken);
+                grokTokenCostTask = Task.Run<TokenCostStatistics?>(() =>
+                {
+                    try
+                    {
+                        return m_TokenCostCollector.CollectGrok(cancellationToken: cancellationToken);
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or OverflowException)
+                    {
+                        return null;
+                    }
+                }, cancellationToken);
+            }
+
             if ((visiblePages & PageItem.Cursor) != 0)
             {
                 cursorDashboardTask = m_CursorUsageCollector.CollectDashboardAsync(cancellationToken: cancellationToken);
@@ -634,10 +654,13 @@ internal sealed class TrayController : IDisposable
             if ((visiblePages & PageItem.Apis) != 0)
             {
                 ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
-                apiUsageTask = m_ApiUsageCollector.CollectAsync(apiMonitors, useAbsoluteResetTime, cancellationToken);
+                apiUsageTask = m_ApiUsageCollector.CollectAsync(apiMonitors, cancellationToken);
             }
 
-            Task[] children = new Task?[] { codexUsageTask, tokenCostTask, cursorDashboardTask, apiUsageTask }.Where(task => task != null).Cast<Task>().ToArray();
+            Task[] children = new Task?[] { codexUsageTask, tokenCostTask, grokDashboardTask, grokTokenCostTask, cursorDashboardTask, apiUsageTask }
+                .Where(task => task != null)
+                .Cast<Task>()
+                .ToArray();
             await Task.WhenAll(children).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             if (IsExiting)
@@ -651,6 +674,11 @@ internal sealed class TrayController : IDisposable
                 m_UsageCache.UpdateCodex(response);
                 RefreshPopupStatus();
                 m_PopupViewModel?.UpdateTokenCost(tokenCostTask.Result);
+            }
+
+            if (grokDashboardTask != null && grokTokenCostTask != null)
+            {
+                m_PopupViewModel?.UpdateGrokDashboard(grokDashboardTask.Result, grokTokenCostTask.Result);
             }
 
             if (cursorDashboardTask != null)
@@ -695,7 +723,6 @@ internal sealed class TrayController : IDisposable
             BaseUrl = monitor.BaseUrl,
             ApiKey = monitor.ApiKey,
             UserId = monitor.UserId,
-            GrokOAuthSource = monitor.GrokOAuthSource,
         };
     }
 

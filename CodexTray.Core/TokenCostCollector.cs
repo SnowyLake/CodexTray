@@ -33,6 +33,8 @@ public sealed class TokenCostStatistics
 
 public sealed class TokenCostCollector
 {
+    private const long GrokCostTicksPerUsd = 10_000_000_000L;
+    private const long MaxGrokSessionFileBytes = 50L * 1024 * 1024;
     private readonly string m_PricingPath;
 
     /// <summary>
@@ -77,6 +79,56 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
+    /// Collects turn-level token usage and cost from local Grok Build session updates.
+    /// </summary>
+    public TokenCostStatistics CollectGrok(string? grokDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string root = grokDirectory ?? Environment.GetEnvironmentVariable("GROK_HOME") ?? Path.Combine(userProfile, ".grok");
+        DateTimeOffset current = now ?? DateTimeOffset.Now;
+        Dictionary<string, ModelPricing> pricing = LoadOptionalPricing(cancellationToken);
+        Dictionary<string, GrokTurnUsage> turns = new(StringComparer.Ordinal);
+
+        foreach (string path in EnumerateGrokSessionFiles(root, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                CollectGrokFile(path, pricing, turns, cancellationToken);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // One unavailable session file must not hide usage from the remaining files.
+            }
+        }
+
+        TokenCostPeriodAccumulator accumulator = new(current, requireCompleteCosts: true);
+        foreach (GrokTurnUsage usage in turns.Values)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd);
+        }
+
+        return accumulator.ToStatistics();
+    }
+
+    /// <summary>
+    /// Loads pricing for Grok fallback calculations without discarding exact reported costs when the resource is unavailable.
+    /// </summary>
+    private Dictionary<string, ModelPricing> LoadOptionalPricing(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return LoadPricing(cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return new Dictionary<string, ModelPricing>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
     /// Reads pricing entries from the external JSON resource.
     /// </summary>
     private Dictionary<string, ModelPricing> LoadPricing(CancellationToken cancellationToken)
@@ -86,10 +138,29 @@ public sealed class TokenCostCollector
         foreach (JsonProperty property in document.RootElement.EnumerateObject())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            pricing[property.Name] = new ModelPricing(
-                property.Value.GetProperty("input").GetDecimal(),
-                property.Value.GetProperty("cachedInput").GetDecimal(),
-                property.Value.GetProperty("output").GetDecimal());
+            JsonElement value = property.Value;
+            decimal input = value.GetProperty("input").GetDecimal();
+            decimal cachedInput = value.GetProperty("cachedInput").GetDecimal();
+            decimal output = value.GetProperty("output").GetDecimal();
+            ModelPricing modelPricing = new(
+                input,
+                cachedInput,
+                output,
+                GetInt64(value, "longContextThreshold"),
+                GetDecimal(value, "longContextInput", input),
+                GetDecimal(value, "longContextCachedInput", cachedInput),
+                GetDecimal(value, "longContextOutput", output));
+            pricing[property.Name] = modelPricing;
+            if (value.TryGetProperty("aliases", out JsonElement aliases) && aliases.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement alias in aliases.EnumerateArray())
+                {
+                    if (alias.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(alias.GetString()))
+                    {
+                        pricing[alias.GetString()!] = modelPricing;
+                    }
+                }
+            }
         }
 
         return pricing;
@@ -113,6 +184,156 @@ public sealed class TokenCostCollector
             cancellationToken.ThrowIfCancellationRequested();
             yield return path;
         }
+    }
+
+    /// <summary>
+    /// Enumerates active and archived Grok Build update logs without following directory links.
+    /// </summary>
+    private static IEnumerable<string> EnumerateGrokSessionFiles(string grokDirectory, CancellationToken cancellationToken)
+    {
+        EnumerationOptions options = new()
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+            MaxRecursionDepth = 16,
+        };
+        foreach (string directoryName in new[] { "sessions", "archived_sessions" })
+        {
+            string directory = Path.Combine(grokDirectory, directoryName);
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (string path in Directory.EnumerateFiles(directory, "updates.jsonl", options))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return path;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Collects independent turn-completed usage entries from one Grok Build update log.
+    /// </summary>
+    private static void CollectGrokFile(
+        string path,
+        Dictionary<string, ModelPricing> pricing,
+        Dictionary<string, GrokTurnUsage> turns,
+        CancellationToken cancellationToken)
+    {
+        if (new FileInfo(path).Length > MaxGrokSessionFileBytes)
+        {
+            return;
+        }
+
+        string sessionId = Directory.GetParent(path)?.Name ?? "unknown";
+        int eventIndex = 0;
+        foreach (string line in ReadLinesShared(path, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!line.Contains("\"usage\"", StringComparison.Ordinal) ||
+                !line.Contains("_x.ai/session/update", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(line);
+                JsonElement root = document.RootElement;
+                if (GetString(root, "method") != "_x.ai/session/update")
+                {
+                    continue;
+                }
+
+                JsonElement update = GetObject(GetObject(root, "params"), "update");
+                string updateKind = GetString(update, "sessionUpdate");
+                JsonElement usage = GetObject(update, "usage");
+                if (updateKind.Length > 0 && updateKind != "turn_completed" ||
+                    usage.ValueKind != JsonValueKind.Object ||
+                    !TryParseGrokTimestamp(root, out DateTimeOffset timestamp))
+                {
+                    continue;
+                }
+
+                string promptId = GetString(update, "prompt_id");
+                string turnKey = promptId.Length > 0 ? promptId : $"idx{eventIndex}";
+                bool eventCostIsPartial = GetBoolean(usage, "costIsPartial");
+                JsonElement modelUsage = GetObject(usage, "modelUsage");
+                if (modelUsage.ValueKind == JsonValueKind.Object && modelUsage.EnumerateObject().Any())
+                {
+                    foreach (JsonProperty model in modelUsage.EnumerateObject().OrderBy(property => property.Name, StringComparer.Ordinal))
+                    {
+                        CollectGrokTurn(sessionId, turnKey, model.Name, model.Value, eventCostIsPartial, timestamp, pricing, turns);
+                    }
+                }
+                else
+                {
+                    CollectGrokTurn(sessionId, turnKey, "unknown", usage, eventCostIsPartial, timestamp, pricing, turns);
+                }
+
+                eventIndex++;
+            }
+            catch (Exception exception) when (exception is JsonException or ArgumentOutOfRangeException or OverflowException)
+            {
+                // Grok Build can leave a partially written final JSONL line while a session is active.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adds one model's counters from a Grok turn using reported cost before local fallback pricing.
+    /// </summary>
+    private static void CollectGrokTurn(
+        string sessionId,
+        string turnKey,
+        string model,
+        JsonElement value,
+        bool eventCostIsPartial,
+        DateTimeOffset timestamp,
+        Dictionary<string, ModelPricing> pricing,
+        Dictionary<string, GrokTurnUsage> turns)
+    {
+        TokenCounts counts = new(
+            Math.Max(0, GetInt64(value, "inputTokens")),
+            Math.Max(0, GetInt64(value, "cachedReadTokens")),
+            Math.Max(0, GetInt64(value, "outputTokens")));
+        if (counts.Total == 0 && counts.CachedInput == 0)
+        {
+            return;
+        }
+
+        long costTicks = Math.Max(0, GetInt64(value, "costUsdTicks"));
+        decimal? reportedCost = costTicks > 0 ? costTicks / (decimal)GrokCostTicksPerUsd : null;
+        bool costIsPartial = eventCostIsPartial || GetBoolean(value, "costIsPartial");
+        decimal? localCost = CalculateCost(pricing, model, counts, allowLongContext: false);
+        decimal? cost = reportedCost.HasValue && !costIsPartial ? reportedCost : localCost ?? reportedCost;
+        turns[$"{sessionId}\0{turnKey}\0{model}"] = new GrokTurnUsage(counts, cost, timestamp);
+    }
+
+    /// <summary>
+    /// Parses the numeric or RFC 3339 timestamp used by Grok Build update events.
+    /// </summary>
+    private static bool TryParseGrokTimestamp(JsonElement value, out DateTimeOffset timestamp)
+    {
+        timestamp = default;
+        if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("timestamp", out JsonElement candidate))
+        {
+            return false;
+        }
+
+        if (candidate.ValueKind == JsonValueKind.Number && candidate.TryGetInt64(out long epoch))
+        {
+            timestamp = epoch > 100_000_000_000L
+                ? DateTimeOffset.FromUnixTimeMilliseconds(epoch)
+                : DateTimeOffset.FromUnixTimeSeconds(epoch);
+            return true;
+        }
+
+        return candidate.ValueKind == JsonValueKind.String &&
+            DateTimeOffset.TryParse(candidate.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out timestamp);
     }
 
     /// <summary>
@@ -285,7 +506,7 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Calculates API-equivalent cost for one model usage event.
     /// </summary>
-    private static decimal? CalculateCost(Dictionary<string, ModelPricing> pricing, string model, TokenCounts counts)
+    private static decimal? CalculateCost(Dictionary<string, ModelPricing> pricing, string model, TokenCounts counts, bool allowLongContext = true)
     {
         if (!TryFindPricing(pricing, model, out ModelPricing modelPricing))
         {
@@ -294,7 +515,11 @@ public sealed class TokenCostCollector
 
         long cached = Math.Min(counts.CachedInput, counts.Input);
         long freshInput = counts.Input - cached;
-        return (freshInput * modelPricing.Input + cached * modelPricing.CachedInput + counts.Output * modelPricing.Output) / 1_000_000m;
+        bool useLongContext = allowLongContext && modelPricing.LongContextThreshold > 0 && counts.Input >= modelPricing.LongContextThreshold;
+        decimal inputPrice = useLongContext ? modelPricing.LongContextInput : modelPricing.Input;
+        decimal cachedInputPrice = useLongContext ? modelPricing.LongContextCachedInput : modelPricing.CachedInput;
+        decimal outputPrice = useLongContext ? modelPricing.LongContextOutput : modelPricing.Output;
+        return (freshInput * inputPrice + cached * cachedInputPrice + counts.Output * outputPrice) / 1_000_000m;
     }
 
     /// <summary>
@@ -536,11 +761,39 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
+    /// Gets a Boolean property or false when it is absent or invalid.
+    /// </summary>
+    private static bool GetBoolean(JsonElement value, string name)
+    {
+        return value.ValueKind == JsonValueKind.Object &&
+            value.TryGetProperty(name, out JsonElement result) &&
+            result.ValueKind is JsonValueKind.True or JsonValueKind.False &&
+            result.GetBoolean();
+    }
+
+    /// <summary>
     /// Gets an integer property or a fallback value.
     /// </summary>
     private static long GetInt64(JsonElement value, string name, long fallback = 0)
     {
-        return value.ValueKind == JsonValueKind.Object && value.TryGetProperty(name, out JsonElement result) && result.TryGetInt64(out long number) ? number : fallback;
+        return value.ValueKind == JsonValueKind.Object &&
+            value.TryGetProperty(name, out JsonElement result) &&
+            result.ValueKind == JsonValueKind.Number &&
+            result.TryGetInt64(out long number)
+                ? number
+                : fallback;
+    }
+
+    /// <summary>
+    /// Gets a decimal property or a fallback value.
+    /// </summary>
+    private static decimal GetDecimal(JsonElement value, string name, decimal fallback)
+    {
+        return value.ValueKind == JsonValueKind.Object &&
+            value.TryGetProperty(name, out JsonElement result) &&
+            result.TryGetDecimal(out decimal number)
+                ? number
+                : fallback;
     }
 
     /// <summary>
@@ -551,7 +804,16 @@ public sealed class TokenCostCollector
         return value.ValueKind == JsonValueKind.Object && value.TryGetProperty(name, out JsonElement result) && result.TryGetInt64(out long number) ? number : null;
     }
 
-    private readonly record struct ModelPricing(decimal Input, decimal CachedInput, decimal Output);
+    private readonly record struct ModelPricing(
+        decimal Input,
+        decimal CachedInput,
+        decimal Output,
+        long LongContextThreshold,
+        decimal LongContextInput,
+        decimal LongContextCachedInput,
+        decimal LongContextOutput);
+
+    private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp);
 
     private readonly record struct ReplayContext(string ParentId, DateTimeOffset Cutoff);
 

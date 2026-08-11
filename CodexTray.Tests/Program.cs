@@ -25,6 +25,16 @@ internal static class Program
             return await RunCursorLiveAsync();
         }
 
+        if (args.SequenceEqual(["--grok-live"], StringComparer.Ordinal))
+        {
+            return await RunGrokLiveAsync();
+        }
+
+        if (args.SequenceEqual(["--render-showcase"], StringComparer.Ordinal))
+        {
+            return RenderShowcase();
+        }
+
         await RunAsync("creates the fixed-size popup", TestPopupFixedSizeAsync);
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
         await RunAsync("uses countdown label for same-day weekly reset", TestWeeklyCountdownLabelAsync);
@@ -54,14 +64,14 @@ internal static class Program
         await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
         await RunAsync("parses Grok billing protobuf", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
-        await RunAsync("refreshes expired OpenCode OAuth", TestOpenCodeOAuthRefreshAsync);
+        await RunAsync("ignores OpenCode OAuth for Grok", TestGrokIgnoresOpenCodeOAuthAsync);
         await RunAsync("parses Cursor usage-summary JSON", TestCursorUsageCollectorAsync);
         await RunAsync("refreshes expired Cursor OAuth", TestCursorOAuthRefreshAsync);
         await RunAsync("collects complete Cursor dashboard token cost", TestCursorDashboardAsync);
         await RunAsync("classifies Cursor event totalCents validation", TestCursorTotalCentsValidationAsync);
         await RunAsync("clears incomplete Cursor dashboard regions", TestCursorDashboardFailuresAsync);
         await RunAsync("shares one Cursor dashboard OAuth refresh", TestCursorDashboardRefreshBudgetAsync);
-        await RunAsync("includes Cursor Codex pricing", TestCursorCodexPricingAsync);
+        await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
@@ -70,6 +80,8 @@ internal static class Program
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
+        await RunAsync("applies long context model pricing", TestLongContextPricingAsync);
+        await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
         await RunAsync("collects local OpenCode token cost", TestOpenCodeTokenCostAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
@@ -86,13 +98,14 @@ internal static class Program
         {
             try
             {
-                AppSettings settings = new()
+                AppSettings settings = new AppSettings
                 {
                     ApiMonitors = [new ApiMonitorSettings()],
                 };
                 TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
                 AssertEqual("Session", viewModel.SessionQuota.Title, "Codex session quota title");
                 AssertEqual("Weekly", viewModel.WeeklyQuota.Title, "Codex weekly quota title");
+                AssertEqual("Weekly", viewModel.GrokWeeklyQuota.Title, "Grok weekly quota title");
                 AssertEqual("Monthly", viewModel.CursorMonthlyQuota.Title, "Cursor monthly quota title");
                 viewModel.UpdateStatus(
                     isRunning: true,
@@ -128,6 +141,39 @@ internal static class Program
                 AssertEqual(91d, codexSessionCard.ActualHeight, "Codex Session card height");
                 AssertEqual(codexSessionCard.ActualHeight, codexWeeklyCard.ActualHeight, "Codex large card heights");
                 AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex small card height");
+
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy"),
+                    string.Empty,
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                viewModel.UpdateStatus(isRunning: false, CodexTrayDefaults.Port, response: null, error: "expected test error");
+                viewModel.ShowGrok();
+                content.InvalidateMeasure();
+                content.Measure(new System.Windows.Size(window.Width, window.Height));
+                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                content.UpdateLayout();
+                System.Windows.Controls.ScrollViewer grokQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("GrokQuotaScrollViewer");
+                AssertTrue(grokQuotaScrollViewer.ScrollableHeight == 0, $"Grok weekly quota card should not scroll, actual {grokQuotaScrollViewer.ScrollableHeight}");
+                System.Windows.Controls.StackPanel grokQuotaCardPanel = (System.Windows.Controls.StackPanel)window.FindName("GrokQuotaCardPanel");
+                AssertEqual(1, grokQuotaCardPanel.Children.Count, "Grok quota card count");
+                System.Windows.Controls.Border grokWeeklyCard = (System.Windows.Controls.Border)window.FindName("GrokWeeklyCard");
+                AssertEqual(codexWeeklyCard.ActualHeight, grokWeeklyCard.ActualHeight, "Codex and Grok Weekly card heights");
+                AssertEqual(4, viewModel.GrokTokenCostRows.Count, "Grok token cost row count");
+                AssertEqual(7, viewModel.GrokTokenCostChartDays.Count, "Grok token cost chart day count");
+                AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
+                System.Windows.Controls.ItemsControl grokChartItemsControl = (System.Windows.Controls.ItemsControl)window.FindName("GrokTokenCostChartItemsControl");
+                System.Windows.Controls.ContentPresenter grokChartPresenter = (System.Windows.Controls.ContentPresenter)grokChartItemsControl.ItemContainerGenerator.ContainerFromIndex(6);
+                System.Windows.Controls.Border grokChartBar = (System.Windows.Controls.Border)grokChartItemsControl.ItemTemplate.FindName("TokenCostChartBar", grokChartPresenter);
+                System.Windows.Media.Color grokStatusColor = ((System.Windows.Media.SolidColorBrush)viewModel.GrokStatusDotBrush).Color;
+                System.Windows.Media.Color codexStatusColor = ((System.Windows.Media.SolidColorBrush)viewModel.StatusDotBrush).Color;
+                AssertEqual(grokStatusColor, ((System.Windows.Media.SolidColorBrush)grokChartBar.Background).Color, "Grok token chart status color");
+                AssertTrue(grokStatusColor != codexStatusColor, "Grok token chart should not reuse the Codex status color");
+                System.Windows.Controls.Button grokTabButton = (System.Windows.Controls.Button)window.FindName("GrokTabButton");
+                System.Windows.Controls.StackPanel tabPanel = (System.Windows.Controls.StackPanel)grokTabButton.Parent;
+                int grokTabIndex = tabPanel.Children.IndexOf(grokTabButton);
+                AssertEqual("Codex", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex - 1]).ToolTip, "Grok tab predecessor");
+                AssertEqual("Cursor", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex + 1]).ToolTip, "Grok tab successor");
 
                 viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
                     new CursorUsageSnapshot("Pro", 2, 3, 4, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds()),
@@ -182,6 +228,164 @@ internal static class Program
     }
 
     /// <summary>
+    /// Renders the Codex, Grok, and APIs pages into the README showcase image.
+    /// </summary>
+    private static int RenderShowcase()
+    {
+        Exception? failure = null;
+        Thread thread = new(() =>
+        {
+            try
+            {
+                AppSettings settings = new AppSettings
+                {
+                    ThemeMode = AppSettings.ThemeModeDark,
+                    MicaEnabled = false,
+                    ApiMonitors =
+                    [
+                        new ApiMonitorSettings { Id = "deepseek", Name = "DeepSeek" },
+                        new ApiMonitorSettings { Id = "newapi", Name = "NewAPI", Provider = ApiMonitorSettings.NewApiProvider },
+                        new ApiMonitorSettings { Id = "openrouter", Name = "OpenRouter", Provider = ApiMonitorSettings.OpenRouterProvider },
+                    ],
+                }.Normalize();
+                DateTimeOffset now = new(2026, 8, 12, 14, 30, 0, TimeSpan.FromHours(8));
+                TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
+                viewModel.UpdateStatus(
+                    isRunning: true,
+                    CodexTrayDefaults.Port,
+                    new UsageResponse
+                    {
+                        Available = true,
+                        PlanType = "plus",
+                        UpdatedAt = now.ToString("O", CultureInfo.InvariantCulture),
+                        Limits = new UsageLimits
+                        {
+                            Session = new UsageLimit { WindowMinutes = 300, RemainingPercent = 72, ResetLabel = "resets in 2h 18m" },
+                            Weekly = new UsageLimit { WindowMinutes = 10_080, RemainingPercent = 69, ResetLabel = "resets 08-16" },
+                        },
+                        ResetCredits = new ResetCredits
+                        {
+                            Available = true,
+                            AvailableCount = 3,
+                            NearestExpiryLocal = "2026-08-20 08:00",
+                        },
+                    },
+                    error: null);
+                viewModel.UpdateTokenCost(new TokenCostStatistics
+                {
+                    Today = new TokenCostSummary { TotalTokens = 20_740_000, CostUsd = 13.40m },
+                    LastSevenDays = new TokenCostSummary { TotalTokens = 130_100_000, CostUsd = 97.15m },
+                    LastThirtyDays = new TokenCostSummary { TotalTokens = 511_420_000, CostUsd = 398.48m },
+                    Lifetime = new TokenCostSummary { TotalTokens = 917_780_000, CostUsd = 624.73m },
+                    LastSevenDaysDaily = Enumerable.Range(0, 7)
+                        .Select(index => new TokenCostDailySummary
+                        {
+                            Date = now.Date.AddDays(index - 6),
+                            Summary = new TokenCostSummary { TotalTokens = (index + 4) * 1_000_000, CostUsd = index + 4 },
+                        })
+                        .ToArray(),
+                });
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(20, now.AddDays(5).ToUnixTimeSeconds(), "X Premium"),
+                    string.Empty,
+                    now),
+                    new TokenCostStatistics
+                    {
+                        Today = new TokenCostSummary { TotalTokens = 8_210_000, CostUsd = 5.72m },
+                        LastSevenDays = new TokenCostSummary { TotalTokens = 45_360_000, CostUsd = 31.84m },
+                        LastThirtyDays = new TokenCostSummary { TotalTokens = 174_820_000, CostUsd = 118.26m },
+                        Lifetime = new TokenCostSummary { TotalTokens = 294_170_000, CostUsd = 201.49m },
+                        LastSevenDaysDaily = Enumerable.Range(0, 7)
+                            .Select(index => new TokenCostDailySummary
+                            {
+                                Date = now.Date.AddDays(index - 6),
+                                Summary = new TokenCostSummary { TotalTokens = (index + 2) * 900_000, CostUsd = (index + 2) * 0.64m },
+                            })
+                            .ToArray(),
+                    });
+                viewModel.UpdateApiUsage(
+                [
+                    new ApiUsageResult("deepseek", true, "¥276.21", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
+                    new ApiUsageResult("newapi", true, "$1.91", "$188.09", string.Empty, now, Provider: ApiMonitorSettings.NewApiProvider),
+                    new ApiUsageResult("openrouter", true, "$74.75", "$25.75", string.Empty, now, Provider: ApiMonitorSettings.OpenRouterProvider),
+                ]);
+
+                TrayPopupWindow window = new(viewModel);
+                System.Windows.Media.Imaging.RenderTargetBitmap[] pages =
+                [
+                    CaptureShowcasePage(window, viewModel.ShowCodex),
+                    CaptureShowcasePage(window, viewModel.ShowGrok),
+                    CaptureShowcasePage(window, viewModel.ShowApi),
+                ];
+                const int padding = 20;
+                const int gap = 20;
+                int pageWidth = (int)CodexTrayDefaults.PopupWindowWidth;
+                int pageHeight = (int)CodexTrayDefaults.PopupWindowHeight;
+                int width = padding * 2 + pages.Length * pageWidth + (pages.Length - 1) * gap;
+                int height = padding * 2 + pageHeight;
+                System.Windows.Media.DrawingVisual visual = new();
+                using (System.Windows.Media.DrawingContext context = visual.RenderOpen())
+                {
+                    context.DrawRectangle(
+                        new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(20, 27, 31)),
+                        null,
+                        new System.Windows.Rect(0, 0, width, height));
+                    for (int index = 0; index < pages.Length; index++)
+                    {
+                        double left = padding + index * (pageWidth + gap);
+                        context.DrawImage(pages[index], new System.Windows.Rect(left, padding, pageWidth, pageHeight));
+                    }
+                }
+
+                System.Windows.Media.Imaging.RenderTargetBitmap showcase = new(width, height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                showcase.Render(visual);
+                System.Windows.Media.Imaging.PngBitmapEncoder encoder = new();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(showcase));
+                string outputPath = Path.GetFullPath(Path.Combine("Docs", "showcase.png"));
+                using FileStream stream = File.Create(outputPath);
+                encoder.Save(stream);
+                window.Close();
+                Console.WriteLine($"Rendered showcase: {outputPath}");
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (failure != null)
+        {
+            Console.Error.WriteLine(failure);
+            return 1;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Captures one popup page at the fixed application dimensions.
+    /// </summary>
+    private static System.Windows.Media.Imaging.RenderTargetBitmap CaptureShowcasePage(TrayPopupWindow window, Action showPage)
+    {
+        showPage();
+        System.Windows.FrameworkElement content = (System.Windows.FrameworkElement)window.Content;
+        content.InvalidateMeasure();
+        content.Measure(new System.Windows.Size(CodexTrayDefaults.PopupWindowWidth, CodexTrayDefaults.PopupWindowHeight));
+        content.Arrange(new System.Windows.Rect(0, 0, CodexTrayDefaults.PopupWindowWidth, CodexTrayDefaults.PopupWindowHeight));
+        content.UpdateLayout();
+        System.Windows.Media.Imaging.RenderTargetBitmap bitmap = new(
+            (int)CodexTrayDefaults.PopupWindowWidth,
+            (int)CodexTrayDefaults.PopupWindowHeight,
+            96,
+            96,
+            System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(content);
+        return bitmap;
+    }
+
+    /// <summary>
     /// Runs a redacted live Cursor dashboard probe without emitting credentials or event details.
     /// </summary>
     private static async Task<int> RunCursorLiveAsync()
@@ -205,6 +409,24 @@ internal static class Program
             $"cacheWrite={diagnostics.CacheWriteTokenFieldCount}/{diagnostics.TokenEventCount}");
         Console.WriteLine($"LIVE Cursor usage-events elapsed: {diagnostics.Elapsed.TotalMilliseconds:0} ms");
         return dashboard.Usage == null ? 1 : 0;
+    }
+
+    /// <summary>
+    /// Runs a redacted live Grok billing probe for local verification.
+    /// </summary>
+    private static async Task<int> RunGrokLiveAsync()
+    {
+        try
+        {
+            GrokUsageSnapshot snapshot = await new GrokUsageCollector().CollectAsync();
+            Console.WriteLine($"LIVE Grok billing: tier={snapshot.SubscriptionTier}, usedPercent={snapshot.UsedPercent:0.##}, resetsAt={snapshot.ResetsAt}");
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"LIVE Grok billing failed: {exception.Message}");
+            return 1;
+        }
     }
 
     /// <summary>
@@ -599,6 +821,7 @@ internal static class Program
         cancellation.Cancel();
         await AssertCanceledAsync(() => new CodexTrayCollector().CollectAsync(temp.Path, cancellationToken: cancellation.Token));
         await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().Collect(temp.Path, openCodeDirectory: temp.Path, cancellationToken: cancellation.Token)));
+        await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().CollectGrok(temp.Path, cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => Task.Run(() => LiteMonitorLocator.AutoDetect(cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => new CursorUsageCollector().CollectDashboardAsync(cancellationToken: cancellation.Token));
     }
@@ -689,6 +912,9 @@ internal static class Program
         AssertTrue(!Directory.Exists(Path.Combine(temp.Path, "CodexTray")), "settings directory should not exist");
         AssertEqual(17997, store.Load().Port, "saved settings port");
         AssertEqual(PageItem.Cursor | PageItem.Apis, store.Load().VisiblePages, "saved visible pages");
+        settings.VisiblePages = PageItem.Codex | PageItem.Cursor | PageItem.Apis;
+        store.Save(settings);
+        AssertEqual(PageItem.Codex | PageItem.Cursor | PageItem.Apis, store.Load().VisiblePages, "saved settings should keep Grok hidden");
         return Task.CompletedTask;
     }
 
@@ -723,6 +949,7 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TrafficMonitorDir), out _), "repaired settings should include TrafficMonitor path");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.RefreshIntervalMinutes), out _), "repaired settings should include refresh interval");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.VisiblePages), out _), "repaired settings should include visible pages");
+        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.SettingsSchemaVersion), out _), "repaired settings should include schema version");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "repaired settings should include Mica toggle");
@@ -731,10 +958,12 @@ internal static class Program
 
         using TempDirectory legacyTemp = new();
         SettingsStore legacyStore = new(legacyTemp.Path);
-        File.WriteAllText(legacyStore.SettingsPath, "{\"BackdropMode\":\"Mica\",\"AcrylicEnabled\":true,\"AcrylicOpacityPercent\":80,\"TokenCostItems\":63,\"WindowWidth\":800,\"WindowHeight\":1200}");
+        File.WriteAllText(legacyStore.SettingsPath, "{\"VisiblePages\":7,\"BackdropMode\":\"Mica\",\"AcrylicEnabled\":true,\"AcrylicOpacityPercent\":80,\"TokenCostItems\":63,\"WindowWidth\":800,\"WindowHeight\":1200}");
         AppSettings legacySettings = legacyStore.Load();
+        AssertEqual(PageItem.All, legacySettings.VisiblePages, "legacy all pages should include Grok");
         AssertTrue(legacySettings.MicaEnabled, "legacy Mica mode");
         using JsonDocument migratedDocument = JsonDocument.Parse(File.ReadAllText(legacyStore.SettingsPath));
+        AssertEqual(AppSettings.CurrentSettingsSchemaVersion, migratedDocument.RootElement.GetProperty(nameof(AppSettings.SettingsSchemaVersion)).GetInt32(), "migrated schema version");
         AssertTrue(migratedDocument.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "migrated settings should include Mica toggle");
         AssertTrue(!migratedDocument.RootElement.TryGetProperty(nameof(AppSettings.BackdropMode), out _), "migrated settings should omit backdrop mode");
         AssertTrue(!migratedDocument.RootElement.TryGetProperty("AcrylicEnabled", out _), "migrated settings should omit legacy acrylic toggle");
@@ -764,8 +993,7 @@ internal static class Program
               "Provider": null,
               "BaseUrl": null,
               "ApiKey": null,
-              "UserId": null,
-              "GrokOAuthSource": null
+              "UserId": null
             },
             {
               "Provider": "Cursor"
@@ -786,7 +1014,6 @@ internal static class Program
         AssertEqual(string.Empty, monitor.BaseUrl, "null monitor base URL should be repaired");
         AssertEqual(string.Empty, monitor.ApiKey, "null monitor API key should be repaired");
         AssertEqual(string.Empty, monitor.UserId, "null monitor user id should be repaired");
-        AssertEqual(ApiMonitorSettings.GrokBuildOAuthSource, monitor.GrokOAuthSource, "null OAuth source should be repaired");
 
         string repairedJson = File.ReadAllText(store.SettingsPath);
         using JsonDocument document = JsonDocument.Parse(repairedJson);
@@ -832,6 +1059,9 @@ internal static class Program
         settings.TokenUnit = "万/亿";
         settings.Normalize();
         AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "legacy Chinese token unit");
+        settings.VisiblePages = PageItem.Codex | PageItem.Cursor | PageItem.Apis;
+        settings.Normalize();
+        AssertEqual(PageItem.Codex | PageItem.Cursor | PageItem.Apis, settings.VisiblePages, "normalized settings should keep Grok hidden");
         return Task.CompletedTask;
     }
 
@@ -856,6 +1086,7 @@ internal static class Program
         SettingsStore store = new(temp.Path);
         AppSettings settings = new()
         {
+            VisiblePages = PageItem.Codex | PageItem.Cursor | PageItem.Apis,
             ApiMonitors =
             [
                 new ApiMonitorSettings
@@ -865,9 +1096,8 @@ internal static class Program
                 },
                 new ApiMonitorSettings
                 {
-                    Name = "OpenCode Grok",
-                    Provider = ApiMonitorSettings.GrokProvider,
-                    GrokOAuthSource = ApiMonitorSettings.OpenCodeOAuthSource,
+                    Name = "Legacy Grok",
+                    Provider = "Grok",
                 },
                 new ApiMonitorSettings
                 {
@@ -898,19 +1128,19 @@ internal static class Program
         string json = File.ReadAllText(store.SettingsPath);
         AssertTrue(json.Contains("deepseek-secret-token", StringComparison.Ordinal), "settings should contain the API key");
         AssertTrue(!json.Contains("cursor-should-not-persist", StringComparison.Ordinal), "settings should not contain Cursor tokens");
+        AssertTrue(!json.Contains("Legacy Grok", StringComparison.Ordinal), "settings should remove legacy Grok API monitors");
         AppSettings loaded = store.Load();
         ApiMonitorSettings deepSeek = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.DeepSeekProvider);
-        ApiMonitorSettings grok = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.GrokProvider);
         ApiMonitorSettings openRouter = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.OpenRouterProvider);
         ApiMonitorSettings nanoGpt = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.NanoGptProvider);
         AssertEqual("deepseek-secret-token", deepSeek.ApiKey, "saved API key");
         AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
-        AssertEqual(ApiMonitorSettings.OpenCodeOAuthSource, grok.GrokOAuthSource, "saved Grok OAuth source");
         AssertEqual("https://openrouter.example", openRouter.BaseUrl, "saved OpenRouter base URL");
         AssertEqual("openrouter-management-key", openRouter.ApiKey, "saved OpenRouter management key");
         AssertEqual("https://nano-gpt.example", nanoGpt.BaseUrl, "saved NanoGPT base URL");
         AssertEqual("nanogpt-key", nanoGpt.ApiKey, "saved NanoGPT API key");
-        AssertEqual(4, loaded.ApiMonitors.Count, "Cursor API monitor should be removed");
+        AssertEqual(3, loaded.ApiMonitors.Count, "Cursor and legacy Grok API monitors should be removed");
+        AssertTrue((loaded.VisiblePages & PageItem.Grok) != 0, "legacy Grok API monitor should enable the Grok page");
         AssertTrue(!json.Contains("Local Cursor", StringComparison.Ordinal), "settings should remove Cursor API monitors");
         return Task.CompletedTask;
     }
@@ -986,11 +1216,12 @@ internal static class Program
     private static Task TestGrokUsageCollectorAsync()
     {
         const long resetAt = 1_802_592_000;
-        byte[] response = CreateGrokBillingResponse(42.5f, resetAt);
+        byte[] response = CreateGrokBillingResponse(42.5f, resetAt, "Premium support");
         GrokUsageSnapshot snapshot = GrokUsageCollector.ParseGrpcWebResponse(response, DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
 
         AssertEqual(42.5, snapshot.UsedPercent, "Grok used percentage");
         AssertEqual(resetAt, snapshot.ResetsAt, "Grok reset timestamp");
+        AssertEqual(string.Empty, snapshot.SubscriptionTier, "unconfirmed protobuf strings should not become a Grok subscription tier");
         return Task.CompletedTask;
     }
 
@@ -1013,9 +1244,24 @@ internal static class Program
                     key = "old-grok-access",
                     refresh_token = "grok-refresh",
                     expires_at = DateTimeOffset.UtcNow.AddMinutes(-10).ToString("o", CultureInfo.InvariantCulture),
+                    subscriptionTier = "Free",
                     email = "keep-me@example.com",
                 },
+                ["https://example.test/sign-in"] = new
+                {
+                    key = "other-grok-access",
+                    subscriptionTier = "X Premium",
+                },
             }));
+            string logsDirectory = Path.Combine(temp.Path, "logs");
+            Directory.CreateDirectory(logsDirectory);
+            string logPath = Path.Combine(logsDirectory, "unified.jsonl");
+            File.WriteAllLines(logPath,
+            [
+                "{malformed",
+                "{\"msg\":\"billing: fetched credits config\",\"ctx\":{\"subscriptionTier\":\"SuperGrok\"}}",
+                "{\"msg\":\"billing: fetched credits config\",\"ctx\":{\"subscriptionTier\":\"SuperGrok Heavy\"}}",
+            ]);
 
             using HttpClient client = new(new GrokOAuthRefreshHttpMessageHandler(
                 "old-grok-access",
@@ -1024,9 +1270,10 @@ internal static class Program
                 "rotated-grok-refresh",
                 CreateGrokBillingResponse(12.5f, 1_802_592_000)));
             GrokUsageCollector collector = new(client);
-            GrokUsageSnapshot snapshot = await collector.CollectAsync(ApiMonitorSettings.GrokBuildOAuthSource);
+            GrokUsageSnapshot snapshot = await collector.CollectAsync();
 
             AssertEqual(12.5, snapshot.UsedPercent, "refreshed Grok Build used percentage");
+            AssertEqual("SuperGrok Heavy", snapshot.SubscriptionTier, "latest Grok Build cached subscription tier");
             using JsonDocument document = JsonDocument.Parse(File.ReadAllText(authPath));
             JsonElement entry = document.RootElement.GetProperty(entryKey);
             AssertEqual("new-grok-access", entry.GetProperty("key").GetString(), "Grok Build access token write-back");
@@ -1036,6 +1283,10 @@ internal static class Program
                 DateTimeOffset.Parse(entry.GetProperty("expires_at").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) >
                 DateTimeOffset.UtcNow,
                 "Grok Build expires_at should be in the future");
+
+            File.Delete(logPath);
+            GrokUsageSnapshot authSnapshot = await collector.CollectAsync();
+            AssertEqual("Free", authSnapshot.SubscriptionTier, "active Grok Build auth entry subscription tier");
         }
         finally
         {
@@ -1044,49 +1295,37 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests that an expired OpenCode token is refreshed and written back to auth.json.
+    /// Tests that Grok ignores an available OpenCode OAuth session when Grok Build is not logged in.
     /// </summary>
-    private static async Task TestOpenCodeOAuthRefreshAsync()
+    private static async Task TestGrokIgnoresOpenCodeOAuthAsync()
     {
         using TempDirectory temp = new();
+        string previousGrokHome = Environment.GetEnvironmentVariable("GROK_HOME") ?? string.Empty;
         string previousXdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME") ?? string.Empty;
-        Environment.SetEnvironmentVariable("XDG_DATA_HOME", temp.Path);
+        string grokHome = Path.Combine(temp.Path, "grok");
+        string openCodeDirectory = Path.Combine(temp.Path, "data", "opencode");
+        Directory.CreateDirectory(grokHome);
+        Directory.CreateDirectory(openCodeDirectory);
+        File.WriteAllText(Path.Combine(openCodeDirectory, "auth.json"), JsonSerializer.Serialize(new
+        {
+            xai = new
+            {
+                type = "oauth",
+                access = "opencode-access-that-must-not-be-used",
+            },
+        }));
+        Environment.SetEnvironmentVariable("GROK_HOME", grokHome);
+        Environment.SetEnvironmentVariable("XDG_DATA_HOME", Path.Combine(temp.Path, "data"));
         try
         {
-            string authDirectory = Path.Combine(temp.Path, "opencode");
-            Directory.CreateDirectory(authDirectory);
-            string authPath = Path.Combine(authDirectory, "auth.json");
-            File.WriteAllText(authPath, JsonSerializer.Serialize(new
-            {
-                anthropic = new { type = "api", key = "keep-other-provider" },
-                xai = new
-                {
-                    type = "oauth",
-                    access = "old-opencode-access",
-                    refresh = "opencode-refresh",
-                    expires = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds(),
-                },
-            }));
+            GrokUsageDashboard dashboard = await new GrokUsageCollector().CollectDashboardAsync();
 
-            using HttpClient client = new(new GrokOAuthRefreshHttpMessageHandler(
-                "old-opencode-access",
-                "new-opencode-access",
-                "opencode-refresh",
-                "rotated-opencode-refresh",
-                CreateGrokBillingResponse(33f, 1_802_592_000)));
-            GrokUsageCollector collector = new(client);
-            GrokUsageSnapshot snapshot = await collector.CollectAsync(ApiMonitorSettings.OpenCodeOAuthSource);
-
-            AssertEqual(33, snapshot.UsedPercent, "refreshed OpenCode used percentage");
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(authPath));
-            AssertEqual("keep-other-provider", document.RootElement.GetProperty("anthropic").GetProperty("key").GetString(), "OpenCode unrelated provider preservation");
-            JsonElement xai = document.RootElement.GetProperty("xai");
-            AssertEqual("new-opencode-access", xai.GetProperty("access").GetString(), "OpenCode access token write-back");
-            AssertEqual("rotated-opencode-refresh", xai.GetProperty("refresh").GetString(), "OpenCode refresh token write-back");
-            AssertTrue(xai.GetProperty("expires").GetInt64() > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), "OpenCode expires should be in the future");
+            AssertEqual<GrokUsageSnapshot?>(null, dashboard.Usage, "OpenCode OAuth should not provide Grok usage");
+            AssertTrue(dashboard.Error.Contains("Grok Build OAuth file was not found", StringComparison.Ordinal), "missing Grok Build login error");
         }
         finally
         {
+            Environment.SetEnvironmentVariable("GROK_HOME", string.IsNullOrEmpty(previousGrokHome) ? null : previousGrokHome);
             Environment.SetEnvironmentVariable("XDG_DATA_HOME", string.IsNullOrEmpty(previousXdg) ? null : previousXdg);
         }
     }
@@ -1347,22 +1586,43 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests that the local pricing resource includes the supported Cursor Codex model.
+    /// Tests that the local pricing resource includes supported Codex and Grok models.
     /// </summary>
-    private static Task TestCursorCodexPricingAsync()
+    private static Task TestPublishedModelPricingAsync()
     {
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Path.Combine("Resources", "model-pricing.json")));
         JsonElement pricing = document.RootElement.GetProperty("gpt-5.3-codex");
         AssertEqual(1.75m, pricing.GetProperty("input").GetDecimal(), "gpt-5.3-codex input price");
         AssertEqual(0.175m, pricing.GetProperty("cachedInput").GetDecimal(), "gpt-5.3-codex cached input price");
         AssertEqual(14.0m, pricing.GetProperty("output").GetDecimal(), "gpt-5.3-codex output price");
+        JsonElement grokPricing = document.RootElement.GetProperty("grok-4.5");
+        AssertEqual(2.0m, grokPricing.GetProperty("input").GetDecimal(), "grok-4.5 input price");
+        AssertEqual(0.3m, grokPricing.GetProperty("cachedInput").GetDecimal(), "grok-4.5 cached input price");
+        AssertEqual(6.0m, grokPricing.GetProperty("output").GetDecimal(), "grok-4.5 output price");
+        AssertEqual(200_000L, grokPricing.GetProperty("longContextThreshold").GetInt64(), "grok-4.5 long context threshold");
+        AssertEqual(4.0m, grokPricing.GetProperty("longContextInput").GetDecimal(), "grok-4.5 long context input price");
+        AssertEqual(0.6m, grokPricing.GetProperty("longContextCachedInput").GetDecimal(), "grok-4.5 long context cached input price");
+        AssertEqual(12.0m, grokPricing.GetProperty("longContextOutput").GetDecimal(), "grok-4.5 long context output price");
+        AssertEqual("grok-4.5-latest", string.Join('|', grokPricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.5 aliases");
+        JsonElement grokBuildPricing = document.RootElement.GetProperty("grok-4.5-build");
+        AssertEqual(2.0m, grokBuildPricing.GetProperty("input").GetDecimal(), "grok-4.5-build input price");
+        AssertEqual(0.3m, grokBuildPricing.GetProperty("cachedInput").GetDecimal(), "grok-4.5-build cached input price");
+        AssertEqual(6.0m, grokBuildPricing.GetProperty("output").GetDecimal(), "grok-4.5-build output price");
+        JsonElement deepSeekFlashPricing = document.RootElement.GetProperty("deepseek-v4-flash");
+        AssertEqual(0.14m, deepSeekFlashPricing.GetProperty("input").GetDecimal(), "deepseek-v4-flash input price");
+        AssertEqual(0.0028m, deepSeekFlashPricing.GetProperty("cachedInput").GetDecimal(), "deepseek-v4-flash cached input price");
+        AssertEqual(0.28m, deepSeekFlashPricing.GetProperty("output").GetDecimal(), "deepseek-v4-flash output price");
+        JsonElement deepSeekPricing = document.RootElement.GetProperty("deepseek-v4-pro");
+        AssertEqual(0.435m, deepSeekPricing.GetProperty("input").GetDecimal(), "deepseek-v4-pro input price");
+        AssertEqual(0.003625m, deepSeekPricing.GetProperty("cachedInput").GetDecimal(), "deepseek-v4-pro cached input price");
+        AssertEqual(0.87m, deepSeekPricing.GetProperty("output").GetDecimal(), "deepseek-v4-pro output price");
         return Task.CompletedTask;
     }
 
     /// <summary>
     /// Builds a minimal gRPC-web billing body for Grok collector tests.
     /// </summary>
-    private static byte[] CreateGrokBillingResponse(float usedPercent, long resetAt)
+    private static byte[] CreateGrokBillingResponse(float usedPercent, long resetAt, string unrelatedText = "")
     {
         int bits = BitConverter.SingleToInt32Bits(usedPercent);
         List<byte> payload =
@@ -1375,9 +1635,111 @@ internal static class Program
             0x28,
         ];
         payload.AddRange(EncodeVarint(resetAt));
+        if (unrelatedText.Length > 0)
+        {
+            byte[] tier = Encoding.UTF8.GetBytes(unrelatedText);
+            payload.Add(0x7A);
+            payload.AddRange(EncodeVarint(tier.Length));
+            payload.AddRange(tier);
+        }
+
         List<byte> response = [0, 0, 0, 0, (byte)payload.Count];
         response.AddRange(payload);
         return [.. response];
+    }
+
+    /// <summary>
+    /// Creates a compact token-statistics fixture for popup layout checks.
+    /// </summary>
+    private static TokenCostStatistics CreateTokenCostStatistics(long multiplier)
+    {
+        DateTime today = DateTime.Today;
+        return new TokenCostStatistics
+        {
+            Today = new TokenCostSummary { TotalTokens = multiplier * 100 },
+            LastSevenDays = new TokenCostSummary { TotalTokens = multiplier * 700 },
+            LastThirtyDays = new TokenCostSummary { TotalTokens = multiplier * 3_000 },
+            Lifetime = new TokenCostSummary { TotalTokens = multiplier * 10_000 },
+            LastSevenDaysDaily = Enumerable.Range(0, 7)
+                .Select(index => new TokenCostDailySummary
+                {
+                    Date = today.AddDays(index - 6),
+                    Summary = new TokenCostSummary { TotalTokens = multiplier * (index + 1) },
+                })
+                .ToArray(),
+        };
+    }
+
+    /// <summary>
+    /// Builds one Grok Build turn-completed usage entry with per-model counters.
+    /// </summary>
+    private static string CreateGrokTokenUpdate(
+        string promptId,
+        DateTimeOffset timestamp,
+        long inputTokens,
+        long cachedReadTokens,
+        long outputTokens,
+        long costUsdTicks = 0,
+        bool costIsPartial = false,
+        string sessionUpdate = "turn_completed",
+        long reasoningTokens = 0)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            timestamp = timestamp.ToUnixTimeSeconds(),
+            method = "_x.ai/session/update",
+            @params = new
+            {
+                update = new
+                {
+                    sessionUpdate,
+                    prompt_id = promptId,
+                    usage = new
+                    {
+                        costIsPartial,
+                        modelUsage = new Dictionary<string, object>
+                        {
+                            ["grok-4.5-build"] = new
+                            {
+                                inputTokens,
+                                cachedReadTokens,
+                                outputTokens,
+                                reasoningTokens,
+                                modelCalls = 1,
+                                costUsdTicks,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    /// <summary>
+    /// Builds one Grok Build turn-completed usage entry without modelUsage details.
+    /// </summary>
+    private static string CreateGrokTopLevelTokenUpdate(string promptId, DateTimeOffset timestamp, long inputTokens, long cachedReadTokens, long outputTokens, long costUsdTicks)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            timestamp = timestamp.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+            method = "_x.ai/session/update",
+            @params = new
+            {
+                update = new
+                {
+                    sessionUpdate = "turn_completed",
+                    prompt_id = promptId,
+                    usage = new
+                    {
+                        inputTokens,
+                        cachedReadTokens,
+                        outputTokens,
+                        costUsdTicks,
+                    },
+                },
+            },
+        });
     }
 
     /// <summary>
@@ -1683,6 +2045,26 @@ internal static class Program
         AssertEqual(7, viewModel.CursorTokenCostChartDays.Count, "Cursor token cost chart day count");
         AssertEqual(viewModel.CodexTokenCostChartDays[6].Tooltip, viewModel.CursorTokenCostChartDays[6].Tooltip, "Cursor token cost chart tooltip");
 
+        TokenCostStatistics grokStatistics = new()
+        {
+            Today = new TokenCostSummary { TotalTokens = 700 },
+            LastSevenDays = new TokenCostSummary { TotalTokens = 2_800 },
+            LastThirtyDays = new TokenCostSummary { TotalTokens = 2_800 },
+            Lifetime = new TokenCostSummary { TotalTokens = 2_800 },
+            LastSevenDaysDaily = daily
+                .Select(day => new TokenCostDailySummary
+                {
+                    Date = day.Date,
+                    Summary = new TokenCostSummary { TotalTokens = day.Summary.TotalTokens },
+                })
+                .ToArray(),
+        };
+        viewModel.UpdateGrokDashboard(new GrokUsageDashboard(null, "N/A", DateTimeOffset.Now), grokStatistics);
+        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.GrokTokenCostRows.Select(row => row.Title)), "Grok token cost row titles");
+        AssertEqual("N/A|N/A|N/A|N/A", string.Join('|', viewModel.GrokTokenCostRows.Select(row => row.Display.Cost)), "Grok unknown cost values");
+        AssertEqual(96d, viewModel.GrokTokenCostChartDays[6].BarHeight, "Grok token chart maximum height");
+        AssertEqual($"2026-08-07{Environment.NewLine}Tokens: 0.70K{Environment.NewLine}Cost: N/A", viewModel.GrokTokenCostChartDays[6].Tooltip, "Grok token chart tooltip");
+
         viewModel.UpdateTokenCost(null);
         AssertEqual(7, viewModel.CodexTokenCostChartDays.Count, "unavailable Codex token cost chart day count");
         return Task.CompletedTask;
@@ -1850,6 +2232,7 @@ internal static class Program
 
         AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.OpenRouterProvider), "OpenRouter provider option");
         AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.NanoGptProvider), "NanoGPT provider option");
+        AssertTrue(!viewModel.ProviderOptions.Contains("Grok", StringComparer.Ordinal), "Grok should not be an API provider option");
         viewModel.Provider = ApiMonitorSettings.OpenRouterProvider;
         AssertEqual("https://openrouter.ai", viewModel.BaseUrl, "OpenRouter default base URL");
         AssertTrue(!viewModel.HasSecondaryDisplay, "OpenRouter waiting secondary display");
@@ -2082,6 +2465,147 @@ internal static class Program
         AssertEqual(550L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "daily chart yesterday tokens");
         AssertEqual(new DateTime(2026, 7, 11), statistics.LastSevenDaysDaily[6].Date, "daily chart today date");
         AssertEqual(2900L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "daily chart today tokens");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies model aliases and the inclusive long context pricing threshold.
+    /// </summary>
+    private static Task TestLongContextPricingAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["grok-4.5"] = new
+            {
+                input = 2.0m,
+                cachedInput = 0.3m,
+                output = 6.0m,
+                longContextThreshold = 200_000,
+                longContextInput = 4.0m,
+                longContextCachedInput = 0.6m,
+                longContextOutput = 12.0m,
+                aliases = new[] { "grok-4.5-build" },
+            },
+        }));
+        string sessions = Path.Combine(temp.Path, "sessions", "2026", "08", "12");
+        Directory.CreateDirectory(sessions);
+        File.WriteAllLines(Path.Combine(sessions, "short.jsonl"),
+        [
+            JsonSerializer.Serialize(new { type = "turn_context", payload = new { model = "grok-4.5-build" } }),
+            JsonSerializer.Serialize(new
+            {
+                timestamp = "2026-08-12T09:00:00+08:00",
+                type = "event_msg",
+                payload = new
+                {
+                    type = "token_count",
+                    info = new
+                    {
+                        total_token_usage = new { input_tokens = 199_999, cached_input_tokens = 100_000, output_tokens = 1_000 },
+                    },
+                },
+            }),
+        ]);
+        File.WriteAllLines(Path.Combine(sessions, "long.jsonl"),
+        [
+            JsonSerializer.Serialize(new { type = "turn_context", payload = new { model = "grok-4.5-build" } }),
+            JsonSerializer.Serialize(new
+            {
+                timestamp = "2026-08-12T10:00:00+08:00",
+                type = "event_msg",
+                payload = new
+                {
+                    type = "token_count",
+                    info = new
+                    {
+                        total_token_usage = new { input_tokens = 200_000, cached_input_tokens = 100_000, output_tokens = 1_000 },
+                    },
+                },
+            }),
+        ]);
+
+        TokenCostSummary summary = new TokenCostCollector(pricingPath)
+            .Collect(temp.Path, new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8)), Path.Combine(temp.Path, "missing-opencode"))
+            .Today;
+        AssertEqual(401_999L, summary.TotalTokens, "Grok pricing total tokens");
+        AssertEqual(0.707998m, summary.CostUsd, "Grok short and long context cost");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies CCSwitch-compatible Grok turn costs, fallback pricing, deduplication, and calendar periods.
+    /// </summary>
+    private static Task TestGrokTokenCostCollectorAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["grok-4.5-build"] = new
+            {
+                input = 2m,
+                cachedInput = 0.3m,
+                output = 6m,
+                longContextThreshold = 200_000,
+                longContextInput = 4m,
+                longContextCachedInput = 0.6m,
+                longContextOutput = 12m,
+            },
+            ["deepseek-v4-flash"] = new { input = 0.14m, cachedInput = 0.0028m, output = 0.28m },
+            ["deepseek-v4-pro"] = new { input = 0.435m, cachedInput = 0.003625m, output = 0.87m },
+        }));
+        string activeSession = Path.Combine(temp.Path, "sessions", "workspace", "session-a");
+        string archivedDuplicate = Path.Combine(temp.Path, "archived_sessions", "workspace", "session-a");
+        string archivedSession = Path.Combine(temp.Path, "archived_sessions", "workspace", "session-b");
+        Directory.CreateDirectory(activeSession);
+        Directory.CreateDirectory(archivedDuplicate);
+        Directory.CreateDirectory(archivedSession);
+        DateTimeOffset now = new(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset today = new(2026, 8, 12, 9, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset yesterday = today.AddDays(-1);
+        string exactUsage = CreateGrokTokenUpdate("prompt-exact", today, 16_632, 0, 104, 388_880_000, reasoningTokens: 80);
+        File.WriteAllLines(Path.Combine(activeSession, "updates.jsonl"),
+        [
+            exactUsage,
+            CreateGrokTokenUpdate("prompt-partial", today.AddMinutes(1), 13_793, 13_696, 21, 10_000_000, costIsPartial: true),
+            CreateGrokTokenUpdate("prompt-aggregate", today.AddMinutes(2), 589_412, 493_184, 10_240),
+            CreateGrokTokenUpdate("prompt-deepseek", today.AddMinutes(3), 1_000_000, 500_000, 100_000)
+                .Replace("grok-4.5-build", "deepseek-v4-pro", StringComparison.Ordinal),
+            CreateGrokTokenUpdate("prompt-deepseek-flash", today.AddMinutes(4), 1_000_000, 500_000, 100_000)
+                .Replace("grok-4.5-build", "deepseek-v4-flash", StringComparison.Ordinal),
+            CreateGrokTokenUpdate("prompt-future", today.AddDays(1), 1_000, 0, 100, 50_000_000),
+            CreateGrokTokenUpdate("prompt-snapshot", today, 9_999, 0, 9, sessionUpdate: "usage_snapshot"),
+            "{\"method\":\"session/update\",\"params\":{\"_meta\":{\"totalTokens\":999999,\"promptId\":\"legacy\"}}}",
+            "{malformed",
+        ]);
+        File.WriteAllLines(Path.Combine(archivedDuplicate, "updates.jsonl"), [exactUsage]);
+        string archivedPath = Path.Combine(archivedSession, "updates.jsonl");
+        File.WriteAllLines(archivedPath,
+        [
+            CreateGrokTokenUpdate("prompt-archived", yesterday, 100, 50, 10),
+            CreateGrokTopLevelTokenUpdate("prompt-top-level", yesterday.AddMinutes(1), 50, 20, 10, 10_000_000),
+        ]);
+
+        TokenCostStatistics statistics;
+        using (FileStream activeWriter = new(archivedPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+        {
+            statistics = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now);
+        }
+
+        AssertEqual(2_830_202L, statistics.Today.TotalTokens, "Grok today tokens");
+        AssertEqual(2_830_372L, statistics.LastSevenDays.TotalTokens, "Grok last 7 days tokens");
+        AssertEqual(2_830_372L, statistics.LastThirtyDays.TotalTokens, "Grok last 30 days tokens");
+        AssertEqual(2_830_372L, statistics.Lifetime.TotalTokens, "Grok lifetime tokens");
+        AssertEqual(0.8508805m, statistics.Today.CostUsd, "Grok reported, partial, aggregate, and alternate-model fallback cost");
+        AssertEqual(0.8520555m, statistics.Lifetime.CostUsd, "Grok lifetime API-equivalent cost");
+        AssertEqual(170L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "Grok yesterday tokens");
+        AssertEqual(2_830_202L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "Grok daily today tokens");
+
+        File.AppendAllLines(archivedPath, [CreateGrokTokenUpdate("prompt-unpriced", yesterday, 10, 0, 1).Replace("grok-4.5-build", "future-grok-model", StringComparison.Ordinal)]);
+        TokenCostStatistics unpricedStatistics = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now);
+        AssertEqual<decimal?>(null, unpricedStatistics.Lifetime.CostUsd, "unpriced Grok usage should make total cost unavailable");
         return Task.CompletedTask;
     }
 

@@ -46,6 +46,7 @@ internal sealed record InAppDialogRequest(
 internal sealed partial class TrayPopupViewModel : ObservableObject
 {
     private const string k_CodexPageName = "Codex";
+    private const string k_GrokPageName = "Grok";
     private const string k_CursorPageName = "Cursor";
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
@@ -104,6 +105,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public QuotaViewModel WeeklyQuota { get; } = new("Weekly");
 
+    public QuotaViewModel GrokWeeklyQuota { get; } = new("Weekly");
+
     public QuotaViewModel CursorMonthlyQuota { get; } = new("Monthly");
 
     public QuotaViewModel CursorAutoQuota { get; } = new("First party");
@@ -112,10 +115,15 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public IReadOnlyList<TokenCostRowViewModel> CodexTokenCostRows { get; } = CreateCompactTokenCostRows();
 
+    public IReadOnlyList<TokenCostRowViewModel> GrokTokenCostRows { get; } = CreateCompactTokenCostRows();
+
     public IReadOnlyList<TokenCostRowViewModel> CursorTokenCostRows { get; } = CreateCompactTokenCostRows();
 
     [ObservableProperty]
     public partial IReadOnlyList<TokenCostChartDay> CodexTokenCostChartDays { get; private set; } = [];
+
+    [ObservableProperty]
+    public partial IReadOnlyList<TokenCostChartDay> GrokTokenCostChartDays { get; private set; } = [];
 
     [ObservableProperty]
     public partial IReadOnlyList<TokenCostChartDay> CursorTokenCostChartDays { get; private set; } = [];
@@ -260,9 +268,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(VisiblePagesDisplay));
                 OnPropertyChanged(nameof(IsCodexTabVisible));
+                OnPropertyChanged(nameof(IsGrokTabVisible));
                 OnPropertyChanged(nameof(IsCursorTabVisible));
                 OnPropertyChanged(nameof(IsApiTabVisible));
                 OnPropertyChanged(nameof(ShowCodexPage));
+                OnPropertyChanged(nameof(ShowGrokPage));
                 OnPropertyChanged(nameof(ShowCursorPage));
                 OnPropertyChanged(nameof(ShowApisPage));
                 EvaluateDirtyState();
@@ -281,6 +291,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         get => (m_VisiblePages & PageItem.Codex) != 0;
         set => SetPageItem(PageItem.Codex, value);
+    }
+
+    public bool ShowGrokPage
+    {
+        get => (m_VisiblePages & PageItem.Grok) != 0;
+        set => SetPageItem(PageItem.Grok, value);
     }
 
     public bool ShowCursorPage
@@ -339,6 +355,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
 
+    public bool IsGrokVisible => m_CurrentPage == k_GrokPageName;
+
     public bool IsCursorVisible => m_CurrentPage == k_CursorPageName;
 
     public bool IsApiVisible => m_CurrentPage == k_ApiPageName;
@@ -349,6 +367,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public bool IsCodexSelected => m_CurrentPage == k_CodexPageName;
 
+    public bool IsGrokSelected => m_CurrentPage == k_GrokPageName;
+
     public bool IsCursorSelected => m_CurrentPage == k_CursorPageName;
 
     public bool IsApiSelected => m_CurrentPage == k_ApiPageName;
@@ -356,6 +376,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public bool IsSettingsSelected => m_CurrentPage == k_SettingsPageName;
 
     public bool IsCodexTabVisible => (m_VisiblePages & PageItem.Codex) != 0;
+
+    public bool IsGrokTabVisible => (m_VisiblePages & PageItem.Grok) != 0;
 
     public bool IsCursorTabVisible => (m_VisiblePages & PageItem.Cursor) != 0;
 
@@ -398,6 +420,21 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             };
         }
     }
+
+    [ObservableProperty]
+    public partial Media.Brush GrokStatusDotBrush { get; private set; } = s_RedBrush;
+
+    [ObservableProperty]
+    public partial string GrokPlanDisplay { get; private set; } = "UNKNOWN";
+
+    [ObservableProperty]
+    public partial Media.Brush GrokPlanBadgeBrush { get; private set; } = s_PlanBadgeInactiveBrush;
+
+    [ObservableProperty]
+    public partial string GrokUpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
+
+    [ObservableProperty]
+    public partial string GrokStatusTooltip { get; private set; } = string.Empty;
 
     [ObservableProperty]
     public partial Media.Brush CursorStatusDotBrush { get; private set; } = s_RedBrush;
@@ -463,11 +500,13 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         AutoDetectTrafficMonitorCommand = new AsyncRelayCommand(cancellationToken => DetectTrafficMonitorAsync(showNotFound: true, cancellationToken));
         m_CurrentPage = (settings.VisiblePages & PageItem.Codex) != 0
             ? k_CodexPageName
-            : (settings.VisiblePages & PageItem.Cursor) != 0
-                ? k_CursorPageName
-                : (settings.VisiblePages & PageItem.Apis) != 0
-                    ? k_ApiPageName
-                    : k_SettingsPageName;
+            : (settings.VisiblePages & PageItem.Grok) != 0
+                ? k_GrokPageName
+                : (settings.VisiblePages & PageItem.Cursor) != 0
+                    ? k_CursorPageName
+                    : (settings.VisiblePages & PageItem.Apis) != 0
+                        ? k_ApiPageName
+                        : k_SettingsPageName;
         LoadSettings(settings);
         LoadApiMonitors(settings.ApiMonitors);
     }
@@ -767,6 +806,46 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Updates the Grok page from one Grok Build billing result.
+    /// </summary>
+    public void UpdateGrokDashboard(GrokUsageDashboard dashboard, TokenCostStatistics? tokenCost = null)
+    {
+        bool usageAvailable = dashboard.Usage != null;
+        bool tokenCostAvailable = tokenCost != null;
+        if (dashboard.Usage is GrokUsageSnapshot usage)
+        {
+            GrokPlanDisplay = FormatGrokPlan(usage.SubscriptionTier);
+            GrokPlanBadgeBrush = GrokPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
+            string reset = m_Settings.UseAbsoluteResetTime
+                ? CodexTrayCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
+                : CodexTrayCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
+            GrokWeeklyQuota.UpdateUsedPercent(usage.UsedPercent, reset, showReset: true);
+        }
+        else
+        {
+            GrokPlanDisplay = "UNKNOWN";
+            GrokPlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            GrokWeeklyQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
+        }
+
+        UpdateTokenCostRows(GrokTokenCostRows, tokenCost);
+        GrokTokenCostChartDays = CreateTokenCostChartDays(tokenCost);
+        GrokStatusDotBrush = usageAvailable && tokenCostAvailable
+            ? s_GreenBrush
+            : usageAvailable || tokenCostAvailable
+                ? s_YellowBrush
+                : s_RedBrush;
+        GrokUpdatedAtDisplay = usageAvailable && tokenCostAvailable
+            ? FormatUpdatedAt(dashboard.UpdatedAt.ToString("O", CultureInfo.InvariantCulture))
+            : usageAvailable
+                ? "Usage updated, Token Cost N/A"
+                : tokenCostAvailable
+                    ? "Token Cost updated, Usage N/A"
+                    : "Update error";
+        GrokStatusTooltip = FormatGrokStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
+    }
+
+    /// <summary>
     /// Updates the Cursor page from one shared dashboard collection result.
     /// </summary>
     public void UpdateCursorDashboard(CursorUsageDashboard dashboard)
@@ -781,9 +860,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             string reset = m_Settings.UseAbsoluteResetTime
                 ? CodexTrayCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
                 : CodexTrayCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
-            CursorMonthlyQuota.UpdateCursorUsage(usage.MonthlyUsedPercent, reset, showReset: true);
-            CursorAutoQuota.UpdateCursorUsage(usage.AutoUsedPercent, string.Empty, showReset: false);
-            CursorApiQuota.UpdateCursorUsage(usage.ApiUsedPercent, string.Empty, showReset: false);
+            CursorMonthlyQuota.UpdateUsedPercent(usage.MonthlyUsedPercent, reset, showReset: true);
+            CursorAutoQuota.UpdateUsedPercent(usage.AutoUsedPercent, string.Empty, showReset: false);
+            CursorApiQuota.UpdateUsedPercent(usage.ApiUsedPercent, string.Empty, showReset: false);
         }
         else
         {
@@ -852,13 +931,17 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         decimal maximumCost = statistics.LastSevenDaysDaily.Max(day => day.Summary.CostUsd ?? 0);
+        long maximumTokens = statistics.LastSevenDaysDaily.Max(day => day.Summary.TotalTokens);
+        bool chartByCost = maximumCost > 0;
         List<TokenCostChartDay> days = new(statistics.LastSevenDaysDaily.Count);
         foreach (TokenCostDailySummary day in statistics.LastSevenDaysDaily)
         {
             decimal cost = day.Summary.CostUsd ?? 0;
-            double height = maximumCost <= 0 || cost <= 0
-                ? 0
-                : Math.Max(2, (double)(cost / maximumCost) * k_TokenCostChartMaximumBarHeight);
+            double height = chartByCost
+                ? cost <= 0 ? 0 : Math.Max(2, (double)(cost / maximumCost) * k_TokenCostChartMaximumBarHeight)
+                : maximumTokens <= 0 || day.Summary.TotalTokens <= 0
+                    ? 0
+                    : Math.Max(2, (double)day.Summary.TotalTokens / maximumTokens * k_TokenCostChartMaximumBarHeight);
             string costText = day.Summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
             string tokensText = AppSettings.FormatTokenCount(day.Summary.TotalTokens, m_Settings.TokenUnit);
             string tooltip = $"{day.Date:yyyy-MM-dd}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}";
@@ -888,6 +971,25 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Combines Grok quota and local token-statistics errors for the status tooltip.
+    /// </summary>
+    private static string FormatGrokStatusTooltip(GrokUsageDashboard dashboard, bool usageAvailable, bool tokenCostAvailable)
+    {
+        List<string> errors = [];
+        if (!usageAvailable && dashboard.Error.Length > 0)
+        {
+            errors.Add($"Usage: {dashboard.Error}");
+        }
+
+        if (!tokenCostAvailable)
+        {
+            errors.Add("Token Cost: Local Grok Build session data could not be read.");
+        }
+
+        return string.Join(Environment.NewLine, errors);
+    }
+
+    /// <summary>
     /// Formats one token cost period for display.
     /// </summary>
     private TokenCostDisplay FormatTokenCost(TokenCostSummary summary)
@@ -903,6 +1005,15 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public void ShowCodex()
     {
         SetPage(k_CodexPageName);
+    }
+
+    /// <summary>
+    /// Shows the Grok dashboard page inside the tray popup.
+    /// </summary>
+    [RelayCommand]
+    public void ShowGrok()
+    {
+        SetPage(k_GrokPageName);
     }
 
     /// <summary>
@@ -958,11 +1069,13 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
         m_CurrentPage = pageName;
         OnPropertyChanged(nameof(IsCodexVisible));
+        OnPropertyChanged(nameof(IsGrokVisible));
         OnPropertyChanged(nameof(IsCursorVisible));
         OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsAboutVisible));
         OnPropertyChanged(nameof(IsCodexSelected));
+        OnPropertyChanged(nameof(IsGrokSelected));
         OnPropertyChanged(nameof(IsCursorSelected));
         OnPropertyChanged(nameof(IsApiSelected));
         OnPropertyChanged(nameof(IsSettingsSelected));
@@ -1420,6 +1533,21 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Formats a Grok billing subscription tier while preserving future tier names.
+    /// </summary>
+    private static string FormatGrokPlan(string? subscriptionTier)
+    {
+        string normalized = string.Join(' ', (subscriptionTier ?? string.Empty)
+            .Trim()
+            .Replace('_', ' ')
+            .Replace('-', ' ')
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return string.IsNullOrEmpty(normalized)
+            ? "UNKNOWN"
+            : normalized.Replace("premium plus", "premium+", StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
+    }
+
+    /// <summary>
     /// Formats an update timestamp for compact display.
     /// </summary>
     private static string FormatUpdatedAt(string? updatedAt)
@@ -1540,9 +1668,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         /// <summary>
-        /// Updates the quota display from Cursor used-percent data.
+        /// Updates the quota display from used-percent data.
         /// </summary>
-        public void UpdateCursorUsage(double usedPercent, string resetText, bool showReset)
+        public void UpdateUsedPercent(double usedPercent, string resetText, bool showReset)
         {
             int remaining = (int)Math.Round(Math.Clamp(100 - usedPercent, 0, 100), MidpointRounding.AwayFromZero);
             UpdateRemaining(remaining, resetText, showReset);
