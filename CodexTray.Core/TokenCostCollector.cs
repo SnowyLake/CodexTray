@@ -139,17 +139,10 @@ public sealed class TokenCostCollector
         {
             cancellationToken.ThrowIfCancellationRequested();
             JsonElement value = property.Value;
-            decimal input = value.GetProperty("input").GetDecimal();
-            decimal cachedInput = value.GetProperty("cachedInput").GetDecimal();
-            decimal output = value.GetProperty("output").GetDecimal();
             ModelPricing modelPricing = new(
-                input,
-                cachedInput,
-                output,
-                GetInt64(value, "longContextThreshold"),
-                GetDecimal(value, "longContextInput", input),
-                GetDecimal(value, "longContextCachedInput", cachedInput),
-                GetDecimal(value, "longContextOutput", output));
+                value.GetProperty("input").GetDecimal(),
+                value.GetProperty("cachedInput").GetDecimal(),
+                value.GetProperty("output").GetDecimal());
             pricing[property.Name] = modelPricing;
             if (value.TryGetProperty("aliases", out JsonElement aliases) && aliases.ValueKind == JsonValueKind.Array)
             {
@@ -308,7 +301,7 @@ public sealed class TokenCostCollector
         long costTicks = Math.Max(0, GetInt64(value, "costUsdTicks"));
         decimal? reportedCost = costTicks > 0 ? costTicks / (decimal)GrokCostTicksPerUsd : null;
         bool costIsPartial = eventCostIsPartial || GetBoolean(value, "costIsPartial");
-        decimal? localCost = CalculateCost(pricing, model, counts, allowLongContext: false);
+        decimal? localCost = CalculateCost(pricing, model, counts);
         decimal? cost = reportedCost.HasValue && !costIsPartial ? reportedCost : localCost ?? reportedCost;
         turns[$"{sessionId}\0{turnKey}\0{model}"] = new GrokTurnUsage(counts, cost, timestamp);
     }
@@ -506,7 +499,7 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Calculates API-equivalent cost for one model usage event.
     /// </summary>
-    private static decimal? CalculateCost(Dictionary<string, ModelPricing> pricing, string model, TokenCounts counts, bool allowLongContext = true)
+    private static decimal? CalculateCost(Dictionary<string, ModelPricing> pricing, string model, TokenCounts counts)
     {
         if (!TryFindPricing(pricing, model, out ModelPricing modelPricing))
         {
@@ -515,11 +508,7 @@ public sealed class TokenCostCollector
 
         long cached = Math.Min(counts.CachedInput, counts.Input);
         long freshInput = counts.Input - cached;
-        bool useLongContext = allowLongContext && modelPricing.LongContextThreshold > 0 && counts.Input >= modelPricing.LongContextThreshold;
-        decimal inputPrice = useLongContext ? modelPricing.LongContextInput : modelPricing.Input;
-        decimal cachedInputPrice = useLongContext ? modelPricing.LongContextCachedInput : modelPricing.CachedInput;
-        decimal outputPrice = useLongContext ? modelPricing.LongContextOutput : modelPricing.Output;
-        return (freshInput * inputPrice + cached * cachedInputPrice + counts.Output * outputPrice) / 1_000_000m;
+        return (freshInput * modelPricing.Input + cached * modelPricing.CachedInput + counts.Output * modelPricing.Output) / 1_000_000m;
     }
 
     /// <summary>
@@ -785,18 +774,6 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Gets a decimal property or a fallback value.
-    /// </summary>
-    private static decimal GetDecimal(JsonElement value, string name, decimal fallback)
-    {
-        return value.ValueKind == JsonValueKind.Object &&
-            value.TryGetProperty(name, out JsonElement result) &&
-            result.TryGetDecimal(out decimal number)
-                ? number
-                : fallback;
-    }
-
-    /// <summary>
     /// Gets an optional integer property without conflating a missing field with zero.
     /// </summary>
     private static long? GetNullableInt64(JsonElement value, string name)
@@ -804,14 +781,7 @@ public sealed class TokenCostCollector
         return value.ValueKind == JsonValueKind.Object && value.TryGetProperty(name, out JsonElement result) && result.TryGetInt64(out long number) ? number : null;
     }
 
-    private readonly record struct ModelPricing(
-        decimal Input,
-        decimal CachedInput,
-        decimal Output,
-        long LongContextThreshold,
-        decimal LongContextInput,
-        decimal LongContextCachedInput,
-        decimal LongContextOutput);
+    private readonly record struct ModelPricing(decimal Input, decimal CachedInput, decimal Output);
 
     private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp);
 

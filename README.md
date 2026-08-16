@@ -72,7 +72,7 @@ Grok 页面只读取本机 Grok Build 保存在 `~/.grok/auth.json` 中的 xAI O
 
 页面下方会读取 `~/.grok/sessions/**/updates.jsonl` 与 `~/.grok/archived_sessions/**/updates.jsonl`, 按 `turn_completed` 事件汇总 Today, 7d, 30d 和 Lifetime token 与费用, 并显示最近 7 天的趋势. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在 output 中, 不会重复相加.
 
-费用规则与 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs) 保持一致. 完整的 `costUsdTicks` 是 Grok Build 自报的本轮精确费用, CodexTray 会优先使用它, 因而可以保留工具调用与实际长上下文产生的费用. 当自报费用缺失或被 `costIsPartial` 标记为部分费用时, 再使用 `Resources/model-pricing.json` 中对应模型的标准输入, 缓存输入和输出价格回算. `turn_completed` 可能聚合一轮中的多次模型调用, 无法仅凭聚合 token 判断某一次调用是否达到长上下文阈值, 因此本地兜底不会把聚合输入量直接套用长上下文价格. 如果既没有可用的自报费用也找不到模型价格, 对应周期的 Cost 显示为 `N/A`.
+费用规则与 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs) 保持一致. 完整的 `costUsdTicks` 是 Grok Build 自报的本轮精确费用, CodexTray 会优先使用它, 因而可以保留工具调用等官方已计入的费用. 当自报费用缺失或被 `costIsPartial` 标记为部分费用时, 再使用 `Resources/model-pricing.json` 中对应模型的输入, 缓存输入和输出价格回算. 如果既没有可用的自报费用也找不到模型价格, 对应周期的 Cost 显示为 `N/A`.
 
 access token 临近过期或被接口拒绝时, CodexTray 会使用 refresh token 自动续期并写回 Grok Build 的 `auth.json`. OAuth token 不会复制到 `settings.json`. 隐藏 Grok 页面后会停止 Grok 用量采集.
 

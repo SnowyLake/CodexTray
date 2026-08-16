@@ -80,7 +80,7 @@ internal static class Program
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
-        await RunAsync("applies long context model pricing", TestLongContextPricingAsync);
+        await RunAsync("applies model alias pricing", TestModelAliasPricingAsync);
         await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
         await RunAsync("collects local OpenCode token cost", TestOpenCodeTokenCostAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
@@ -1599,15 +1599,12 @@ internal static class Program
         AssertEqual(2.0m, grokPricing.GetProperty("input").GetDecimal(), "grok-4.5 input price");
         AssertEqual(0.3m, grokPricing.GetProperty("cachedInput").GetDecimal(), "grok-4.5 cached input price");
         AssertEqual(6.0m, grokPricing.GetProperty("output").GetDecimal(), "grok-4.5 output price");
-        AssertEqual(200_000L, grokPricing.GetProperty("longContextThreshold").GetInt64(), "grok-4.5 long context threshold");
-        AssertEqual(4.0m, grokPricing.GetProperty("longContextInput").GetDecimal(), "grok-4.5 long context input price");
-        AssertEqual(0.6m, grokPricing.GetProperty("longContextCachedInput").GetDecimal(), "grok-4.5 long context cached input price");
-        AssertEqual(12.0m, grokPricing.GetProperty("longContextOutput").GetDecimal(), "grok-4.5 long context output price");
-        AssertEqual("grok-4.5-latest", string.Join('|', grokPricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.5 aliases");
-        JsonElement grokBuildPricing = document.RootElement.GetProperty("grok-4.5-build");
-        AssertEqual(2.0m, grokBuildPricing.GetProperty("input").GetDecimal(), "grok-4.5-build input price");
-        AssertEqual(0.3m, grokBuildPricing.GetProperty("cachedInput").GetDecimal(), "grok-4.5-build cached input price");
-        AssertEqual(6.0m, grokBuildPricing.GetProperty("output").GetDecimal(), "grok-4.5-build output price");
+        AssertEqual("grok-4.5-latest|grok-4.5-build", string.Join('|', grokPricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.5 aliases");
+        JsonElement grok46Pricing = document.RootElement.GetProperty("grok-4.6");
+        AssertEqual(2.0m, grok46Pricing.GetProperty("input").GetDecimal(), "grok-4.6 input price");
+        AssertEqual(0.5m, grok46Pricing.GetProperty("cachedInput").GetDecimal(), "grok-4.6 cached input price");
+        AssertEqual(6.0m, grok46Pricing.GetProperty("output").GetDecimal(), "grok-4.6 output price");
+        AssertEqual("grok-4.6-latest|grok-4.6-build", string.Join('|', grok46Pricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.6 aliases");
         JsonElement deepSeekFlashPricing = document.RootElement.GetProperty("deepseek-v4-flash");
         AssertEqual(0.14m, deepSeekFlashPricing.GetProperty("input").GetDecimal(), "deepseek-v4-flash input price");
         AssertEqual(0.0028m, deepSeekFlashPricing.GetProperty("cachedInput").GetDecimal(), "deepseek-v4-flash cached input price");
@@ -2469,9 +2466,9 @@ internal static class Program
     }
 
     /// <summary>
-    /// Verifies model aliases and the inclusive long context pricing threshold.
+    /// Verifies that model aliases reuse the canonical pricing entry.
     /// </summary>
-    private static Task TestLongContextPricingAsync()
+    private static Task TestModelAliasPricingAsync()
     {
         using TempDirectory temp = new();
         string pricingPath = Path.Combine(temp.Path, "pricing.json");
@@ -2482,16 +2479,12 @@ internal static class Program
                 input = 2.0m,
                 cachedInput = 0.3m,
                 output = 6.0m,
-                longContextThreshold = 200_000,
-                longContextInput = 4.0m,
-                longContextCachedInput = 0.6m,
-                longContextOutput = 12.0m,
                 aliases = new[] { "grok-4.5-build" },
             },
         }));
         string sessions = Path.Combine(temp.Path, "sessions", "2026", "08", "12");
         Directory.CreateDirectory(sessions);
-        File.WriteAllLines(Path.Combine(sessions, "short.jsonl"),
+        File.WriteAllLines(Path.Combine(sessions, "alias.jsonl"),
         [
             JsonSerializer.Serialize(new { type = "turn_context", payload = new { model = "grok-4.5-build" } }),
             JsonSerializer.Serialize(new
@@ -2503,24 +2496,7 @@ internal static class Program
                     type = "token_count",
                     info = new
                     {
-                        total_token_usage = new { input_tokens = 199_999, cached_input_tokens = 100_000, output_tokens = 1_000 },
-                    },
-                },
-            }),
-        ]);
-        File.WriteAllLines(Path.Combine(sessions, "long.jsonl"),
-        [
-            JsonSerializer.Serialize(new { type = "turn_context", payload = new { model = "grok-4.5-build" } }),
-            JsonSerializer.Serialize(new
-            {
-                timestamp = "2026-08-12T10:00:00+08:00",
-                type = "event_msg",
-                payload = new
-                {
-                    type = "token_count",
-                    info = new
-                    {
-                        total_token_usage = new { input_tokens = 200_000, cached_input_tokens = 100_000, output_tokens = 1_000 },
+                        total_token_usage = new { input_tokens = 1_000, cached_input_tokens = 100, output_tokens = 50 },
                     },
                 },
             }),
@@ -2529,8 +2505,8 @@ internal static class Program
         TokenCostSummary summary = new TokenCostCollector(pricingPath)
             .Collect(temp.Path, new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8)), Path.Combine(temp.Path, "missing-opencode"))
             .Today;
-        AssertEqual(401_999L, summary.TotalTokens, "Grok pricing total tokens");
-        AssertEqual(0.707998m, summary.CostUsd, "Grok short and long context cost");
+        AssertEqual(1_050L, summary.TotalTokens, "alias pricing total tokens");
+        AssertEqual(0.00213m, summary.CostUsd, "alias pricing cost");
         return Task.CompletedTask;
     }
 
@@ -2543,16 +2519,8 @@ internal static class Program
         string pricingPath = Path.Combine(temp.Path, "pricing.json");
         File.WriteAllText(pricingPath, JsonSerializer.Serialize(new Dictionary<string, object>
         {
-            ["grok-4.5-build"] = new
-            {
-                input = 2m,
-                cachedInput = 0.3m,
-                output = 6m,
-                longContextThreshold = 200_000,
-                longContextInput = 4m,
-                longContextCachedInput = 0.6m,
-                longContextOutput = 12m,
-            },
+            ["grok-4.5-build"] = new { input = 2m, cachedInput = 0.3m, output = 6m },
+            ["grok-4.6-build"] = new { input = 2m, cachedInput = 0.5m, output = 6m },
             ["deepseek-v4-flash"] = new { input = 0.14m, cachedInput = 0.0028m, output = 0.28m },
             ["deepseek-v4-pro"] = new { input = 0.435m, cachedInput = 0.003625m, output = 0.87m },
         }));
@@ -2575,6 +2543,8 @@ internal static class Program
                 .Replace("grok-4.5-build", "deepseek-v4-pro", StringComparison.Ordinal),
             CreateGrokTokenUpdate("prompt-deepseek-flash", today.AddMinutes(4), 1_000_000, 500_000, 100_000)
                 .Replace("grok-4.5-build", "deepseek-v4-flash", StringComparison.Ordinal),
+            CreateGrokTokenUpdate("prompt-grok46", today.AddMinutes(5), 1_000, 0, 100)
+                .Replace("grok-4.5-build", "grok-4.6-build", StringComparison.Ordinal),
             CreateGrokTokenUpdate("prompt-future", today.AddDays(1), 1_000, 0, 100, 50_000_000),
             CreateGrokTokenUpdate("prompt-snapshot", today, 9_999, 0, 9, sessionUpdate: "usage_snapshot"),
             "{\"method\":\"session/update\",\"params\":{\"_meta\":{\"totalTokens\":999999,\"promptId\":\"legacy\"}}}",
@@ -2594,14 +2564,14 @@ internal static class Program
             statistics = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now);
         }
 
-        AssertEqual(2_830_202L, statistics.Today.TotalTokens, "Grok today tokens");
-        AssertEqual(2_830_372L, statistics.LastSevenDays.TotalTokens, "Grok last 7 days tokens");
-        AssertEqual(2_830_372L, statistics.LastThirtyDays.TotalTokens, "Grok last 30 days tokens");
-        AssertEqual(2_830_372L, statistics.Lifetime.TotalTokens, "Grok lifetime tokens");
-        AssertEqual(0.8508805m, statistics.Today.CostUsd, "Grok reported, partial, aggregate, and alternate-model fallback cost");
-        AssertEqual(0.8520555m, statistics.Lifetime.CostUsd, "Grok lifetime API-equivalent cost");
+        AssertEqual(2_831_302L, statistics.Today.TotalTokens, "Grok today tokens");
+        AssertEqual(2_831_472L, statistics.LastSevenDays.TotalTokens, "Grok last 7 days tokens");
+        AssertEqual(2_831_472L, statistics.LastThirtyDays.TotalTokens, "Grok last 30 days tokens");
+        AssertEqual(2_831_472L, statistics.Lifetime.TotalTokens, "Grok lifetime tokens");
+        AssertEqual(0.8534805m, statistics.Today.CostUsd, "Grok reported, partial, aggregate, and alternate-model fallback cost");
+        AssertEqual(0.8546555m, statistics.Lifetime.CostUsd, "Grok lifetime API-equivalent cost");
         AssertEqual(170L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "Grok yesterday tokens");
-        AssertEqual(2_830_202L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "Grok daily today tokens");
+        AssertEqual(2_831_302L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "Grok daily today tokens");
 
         File.AppendAllLines(archivedPath, [CreateGrokTokenUpdate("prompt-unpriced", yesterday, 10, 0, 1).Replace("grok-4.5-build", "future-grok-model", StringComparison.Ordinal)]);
         TokenCostStatistics unpricedStatistics = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now);
