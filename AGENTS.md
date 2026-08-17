@@ -25,7 +25,7 @@ Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessi
 
 Cursor 页面是另一条独立链路: `CursorUsageCollector` 使用本机 Cursor OAuth session 查询额度与账单事件. 完整 dashboard 显示在 WPF 主面板, 其中 Monthly 额度还会合并进插件 HTTP 响应.
 
-API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, NewAPI, OpenRouter 与 NanoGPT, 并委托 `GrokUsageCollector` 使用本地 OAuth session 查询 Grok 用量. API 监控结果只显示在 WPF 主面板, 不进入插件 HTTP 响应.
+API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, NewAPI, OpenRouter, NanoGPT 与 Vercel, 并委托 `GrokUsageCollector` 使用本地 OAuth session 查询 Grok 用量. API 监控结果只显示在 WPF 主面板, 不进入插件 HTTP 响应.
 
 ## 架构与数据流
 
@@ -50,8 +50,8 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, NewAPI, Op
 
 ### API 监控链路
 
-1. `AppSettings.ApiMonitors` 保存 DeepSeek, NewAPI, OpenRouter, NanoGPT 与 Grok 卡片的顺序和 provider 配置. `TrayPopupViewModel` 负责增删, 排序和持久化卡片. `AppSettings.Normalize` 会移除旧版 Cursor 卡片.
-2. `ApiUsageCollector` 并行刷新所有卡片. DeepSeek 使用 `/user/balance`, NewAPI 使用 `/api/user/self` 并发送 `New-Api-User` header, OpenRouter 使用 `/api/v1/credits`, NanoGPT 使用 `/api/check-balance` 和 `/api/v1/usage`.
+1. `AppSettings.ApiMonitors` 保存 DeepSeek, NewAPI, OpenRouter, NanoGPT 与 Vercel 卡片的顺序和 provider 配置. `TrayPopupViewModel` 负责增删, 排序和持久化卡片. `AppSettings.Normalize` 会移除旧版 Cursor 卡片.
+2. `ApiUsageCollector` 并行刷新所有卡片. DeepSeek 使用 `/user/balance`, NewAPI 使用 `/api/user/self` 并发送 `New-Api-User` header, OpenRouter 使用 `/api/v1/credits`, NanoGPT 使用 `/api/check-balance` 和 `/api/v1/usage`, Vercel 使用 `/v1/credits`.
 3. `GrokUsageCollector` 从 Grok Build 的 `auth.json` 或 OpenCode 的 `auth.json` 读取 xAI OAuth access token. 临近过期或收到 401/403 时, 使用 refresh token 调用 `auth.x.ai` 刷新并写回对应 auth 文件, 再请求 Grok billing gRPC-web 接口解析剩余额度和重置时间.
 4. `TrayController` 将结果交给 `TrayPopupViewModel` 更新单卡片状态与 APIs 页汇总状态. 这些结果不写入 `UsageCache`.
 
@@ -71,7 +71,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, NewAPI, Op
 - Codex, Cursor 与 APIs 页面默认全部可见. 无可见数据页时不运行定时刷新.
 - Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 并显示最近 7 天的成本趋势图. Codex 与 Cursor 页面共享 token 单位设置.
 - 无有效窗口的 Codex Session 与 Weekly 进度条默认隐藏.
-- API provider 支持 `DeepSeek`, `NewAPI`, `OpenRouter`, `NanoGPT` 和 `Grok`. 前四种 provider 的凭据以明文保存在 `settings.json`, Grok 只保存 OAuth source 选择.
+- API provider 支持 `DeepSeek`, `NewAPI`, `OpenRouter`, `NanoGPT` 和 `Vercel`. 这些 provider 的凭据以明文保存在 `settings.json`.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
 
 ### 演进边界

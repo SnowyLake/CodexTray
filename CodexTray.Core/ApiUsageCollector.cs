@@ -121,6 +121,7 @@ public sealed class ApiUsageCollector
         {
             ApiMonitorSettings.NewApiProvider => "/api/user/self",
             ApiMonitorSettings.OpenRouterProvider => "/api/v1/credits",
+            ApiMonitorSettings.VercelProvider => "/v1/credits",
             _ => "/user/balance",
         };
         if (!TryBuildUri(monitor.BaseUrl, endpointPath, out Uri? uri, monitor.Provider == ApiMonitorSettings.OpenRouterProvider))
@@ -155,6 +156,7 @@ public sealed class ApiUsageCollector
             {
                 ApiMonitorSettings.NewApiProvider => ParseNewApi(monitor.Id, document.RootElement, now),
                 ApiMonitorSettings.OpenRouterProvider => ParseOpenRouter(monitor.Id, document.RootElement, now),
+                ApiMonitorSettings.VercelProvider => ParseVercel(monitor.Id, document.RootElement, now),
                 _ => ParseDeepSeek(monitor.Id, document.RootElement, now),
             };
         }
@@ -291,6 +293,20 @@ public sealed class ApiUsageCollector
             $"${usedQuota / 500000m:0.00}",
             string.Empty,
             now);
+    }
+
+    /// <summary>
+    /// Parses Vercel AI Gateway credit totals.
+    /// </summary>
+    private static ApiUsageResult ParseVercel(string monitorId, JsonElement root, DateTimeOffset now)
+    {
+        if (!TryGetDecimal(root, "balance", out decimal balance) ||
+            !TryGetDecimal(root, "total_used", out decimal totalUsed))
+        {
+            return Unavailable(monitorId, "Credit data is missing", now);
+        }
+
+        return new ApiUsageResult(monitorId, true, $"${balance:0.00}", $"${totalUsed:0.00}", string.Empty, now);
     }
 
     /// <summary>

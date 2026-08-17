@@ -22,6 +22,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         ApiMonitorSettings.NanoGptProvider,
         ApiMonitorSettings.NewApiProvider,
         ApiMonitorSettings.OpenRouterProvider,
+        ApiMonitorSettings.VercelProvider,
     ];
 
     [ObservableProperty]
@@ -38,6 +39,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
                 ApiMonitorSettings.NewApiProvider => ApiMonitorSettings.NewApiProvider,
                 ApiMonitorSettings.OpenRouterProvider => ApiMonitorSettings.OpenRouterProvider,
                 ApiMonitorSettings.NanoGptProvider => ApiMonitorSettings.NanoGptProvider,
+                ApiMonitorSettings.VercelProvider => ApiMonitorSettings.VercelProvider,
                 _ => ApiMonitorSettings.DeepSeekProvider,
             };
             string previousProvider = m_Provider;
@@ -82,7 +84,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     public bool IsNewApi => m_Provider == ApiMonitorSettings.NewApiProvider;
 
     public bool HasSecondaryDisplay => IsNewApi ||
-        (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.NanoGptProvider &&
+        (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.NanoGptProvider or ApiMonitorSettings.VercelProvider &&
          !string.IsNullOrEmpty(UsedDisplay) && UsedDisplay != "N/A");
 
     public string PrimaryDisplayLabel => "Balance:";
@@ -157,6 +159,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             ApiMonitorSettings.DeepSeekProvider => "https://api.deepseek.com",
             ApiMonitorSettings.OpenRouterProvider => "https://openrouter.ai",
             ApiMonitorSettings.NanoGptProvider => "https://nano-gpt.com",
+            ApiMonitorSettings.VercelProvider => "https://ai-gateway.vercel.sh",
             _ => string.Empty,
         };
     }
@@ -166,7 +169,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     /// </summary>
     private static bool IsDefaultBaseUrl(string baseUrl)
     {
-        return baseUrl is "https://api.deepseek.com" or "https://openrouter.ai" or "https://nano-gpt.com";
+        return baseUrl is "https://api.deepseek.com" or "https://openrouter.ai" or "https://nano-gpt.com" or "https://ai-gateway.vercel.sh";
     }
 
     /// <summary>

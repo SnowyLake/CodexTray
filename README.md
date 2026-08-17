@@ -20,7 +20,7 @@
 
 应用还会统计本机 Codex 会话与 OpenCode 中 OpenAI 调用的 token 用量, 按模型价格估算 API 等价成本. Grok 页面会另外统计本机 Grok Build session 中记录的 token 与费用. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
 
-除了 Codex 额度, 应用还可以在独立的 Grok 页面查看 Weekly 额度, 在独立的 Cursor 页面查看 Cursor 额度与 token 账单统计, 并在 APIs 页面监控 DeepSeek, NewAPI, OpenRouter 和 NanoGPT 的余额或用量.
+除了 Codex 额度, 应用还可以在独立的 Grok 页面查看 Weekly 额度, 在独立的 Cursor 页面查看 Cursor 额度与 token 账单统计, 并在 APIs 页面监控 DeepSeek, NewAPI, OpenRouter, NanoGPT 和 Vercel AI Gateway 的余额或用量.
 
 ## 效果展示
 
@@ -33,7 +33,7 @@
 - Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 提供最近 7 天的成本趋势图, 并支持中英文 token 数量单位.
 - Grok 页面显示订阅类型, Weekly 剩余额度和重置时间, 并统计本机 Grok Build session 的 Today, 7d, 30d 和 Lifetime token 与费用. 登录信息仅从本机 Grok Build OAuth session 读取.
 - Cursor 页面显示 Monthly, First party 和 APIs 剩余额度, Monthly 重置时间, 以及实际账单 token, 成本和最近 7 天的成本趋势.
-- 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, 以及 NanoGPT USD 余额与最近 30 天用量.
+- 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 Vercel AI Gateway 剩余与累计已用 credits.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
 - 支持 `System`, `Light`, `Dark` 主题和 Windows 11 Mica 背景材质, 主面板固定为 360 x 620. Windows 10 固定使用纯色背景.
@@ -60,7 +60,7 @@
 - Codex 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
 - Grok 页: 查看从本机 Grok Build 登录信息获取的 Weekly 额度, 重置时间和本地 Token Cost 统计.
 - Cursor 页: 查看 Monthly, First party, APIs 额度和实际账单 Token Cost.
-- APIs 页: 添加和查看 DeepSeek, NewAPI, OpenRouter 或 NanoGPT 监控卡片.
+- APIs 页: 添加和查看 DeepSeek, NewAPI, OpenRouter, NanoGPT 或 Vercel AI Gateway 监控卡片.
 - Settings 页: 调整可见页面, 刷新, 显示, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Grok, Cursor 和 APIs 入口并停止对应后台采集. 同时隐藏 Codex 和 Cursor 时会停止本地 HTTP 服务.
 - About 页: 查看当前版本, 项目主页和许可证信息.
 
@@ -90,6 +90,7 @@ Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不�
 - NewAPI: 填写实例 Base URL, access token 和 User ID.
 - OpenRouter: 填写 Base URL 和 Management Key, 默认 Base URL 为 `https://openrouter.ai`. 普通 API key 的 `/key` limit 不是账户余额, 因此不用于此卡片.
 - NanoGPT: 填写 Base URL 和 API key, 默认 Base URL 为 `https://nano-gpt.com`. 卡片优先显示 USD 余额, 并在接口可用时显示最近 30 个 UTC 日的已用金额; 用量查询失败不会影响余额显示.
+- Vercel: 填写 Base URL 和 AI Gateway API key, 默认 Base URL 为 `https://ai-gateway.vercel.sh`. 卡片显示团队剩余 credits 和累计已用量; 普通 Vercel 账号 token 不能查询此接口.
 
 卡片支持自定义显示名称, 调整顺序和删除. Grok 与 Cursor 均使用独立页面, 不作为 API 监控卡片.
 
@@ -107,7 +108,7 @@ LiteMonitor 显示 `Codex-Session`, `Codex-Weekly` 和 `Cursor-Monthly` 三项, 
 
 - 额度和 Reset Credits 来自 ChatGPT 官方接口. 应用读取 `~/.codex/auth.json` 中的 Codex OAuth 凭据.
 - Codex Token Cost 来自本机 Codex session 日志与 OpenCode `opencode.db` 中的 OpenAI 调用, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本. Grok Token Cost 只读取本机 `~/.grok/sessions` 和 `~/.grok/archived_sessions` 中的逐轮用量, 优先采用 Grok Build 自报费用并以本地价格表兜底, 不读取 OpenCode.
-- DeepSeek, NewAPI, OpenRouter 与 NanoGPT 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
+- DeepSeek, NewAPI, OpenRouter, NanoGPT 与 Vercel 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - Grok 页面只读取 Grok Build 已保存的本地 OAuth session, 并向 Grok 官方接口查询用量. access token 过期前会通过 xAI OAuth refresh 自动续期并写回 `~/.grok/auth.json`. OAuth token 不会复制到 `settings.json`.
 - Cursor 页面读取本机 Cursor IDE 的 `state.vscdb` OAuth session, 并向 Cursor 官方 usage-summary 与 usage-events 接口查询额度和账单用量. access token 过期前会通过 Cursor OAuth refresh 自动续期并写回原数据库. OAuth token 不会复制到 `settings.json`.
 - 本地 HTTP 服务默认仅监听 `127.0.0.1:17890`, 不向局域网开放.
@@ -126,7 +127,7 @@ Codex 页请确认发布目录包含 `Resources/model-pricing.json`, 并且当�
 
 ### 为什么 API 卡片显示 N/A
 
-将鼠标悬停在卡片名称或状态圆点上查看错误信息. DeepSeek, NewAPI, OpenRouter 和 NanoGPT 需要有效的 Base URL 与凭据, NewAPI 还需要 User ID, OpenRouter 必须使用 Management Key.
+将鼠标悬停在卡片名称或状态圆点上查看错误信息. DeepSeek, NewAPI, OpenRouter, NanoGPT 和 Vercel 需要有效的 Base URL 与凭据, NewAPI 还需要 User ID, OpenRouter 必须使用 Management Key, Vercel 必须使用 AI Gateway API key.
 
 ### 为什么 Grok 页面显示 N/A
 

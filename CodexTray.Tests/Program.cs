@@ -1115,6 +1115,13 @@ internal static class Program
                 },
                 new ApiMonitorSettings
                 {
+                    Name = "Vercel Credits",
+                    Provider = "vercel",
+                    BaseUrl = "https://ai-gateway.example/",
+                    ApiKey = "vercel-gateway-key",
+                },
+                new ApiMonitorSettings
+                {
                     Name = "Local Cursor",
                     Provider = ApiMonitorSettings.CursorProvider,
                     BaseUrl = "https://should-clear.example",
@@ -1133,13 +1140,16 @@ internal static class Program
         ApiMonitorSettings deepSeek = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.DeepSeekProvider);
         ApiMonitorSettings openRouter = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.OpenRouterProvider);
         ApiMonitorSettings nanoGpt = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.NanoGptProvider);
+        ApiMonitorSettings vercel = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.VercelProvider);
         AssertEqual("deepseek-secret-token", deepSeek.ApiKey, "saved API key");
         AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
         AssertEqual("https://openrouter.example", openRouter.BaseUrl, "saved OpenRouter base URL");
         AssertEqual("openrouter-management-key", openRouter.ApiKey, "saved OpenRouter management key");
         AssertEqual("https://nano-gpt.example", nanoGpt.BaseUrl, "saved NanoGPT base URL");
         AssertEqual("nanogpt-key", nanoGpt.ApiKey, "saved NanoGPT API key");
-        AssertEqual(3, loaded.ApiMonitors.Count, "Cursor and legacy Grok API monitors should be removed");
+        AssertEqual("https://ai-gateway.example", vercel.BaseUrl, "saved Vercel base URL");
+        AssertEqual("vercel-gateway-key", vercel.ApiKey, "saved Vercel AI Gateway API key");
+        AssertEqual(4, loaded.ApiMonitors.Count, "Cursor and legacy Grok API monitors should be removed");
         AssertTrue((loaded.VisiblePages & PageItem.Grok) != 0, "legacy Grok API monitor should enable the Grok page");
         AssertTrue(!json.Contains("Local Cursor", StringComparison.Ordinal), "settings should remove Cursor API monitors");
         return Task.CompletedTask;
@@ -1194,8 +1204,23 @@ internal static class Program
             BaseUrl = "https://nano-gpt-failure.example",
             ApiKey = "nanogpt-failure-key",
         };
+        ApiMonitorSettings vercel = new()
+        {
+            Id = "vercel",
+            Provider = ApiMonitorSettings.VercelProvider,
+            BaseUrl = "https://ai-gateway.example/v1",
+            ApiKey = "vercel-gateway-key",
+        };
+        ApiMonitorSettings vercelRoot = new()
+        {
+            Id = "vercel-root",
+            Provider = ApiMonitorSettings.VercelProvider,
+            BaseUrl = "https://ai-gateway.example",
+            ApiKey = "vercel-gateway-key",
+        };
 
-        IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync([deepSeek, newApi, openRouter, openRouterRoot, nanoGpt, nanoGptUsageFailure]);
+        IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync(
+            [deepSeek, newApi, openRouter, openRouterRoot, nanoGpt, nanoGptUsageFailure, vercel, vercelRoot]);
 
         AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
         AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
@@ -1208,6 +1233,9 @@ internal static class Program
         AssertTrue(results[5].Available, "NanoGPT balance should remain available when usage fails");
         AssertEqual("$12.35", results[5].BalanceDisplay, "NanoGPT balance after usage failure");
         AssertEqual(string.Empty, results[5].UsedDisplay, "NanoGPT usage failure display");
+        AssertEqual("$95.50", results[6].BalanceDisplay, "Vercel remaining credits");
+        AssertEqual("$4.50", results[6].UsedDisplay, "Vercel used credits");
+        AssertEqual("$95.50", results[7].BalanceDisplay, "Vercel root base URL credits");
     }
 
     /// <summary>
@@ -2229,6 +2257,7 @@ internal static class Program
 
         AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.OpenRouterProvider), "OpenRouter provider option");
         AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.NanoGptProvider), "NanoGPT provider option");
+        AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.VercelProvider), "Vercel provider option");
         AssertTrue(!viewModel.ProviderOptions.Contains("Grok", StringComparer.Ordinal), "Grok should not be an API provider option");
         viewModel.Provider = ApiMonitorSettings.OpenRouterProvider;
         AssertEqual("https://openrouter.ai", viewModel.BaseUrl, "OpenRouter default base URL");
@@ -2265,6 +2294,11 @@ internal static class Program
         viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$12.35", string.Empty, string.Empty, DateTimeOffset.UtcNow));
         AssertTrue(!viewModel.HasSecondaryDisplay, "NanoGPT failed usage should hide secondary display");
         AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.HasSecondaryDisplay)), "NanoGPT secondary visibility notification");
+        viewModel.Provider = ApiMonitorSettings.VercelProvider;
+        AssertEqual("https://ai-gateway.vercel.sh", viewModel.BaseUrl, "Vercel default base URL");
+        AssertTrue(!viewModel.HasSecondaryDisplay, "Vercel waiting secondary display");
+        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$95.50", "$4.50", string.Empty, DateTimeOffset.UtcNow));
+        AssertTrue(viewModel.HasSecondaryDisplay, "Vercel secondary display");
         viewModel.BaseUrl = "https://custom.example";
         viewModel.Provider = ApiMonitorSettings.DeepSeekProvider;
         AssertEqual("https://custom.example", viewModel.BaseUrl, "custom base URL should be preserved");
@@ -3174,6 +3208,11 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
         {
             AssertBearerRequest(request, HttpMethod.Get, "/api/v1/credits", "openrouter-management-key");
             body = "{\"data\":{\"total_credits\":100.5,\"total_usage\":25.75}}";
+        }
+        else if (host == "ai-gateway.example")
+        {
+            AssertBearerRequest(request, HttpMethod.Get, "/v1/credits", "vercel-gateway-key");
+            body = "{\"balance\":\"95.50\",\"total_used\":\"4.50\"}";
         }
         else if (host is "nano-gpt.example" or "nano-gpt-failure.example")
         {
