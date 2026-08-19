@@ -2,12 +2,20 @@ namespace CodexTray.Core;
 
 internal sealed class TokenCostPeriodAccumulator
 {
+    private readonly bool m_RequireCompleteCosts;
     private readonly DateTime m_Today;
     private readonly DateTime m_LastSevenDaysStart;
-    private readonly PeriodAccumulator[] m_LastSevenDaysDailyPeriods;
+    private readonly DateTime m_LastThirtyDaysStart;
+    private readonly DateTime m_CurrentWeekStart;
+    private readonly DateTime m_CurrentMonthStart;
+    private readonly PeriodAccumulator[] m_LastThirtyDaysDailyPeriods;
+    private readonly PeriodAccumulator[] m_CurrentMonthDailyPeriods;
+    private readonly Dictionary<string, ModelPeriodAccumulator> m_ModelPeriods = new(StringComparer.OrdinalIgnoreCase);
     private readonly PeriodAccumulator m_TodayPeriod;
     private readonly PeriodAccumulator m_LastSevenDaysPeriod;
     private readonly PeriodAccumulator m_LastThirtyDaysPeriod;
+    private readonly PeriodAccumulator m_CurrentWeekPeriod;
+    private readonly PeriodAccumulator m_CurrentMonthPeriod;
     private readonly PeriodAccumulator m_LifetimePeriod;
 
     /// <summary>
@@ -15,19 +23,26 @@ internal sealed class TokenCostPeriodAccumulator
     /// </summary>
     public TokenCostPeriodAccumulator(DateTimeOffset asOf, bool requireCompleteCosts = false)
     {
+        m_RequireCompleteCosts = requireCompleteCosts;
         m_Today = asOf.LocalDateTime.Date;
         m_LastSevenDaysStart = m_Today.AddDays(-6);
+        m_LastThirtyDaysStart = m_Today.AddDays(-29);
+        m_CurrentWeekStart = m_Today.AddDays(-(((int)m_Today.DayOfWeek + 6) % 7));
+        m_CurrentMonthStart = new DateTime(m_Today.Year, m_Today.Month, 1);
         m_TodayPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_LastSevenDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_LastThirtyDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
+        m_CurrentWeekPeriod = new PeriodAccumulator(requireCompleteCosts);
+        m_CurrentMonthPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_LifetimePeriod = new PeriodAccumulator(requireCompleteCosts);
-        m_LastSevenDaysDailyPeriods = Enumerable.Range(0, 7).Select(_ => new PeriodAccumulator(requireCompleteCosts)).ToArray();
+        m_LastThirtyDaysDailyPeriods = Enumerable.Range(0, 30).Select(_ => new PeriodAccumulator(requireCompleteCosts)).ToArray();
+        m_CurrentMonthDailyPeriods = Enumerable.Range(0, m_Today.Day).Select(_ => new PeriodAccumulator(requireCompleteCosts)).ToArray();
     }
 
     /// <summary>
     /// Adds one event to every matching calendar period.
     /// </summary>
-    public void Add(DateTimeOffset timestamp, long tokens, decimal? costUsd)
+    public void Add(DateTimeOffset timestamp, long tokens, decimal? costUsd, string? model = null)
     {
         DateTime eventDate = timestamp.LocalDateTime.Date;
         if (eventDate > m_Today)
@@ -43,7 +58,16 @@ internal sealed class TokenCostPeriodAccumulator
         if (eventDate >= m_LastSevenDaysStart)
         {
             m_LastSevenDaysPeriod.Add(tokens, costUsd);
-            m_LastSevenDaysDailyPeriods[(eventDate - m_LastSevenDaysStart).Days].Add(tokens, costUsd);
+        }
+
+        if (eventDate >= m_LastThirtyDaysStart)
+        {
+            m_LastThirtyDaysDailyPeriods[(eventDate - m_LastThirtyDaysStart).Days].Add(tokens, costUsd);
+        }
+
+        if (eventDate >= m_CurrentMonthStart)
+        {
+            m_CurrentMonthDailyPeriods[(eventDate - m_CurrentMonthStart).Days].Add(tokens, costUsd);
         }
 
         if (eventDate >= m_Today.AddDays(-29))
@@ -51,7 +75,27 @@ internal sealed class TokenCostPeriodAccumulator
             m_LastThirtyDaysPeriod.Add(tokens, costUsd);
         }
 
+        if (eventDate >= m_CurrentWeekStart)
+        {
+            m_CurrentWeekPeriod.Add(tokens, costUsd);
+        }
+
+        if (eventDate >= m_CurrentMonthStart)
+        {
+            m_CurrentMonthPeriod.Add(tokens, costUsd);
+        }
+
         m_LifetimePeriod.Add(tokens, costUsd);
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            if (!m_ModelPeriods.TryGetValue(model, out ModelPeriodAccumulator? modelPeriods))
+            {
+                modelPeriods = new ModelPeriodAccumulator(m_RequireCompleteCosts);
+                m_ModelPeriods.Add(model, modelPeriods);
+            }
+
+            modelPeriods.Add(eventDate, m_Today, m_LastSevenDaysStart, m_CurrentWeekStart, m_CurrentMonthStart, tokens, costUsd);
+        }
     }
 
     /// <summary>
@@ -64,15 +108,116 @@ internal sealed class TokenCostPeriodAccumulator
             Today = m_TodayPeriod.ToSummary(),
             LastSevenDays = m_LastSevenDaysPeriod.ToSummary(),
             LastThirtyDays = m_LastThirtyDaysPeriod.ToSummary(),
+            CurrentWeek = m_CurrentWeekPeriod.ToSummary(),
+            CurrentMonth = m_CurrentMonthPeriod.ToSummary(),
             Lifetime = m_LifetimePeriod.ToSummary(),
-            LastSevenDaysDaily = m_LastSevenDaysDailyPeriods
+            LastSevenDaysDaily = m_LastThirtyDaysDailyPeriods
+                .Skip(23)
                 .Select((period, index) => new TokenCostDailySummary
                 {
                     Date = m_LastSevenDaysStart.AddDays(index),
                     Summary = period.ToSummary(),
                 })
                 .ToArray(),
+            LastThirtyDaysDaily = m_LastThirtyDaysDailyPeriods
+                .Select((period, index) => new TokenCostDailySummary
+                {
+                    Date = m_LastThirtyDaysStart.AddDays(index),
+                    Summary = period.ToSummary(),
+                })
+                .ToArray(),
+            CurrentMonthDaily = m_CurrentMonthDailyPeriods
+                .Select((period, index) => new TokenCostDailySummary
+                {
+                    Date = m_CurrentMonthStart.AddDays(index),
+                    Summary = period.ToSummary(),
+                })
+                .ToArray(),
+            Models = m_ModelPeriods
+                .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(pair => pair.Value.ToStatistics(pair.Key))
+                .ToArray(),
         };
+    }
+
+    private sealed class ModelPeriodAccumulator
+    {
+        private readonly PeriodAccumulator m_TodayPeriod;
+        private readonly PeriodAccumulator m_LastSevenDaysPeriod;
+        private readonly PeriodAccumulator m_LastThirtyDaysPeriod;
+        private readonly PeriodAccumulator m_CurrentWeekPeriod;
+        private readonly PeriodAccumulator m_CurrentMonthPeriod;
+        private readonly PeriodAccumulator m_LifetimePeriod;
+
+        /// <summary>
+        /// Creates model-specific accumulators with the requested missing-cost behavior.
+        /// </summary>
+        public ModelPeriodAccumulator(bool requireCompleteCosts)
+        {
+            m_TodayPeriod = new PeriodAccumulator(requireCompleteCosts);
+            m_LastSevenDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
+            m_LastThirtyDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
+            m_CurrentWeekPeriod = new PeriodAccumulator(requireCompleteCosts);
+            m_CurrentMonthPeriod = new PeriodAccumulator(requireCompleteCosts);
+            m_LifetimePeriod = new PeriodAccumulator(requireCompleteCosts);
+        }
+
+        /// <summary>
+        /// Adds one model event to every matching calendar period.
+        /// </summary>
+        public void Add(
+            DateTime eventDate,
+            DateTime today,
+            DateTime lastSevenDaysStart,
+            DateTime currentWeekStart,
+            DateTime currentMonthStart,
+            long tokens,
+            decimal? costUsd)
+        {
+            if (eventDate == today)
+            {
+                m_TodayPeriod.Add(tokens, costUsd);
+            }
+
+            if (eventDate >= lastSevenDaysStart)
+            {
+                m_LastSevenDaysPeriod.Add(tokens, costUsd);
+            }
+
+            if (eventDate >= today.AddDays(-29))
+            {
+                m_LastThirtyDaysPeriod.Add(tokens, costUsd);
+            }
+
+            if (eventDate >= currentWeekStart)
+            {
+                m_CurrentWeekPeriod.Add(tokens, costUsd);
+            }
+
+            if (eventDate >= currentMonthStart)
+            {
+                m_CurrentMonthPeriod.Add(tokens, costUsd);
+            }
+
+            m_LifetimePeriod.Add(tokens, costUsd);
+        }
+
+        /// <summary>
+        /// Converts one model's accumulated periods into display statistics.
+        /// </summary>
+        public TokenCostModelStatistics ToStatistics(string model)
+        {
+            return new TokenCostModelStatistics
+            {
+                Model = model,
+                Today = m_TodayPeriod.ToSummary(),
+                LastSevenDays = m_LastSevenDaysPeriod.ToSummary(),
+                LastThirtyDays = m_LastThirtyDaysPeriod.ToSummary(),
+                CurrentWeek = m_CurrentWeekPeriod.ToSummary(),
+                CurrentMonth = m_CurrentMonthPeriod.ToSummary(),
+                Lifetime = m_LifetimePeriod.ToSummary(),
+            };
+        }
     }
 
     private sealed class PeriodAccumulator

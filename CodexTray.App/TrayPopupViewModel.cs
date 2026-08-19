@@ -34,7 +34,29 @@ internal enum SettingsStatus
 
 internal sealed record TokenCostDisplay(string Cost, string Tokens);
 
-internal sealed record TokenCostChartDay(string Label, double BarHeight, string Tooltip);
+internal sealed record TokenCostChartDay(DateTime Date, string Label, double BarHeight, string Tooltip, bool IsInteractive);
+
+internal sealed record TokenCostChartLabel(string Text, double Left);
+
+internal sealed record TokenCostDonutSegment(string Label, string Share, Media.Brush Brush, Media.Geometry Geometry, string Tooltip);
+
+internal sealed record TokenCostModelShare(string Label, long Tokens);
+
+internal enum TokenCostPeriod
+{
+    Today,
+    LastSevenDays,
+    LastThirtyDays,
+    CurrentWeek,
+    CurrentMonth,
+    Lifetime,
+}
+
+internal enum CodexTokenCostChartPeriod
+{
+    LastThirtyDays,
+    CurrentMonth,
+}
 
 internal sealed record InAppDialogRequest(
     string Title,
@@ -52,11 +74,26 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private const string k_SettingsPageName = "Settings";
     private const string k_AboutPageName = "About";
     private const string k_RepositoryUrl = "https://github.com/SnowyLake/CodexTray";
+    private const double k_CodexTokenCostChartMaximumBarHeight = 58;
+    private const double k_CodexTokenCostChartWidth = 310;
+    private const double k_CodexTokenCostChartHorizontalMargin = 10;
+    private const double k_CodexTokenCostChartLabelWidth = 28;
     private const double k_TokenCostChartMaximumBarHeight = 96;
+    private const double k_TokenCostDonutCenter = 64;
+    private const double k_TokenCostDonutOuterRadius = 62;
+    private const double k_TokenCostDonutInnerRadius = 49;
 
     private static readonly Media.Brush s_GreenBrush = CreateFrozenBrush(26, 188, 137);
     private static readonly Media.Brush s_YellowBrush = CreateFrozenBrush(226, 176, 54);
     private static readonly Media.Brush s_RedBrush = CreateFrozenBrush(224, 91, 77);
+    private static readonly Media.Brush[] s_TokenCostDonutBrushes =
+    [
+        s_GreenBrush,
+        CreateFrozenBrush(82, 193, 181),
+        CreateFrozenBrush(92, 143, 202),
+        CreateFrozenBrush(166, 173, 179),
+    ];
+    private static readonly string[] s_ModelEffortSuffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh"];
     private static readonly Media.Brush s_PlanBadgeActiveBrush = s_GreenBrush;
     private static readonly Media.Brush s_PlanBadgeInactiveBrush = CreateFrozenBrush(107, 122, 117);
     private static readonly TokenCostDisplay s_UnavailableTokenCostDisplay = new("N/A", "N/A");
@@ -75,6 +112,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private int m_ApiUsageMonitorCount;
     private DateTimeOffset? m_ApiUsageUpdatedAt;
     private Action? m_InAppDialogPrimaryAction;
+    private TokenCostStatistics? m_CodexTokenCostStatistics;
+    private CodexTokenCostChartPeriod m_CodexTokenCostChartPeriod;
 
     private SettingsStatus m_SettingsBaseline = SettingsStatus.Clean;
     private bool m_SuppressDirtyTracking;
@@ -113,7 +152,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public QuotaViewModel CursorApiQuota { get; } = new("APIs");
 
-    public IReadOnlyList<TokenCostRowViewModel> CodexTokenCostRows { get; } = CreateCompactTokenCostRows();
+    public IReadOnlyList<TokenCostRowViewModel> CodexTokenCostRows { get; } = CreateCompactTokenCostRows(selectToday: true);
 
     public IReadOnlyList<TokenCostRowViewModel> GrokTokenCostRows { get; } = CreateCompactTokenCostRows();
 
@@ -123,10 +162,25 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial IReadOnlyList<TokenCostChartDay> CodexTokenCostChartDays { get; private set; } = [];
 
     [ObservableProperty]
+    public partial IReadOnlyList<TokenCostChartLabel> CodexTokenCostChartLabels { get; private set; } = [];
+
+    [ObservableProperty]
+    public partial int CodexTokenCostChartColumnCount { get; private set; } = 30;
+
+    [ObservableProperty]
     public partial IReadOnlyList<TokenCostChartDay> GrokTokenCostChartDays { get; private set; } = [];
 
     [ObservableProperty]
     public partial IReadOnlyList<TokenCostChartDay> CursorTokenCostChartDays { get; private set; } = [];
+
+    [ObservableProperty]
+    public partial IReadOnlyList<TokenCostDonutSegment> CodexTokenCostDonutSegments { get; private set; } = [];
+
+    [ObservableProperty]
+    public partial string CodexSelectedTokenDisplay { get; private set; } = "N/A";
+
+    [ObservableProperty]
+    public partial string CodexSelectedCostDisplay { get; private set; } = "N/A";
 
     public IRelayCommand OpenRepositoryCommand { get; }
 
@@ -683,14 +737,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Creates the compact token-cost rows shown on usage dashboards.
     /// </summary>
-    private static IReadOnlyList<TokenCostRowViewModel> CreateCompactTokenCostRows()
+    private static IReadOnlyList<TokenCostRowViewModel> CreateCompactTokenCostRows(bool selectToday = false)
     {
         return
         [
-            new TokenCostRowViewModel("Today"),
-            new TokenCostRowViewModel("7d"),
-            new TokenCostRowViewModel("30d"),
-            new TokenCostRowViewModel("Lifetime", isLast: true),
+            new TokenCostRowViewModel("Today", TokenCostPeriod.Today, isSelected: selectToday),
+            new TokenCostRowViewModel("7d", TokenCostPeriod.LastSevenDays),
+            new TokenCostRowViewModel("30d", TokenCostPeriod.LastThirtyDays),
+            new TokenCostRowViewModel("Lifetime", TokenCostPeriod.Lifetime, isLast: true),
         ];
     }
 
@@ -801,8 +855,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     public void UpdateTokenCost(TokenCostStatistics? statistics)
     {
+        m_CodexTokenCostStatistics = statistics;
         UpdateTokenCostRows(CodexTokenCostRows, statistics);
-        CodexTokenCostChartDays = CreateTokenCostChartDays(statistics);
+        UpdateCodexTokenCostChart();
+        UpdateCodexTokenCostDonut();
     }
 
     /// <summary>
@@ -905,11 +961,297 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             return;
         }
 
-        TokenCostSummary[] summaries = [statistics.Today, statistics.LastSevenDays, statistics.LastThirtyDays, statistics.Lifetime];
-        for (int index = 0; index < rows.Count; index++)
+        foreach (TokenCostRowViewModel row in rows)
         {
-            rows[index].Display = FormatTokenCost(summaries[index]);
+            row.Display = FormatTokenCost(GetPeriodSummary(statistics, row.Period));
         }
+    }
+
+    /// <summary>
+    /// Selects the Codex token-cost period used by the model distribution chart.
+    /// </summary>
+    [RelayCommand]
+    private void SelectCodexTokenCostPeriod(TokenCostRowViewModel? row)
+    {
+        if (row == null || row.IsSelected)
+        {
+            return;
+        }
+
+        foreach (TokenCostRowViewModel candidate in CodexTokenCostRows)
+        {
+            candidate.IsSelected = ReferenceEquals(candidate, row);
+        }
+
+        UpdateCodexTokenCostDonut();
+    }
+
+    /// <summary>
+    /// Updates the selected Codex token total, cost, and per-model donut segments.
+    /// </summary>
+    private void UpdateCodexTokenCostDonut()
+    {
+        TokenCostPeriod period = CodexTokenCostRows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.Today;
+        if (m_CodexTokenCostStatistics == null)
+        {
+            CodexSelectedTokenDisplay = "N/A";
+            CodexSelectedCostDisplay = "N/A";
+            CodexTokenCostDonutSegments = [];
+            return;
+        }
+
+        TokenCostSummary summary = GetPeriodSummary(m_CodexTokenCostStatistics, period);
+        CodexSelectedTokenDisplay = AppSettings.FormatTokenCount(summary.TotalTokens, m_Settings.TokenUnit);
+        CodexSelectedCostDisplay = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
+
+        List<TokenCostModelShare> modelShares = m_CodexTokenCostStatistics.Models
+            .Select(model => new TokenCostModelShare(FormatModelLabel(model.Model), GetPeriodSummary(model, period).TotalTokens))
+            .Where(model => model.Tokens > 0)
+            .GroupBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new TokenCostModelShare(group.Key, group.Sum(model => model.Tokens)))
+            .OrderByDescending(model => model.Tokens)
+            .ThenBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (modelShares.Count == 0)
+        {
+            CodexTokenCostDonutSegments = [];
+            return;
+        }
+
+        int directModelCount = modelShares.Count > 4 ? 3 : Math.Min(4, modelShares.Count);
+        List<TokenCostModelShare> displayedShares = modelShares.Take(directModelCount).ToList();
+        long otherTokens = modelShares.Skip(directModelCount).Sum(model => model.Tokens);
+        if (otherTokens > 0)
+        {
+            displayedShares.Add(new TokenCostModelShare("Other", otherTokens));
+        }
+
+        long totalTokens = displayedShares.Sum(model => model.Tokens);
+        double startAngle = -90;
+        List<TokenCostDonutSegment> segments = new(displayedShares.Count);
+        for (int index = 0; index < displayedShares.Count; index++)
+        {
+            TokenCostModelShare model = displayedShares[index];
+            double sweepAngle = index == displayedShares.Count - 1
+                ? 270 - startAngle
+                : model.Tokens / (double)totalTokens * 360;
+            double share = model.Tokens / (double)totalTokens;
+            string shareText = $"{Math.Round(share * 100):0}%";
+            string tokensText = AppSettings.FormatTokenCount(model.Tokens, m_Settings.TokenUnit);
+            string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Share: {shareText}";
+            segments.Add(new TokenCostDonutSegment(
+                model.Label,
+                shareText,
+                s_TokenCostDonutBrushes[index],
+                CreateDonutSegmentGeometry(startAngle, sweepAngle),
+                tooltip));
+            startAngle += sweepAngle;
+        }
+
+        CodexTokenCostDonutSegments = segments;
+    }
+
+    /// <summary>
+    /// Returns the requested total token-cost period.
+    /// </summary>
+    private static TokenCostSummary GetPeriodSummary(TokenCostStatistics statistics, TokenCostPeriod period)
+    {
+        return period switch
+        {
+            TokenCostPeriod.Today => statistics.Today,
+            TokenCostPeriod.LastSevenDays => statistics.LastSevenDays,
+            TokenCostPeriod.LastThirtyDays => statistics.LastThirtyDays,
+            TokenCostPeriod.CurrentWeek => statistics.CurrentWeek,
+            TokenCostPeriod.CurrentMonth => statistics.CurrentMonth,
+            _ => statistics.Lifetime,
+        };
+    }
+
+    /// <summary>
+    /// Returns the requested model-specific token-cost period.
+    /// </summary>
+    private static TokenCostSummary GetPeriodSummary(TokenCostModelStatistics statistics, TokenCostPeriod period)
+    {
+        return period switch
+        {
+            TokenCostPeriod.Today => statistics.Today,
+            TokenCostPeriod.LastSevenDays => statistics.LastSevenDays,
+            TokenCostPeriod.LastThirtyDays => statistics.LastThirtyDays,
+            TokenCostPeriod.CurrentWeek => statistics.CurrentWeek,
+            TokenCostPeriod.CurrentMonth => statistics.CurrentMonth,
+            _ => statistics.Lifetime,
+        };
+    }
+
+    /// <summary>
+    /// Formats normalized model identifiers for the compact donut legend.
+    /// </summary>
+    private static string FormatModelLabel(string model)
+    {
+        string label = model;
+        string? suffix = s_ModelEffortSuffixes.FirstOrDefault(label.EndsWith);
+        if (suffix != null)
+        {
+            label = label[..^suffix.Length];
+        }
+
+        if (label.Equals("unknown", StringComparison.OrdinalIgnoreCase) || label.Length == 0)
+        {
+            return "Unknown";
+        }
+
+        return label.StartsWith("gpt-", StringComparison.OrdinalIgnoreCase)
+            ? $"GPT-{label[4..]}"
+            : label;
+    }
+
+    /// <summary>
+    /// Creates one filled ring segment for the Codex model distribution chart.
+    /// </summary>
+    private static Media.Geometry CreateDonutSegmentGeometry(double startAngle, double sweepAngle)
+    {
+        System.Windows.Point center = new(k_TokenCostDonutCenter, k_TokenCostDonutCenter);
+        if (sweepAngle >= 359.999)
+        {
+            Media.CombinedGeometry ring = new(
+                Media.GeometryCombineMode.Exclude,
+                new Media.EllipseGeometry(center, k_TokenCostDonutOuterRadius, k_TokenCostDonutOuterRadius),
+                new Media.EllipseGeometry(center, k_TokenCostDonutInnerRadius, k_TokenCostDonutInnerRadius));
+            ring.Freeze();
+            return ring;
+        }
+
+        double endAngle = startAngle + sweepAngle;
+        System.Windows.Point outerStart = PointOnCircle(center, k_TokenCostDonutOuterRadius, startAngle);
+        System.Windows.Point outerEnd = PointOnCircle(center, k_TokenCostDonutOuterRadius, endAngle);
+        System.Windows.Point innerEnd = PointOnCircle(center, k_TokenCostDonutInnerRadius, endAngle);
+        System.Windows.Point innerStart = PointOnCircle(center, k_TokenCostDonutInnerRadius, startAngle);
+        bool isLargeArc = sweepAngle > 180;
+        Media.PathFigure figure = new() { StartPoint = outerStart, IsClosed = true, IsFilled = true };
+        figure.Segments.Add(new Media.ArcSegment(outerEnd, new System.Windows.Size(k_TokenCostDonutOuterRadius, k_TokenCostDonutOuterRadius), 0, isLargeArc, Media.SweepDirection.Clockwise, true));
+        figure.Segments.Add(new Media.LineSegment(innerEnd, true));
+        figure.Segments.Add(new Media.ArcSegment(innerStart, new System.Windows.Size(k_TokenCostDonutInnerRadius, k_TokenCostDonutInnerRadius), 0, isLargeArc, Media.SweepDirection.Counterclockwise, true));
+        Media.PathGeometry geometry = new([figure]);
+        geometry.Freeze();
+        return geometry;
+    }
+
+    /// <summary>
+    /// Returns one Cartesian point on a circle for the supplied clockwise angle.
+    /// </summary>
+    private static System.Windows.Point PointOnCircle(System.Windows.Point center, double radius, double angle)
+    {
+        double radians = angle * Math.PI / 180;
+        return new System.Windows.Point(center.X + radius * Math.Cos(radians), center.Y + radius * Math.Sin(radians));
+    }
+
+    /// <summary>
+    /// Toggles the Codex chart between rolling thirty-day and current-month periods.
+    /// </summary>
+    [RelayCommand]
+    private void ToggleCodexTokenCostChartPeriod()
+    {
+        m_CodexTokenCostChartPeriod = m_CodexTokenCostChartPeriod == CodexTokenCostChartPeriod.LastThirtyDays
+            ? CodexTokenCostChartPeriod.CurrentMonth
+            : CodexTokenCostChartPeriod.LastThirtyDays;
+        UpdateCodexTokenCostChart();
+        UpdateCodexTokenCostPeriodRows();
+        UpdateCodexTokenCostDonut();
+    }
+
+    /// <summary>
+    /// Synchronizes Codex row titles, periods, and values with the active chart mode.
+    /// </summary>
+    private void UpdateCodexTokenCostPeriodRows()
+    {
+        bool useCalendarPeriods = m_CodexTokenCostChartPeriod == CodexTokenCostChartPeriod.CurrentMonth;
+        CodexTokenCostRows[1].Title = useCalendarPeriods ? "Week" : "7d";
+        CodexTokenCostRows[1].Period = useCalendarPeriods ? TokenCostPeriod.CurrentWeek : TokenCostPeriod.LastSevenDays;
+        CodexTokenCostRows[2].Title = useCalendarPeriods ? "Month" : "30d";
+        CodexTokenCostRows[2].Period = useCalendarPeriods ? TokenCostPeriod.CurrentMonth : TokenCostPeriod.LastThirtyDays;
+        UpdateTokenCostRows(CodexTokenCostRows, m_CodexTokenCostStatistics);
+    }
+
+    /// <summary>
+    /// Updates the Codex chart data, columns, labels, and toggle presentation.
+    /// </summary>
+    private void UpdateCodexTokenCostChart()
+    {
+        bool isCurrentMonth = m_CodexTokenCostChartPeriod == CodexTokenCostChartPeriod.CurrentMonth;
+        IReadOnlyList<TokenCostDailySummary>? dailySummaries;
+        int slotCount;
+        int interactiveSlotCount;
+        if (isCurrentMonth)
+        {
+            dailySummaries = CreateCurrentMonthChartDailySummaries(m_CodexTokenCostStatistics?.CurrentMonthDaily, out interactiveSlotCount);
+            slotCount = dailySummaries.Count;
+        }
+        else
+        {
+            dailySummaries = m_CodexTokenCostStatistics?.LastThirtyDaysDaily;
+            slotCount = 30;
+            interactiveSlotCount = slotCount;
+        }
+
+        CodexTokenCostChartColumnCount = slotCount;
+        CodexTokenCostChartDays = CreateTokenCostChartDays(dailySummaries, slotCount, k_CodexTokenCostChartMaximumBarHeight, useSparseDayLabels: true, interactiveSlotCount);
+        CodexTokenCostChartLabels = CreateCodexTokenCostChartLabels(CodexTokenCostChartDays, !isCurrentMonth);
+    }
+
+    /// <summary>
+    /// Pads current-month daily summaries through the final calendar day while keeping future slots empty.
+    /// </summary>
+    private static IReadOnlyList<TokenCostDailySummary> CreateCurrentMonthChartDailySummaries(
+        IReadOnlyList<TokenCostDailySummary>? dailySummaries,
+        out int interactiveSlotCount)
+    {
+        DateTime asOfDate = dailySummaries is { Count: > 0 }
+            ? dailySummaries.Max(day => day.Date)
+            : DateTime.Today;
+        DateTime monthStart = new(asOfDate.Year, asOfDate.Month, 1);
+        int daysInMonth = DateTime.DaysInMonth(asOfDate.Year, asOfDate.Month);
+        interactiveSlotCount = Math.Clamp(asOfDate.Day, 1, daysInMonth);
+        Dictionary<DateTime, TokenCostSummary> summariesByDate = dailySummaries?
+            .Where(day => day.Date.Year == asOfDate.Year && day.Date.Month == asOfDate.Month)
+            .ToDictionary(day => day.Date.Date, day => day.Summary)
+            ?? [];
+        return Enumerable.Range(0, daysInMonth)
+            .Select(index =>
+            {
+                DateTime date = monthStart.AddDays(index);
+                return new TokenCostDailySummary
+                {
+                    Date = date,
+                    Summary = summariesByDate.GetValueOrDefault(date) ?? new TokenCostSummary(),
+                };
+            })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Creates up to four independently positioned labels for the Codex chart axis.
+    /// </summary>
+    private static IReadOnlyList<TokenCostChartLabel> CreateCodexTokenCostChartLabels(IReadOnlyList<TokenCostChartDay> days, bool useRollingThirtyDayTicks)
+    {
+        if (days.Count == 0)
+        {
+            return [];
+        }
+
+        int lastIndex = days.Count - 1;
+        int[] indexes = useRollingThirtyDayTicks && days.Count == 30
+            ? [0, 9, 19, 29]
+            : [0, lastIndex / 3, lastIndex * 2 / 3, lastIndex];
+        double plotWidth = k_CodexTokenCostChartWidth - k_CodexTokenCostChartHorizontalMargin * 2;
+        return indexes
+            .Distinct()
+            .Select(index =>
+            {
+                double center = k_CodexTokenCostChartHorizontalMargin + plotWidth * (index + 0.5) / days.Count;
+                double left = Math.Clamp(center - k_CodexTokenCostChartLabelWidth / 2, 0, k_CodexTokenCostChartWidth - k_CodexTokenCostChartLabelWidth);
+                return new TokenCostChartLabel(days[index].Date.Day.ToString(CultureInfo.InvariantCulture), left);
+            })
+            .ToArray();
     }
 
     /// <summary>
@@ -917,35 +1259,61 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     private IReadOnlyList<TokenCostChartDay> CreateTokenCostChartDays(TokenCostStatistics? statistics)
     {
-        if (statistics == null || statistics.LastSevenDaysDaily.Count == 0)
+        return CreateTokenCostChartDays(statistics?.LastSevenDaysDaily, 7, k_TokenCostChartMaximumBarHeight, useSparseDayLabels: false);
+    }
+
+    /// <summary>
+    /// Creates a rolling token-cost chart for the supplied daily sequence.
+    /// </summary>
+    private IReadOnlyList<TokenCostChartDay> CreateTokenCostChartDays(
+        IReadOnlyList<TokenCostDailySummary>? dailySummaries,
+        int slotCount,
+        double maximumBarHeight,
+        bool useSparseDayLabels,
+        int? interactiveSlotCount = null)
+    {
+        int interactiveCount = Math.Clamp(interactiveSlotCount ?? slotCount, 0, slotCount);
+        if (dailySummaries == null || dailySummaries.Count == 0)
         {
-            List<TokenCostChartDay> unavailableDays = new(7);
-            for (int offset = -6; offset <= 0; offset++)
+            List<TokenCostChartDay> unavailableDays = new(slotCount);
+            for (int offset = 1 - slotCount; offset <= 0; offset++)
             {
+                int index = offset + slotCount - 1;
                 DateTime date = DateTime.Today.AddDays(offset);
                 string tooltip = $"{date:yyyy-MM-dd}{Environment.NewLine}Tokens: N/A{Environment.NewLine}Cost: N/A";
-                unavailableDays.Add(new TokenCostChartDay(date.ToString("ddd", CultureInfo.InvariantCulture)[..1], 0, tooltip));
+                string label = useSparseDayLabels && (index == 0 || index == slotCount - 1 || (index + 1) % 10 == 0)
+                    ? date.Day.ToString(CultureInfo.InvariantCulture)
+                    : useSparseDayLabels
+                        ? string.Empty
+                        : date.ToString("ddd", CultureInfo.InvariantCulture)[..1];
+                unavailableDays.Add(new TokenCostChartDay(date, label, 0, tooltip, index < interactiveCount));
             }
 
             return unavailableDays;
         }
 
-        decimal maximumCost = statistics.LastSevenDaysDaily.Max(day => day.Summary.CostUsd ?? 0);
-        long maximumTokens = statistics.LastSevenDaysDaily.Max(day => day.Summary.TotalTokens);
+        decimal maximumCost = dailySummaries.Max(day => day.Summary.CostUsd ?? 0);
+        long maximumTokens = dailySummaries.Max(day => day.Summary.TotalTokens);
         bool chartByCost = maximumCost > 0;
-        List<TokenCostChartDay> days = new(statistics.LastSevenDaysDaily.Count);
-        foreach (TokenCostDailySummary day in statistics.LastSevenDaysDaily)
+        List<TokenCostChartDay> days = new(dailySummaries.Count);
+        for (int index = 0; index < dailySummaries.Count; index++)
         {
+            TokenCostDailySummary day = dailySummaries[index];
             decimal cost = day.Summary.CostUsd ?? 0;
             double height = chartByCost
-                ? cost <= 0 ? 0 : Math.Max(2, (double)(cost / maximumCost) * k_TokenCostChartMaximumBarHeight)
+                ? cost <= 0 ? 0 : Math.Max(2, (double)(cost / maximumCost) * maximumBarHeight)
                 : maximumTokens <= 0 || day.Summary.TotalTokens <= 0
                     ? 0
-                    : Math.Max(2, (double)day.Summary.TotalTokens / maximumTokens * k_TokenCostChartMaximumBarHeight);
+                    : Math.Max(2, (double)day.Summary.TotalTokens / maximumTokens * maximumBarHeight);
             string costText = day.Summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
             string tokensText = AppSettings.FormatTokenCount(day.Summary.TotalTokens, m_Settings.TokenUnit);
             string tooltip = $"{day.Date:yyyy-MM-dd}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}";
-            days.Add(new TokenCostChartDay(day.Date.ToString("ddd", CultureInfo.InvariantCulture)[..1], height, tooltip));
+            string label = useSparseDayLabels && (index == 0 || index == dailySummaries.Count - 1 || (index + 1) % 10 == 0)
+                ? day.Date.Day.ToString(CultureInfo.InvariantCulture)
+                : useSparseDayLabels
+                    ? string.Empty
+                    : day.Date.ToString("ddd", CultureInfo.InvariantCulture)[..1];
+            days.Add(new TokenCostChartDay(day.Date, label, height, tooltip, index < interactiveCount));
         }
 
         return days;
@@ -1599,20 +1967,28 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     internal sealed partial class TokenCostRowViewModel : ObservableObject
     {
-        public string Title { get; }
+        [ObservableProperty]
+        public partial string Title { get; internal set; }
+
+        public TokenCostPeriod Period { get; internal set; }
 
         [ObservableProperty]
         public partial TokenCostDisplay Display { get; internal set; } = s_UnavailableTokenCostDisplay;
+
+        [ObservableProperty]
+        public partial bool IsSelected { get; internal set; }
 
         public bool IsLast { get; }
 
         /// <summary>
         /// Creates one fixed token-cost display row.
         /// </summary>
-        public TokenCostRowViewModel(string title, bool isLast = false)
+        public TokenCostRowViewModel(string title, TokenCostPeriod period, bool isLast = false, bool isSelected = false)
         {
             Title = title;
+            Period = period;
             IsLast = isLast;
+            IsSelected = isSelected;
         }
     }
 

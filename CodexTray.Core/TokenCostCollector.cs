@@ -18,6 +18,23 @@ public sealed class TokenCostDailySummary
     public TokenCostSummary Summary { get; init; } = new();
 }
 
+public sealed class TokenCostModelStatistics
+{
+    public string Model { get; init; } = string.Empty;
+
+    public TokenCostSummary Today { get; init; } = new();
+
+    public TokenCostSummary LastSevenDays { get; init; } = new();
+
+    public TokenCostSummary LastThirtyDays { get; init; } = new();
+
+    public TokenCostSummary CurrentWeek { get; init; } = new();
+
+    public TokenCostSummary CurrentMonth { get; init; } = new();
+
+    public TokenCostSummary Lifetime { get; init; } = new();
+}
+
 public sealed class TokenCostStatistics
 {
     public TokenCostSummary Today { get; init; } = new();
@@ -26,9 +43,19 @@ public sealed class TokenCostStatistics
 
     public TokenCostSummary LastThirtyDays { get; init; } = new();
 
+    public TokenCostSummary CurrentWeek { get; init; } = new();
+
+    public TokenCostSummary CurrentMonth { get; init; } = new();
+
     public TokenCostSummary Lifetime { get; init; } = new();
 
     public IReadOnlyList<TokenCostDailySummary> LastSevenDaysDaily { get; init; } = [];
+
+    public IReadOnlyList<TokenCostDailySummary> LastThirtyDaysDaily { get; init; } = [];
+
+    public IReadOnlyList<TokenCostDailySummary> CurrentMonthDaily { get; init; } = [];
+
+    public IReadOnlyList<TokenCostModelStatistics> Models { get; init; } = [];
 }
 
 public sealed class TokenCostCollector
@@ -107,7 +134,7 @@ public sealed class TokenCostCollector
         foreach (GrokTurnUsage usage in turns.Values)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd);
+                accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd);
         }
 
         return accumulator.ToStatistics();
@@ -420,7 +447,7 @@ public sealed class TokenCostCollector
                     continue;
                 }
 
-                accumulator.Add(timestamp, delta.Total, CalculateCost(pricing, model, delta));
+                accumulator.Add(timestamp, delta.Total, CalculateCost(pricing, model, delta), model);
             }
             catch (JsonException)
             {
@@ -482,7 +509,7 @@ public sealed class TokenCostCollector
 
                     DateTimeOffset timestamp = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(0));
                     string model = NormalizeModel(GetString(root, "modelID"));
-                    accumulator.Add(timestamp, counts.Total, CalculateCost(pricing, model, counts));
+                    accumulator.Add(timestamp, counts.Total, CalculateCost(pricing, model, counts), model);
                 }
                 catch (Exception exception) when (exception is JsonException or OverflowException or ArgumentOutOfRangeException)
                 {

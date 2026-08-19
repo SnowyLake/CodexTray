@@ -30,7 +30,7 @@
 
 - 显示 Codex 计划状态, Session 与 Weekly 剩余额度和重置时间.
 - 显示可用 Reset Credits 数量及最近到期时间.
-- Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 提供最近 7 天的成本趋势图, 并支持中英文 token 数量单位.
+- Codex Token Cost 在滚动模式显示 Today, 7d, 30d 和 Lifetime, 在自然周期模式显示 Today, Week, Month 和 Lifetime. 圆环模型占比与趋势图会同步切换周期. 自然月按整月固定宽度展示, 未来日期保留空白. 页面同时支持中英文 token 数量单位. Grok 与 Cursor 仍显示最近 7 天趋势.
 - Grok 页面显示订阅类型, Weekly 剩余额度和重置时间, 并统计本机 Grok Build session 的 Today, 7d, 30d 和 Lifetime token 与费用. 登录信息仅从本机 Grok Build OAuth session 读取.
 - Cursor 页面显示 Monthly, First party 和 APIs 剩余额度, Monthly 重置时间, 以及实际账单 token, 成本和最近 7 天的成本趋势.
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 Vercel AI Gateway 剩余与累计已用 credits.
@@ -57,7 +57,7 @@
 
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
-- Codex 页: 查看额度, Reset Credits, Token Cost 和最近更新时间.
+- Codex 页: 查看 Weekly 额度, Reset Credits, 四个时段的 Token Cost, 当前时段模型 token 占比, 可切换的最近 30 天与当前自然月趋势, 以及最近更新时间.
 - Grok 页: 查看从本机 Grok Build 登录信息获取的 Weekly 额度, 重置时间和本地 Token Cost 统计.
 - Cursor 页: 查看 Monthly, First party, APIs 额度和实际账单 Token Cost.
 - APIs 页: 添加和查看 DeepSeek, NewAPI, OpenRouter, NanoGPT 或 Vercel AI Gateway 监控卡片.
