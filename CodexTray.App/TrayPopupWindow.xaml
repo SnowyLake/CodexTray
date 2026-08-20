@@ -521,55 +521,12 @@
                 </StackPanel>
             </DataTemplate>
 
-            <DataTemplate x:Key="CompactTokenCostRowDataTemplate">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Grid MinHeight="38"
-                          Margin="2,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="{Binding Title}"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                   FontSize="13.5"
-                                   FontWeight="Medium" />
-                        <TextBlock Grid.Column="1"
-                                   Text="{Binding Display.Tokens}"
-                                   ToolTip="{Binding Display.Cost, StringFormat=Cost: {0}}"
-                                   ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                   ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                   HorizontalAlignment="Right"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   FontSize="13.5" />
-                    </Grid>
-                    <Border Grid.Row="1"
-                            Height="1"
-                            Background="{DynamicResource ControlStrokeColorDefaultBrush}">
-                        <Border.Style>
-                            <Style TargetType="{x:Type Border}">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsLast}" Value="True">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                    </Border>
-                </Grid>
-            </DataTemplate>
-
-            <DataTemplate x:Key="CodexTokenCostRowDataTemplate">
+            <DataTemplate x:Key="TokenCostPeriodRowDataTemplate">
                 <Button Width="140"
                         Height="39"
                         Padding="0"
                         HorizontalContentAlignment="Stretch"
-                        Command="{Binding DataContext.SelectCodexTokenCostPeriodCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                        Command="{Binding DataContext.SelectPeriodCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
                         CommandParameter="{Binding}"
                         Cursor="Hand"
                         FocusVisualStyle="{x:Null}">
@@ -607,7 +564,7 @@
                                           HorizontalAlignment="Right"
                                           VerticalAlignment="Center"
                                           Data="M0,0 L5,4 L0,8 Z"
-                                          Fill="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                          Fill="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
                                           Stretch="Fill"
                                           Visibility="Collapsed" />
                                 </Grid>
@@ -629,55 +586,162 @@
                 </Button>
             </DataTemplate>
 
-            <DataTemplate x:Key="CodexTokenCostChartDayDataTemplate">
+            <DataTemplate x:Key="TokenCostTrendDayDataTemplate">
                 <Grid Background="Transparent"
                       IsHitTestVisible="{Binding IsInteractive}"
                       ToolTip="{Binding Tooltip}"
                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
-                    <Border Height="{Binding BarHeight}"
+                    <Border x:Name="TokenCostChartBar"
+                            Height="{Binding BarHeight}"
                             Margin="0.75,0"
                             HorizontalAlignment="Stretch"
                             VerticalAlignment="Bottom"
-                            Background="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                            Background="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
                             CornerRadius="1,1,0,0" />
                 </Grid>
             </DataTemplate>
 
-            <DataTemplate x:Key="TokenCostChartDayDataTemplate">
-                <Grid Margin="2,0">
+            <DataTemplate x:Key="TokenCostDashboardDataTemplate">
+                <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="160" />
                         <RowDefinition Height="*" />
-                        <RowDefinition Height="20" />
+                        <RowDefinition Height="86" />
                     </Grid.RowDefinitions>
-                    <Border x:Name="TokenCostChartBar"
-                            Width="10"
-                            Height="{Binding BarHeight}"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Bottom"
-                            ToolTip="{Binding Tooltip}"
-                            ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                            ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
-                        <Border.Style>
-                            <Style TargetType="{x:Type Border}">
-                                <Setter Property="Background" Value="{Binding DataContext.StatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding DataContext.IsGrokVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
-                                        <Setter Property="Background" Value="{Binding DataContext.GrokStatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding DataContext.IsCursorVisible, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True">
-                                        <Setter Property="Background" Value="{Binding DataContext.CursorStatusDotBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                    </Border>
-                    <TextBlock Grid.Row="1"
-                               Text="{Binding Label}"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Bottom"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                               FontSize="12" />
+
+                    <Grid x:Name="TokenCostOverview">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <ItemsControl ItemsSource="{Binding Rows}"
+                                      VerticalAlignment="Center"
+                                      ItemTemplate="{StaticResource TokenCostPeriodRowDataTemplate}">
+                            <ItemsControl.RenderTransform>
+                                <TranslateTransform X="4" />
+                            </ItemsControl.RenderTransform>
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="{x:Type ContentPresenter}">
+                                    <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
+                        </ItemsControl>
+
+                        <Grid x:Name="TokenCostDonutArea"
+                              Grid.Column="2">
+                            <Grid Width="128"
+                                  Height="128"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center">
+                                <Ellipse Width="124"
+                                         Height="124"
+                                         Stroke="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                         StrokeThickness="13" />
+                                <ItemsControl Width="128"
+                                              Height="128"
+                                              ItemsSource="{Binding DonutSegments}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <Grid />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Path Data="{Binding Geometry}"
+                                                  Fill="{Binding Brush}"
+                                                  Stroke="{DynamicResource ApplicationBackgroundBrush}"
+                                                  StrokeThickness="0.8"
+                                                  ToolTip="{Binding Tooltip}"
+                                                  ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                  ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <StackPanel HorizontalAlignment="Center"
+                                            VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding SelectedTokenDisplay}"
+                                               HorizontalAlignment="Center"
+                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                               FontSize="14" />
+                                    <TextBlock Text="{Binding SelectedCostDisplay}"
+                                               Margin="0,1,0,0"
+                                               HorizontalAlignment="Center"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                               FontSize="11.5" />
+                                </StackPanel>
+                            </Grid>
+                            <Button x:Name="TokenCostChartPeriodButton"
+                                    Width="28"
+                                    Height="22"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Top"
+                                    Command="{Binding ToggleChartPeriodCommand}"
+                                    Content="&#xE8AB;"
+                                    FontSize="14"
+                                    Style="{StaticResource IconButtonStyle}" />
+                        </Grid>
+                    </Grid>
+
+                    <Grid x:Name="TokenCostChartFrame"
+                          Grid.Row="2"
+                          Height="86"
+                          ClipToBounds="True">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="17" />
+                        </Grid.RowDefinitions>
+                        <Grid x:Name="TokenCostChartPlot"
+                              ClipToBounds="True">
+                            <Border Height="1"
+                                    VerticalAlignment="Bottom"
+                                    Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                            <ItemsControl x:Name="TokenCostChartItemsControl"
+                                          Margin="10,0"
+                                          ClipToBounds="True"
+                                          ItemsSource="{Binding ChartDays}"
+                                          ItemTemplate="{StaticResource TokenCostTrendDayDataTemplate}">
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="{x:Type ContentPresenter}">
+                                        <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="{Binding ChartColumnCount}" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </Grid>
+                        <ItemsControl Grid.Row="1"
+                                      Width="310"
+                                      Height="17"
+                                      HorizontalAlignment="Center"
+                                      IsHitTestVisible="False"
+                                      ItemsSource="{Binding ChartLabels}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas Width="310" Height="17" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="{x:Type ContentPresenter}">
+                                    <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Width="28"
+                                               Text="{Binding Text}"
+                                               TextAlignment="Center"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                               FontSize="10.5" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
                 </Grid>
             </DataTemplate>
 
@@ -830,150 +894,27 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <Grid x:Name="CodexTokenCostOverview"
-                      Grid.Row="3">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="140" />
-                        <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-
-                    <ItemsControl ItemsSource="{Binding CodexTokenCostRows}"
-                                  VerticalAlignment="Center"
-                                  ItemTemplate="{StaticResource CodexTokenCostRowDataTemplate}">
-                        <ItemsControl.RenderTransform>
-                            <TranslateTransform X="4" />
-                        </ItemsControl.RenderTransform>
-                        <ItemsControl.ItemContainerStyle>
-                            <Style TargetType="{x:Type ContentPresenter}">
-                                <Setter Property="HorizontalAlignment" Value="Stretch" />
-                            </Style>
-                        </ItemsControl.ItemContainerStyle>
-                    </ItemsControl>
-
-                    <Grid x:Name="CodexTokenCostDonutArea"
-                          Grid.Column="2">
-                        <Grid Width="128"
-                              Height="128"
-                              HorizontalAlignment="Center"
-                              VerticalAlignment="Center">
-                            <Ellipse Width="124"
-                                     Height="124"
-                                     Stroke="{DynamicResource ControlStrokeColorDefaultBrush}"
-                                     StrokeThickness="13" />
-                            <ItemsControl Width="128"
-                                          Height="128"
-                                          ItemsSource="{Binding CodexTokenCostDonutSegments}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <Grid />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Path Data="{Binding Geometry}"
-                                              Fill="{Binding Brush}"
-                                              Stroke="{DynamicResource ApplicationBackgroundBrush}"
-                                              StrokeThickness="0.8"
-                                              ToolTip="{Binding Tooltip}"
-                                              ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                              ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <StackPanel HorizontalAlignment="Center"
-                                        VerticalAlignment="Center">
-                                <TextBlock Text="{Binding CodexSelectedTokenDisplay}"
-                                           HorizontalAlignment="Center"
-                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                           FontSize="14" />
-                                <TextBlock Text="{Binding CodexSelectedCostDisplay}"
-                                           Margin="0,1,0,0"
-                                           HorizontalAlignment="Center"
-                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                           FontSize="11.5" />
-                            </StackPanel>
-                        </Grid>
-                        <Button x:Name="CodexTokenCostChartPeriodButton"
-                                Width="28"
-                                Height="22"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Top"
-                                Command="{Binding ToggleCodexTokenCostChartPeriodCommand}"
-                                Content="&#xE8AB;"
-                                FontSize="14"
-                                Style="{StaticResource IconButtonStyle}" />
-                    </Grid>
-                </Grid>
-
-                <Grid Grid.Row="5">
-                    <Grid x:Name="CodexTokenCostChartFrame"
-                          Height="86"
-                          ClipToBounds="True">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*" />
-                            <RowDefinition Height="17" />
-                        </Grid.RowDefinitions>
-                        <Grid x:Name="CodexTokenCostChartPlot"
-                              ClipToBounds="True">
-                            <Border Height="1"
-                                    VerticalAlignment="Bottom"
-                                    Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
-                            <ItemsControl x:Name="CodexTokenCostChartItemsControl"
-                                          Margin="10,0"
-                                          ClipToBounds="True"
-                                          ItemsSource="{Binding CodexTokenCostChartDays}"
-                                          ItemTemplate="{StaticResource CodexTokenCostChartDayDataTemplate}">
-                                <ItemsControl.ItemContainerStyle>
-                                    <Style TargetType="{x:Type ContentPresenter}">
-                                        <Setter Property="HorizontalAlignment" Value="Stretch" />
-                                    </Style>
-                                </ItemsControl.ItemContainerStyle>
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <UniformGrid Columns="{Binding CodexTokenCostChartColumnCount}" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                            </ItemsControl>
-                        </Grid>
-                        <ItemsControl Grid.Row="1"
-                                      Width="310"
-                                      Height="17"
-                                      HorizontalAlignment="Center"
-                                      IsHitTestVisible="False"
-                                      ItemsSource="{Binding CodexTokenCostChartLabels}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <Canvas Width="310" Height="17" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemContainerStyle>
-                                <Style TargetType="{x:Type ContentPresenter}">
-                                    <Setter Property="Canvas.Left" Value="{Binding Left}" />
-                                </Style>
-                            </ItemsControl.ItemContainerStyle>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Width="28"
-                                               Text="{Binding Text}"
-                                               TextAlignment="Center"
-                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                               FontSize="10.5" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </Grid>
-                </Grid>
+                <ContentControl x:Name="CodexTokenCostDashboard"
+                                Grid.Row="3"
+                                Grid.RowSpan="3"
+                                Content="{Binding CodexTokenCost}"
+                                ContentTemplate="{StaticResource TokenCostDashboardDataTemplate}"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch" />
 
             </Grid>
 
             <!-- ===================== GROK ===================== -->
-            <Grid Grid.Row="0"
+            <Grid x:Name="GrokPageGrid"
+                  Grid.Row="0"
                   Visibility="{Binding IsGrokVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="298" />
+                    <RowDefinition Height="189" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="160" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="86" />
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0">
@@ -1031,7 +972,7 @@
 
                 <ScrollViewer x:Name="GrokQuotaScrollViewer"
                               Grid.Row="1"
-                              Margin="0,24,-8,0"
+                              Margin="0,18,-8,0"
                               Padding="0,0,8,0"
                               HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Hidden">
@@ -1047,54 +988,26 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <Grid Grid.Row="2"
-                      Margin="0,22,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-
-                    <ItemsControl ItemsSource="{Binding GrokTokenCostRows}"
-                                  ItemTemplate="{StaticResource CompactTokenCostRowDataTemplate}">
-                        <ItemsControl.ItemContainerStyle>
-                            <Style TargetType="{x:Type ContentPresenter}">
-                                <Setter Property="HorizontalAlignment" Value="Stretch" />
-                            </Style>
-                        </ItemsControl.ItemContainerStyle>
-                    </ItemsControl>
-
-                    <Border Grid.Column="1"
-                            Width="1"
-                            Margin="16,0"
-                            Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
-
-                    <Grid Grid.Column="2"
-                          Height="132">
-                        <Border Height="1"
-                                Margin="0,0,0,20"
-                                VerticalAlignment="Bottom"
-                                Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
-                        <ItemsControl x:Name="GrokTokenCostChartItemsControl"
-                                      ItemsSource="{Binding GrokTokenCostChartDays}"
-                                      ItemTemplate="{StaticResource TokenCostChartDayDataTemplate}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <UniformGrid Columns="7" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
-                    </Grid>
-                </Grid>
+                <ContentControl x:Name="GrokTokenCostDashboard"
+                                Grid.Row="3"
+                                Grid.RowSpan="3"
+                                Content="{Binding GrokTokenCost}"
+                                ContentTemplate="{StaticResource TokenCostDashboardDataTemplate}"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch" />
             </Grid>
 
             <!-- ===================== CURSOR ===================== -->
-            <Grid Grid.Row="0"
+            <Grid x:Name="CursorPageGrid"
+                  Grid.Row="0"
                   Visibility="{Binding IsCursorVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="298" />
+                    <RowDefinition Height="189" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="160" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="86" />
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0">
@@ -1152,7 +1065,7 @@
 
                 <ScrollViewer x:Name="CursorQuotaScrollViewer"
                               Grid.Row="1"
-                              Margin="0,24,-8,0"
+                              Margin="0,18,-8,0"
                               Padding="0,0,8,0"
                               HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Hidden">
@@ -1166,65 +1079,42 @@
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
 
-                        <Border x:Name="CursorAutoCard"
-                                Margin="0,0,0,12"
-                                Style="{StaticResource SmallUsageCardStyle}"
-                                Visibility="{Binding CursorAutoQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <ContentControl Content="{Binding CursorAutoQuota}"
-                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                            HorizontalContentAlignment="Stretch" />
-                        </Border>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="CursorAutoCard"
+                                    Margin="0"
+                                    Style="{StaticResource SmallUsageCardStyle}"
+                                    Visibility="{Binding CursorAutoQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <ContentControl Content="{Binding CursorAutoQuota}"
+                                                ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
+                                                HorizontalContentAlignment="Stretch" />
+                            </Border>
 
-                        <Border x:Name="CursorApiCard"
-                                Margin="0"
-                                Style="{StaticResource SmallUsageCardStyle}"
-                                Visibility="{Binding CursorApiQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <ContentControl Content="{Binding CursorApiQuota}"
-                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                            HorizontalContentAlignment="Stretch" />
-                        </Border>
+                            <Border x:Name="CursorApiCard"
+                                    Grid.Column="2"
+                                    Margin="0"
+                                    Style="{StaticResource SmallUsageCardStyle}"
+                                    Visibility="{Binding CursorApiQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <ContentControl Content="{Binding CursorApiQuota}"
+                                                ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
+                                                HorizontalContentAlignment="Stretch" />
+                            </Border>
+                        </Grid>
 
                     </StackPanel>
                 </ScrollViewer>
 
-                <Grid Grid.Row="2"
-                      Margin="0,22,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-
-                    <ItemsControl ItemsSource="{Binding CursorTokenCostRows}"
-                                  ItemTemplate="{StaticResource CompactTokenCostRowDataTemplate}">
-                        <ItemsControl.ItemContainerStyle>
-                            <Style TargetType="{x:Type ContentPresenter}">
-                                <Setter Property="HorizontalAlignment" Value="Stretch" />
-                            </Style>
-                        </ItemsControl.ItemContainerStyle>
-                    </ItemsControl>
-
-                    <Border Grid.Column="1"
-                            Width="1"
-                            Margin="16,0"
-                            Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
-
-                    <Grid Grid.Column="2"
-                          Height="132">
-                        <Border Height="1"
-                                Margin="0,0,0,20"
-                                VerticalAlignment="Bottom"
-                                Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
-                        <ItemsControl ItemsSource="{Binding CursorTokenCostChartDays}"
-                                      ItemTemplate="{StaticResource TokenCostChartDayDataTemplate}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <UniformGrid Columns="7" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
-                    </Grid>
-                </Grid>
+                <ContentControl x:Name="CursorTokenCostDashboard"
+                                Grid.Row="3"
+                                Grid.RowSpan="3"
+                                Content="{Binding CursorTokenCost}"
+                                ContentTemplate="{StaticResource TokenCostDashboardDataTemplate}"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch" />
             </Grid>
 
             <!-- ===================== APIs ===================== -->
@@ -1622,24 +1512,6 @@
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding UseAbsoluteResetTime}"
                                       ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown" />
-                        </Grid>
-
-                        <Grid ToolTip="Hide Codex quota rows when the account has no active window for that limit"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Hide invalid progress bars"
-                                       ToolTip="Hide Codex quota rows when the account has no active window for that limit"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <CheckBox Grid.Column="1"
-                                      HorizontalAlignment="Right"
-                                      VerticalAlignment="Center"
-                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                      IsChecked="{Binding HideInvalidProgressBars}"
-                                      ToolTip="Hide Codex quota rows when the account has no active window for that limit" />
                         </Grid>
 
                         <Grid Margin="{StaticResource SettingsSectionEndMargin}"

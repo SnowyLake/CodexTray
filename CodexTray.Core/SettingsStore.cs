@@ -115,8 +115,6 @@ public sealed class AppSettings
 
     public bool UseAbsoluteResetTime { get; set; } = CodexTrayDefaults.UseAbsoluteResetTime;
 
-    public bool HideInvalidProgressBars { get; set; } = CodexTrayDefaults.HideInvalidProgressBars;
-
     public List<ApiMonitorSettings> ApiMonitors { get; set; } = [];
 
     /// <summary>

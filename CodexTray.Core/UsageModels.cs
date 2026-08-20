@@ -13,7 +13,6 @@ public static class CodexTrayDefaults
     public const int MaximumRefreshIntervalMinutes = 1440;
     public const bool ShowResetTimeInPlugins = true;
     public const bool UseAbsoluteResetTime = true;
-    public const bool HideInvalidProgressBars = true;
     public const double PopupWindowWidth = 360;
     public const double PopupWindowHeight = 620;
     public const string AppName = "CodexTray";

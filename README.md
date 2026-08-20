@@ -28,16 +28,16 @@
 
 ## 功能
 
-- 显示 Codex 计划状态, Session 与 Weekly 剩余额度和重置时间.
+- 显示 Codex 计划状态, Weekly 剩余额度和重置时间.
 - 显示可用 Reset Credits 数量及最近到期时间.
-- Codex Token Cost 在滚动模式显示 Today, 7d, 30d 和 Lifetime, 在自然周期模式显示 Today, Week, Month 和 Lifetime. 圆环模型占比与趋势图会同步切换周期. 自然月按整月固定宽度展示, 未来日期保留空白. 页面同时支持中英文 token 数量单位. Grok 与 Cursor 仍显示最近 7 天趋势.
+- Codex, Grok 和 Cursor Token Cost 在滚动模式显示 Today, 7d, 30d 和 Lifetime, 在自然周期模式显示 Today, Week, Month 和 Lifetime. 圆环模型占比与趋势图会同步切换周期. 自然月按整月固定宽度展示, 未来日期保留空白. 页面同时支持中英文 token 数量单位.
 - Grok 页面显示订阅类型, Weekly 剩余额度和重置时间, 并统计本机 Grok Build session 的 Today, 7d, 30d 和 Lifetime token 与费用. 登录信息仅从本机 Grok Build OAuth session 读取.
-- Cursor 页面显示 Monthly, First party 和 APIs 剩余额度, Monthly 重置时间, 以及实际账单 token, 成本和最近 7 天的成本趋势.
+- Cursor 页面显示 Monthly, First party 和 APIs 剩余额度, 后两项以半宽卡片并排显示. 页面还会显示 Monthly 重置时间, 实际账单 token, 成本, 模型占比和可切换的 30 日趋势.
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 Vercel AI Gateway 剩余与累计已用 credits.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
 - 支持 `System`, `Light`, `Dark` 主题和 Windows 11 Mica 背景材质, 主面板固定为 360 x 620. Windows 10 固定使用纯色背景.
-- 支持隐藏 Codex, Grok, Cursor 或 APIs 页面并停止对应后台采集, 以及隐藏没有有效额度窗口的 Codex 进度条.
+- 支持隐藏 Codex, Grok, Cursor 或 APIs 页面并停止对应后台采集.
 - 自动检测 LiteMonitor 与 TrafficMonitor 安装目录, 并一键安装对应插件.
 - 支持插件中显示或隐藏额度重置时间, 以及倒计时或绝对时间格式.
 - 支持随 Windows 启动, 自定义本地 HTTP 端口和单实例运行.
@@ -70,7 +70,7 @@
 
 Grok 页面只读取本机 Grok Build 保存在 `~/.grok/auth.json` 中的 xAI OAuth session, 并向 Grok 官方 billing 接口查询 Weekly 额度和重置时间. 订阅类型显示在页面标题旁, 使用 Grok Build 本地 billing 日志中的最近类型; 日志中没有有效记录时, 仅检查当前 access token 对应的 auth 条目, 不会从未知 protobuf 字段猜测套餐. 常见返回值包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列. 上方额度区域只有一张 Weekly 大卡片, 重置时间遵循 Settings 页中的倒计时或绝对时间格式设置.
 
-页面下方会读取 `~/.grok/sessions/**/updates.jsonl` 与 `~/.grok/archived_sessions/**/updates.jsonl`, 按 `turn_completed` 事件汇总 Today, 7d, 30d 和 Lifetime token 与费用, 并显示最近 7 天的趋势. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在 output 中, 不会重复相加.
+页面下方会读取 `~/.grok/sessions/**/updates.jsonl` 与 `~/.grok/archived_sessions/**/updates.jsonl`, 按 `turn_completed` 事件汇总 Today, 7d, 30d 和 Lifetime token 与费用, 并显示模型占比和可切换的 30 日趋势. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在 output 中, 不会重复相加.
 
 费用规则与 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs) 保持一致. 完整的 `costUsdTicks` 是 Grok Build 自报的本轮精确费用, CodexTray 会优先使用它, 因而可以保留工具调用等官方已计入的费用. 当自报费用缺失或被 `costIsPartial` 标记为部分费用时, 再使用 `Resources/model-pricing.json` 中对应模型的输入, 缓存输入和输出价格回算. 如果既没有可用的自报费用也找不到模型价格, 对应周期的 Cost 显示为 `N/A`.
 
@@ -78,7 +78,7 @@ access token 临近过期或被接口拒绝时, CodexTray 会使用 refresh toke
 
 ## Cursor 页面
 
-Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个数据区域共享一次本地凭据读取和最多一次 OAuth refresh 重试. Monthly, First party 和 APIs 显示独立剩余额度, 只有 Monthly 显示重置时间. Monthly 同时进入本地插件接口. Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 提供最近 7 天的成本趋势图, 并与 Codex 页共享 token 单位设置.
+Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个数据区域共享一次本地凭据读取和最多一次 OAuth refresh 重试. Monthly, First party 和 APIs 显示独立剩余额度, First party 与 APIs 以半宽卡片并排显示, 只有 Monthly 显示重置时间. Monthly 同时进入本地插件接口. Token Cost 与 Codex, Grok 页面共享时段列表, 模型占比圆环和可切换的 30 日趋势图, 并与 Codex 页共享 token 单位设置.
 
 Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不会用本地模型价格表重算. OAuth token 不会写入 `settings.json`.
 

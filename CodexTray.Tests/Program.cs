@@ -103,7 +103,6 @@ internal static class Program
                     ApiMonitors = [new ApiMonitorSettings()],
                 };
                 TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
-                AssertEqual("Session", viewModel.SessionQuota.Title, "Codex session quota title");
                 AssertEqual("Weekly", viewModel.WeeklyQuota.Title, "Codex weekly quota title");
                 AssertEqual("Weekly", viewModel.GrokWeeklyQuota.Title, "Grok weekly quota title");
                 AssertEqual("Monthly", viewModel.CursorMonthlyQuota.Title, "Cursor monthly quota title");
@@ -115,7 +114,6 @@ internal static class Program
                         Available = true,
                         Limits = new UsageLimits
                         {
-                            Session = new UsageLimit { WindowMinutes = 300, RemainingPercent = 100 },
                             Weekly = new UsageLimit { WindowMinutes = 10_080, RemainingPercent = 98 },
                         },
                         ResetCredits = new ResetCredits { Available = true, AvailableCount = 1 },
@@ -140,14 +138,16 @@ internal static class Program
                 System.Windows.Controls.Border codexResetCreditsCard = (System.Windows.Controls.Border)window.FindName("CodexResetCreditsCard");
                 AssertEqual(91d, codexWeeklyCard.ActualHeight, "Codex Weekly card height");
                 AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex small card height");
-                AssertEqual(30, viewModel.CodexTokenCostChartDays.Count, "Codex token cost chart day count");
-                AssertTrue(viewModel.CodexTokenCostDonutSegments.Count > 0, "Codex model donut should have segments");
-                System.Windows.Controls.Grid codexTokenCostChartFrame = (System.Windows.Controls.Grid)window.FindName("CodexTokenCostChartFrame");
-                System.Windows.Controls.Grid codexTokenCostChartPlot = (System.Windows.Controls.Grid)window.FindName("CodexTokenCostChartPlot");
+                AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "Codex token cost chart day count");
+                AssertTrue(viewModel.CodexTokenCost.DonutSegments.Count > 0, "Codex model donut should have segments");
+                System.Windows.Controls.ContentControl codexTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("CodexTokenCostDashboard");
+                System.Windows.Controls.Grid codexTokenCostChartFrame = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostChartFrame");
+                System.Windows.Controls.Grid codexTokenCostChartPlot = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostChartPlot");
                 System.Windows.Controls.Grid codexPageGrid = (System.Windows.Controls.Grid)window.FindName("CodexPageGrid");
-                System.Windows.Controls.Grid codexTokenCostOverview = (System.Windows.Controls.Grid)window.FindName("CodexTokenCostOverview");
-                System.Windows.Controls.Grid codexTokenCostDonutArea = (System.Windows.Controls.Grid)window.FindName("CodexTokenCostDonutArea");
-                System.Windows.Controls.Button codexTokenCostChartPeriodButton = (System.Windows.Controls.Button)window.FindName("CodexTokenCostChartPeriodButton");
+                System.Windows.Controls.Grid codexTokenCostOverview = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostOverview");
+                System.Windows.Controls.Grid codexTokenCostDonutArea = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostDonutArea");
+                System.Windows.Controls.Button codexTokenCostChartPeriodButton = FindNamedDescendant<System.Windows.Controls.Button>(codexTokenCostDashboard, "TokenCostChartPeriodButton");
+                double[] codexSectionHeights = codexPageGrid.RowDefinitions.Select(row => row.ActualHeight).ToArray();
                 double upperToMiddleGap = codexPageGrid.RowDefinitions[2].ActualHeight;
                 double middleToLowerGap = codexPageGrid.RowDefinitions[4].ActualHeight;
                 AssertEqual(160d, codexTokenCostOverview.ActualHeight, "Codex token cost overview height");
@@ -158,7 +158,9 @@ internal static class Program
                 AssertEqual(22d, codexTokenCostChartPeriodButton.ActualHeight, "Codex token cost chart period button height");
                 AssertEqual("\uE8AB", codexTokenCostChartPeriodButton.Content, "Codex token cost chart period button glyph");
                 AssertTrue(codexTokenCostChartPeriodButton.ToolTip is null, "Codex token cost chart period button should not show a tooltip");
-                AssertTrue(ReferenceEquals(System.Windows.Media.VisualTreeHelper.GetParent(codexTokenCostChartPeriodButton), codexTokenCostDonutArea), "Codex token cost chart period button should be hosted by the donut area");
+                AssertTrue(
+                    ReferenceEquals(System.Windows.Media.VisualTreeHelper.GetParent(codexTokenCostChartPeriodButton), codexTokenCostDonutArea),
+                    "Codex token cost chart period button should be hosted by the donut area");
 
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy"),
@@ -177,11 +179,17 @@ internal static class Program
                 AssertEqual(1, grokQuotaCardPanel.Children.Count, "Grok quota card count");
                 System.Windows.Controls.Border grokWeeklyCard = (System.Windows.Controls.Border)window.FindName("GrokWeeklyCard");
                 AssertEqual(codexWeeklyCard.ActualHeight, grokWeeklyCard.ActualHeight, "Codex and Grok Weekly card heights");
-                AssertEqual(4, viewModel.GrokTokenCostRows.Count, "Grok token cost row count");
-                AssertEqual(7, viewModel.GrokTokenCostChartDays.Count, "Grok token cost chart day count");
+                AssertEqual(68d, grokQuotaScrollViewer.ViewportHeight - grokQuotaScrollViewer.ExtentHeight, "Grok reserved small-card space");
+                AssertEqual(4, viewModel.GrokTokenCost.Rows.Count, "Grok token cost row count");
+                AssertEqual(30, viewModel.GrokTokenCost.ChartDays.Count, "Grok token cost chart day count");
                 AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
-                System.Windows.Controls.ItemsControl grokChartItemsControl = (System.Windows.Controls.ItemsControl)window.FindName("GrokTokenCostChartItemsControl");
-                System.Windows.Controls.ContentPresenter grokChartPresenter = (System.Windows.Controls.ContentPresenter)grokChartItemsControl.ItemContainerGenerator.ContainerFromIndex(6);
+                System.Windows.Controls.Grid grokPageGrid = (System.Windows.Controls.Grid)window.FindName("GrokPageGrid");
+                System.Windows.Controls.ContentControl grokTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("GrokTokenCostDashboard");
+                AssertTrue(ReferenceEquals(codexTokenCostDashboard.ContentTemplate, grokTokenCostDashboard.ContentTemplate), "Codex and Grok should share the token cost template");
+                AssertEqual(codexPageGrid.RowDefinitions.Count, grokPageGrid.RowDefinitions.Count, "Codex and Grok section row count");
+                AssertTrue(codexSectionHeights.SequenceEqual(grokPageGrid.RowDefinitions.Select(row => row.ActualHeight)), "Codex and Grok section heights");
+                System.Windows.Controls.ItemsControl grokChartItemsControl = FindNamedDescendant<System.Windows.Controls.ItemsControl>(grokTokenCostDashboard, "TokenCostChartItemsControl");
+                System.Windows.Controls.ContentPresenter grokChartPresenter = (System.Windows.Controls.ContentPresenter)grokChartItemsControl.ItemContainerGenerator.ContainerFromIndex(29);
                 System.Windows.Controls.Border grokChartBar = (System.Windows.Controls.Border)grokChartItemsControl.ItemTemplate.FindName("TokenCostChartBar", grokChartPresenter);
                 System.Windows.Media.Color grokStatusColor = ((System.Windows.Media.SolidColorBrush)viewModel.GrokStatusDotBrush).Color;
                 System.Windows.Media.Color codexStatusColor = ((System.Windows.Media.SolidColorBrush)viewModel.StatusDotBrush).Color;
@@ -195,7 +203,7 @@ internal static class Program
 
                 viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
                     new CursorUsageSnapshot("Pro", 2, 3, 4, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds()),
-                    null,
+                    CreateTokenCostStatistics(4),
                     string.Empty,
                     string.Empty,
                     DateTimeOffset.Now));
@@ -212,6 +220,16 @@ internal static class Program
                 AssertEqual(codexWeeklyCard.ActualHeight, cursorMonthlyCard.ActualHeight, "Codex and Cursor large card heights");
                 AssertEqual(codexResetCreditsCard.ActualHeight, cursorAutoCard.ActualHeight, "Codex and Cursor small card heights");
                 AssertEqual(cursorAutoCard.ActualHeight, cursorApiCard.ActualHeight, "Cursor small card heights");
+                AssertEqual(cursorAutoCard.ActualWidth, cursorApiCard.ActualWidth, "Cursor small card widths");
+                AssertEqual(
+                    cursorAutoCard.TranslatePoint(new System.Windows.Point(), window).Y,
+                    cursorApiCard.TranslatePoint(new System.Windows.Point(), window).Y,
+                    "Cursor small card vertical alignment");
+                System.Windows.Controls.Grid cursorPageGrid = (System.Windows.Controls.Grid)window.FindName("CursorPageGrid");
+                System.Windows.Controls.ContentControl cursorTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("CursorTokenCostDashboard");
+                AssertTrue(ReferenceEquals(codexTokenCostDashboard.ContentTemplate, cursorTokenCostDashboard.ContentTemplate), "Codex and Cursor should share the token cost template");
+                AssertEqual(codexPageGrid.RowDefinitions.Count, cursorPageGrid.RowDefinitions.Count, "Codex and Cursor section row count");
+                AssertTrue(codexSectionHeights.SequenceEqual(cursorPageGrid.RowDefinitions.Select(row => row.ActualHeight)), "Codex and Cursor section heights");
 
                 viewModel.ShowApi();
                 content.InvalidateMeasure();
@@ -225,7 +243,6 @@ internal static class Program
                 AssertEqual(apiMonitorCard.ActualHeight, codexWeeklyCard.ActualHeight, "API monitor and quota large card heights");
                 AssertEqual(apiMonitorCard.Margin.Bottom, codexWeeklyCard.Margin.Bottom, "API monitor and Codex second card spacing");
                 AssertEqual(apiMonitorCard.Margin.Bottom, cursorMonthlyCard.Margin.Bottom, "API monitor and Cursor card spacing");
-                AssertEqual(apiMonitorCard.Margin.Bottom, cursorAutoCard.Margin.Bottom, "API monitor and Cursor second card spacing");
                 window.Close();
             }
             catch (Exception exception)
@@ -277,7 +294,6 @@ internal static class Program
                         UpdatedAt = now.ToString("O", CultureInfo.InvariantCulture),
                         Limits = new UsageLimits
                         {
-                            Session = new UsageLimit { WindowMinutes = 300, RemainingPercent = 72, ResetLabel = "resets in 2h 18m" },
                             Weekly = new UsageLimit { WindowMinutes = 10_080, RemainingPercent = 69, ResetLabel = "resets 08-16" },
                         },
                         ResetCredits = new ResetCredits
@@ -359,13 +375,18 @@ internal static class Program
                         LastSevenDays = new TokenCostSummary { TotalTokens = 45_360_000, CostUsd = 31.84m },
                         LastThirtyDays = new TokenCostSummary { TotalTokens = 174_820_000, CostUsd = 118.26m },
                         Lifetime = new TokenCostSummary { TotalTokens = 294_170_000, CostUsd = 201.49m },
-                        LastSevenDaysDaily = Enumerable.Range(0, 7)
+                        LastThirtyDaysDaily = Enumerable.Range(0, 30)
                             .Select(index => new TokenCostDailySummary
                             {
-                                Date = now.Date.AddDays(index - 6),
+                                Date = now.Date.AddDays(index - 29),
                                 Summary = new TokenCostSummary { TotalTokens = (index + 2) * 900_000, CostUsd = (index + 2) * 0.64m },
                             })
                             .ToArray(),
+                        Models =
+                        [
+                            new TokenCostModelStatistics { Model = "grok-4.6", Today = new TokenCostSummary { TotalTokens = 5_200_000 } },
+                            new TokenCostModelStatistics { Model = "grok-4.1-fast", Today = new TokenCostSummary { TotalTokens = 3_010_000 } },
+                        ],
                     });
                 viewModel.UpdateApiUsage(
                 [
@@ -678,7 +699,7 @@ internal static class Program
 
         AssertEqual("75%", response.Display.Session, "session display without reset suffix");
         AssertEqual("60%", response.Display.Weekly, "weekly display without reset suffix");
-        AssertEqual("1h15m", response.Limits.Session.ResetLabel, "reset label remains available for the panel");
+        AssertEqual("1h15m", response.Limits.Session.ResetLabel, "session reset label remains available for plugins");
         return Task.CompletedTask;
     }
 
@@ -989,7 +1010,7 @@ internal static class Program
     {
         using TempDirectory temp = new();
         SettingsStore store = new(temp.Path);
-        File.WriteAllText(store.SettingsPath, "{\"Port\":17996}");
+        File.WriteAllText(store.SettingsPath, "{\"Port\":17996,\"HideInvalidProgressBars\":false}");
 
         AppSettings settings = store.Load();
 
@@ -1004,7 +1025,6 @@ internal static class Program
         AssertTrue(settings.MicaEnabled, "Mica should be enabled by default");
         AssertTrue(settings.ShowResetTimeInPlugins, "plugin reset time should be shown by default");
         AssertTrue(settings.UseAbsoluteResetTime, "absolute reset time should be enabled by default");
-        AssertTrue(settings.HideInvalidProgressBars, "invalid progress bars should be hidden by default");
         AssertEqual(0, settings.ApiMonitors.Count, "default API monitors");
 
         string repairedJson = File.ReadAllText(store.SettingsPath);
@@ -1018,6 +1038,7 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "repaired settings should include Mica toggle");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
+        AssertTrue(!document.RootElement.TryGetProperty("HideInvalidProgressBars", out _), "repaired settings should omit the retired progress bar toggle");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
 
         using TempDirectory legacyTemp = new();
@@ -2127,7 +2148,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Verifies the compact token-cost rows and switchable chart display data.
+    /// Verifies the shared token-cost rows, donut, and switchable chart data.
     /// </summary>
     private static Task TestTokenCostChartViewModelAsync()
     {
@@ -2177,46 +2198,46 @@ internal static class Program
         };
         viewModel.UpdateTokenCost(statistics);
 
-        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Title)), "Codex token cost row titles");
-        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Display.Cost)), "Codex token cost row values");
-        AssertEqual(30, viewModel.CodexTokenCostChartDays.Count, "Codex token cost chart day count");
-        AssertEqual("30", viewModel.CodexTokenCostChartDays[29].Label, "Codex token cost chart today label");
-        AssertEqual(58d, viewModel.CodexTokenCostChartDays[29].BarHeight, "Codex token cost chart maximum height");
-        AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K{Environment.NewLine}Cost: $30.00", viewModel.CodexTokenCostChartDays[29].Tooltip, "Codex token cost chart tooltip");
-        AssertEqual("1|10|20|30", string.Join('|', viewModel.CodexTokenCostChartDays.Where(day => day.Label.Length > 0).Select(day => day.Label)), "Codex token cost chart labels");
-        AssertEqual(30, viewModel.CodexTokenCostChartColumnCount, "rolling Codex token cost chart columns");
-        AssertEqual("1|10|20|30", string.Join('|', viewModel.CodexTokenCostChartLabels.Select(label => label.Text)), "rolling Codex token cost chart axis labels");
-        AssertEqual("1.00K", viewModel.CodexSelectedTokenDisplay, "Codex selected token total");
-        AssertEqual("$7.00", viewModel.CodexSelectedCostDisplay, "Codex selected cost total");
-        AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCostDonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
-        viewModel.ToggleCodexTokenCostChartPeriodCommand.Execute(null);
-        AssertEqual("Today|Week|Month|Lifetime", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Title)), "calendar Codex token cost row titles");
-        AssertEqual("$7.00|$9.00|$20.00|$100.00", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Display.Cost)), "calendar Codex token cost row values");
-        AssertEqual(31, viewModel.CodexTokenCostChartDays.Count, "current-month Codex token cost chart day count");
-        AssertEqual(31, viewModel.CodexTokenCostChartColumnCount, "current-month Codex token cost chart columns");
-        AssertEqual("1|11|21|31", string.Join('|', viewModel.CodexTokenCostChartLabels.Select(label => label.Text)), "current-month Codex token cost chart axis labels");
-        AssertEqual(58d, viewModel.CodexTokenCostChartDays[19].BarHeight, "current-month Codex token cost chart maximum height");
-        AssertTrue(viewModel.CodexTokenCostChartDays[19].IsInteractive, "current-month current-day slot should be interactive");
-        AssertTrue(!viewModel.CodexTokenCostChartDays[20].IsInteractive, "current-month future slot should not be interactive");
-        AssertTrue(viewModel.CodexTokenCostChartDays.Skip(20).All(day => day.BarHeight == 0), "current-month future slots should remain empty");
-        viewModel.SelectCodexTokenCostPeriodCommand.Execute(viewModel.CodexTokenCostRows[1]);
-        AssertEqual("1.00K", viewModel.CodexSelectedTokenDisplay, "Codex selected current-week token total");
-        AssertEqual("$9.00", viewModel.CodexSelectedCostDisplay, "Codex selected current-week cost total");
-        AssertEqual("80%|20%", string.Join('|', viewModel.CodexTokenCostDonutSegments.Select(segment => segment.Share)), "Codex current-week donut model shares");
-        viewModel.ToggleCodexTokenCostChartPeriodCommand.Execute(null);
-        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Title)), "restored Codex token cost row titles");
-        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCostRows.Select(row => row.Display.Cost)), "restored Codex token cost row values");
-        AssertEqual("2.00K", viewModel.CodexSelectedTokenDisplay, "Codex selected 7d token total");
-        AssertEqual("$13.00", viewModel.CodexSelectedCostDisplay, "Codex selected 7d cost total");
-        AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCostDonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
-        AssertEqual("65%|35%", string.Join('|', viewModel.CodexTokenCostDonutSegments.Select(segment => segment.Share)), "Codex 7d donut model shares");
-        AssertTrue(viewModel.CodexTokenCostRows[1].IsSelected, "Codex 7d row should be selected");
+        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "Codex token cost row titles");
+        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "Codex token cost row values");
+        AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "Codex token cost chart day count");
+        AssertEqual("30", viewModel.CodexTokenCost.ChartDays[29].Label, "Codex token cost chart today label");
+        AssertEqual(58d, viewModel.CodexTokenCost.ChartDays[29].BarHeight, "Codex token cost chart maximum height");
+        AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K{Environment.NewLine}Cost: $30.00", viewModel.CodexTokenCost.ChartDays[29].Tooltip, "Codex token cost chart tooltip");
+        AssertEqual("1|10|20|30", string.Join('|', viewModel.CodexTokenCost.ChartDays.Where(day => day.Label.Length > 0).Select(day => day.Label)), "Codex token cost chart labels");
+        AssertEqual(30, viewModel.CodexTokenCost.ChartColumnCount, "rolling Codex token cost chart columns");
+        AssertEqual("1|10|20|30", string.Join('|', viewModel.CodexTokenCost.ChartLabels.Select(label => label.Text)), "rolling Codex token cost chart axis labels");
+        AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected token total");
+        AssertEqual("$7.00", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected cost total");
+        AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
+        viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
+        AssertEqual("Today|Week|Month|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "calendar Codex token cost row titles");
+        AssertEqual("$7.00|$9.00|$20.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "calendar Codex token cost row values");
+        AssertEqual(31, viewModel.CodexTokenCost.ChartDays.Count, "current-month Codex token cost chart day count");
+        AssertEqual(31, viewModel.CodexTokenCost.ChartColumnCount, "current-month Codex token cost chart columns");
+        AssertEqual("1|11|21|31", string.Join('|', viewModel.CodexTokenCost.ChartLabels.Select(label => label.Text)), "current-month Codex token cost chart axis labels");
+        AssertEqual(58d, viewModel.CodexTokenCost.ChartDays[19].BarHeight, "current-month Codex token cost chart maximum height");
+        AssertTrue(viewModel.CodexTokenCost.ChartDays[19].IsInteractive, "current-month current-day slot should be interactive");
+        AssertTrue(!viewModel.CodexTokenCost.ChartDays[20].IsInteractive, "current-month future slot should not be interactive");
+        AssertTrue(viewModel.CodexTokenCost.ChartDays.Skip(20).All(day => day.BarHeight == 0), "current-month future slots should remain empty");
+        viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
+        AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected current-week token total");
+        AssertEqual("$9.00", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-week cost total");
+        AssertEqual("80%|20%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-week donut model shares");
+        viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
+        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "restored Codex token cost row titles");
+        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "restored Codex token cost row values");
+        AssertEqual("2.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected 7d token total");
+        AssertEqual("$13.00", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 7d cost total");
+        AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
+        AssertEqual("65%|35%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 7d donut model shares");
+        AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7d row should be selected");
 
         viewModel.UpdateCursorDashboard(new CursorUsageDashboard(null, statistics, "N/A", string.Empty, DateTimeOffset.Now));
-        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CursorTokenCostRows.Select(row => row.Title)), "Cursor token cost row titles");
-        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CursorTokenCostRows.Select(row => row.Display.Cost)), "Cursor token cost row values");
-        AssertEqual(7, viewModel.CursorTokenCostChartDays.Count, "Cursor token cost chart day count");
-        AssertEqual(daily[^1].Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), viewModel.CursorTokenCostChartDays[6].Tooltip[..10], "Cursor token cost chart tooltip date");
+        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CursorTokenCost.Rows.Select(row => row.Title)), "Cursor token cost row titles");
+        AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CursorTokenCost.Rows.Select(row => row.Display.Cost)), "Cursor token cost row values");
+        AssertEqual(30, viewModel.CursorTokenCost.ChartDays.Count, "Cursor token cost chart day count");
+        AssertEqual(daily[^1].Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), viewModel.CursorTokenCost.ChartDays[29].Tooltip[..10], "Cursor token cost chart tooltip date");
 
         TokenCostStatistics grokStatistics = new()
         {
@@ -2224,7 +2245,7 @@ internal static class Program
             LastSevenDays = new TokenCostSummary { TotalTokens = 2_800 },
             LastThirtyDays = new TokenCostSummary { TotalTokens = 2_800 },
             Lifetime = new TokenCostSummary { TotalTokens = 2_800 },
-            LastSevenDaysDaily = daily[^7..]
+            LastThirtyDaysDaily = daily
                 .Select(day => new TokenCostDailySummary
                 {
                     Date = day.Date,
@@ -2233,14 +2254,14 @@ internal static class Program
                 .ToArray(),
         };
         viewModel.UpdateGrokDashboard(new GrokUsageDashboard(null, "N/A", DateTimeOffset.Now), grokStatistics);
-        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.GrokTokenCostRows.Select(row => row.Title)), "Grok token cost row titles");
-        AssertEqual("N/A|N/A|N/A|N/A", string.Join('|', viewModel.GrokTokenCostRows.Select(row => row.Display.Cost)), "Grok unknown cost values");
-        AssertEqual(96d, viewModel.GrokTokenCostChartDays[6].BarHeight, "Grok token chart maximum height");
-        AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K{Environment.NewLine}Cost: N/A", viewModel.GrokTokenCostChartDays[6].Tooltip, "Grok token chart tooltip");
+        AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Title)), "Grok token cost row titles");
+        AssertEqual("N/A|N/A|N/A|N/A", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Display.Cost)), "Grok unknown cost values");
+        AssertEqual(58d, viewModel.GrokTokenCost.ChartDays[29].BarHeight, "Grok token chart maximum height");
+        AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K{Environment.NewLine}Cost: N/A", viewModel.GrokTokenCost.ChartDays[29].Tooltip, "Grok token chart tooltip");
 
         viewModel.UpdateTokenCost(null);
-        AssertEqual(30, viewModel.CodexTokenCostChartDays.Count, "unavailable Codex token cost chart day count");
-        AssertEqual(0, viewModel.CodexTokenCostDonutSegments.Count, "unavailable Codex donut segment count");
+        AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "unavailable Codex token cost chart day count");
+        AssertEqual(0, viewModel.CodexTokenCost.DonutSegments.Count, "unavailable Codex donut segment count");
         return Task.CompletedTask;
     }
 
@@ -2551,13 +2572,13 @@ internal static class Program
         foreach ((int remaining, System.Windows.Media.Color expectedColor) in cases)
         {
             limit.RemainingPercent = remaining;
-            quota.Update(limit, hideInvalidProgressBars: false);
+            quota.Update(limit);
             System.Windows.Media.Color actualColor = ((System.Windows.Media.SolidColorBrush)quota.AccentBrush).Color;
             AssertEqual(expectedColor, actualColor, $"quota color at {remaining}%");
         }
 
         limit.WindowMinutes = 0;
-        quota.Update(limit, hideInvalidProgressBars: false);
+        quota.Update(limit);
         AssertEqual("N/A", quota.PercentText, "inactive quota percent text");
         AssertEqual("unknown", quota.ResetText, "inactive quota reset text");
         AssertTrue(quota.IsResetVisible, "inactive visible quota should show the unknown reset text");
@@ -2890,6 +2911,33 @@ internal static class Program
         });
         client = new HttpClient(new FakeHttpMessageHandler(body, resetCreditsBody));
         return new CodexTrayCollector(() => now, client);
+    }
+
+    /// <summary>
+    /// Finds one named element inside a generated WPF template tree.
+    /// </summary>
+    private static T FindNamedDescendant<T>(System.Windows.DependencyObject root, string name)
+        where T : System.Windows.FrameworkElement
+    {
+        if (root is T element && element.Name == name)
+        {
+            return element;
+        }
+
+        int childCount = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int index = 0; index < childCount; index++)
+        {
+            System.Windows.DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(root, index);
+            try
+            {
+                return FindNamedDescendant<T>(child, name);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        throw new InvalidOperationException($"Could not find {typeof(T).Name} named {name}.");
     }
 
     /// <summary>
