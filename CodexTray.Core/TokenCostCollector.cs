@@ -134,7 +134,7 @@ public sealed class TokenCostCollector
         foreach (GrokTurnUsage usage in turns.Values)
         {
             cancellationToken.ThrowIfCancellationRequested();
-                accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd);
+            accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd, usage.Model);
         }
 
         return accumulator.ToStatistics();
@@ -330,7 +330,7 @@ public sealed class TokenCostCollector
         bool costIsPartial = eventCostIsPartial || GetBoolean(value, "costIsPartial");
         decimal? localCost = CalculateCost(pricing, model, counts);
         decimal? cost = reportedCost.HasValue && !costIsPartial ? reportedCost : localCost ?? reportedCost;
-        turns[$"{sessionId}\0{turnKey}\0{model}"] = new GrokTurnUsage(counts, cost, timestamp);
+        turns[$"{sessionId}\0{turnKey}\0{model}"] = new GrokTurnUsage(counts, cost, timestamp, model);
     }
 
     /// <summary>
@@ -810,7 +810,7 @@ public sealed class TokenCostCollector
 
     private readonly record struct ModelPricing(decimal Input, decimal CachedInput, decimal Output);
 
-    private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp);
+    private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp, string Model);
 
     private readonly record struct ReplayContext(string ParentId, DateTimeOffset Cutoff);
 

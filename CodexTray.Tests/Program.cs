@@ -1559,6 +1559,9 @@ internal static class Program
             AssertEqual(216L, dashboard.TokenCost.LastThirtyDays.TotalTokens, "Cursor last 30 days boundary");
             AssertEqual(244L, dashboard.TokenCost.Lifetime.TotalTokens, "Cursor lifetime boundary");
             AssertEqual(2.75m, dashboard.TokenCost.Lifetime.CostUsd, "Cursor lifetime event cents");
+            AssertEqual("gpt-5.3-codex", dashboard.TokenCost.Models.Single().Model, "Cursor usage event model");
+            AssertEqual(160L, dashboard.TokenCost.Models[0].Today.TotalTokens, "Cursor model today tokens");
+            AssertEqual(244L, dashboard.TokenCost.Models[0].Lifetime.TotalTokens, "Cursor model lifetime tokens");
         }
         finally
         {
@@ -2789,6 +2792,13 @@ internal static class Program
         AssertEqual(0.8546555m, statistics.Lifetime.CostUsd, "Grok lifetime API-equivalent cost");
         AssertEqual(170L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "Grok yesterday tokens");
         AssertEqual(2_831_302L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "Grok daily today tokens");
+        AssertEqual(
+            "deepseek-v4-flash|deepseek-v4-pro|grok-4.5-build|grok-4.6-build|unknown",
+            string.Join('|', statistics.Models.Select(model => model.Model)),
+            "Grok model statistics names");
+        AssertEqual(1_100_000L, statistics.Models[0].Today.TotalTokens, "Grok deepseek-v4-flash today tokens");
+        AssertEqual(630_202L, statistics.Models[2].Today.TotalTokens, "Grok grok-4.5-build today tokens");
+        AssertEqual(60L, statistics.Models[4].Lifetime.TotalTokens, "Grok unknown model lifetime tokens");
 
         File.AppendAllLines(archivedPath, [CreateGrokTokenUpdate("prompt-unpriced", yesterday, 10, 0, 1).Replace("grok-4.5-build", "future-grok-model", StringComparison.Ordinal)]);
         TokenCostStatistics unpricedStatistics = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now);

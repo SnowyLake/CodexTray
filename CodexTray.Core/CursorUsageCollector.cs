@@ -478,6 +478,7 @@ public sealed class CursorUsageCollector
                 });
             }
 
+            string model = GetStringProperty(display, "model", "unknown").Trim();
             result.Add(new CursorUsageEvent(
                 timestamp,
                 inputTokens,
@@ -504,7 +505,7 @@ public sealed class CursorUsageCollector
         foreach (CursorUsageEvent usageEvent in events)
         {
             long tokens = checked(usageEvent.InputTokens + usageEvent.OutputTokens + usageEvent.CacheReadTokens + usageEvent.CacheWriteTokens);
-            accumulator.Add(usageEvent.Timestamp, tokens, usageEvent.TotalCents / 100m);
+            accumulator.Add(usageEvent.Timestamp, tokens, usageEvent.TotalCents / 100m, usageEvent.Model);
         }
 
         return accumulator.ToStatistics();
@@ -916,7 +917,8 @@ public sealed class CursorUsageCollector
         bool HasInputTokens,
         bool HasOutputTokens,
         bool HasCacheReadTokens,
-        bool HasCacheWriteTokens);
+        bool HasCacheWriteTokens,
+        string Model);
 
     private sealed record CursorUsageEventsCollection(TokenCostStatistics Statistics, CursorUsageEventsDiagnostics Diagnostics);
 
