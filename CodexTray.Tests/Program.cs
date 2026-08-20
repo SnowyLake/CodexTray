@@ -2436,9 +2436,16 @@ internal static class Program
         viewModel.Update(result);
         AssertEqual(0, changedProperties.Count, "unchanged balance tooltip notifications");
 
-        AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.OpenRouterProvider), "OpenRouter provider option");
-        AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.NanoGptProvider), "NanoGPT provider option");
-        AssertTrue(viewModel.ProviderOptions.Contains(ApiMonitorSettings.VercelProvider), "Vercel provider option");
+        AssertEqual(
+            string.Join('|', [
+                ApiMonitorSettings.DeepSeekProvider,
+                ApiMonitorSettings.OpenRouterProvider,
+                ApiMonitorSettings.VercelProvider,
+                ApiMonitorSettings.NanoGptProvider,
+                ApiMonitorSettings.NewApiProvider,
+            ]),
+            string.Join('|', viewModel.ProviderOptions),
+            "API provider option order");
         AssertTrue(!viewModel.ProviderOptions.Contains("Grok", StringComparer.Ordinal), "Grok should not be an API provider option");
         viewModel.Provider = ApiMonitorSettings.OpenRouterProvider;
         AssertEqual("https://openrouter.ai", viewModel.BaseUrl, "OpenRouter default base URL");

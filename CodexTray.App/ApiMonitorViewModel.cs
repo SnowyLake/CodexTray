@@ -19,10 +19,10 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     public string[] ProviderOptions { get; } =
     [
         ApiMonitorSettings.DeepSeekProvider,
-        ApiMonitorSettings.NanoGptProvider,
-        ApiMonitorSettings.NewApiProvider,
         ApiMonitorSettings.OpenRouterProvider,
         ApiMonitorSettings.VercelProvider,
+        ApiMonitorSettings.NanoGptProvider,
+        ApiMonitorSettings.NewApiProvider,
     ];
 
     [ObservableProperty]
