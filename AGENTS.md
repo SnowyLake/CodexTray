@@ -69,7 +69,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, NewAPI, Op
 - 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.
 - 主面板尺寸固定为 360 x 620.
 - Codex, Cursor 与 APIs 页面默认全部可见. 无可见数据页时不运行定时刷新.
-- Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 并显示最近 7 天的成本趋势图. Codex 与 Cursor 页面共享 token 单位设置.
+- Token Cost 固定显示 Today, 7d, 30d 和 Lifetime, 并显示最近 7 天的成本趋势图. Token 数量使用英制单位 K, M, B.
 - 无有效窗口的 Codex Session 与 Weekly 进度条默认隐藏.
 - API provider 支持 `DeepSeek`, `NewAPI`, `OpenRouter`, `NanoGPT` 和 `Vercel`. 这些 provider 的凭据以明文保存在 `settings.json`.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.

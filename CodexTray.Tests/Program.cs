@@ -1030,7 +1030,7 @@ internal static class Program
     {
         using TempDirectory temp = new();
         SettingsStore store = new(temp.Path);
-        File.WriteAllText(store.SettingsPath, "{\"Port\":17996,\"HideInvalidProgressBars\":false,\"ShowResetTimeInPlugins\":false}");
+        File.WriteAllText(store.SettingsPath, "{\"Port\":17996,\"HideInvalidProgressBars\":false,\"ShowResetTimeInPlugins\":false,\"TokenUnit\":\"Chinese unit\"}");
 
         AppSettings settings = store.Load();
 
@@ -1041,7 +1041,6 @@ internal static class Program
         AssertEqual(PageItem.All, settings.VisiblePages, "default visible pages");
         AssertTrue(!settings.StartWithWindows, "startup should be disabled by default");
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
-        AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
         AssertTrue(settings.MicaEnabled, "Mica should be enabled by default");
         AssertTrue(settings.UseAbsoluteResetTime, "absolute reset time should be enabled by default");
         AssertEqual(0, settings.ApiMonitors.Count, "default API monitors");
@@ -1054,11 +1053,11 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.VisiblePages), out _), "repaired settings should include visible pages");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.SettingsSchemaVersion), out _), "repaired settings should include schema version");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ThemeMode), out _), "repaired settings should include theme mode");
-        AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.TokenUnit), out _), "repaired settings should include token unit");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "repaired settings should include Mica toggle");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
         AssertTrue(!document.RootElement.TryGetProperty("HideInvalidProgressBars", out _), "repaired settings should omit the retired progress bar toggle");
         AssertTrue(!document.RootElement.TryGetProperty("ShowResetTimeInPlugins", out _), "repaired settings should omit the retired plugin reset-time toggle");
+        AssertTrue(!document.RootElement.TryGetProperty("TokenUnit", out _), "repaired settings should omit the retired token unit");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
 
         using TempDirectory legacyTemp = new();
@@ -1144,7 +1143,6 @@ internal static class Program
             Port = -1,
             RefreshIntervalMinutes = 0,
             ThemeMode = "unexpected",
-            TokenUnit = AppSettings.TokenUnitChinese,
             VisiblePages = PageItem.Cursor | (PageItem)(1 << 10),
             BackdropMode = "unexpected",
         };
@@ -1154,16 +1152,9 @@ internal static class Program
         AssertEqual(CodexTrayDefaults.Port, settings.Port, "default port");
         AssertEqual(CodexTrayDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
-        AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "Chinese token unit");
         AssertEqual(PageItem.Cursor, settings.VisiblePages, "supported visible pages");
         AssertTrue(!settings.MicaEnabled, "unexpected backdrop should disable Mica");
         AssertEqual<string?>(null, settings.BackdropMode, "legacy backdrop should be cleared");
-        settings.TokenUnit = "M/B";
-        settings.Normalize();
-        AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "legacy English token unit");
-        settings.TokenUnit = "万/亿";
-        settings.Normalize();
-        AssertEqual(AppSettings.TokenUnitChinese, settings.TokenUnit, "legacy Chinese token unit");
         settings.VisiblePages = PageItem.Codex | PageItem.Cursor | PageItem.Apis;
         settings.Normalize();
         AssertEqual(PageItem.Codex | PageItem.Cursor | PageItem.Apis, settings.VisiblePages, "normalized settings should keep Grok hidden");
@@ -1175,10 +1166,10 @@ internal static class Program
     /// </summary>
     private static Task TestTokenUnitFormattingAsync()
     {
-        AssertEqual("999.00K", AppSettings.FormatTokenCount(999_000, AppSettings.TokenUnitEnglish), "English K unit");
-        AssertEqual("1.00M", AppSettings.FormatTokenCount(1_000_000, AppSettings.TokenUnitEnglish), "English M lower boundary");
-        AssertEqual("999.00M", AppSettings.FormatTokenCount(999_000_000, AppSettings.TokenUnitEnglish), "English M upper range");
-        AssertEqual("1.00B", AppSettings.FormatTokenCount(1_000_000_000, AppSettings.TokenUnitEnglish), "English B boundary");
+        AssertEqual("999.00K", AppSettings.FormatTokenCount(999_000), "K unit");
+        AssertEqual("1.00M", AppSettings.FormatTokenCount(1_000_000), "M lower boundary");
+        AssertEqual("999.00M", AppSettings.FormatTokenCount(999_000_000), "M upper range");
+        AssertEqual("1.00B", AppSettings.FormatTokenCount(1_000_000_000), "B boundary");
         return Task.CompletedTask;
     }
 

@@ -100,7 +100,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private readonly AppSettings m_Settings;
     private string m_CurrentPage = k_CodexPageName;
     private string m_ThemeMode = AppSettings.ThemeModeSystem;
-    private string m_TokenUnit = AppSettings.TokenUnitEnglish;
     private PageItem m_VisiblePages = PageItem.All;
     private bool m_MicaEnabled;
     private bool m_IsInAppDialogOpen;
@@ -117,7 +116,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private string m_SnapshotPortText = string.Empty;
     private string m_SnapshotRefreshIntervalText = string.Empty;
     private string m_SnapshotThemeMode = AppSettings.ThemeModeSystem;
-    private string m_SnapshotTokenUnit = AppSettings.TokenUnitEnglish;
     private PageItem m_SnapshotVisiblePages = PageItem.All;
     private bool m_SnapshotStartWithWindows;
     private bool m_SnapshotMicaEnabled;
@@ -259,25 +257,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         AppSettings.ThemeModeSystem,
         AppSettings.ThemeModeLight,
         AppSettings.ThemeModeDark,
-    ];
-
-    public string TokenUnit
-    {
-        get => m_TokenUnit;
-        set
-        {
-            string normalized = value == AppSettings.TokenUnitChinese ? AppSettings.TokenUnitChinese : AppSettings.TokenUnitEnglish;
-            if (SetProperty(ref m_TokenUnit, normalized))
-            {
-                EvaluateDirtyState();
-            }
-        }
-    }
-
-    public string[] TokenUnitOptions { get; } =
-    [
-        AppSettings.TokenUnitEnglish,
-        AppSettings.TokenUnitChinese,
     ];
 
     public PageItem VisiblePages
@@ -492,9 +471,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public TrayPopupViewModel(AppSettings settings, Func<Task> refreshAsync)
     {
         m_Settings = settings;
-        CodexTokenCost = new TokenCostDashboardViewModel(settings);
-        GrokTokenCost = new TokenCostDashboardViewModel(settings);
-        CursorTokenCost = new TokenCostDashboardViewModel(settings);
+        CodexTokenCost = new TokenCostDashboardViewModel();
+        GrokTokenCost = new TokenCostDashboardViewModel();
+        CursorTokenCost = new TokenCostDashboardViewModel();
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(k_RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
         SaveSettingsCommand = new RelayCommand(() => SaveSettingsRequested?.Invoke(this, EventArgs.Empty), CanSaveSettings);
@@ -548,7 +527,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             PortText = settings.Port.ToString(CultureInfo.InvariantCulture);
             RefreshIntervalText = settings.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture);
             ThemeMode = settings.ThemeMode;
-            TokenUnit = settings.TokenUnit;
             VisiblePages = settings.VisiblePages;
             StartWithWindows = settings.StartWithWindows;
             MicaEnabled = settings.MicaEnabled;
@@ -602,7 +580,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_SnapshotPortText = PortText;
         m_SnapshotRefreshIntervalText = RefreshIntervalText;
         m_SnapshotThemeMode = m_ThemeMode;
-        m_SnapshotTokenUnit = m_TokenUnit;
         m_SnapshotVisiblePages = m_VisiblePages;
         m_SnapshotStartWithWindows = StartWithWindows;
         m_SnapshotMicaEnabled = m_MicaEnabled;
@@ -627,7 +604,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             PortText == m_SnapshotPortText &&
             RefreshIntervalText == m_SnapshotRefreshIntervalText &&
             m_ThemeMode == m_SnapshotThemeMode &&
-            m_TokenUnit == m_SnapshotTokenUnit &&
             m_VisiblePages == m_SnapshotVisiblePages &&
             StartWithWindows == m_SnapshotStartWithWindows &&
             m_MicaEnabled == m_SnapshotMicaEnabled &&
@@ -666,7 +642,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_Settings.RefreshIntervalMinutes = refreshInterval;
         m_Settings.StartWithWindows = StartWithWindows;
         m_Settings.ThemeMode = ThemeMode;
-        m_Settings.TokenUnit = TokenUnit;
         m_Settings.VisiblePages = VisiblePages;
         m_Settings.MicaEnabled = MicaEnabled;
         m_Settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
@@ -1491,7 +1466,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     internal sealed partial class TokenCostDashboardViewModel : ObservableObject
     {
-        private readonly AppSettings m_Settings;
         private TokenCostStatistics? m_Statistics;
         private TokenCostChartPeriod m_ChartPeriod;
 
@@ -1517,14 +1491,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
         [ObservableProperty]
         public partial Media.Brush AccentBrush { get; private set; } = s_RedBrush;
-
-        /// <summary>
-        /// Creates a reusable token-cost dashboard for one usage page.
-        /// </summary>
-        public TokenCostDashboardViewModel(AppSettings settings)
-        {
-            m_Settings = settings;
-        }
 
         /// <summary>
         /// Updates all token-cost views from one statistics snapshot.
@@ -1625,7 +1591,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             }
 
             TokenCostSummary summary = GetPeriodSummary(m_Statistics, period);
-            SelectedTokenDisplay = AppSettings.FormatTokenCount(summary.TotalTokens, m_Settings.TokenUnit);
+            SelectedTokenDisplay = AppSettings.FormatTokenCount(summary.TotalTokens);
             SelectedCostDisplay = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
 
             List<TokenCostModelShare> modelShares = m_Statistics.Models
@@ -1661,7 +1627,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     : model.Tokens / (double)totalTokens * 360;
                 double share = model.Tokens / (double)totalTokens;
                 string shareText = $"{Math.Round(share * 100):0}%";
-                string tokensText = AppSettings.FormatTokenCount(model.Tokens, m_Settings.TokenUnit);
+                string tokensText = AppSettings.FormatTokenCount(model.Tokens);
                 string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Share: {shareText}";
                 segments.Add(new TokenCostDonutSegment(
                     model.Label,
@@ -1897,7 +1863,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                         ? 0
                         : Math.Max(2, (double)day.Summary.TotalTokens / maximumTokens * k_TokenCostChartMaximumBarHeight);
                 string costText = day.Summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-                string tokensText = AppSettings.FormatTokenCount(day.Summary.TotalTokens, m_Settings.TokenUnit);
+                string tokensText = AppSettings.FormatTokenCount(day.Summary.TotalTokens);
                 string tooltip = $"{day.Date:yyyy-MM-dd}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}";
                 string label = index == 0 || index == dailySummaries.Count - 1 || (index + 1) % 10 == 0
                     ? day.Date.Day.ToString(CultureInfo.InvariantCulture)
@@ -1914,7 +1880,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         private TokenCostDisplay FormatTokenCost(TokenCostSummary summary)
         {
             string cost = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-            return new TokenCostDisplay(cost, AppSettings.FormatTokenCount(summary.TotalTokens, m_Settings.TokenUnit));
+            return new TokenCostDisplay(cost, AppSettings.FormatTokenCount(summary.TotalTokens));
         }
     }
 

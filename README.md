@@ -30,7 +30,7 @@
 
 - 显示 Codex 计划状态, Weekly 剩余额度和重置时间.
 - 显示可用 Reset Credits 数量及最近到期时间.
-- Codex, Cursor 和 Grok Token Cost 在滚动模式显示 Today, 7d, 30d 和 Lifetime, 在自然周期模式显示 Today, Week, Month 和 Lifetime. 圆环模型占比与趋势图会同步切换周期. 自然月按整月固定宽度展示, 未来日期保留空白. 页面同时支持中英文 token 数量单位.
+- Codex, Cursor 和 Grok Token Cost 在滚动模式显示 Today, 7d, 30d 和 Lifetime, 在自然周期模式显示 Today, Week, Month 和 Lifetime. 圆环模型占比与趋势图会同步切换周期. 自然月按整月固定宽度展示, 未来日期保留空白. Token 数量使用英制单位 K, M, B.
 - Cursor 页面显示 Monthly, First party 和 APIs 剩余额度, 后两项以半宽卡片并排显示. 页面还会显示 Monthly 重置时间, 实际账单 token, 成本, 模型占比和可切换的 30 日趋势.
 - Grok 页面显示订阅类型, Weekly 剩余额度和重置时间, 并统计本机 Grok Build session 的 Today, 7d, 30d 和 Lifetime token 与费用. 登录信息仅从本机 Grok Build OAuth session 读取.
 - 支持 DeepSeek CNY 余额, NewAPI 剩余与已用额度, OpenRouter 剩余与已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 Vercel AI Gateway 剩余与累计已用 credits.
@@ -68,7 +68,7 @@
 
 ## Cursor 页面
 
-Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个数据区域共享一次本地凭据读取和最多一次 OAuth refresh 重试. Monthly, First party 和 APIs 显示独立剩余额度, First party 与 APIs 以半宽卡片并排显示, 只有 Monthly 显示重置时间. Monthly 同时进入本地插件接口. Token Cost 与 Codex, Grok 页面共享时段列表, 模型占比圆环和可切换的 30 日趋势图, 并与 Codex 页共享 token 单位设置.
+Cursor 页面直接读取本机 Cursor IDE 已保存的 OAuth session (`state.vscdb`). 页面会请求 Cursor 官方 usage-summary 和 usage-events 接口. 两个数据区域共享一次本地凭据读取和最多一次 OAuth refresh 重试. Monthly, First party 和 APIs 显示独立剩余额度, First party 与 APIs 以半宽卡片并排显示, 只有 Monthly 显示重置时间. Monthly 同时进入本地插件接口. Token Cost 与 Codex, Grok 页面共享时段列表, 模型占比圆环和可切换的 30 日趋势图.
 
 Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不会用本地模型价格表重算. OAuth token 不会写入 `settings.json`.
 

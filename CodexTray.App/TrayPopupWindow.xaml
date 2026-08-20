@@ -1496,13 +1496,14 @@
                                       ToolTip="Start with Windows" />
                         </Grid>
 
-                        <Grid ToolTip="Show Weekly, Cursor and Grok resets as MM-dd instead of a countdown"
+                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
+                              ToolTip="Show Weekly, Cursor and Grok resets as MM-dd instead of a countdown"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Resets use absolute time"
+                            <TextBlock Text="Use absolute time"
                                        ToolTip="Show Weekly, Cursor and Grok resets as MM-dd instead of a countdown"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
@@ -1512,21 +1513,6 @@
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding UseAbsoluteResetTime}"
                                       ToolTip="Show Weekly, Cursor and Grok resets as MM-dd instead of a countdown" />
-                        </Grid>
-
-                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Token unit"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <ComboBox Grid.Column="1"
-                                      VerticalAlignment="Center"
-                                      ItemsSource="{Binding TokenUnitOptions}"
-                                      SelectedItem="{Binding TokenUnit, UpdateSourceTrigger=PropertyChanged}"
-                                      Style="{StaticResource SettingsComboBoxStyle}" />
                         </Grid>
 
                         <!-- Appearance -->

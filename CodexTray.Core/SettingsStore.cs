@@ -84,10 +84,6 @@ public sealed class AppSettings
 
     public const string ThemeModeDark = "Dark";
 
-    public const string TokenUnitEnglish = "English unit";
-
-    public const string TokenUnitChinese = "Chinese unit";
-
     public int SettingsSchemaVersion { get; set; } = CurrentSettingsSchemaVersion;
 
     public string LiteMonitorDir { get; set; } = string.Empty;
@@ -104,8 +100,6 @@ public sealed class AppSettings
 
     public string ThemeMode { get; set; } = ThemeModeSystem;
 
-    public string TokenUnit { get; set; } = TokenUnitEnglish;
-
     public bool MicaEnabled { get; set; } = true;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -116,13 +110,11 @@ public sealed class AppSettings
     public List<ApiMonitorSettings> ApiMonitors { get; set; } = [];
 
     /// <summary>
-    /// Formats a token count using the selected compact unit family.
+    /// Formats a token count using compact English units.
     /// </summary>
-    public static string FormatTokenCount(long tokens, string tokenUnit)
+    public static string FormatTokenCount(long tokens)
     {
-        (decimal divisor, string suffix) = tokenUnit == TokenUnitChinese
-            ? tokens >= 100_000_000 ? (100_000_000m, "亿") : (10_000m, "万")
-            : tokens >= 1_000_000_000 ? (1_000_000_000m, "B")
+        (decimal divisor, string suffix) = tokens >= 1_000_000_000 ? (1_000_000_000m, "B")
             : tokens >= 1_000_000 ? (1_000_000m, "M")
             : (1_000m, "K");
         return $"{tokens / divisor:0.00}{suffix}";
@@ -147,7 +139,6 @@ public sealed class AppSettings
         LiteMonitorDir = (LiteMonitorDir ?? string.Empty).Trim();
         TrafficMonitorDir = (TrafficMonitorDir ?? string.Empty).Trim();
         ThemeMode = NormalizeThemeMode(ThemeMode);
-        TokenUnit = NormalizeTokenUnit(TokenUnit);
         if (!string.IsNullOrWhiteSpace(BackdropMode))
         {
             MicaEnabled = string.Equals(BackdropMode.Trim(), "Mica", StringComparison.OrdinalIgnoreCase);
@@ -192,19 +183,6 @@ public sealed class AppSettings
             "dark" => ThemeModeDark,
             _ => ThemeModeSystem,
         };
-    }
-
-    /// <summary>
-    /// Normalizes a token unit string to a supported value.
-    /// </summary>
-    private static string NormalizeTokenUnit(string? tokenUnit)
-    {
-        string normalized = tokenUnit?.Trim() ?? string.Empty;
-        return string.Equals(normalized, TokenUnitChinese, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(normalized, "万/亿", StringComparison.Ordinal)
-            || string.Equals(normalized, "K/W/E", StringComparison.OrdinalIgnoreCase)
-            ? TokenUnitChinese
-            : TokenUnitEnglish;
     }
 }
 
