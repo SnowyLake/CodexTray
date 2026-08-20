@@ -11,7 +11,6 @@ public static class CodexTrayDefaults
     public const int RefreshIntervalMinutes = 1;
     public const int MinimumRefreshIntervalMinutes = 1;
     public const int MaximumRefreshIntervalMinutes = 1440;
-    public const bool ShowResetTimeInPlugins = true;
     public const bool UseAbsoluteResetTime = true;
     public const double PopupWindowWidth = 360;
     public const double PopupWindowHeight = 620;
@@ -100,11 +99,14 @@ public sealed class UsageResponse
 
 public sealed class UsageLimits
 {
-    [JsonPropertyName("session")]
+    [JsonIgnore]
     public UsageLimit Session { get; set; } = new() { Name = "session" };
 
     [JsonPropertyName("weekly")]
     public UsageLimit Weekly { get; set; } = new() { Name = "weekly" };
+
+    [JsonPropertyName("grok_weekly")]
+    public UsageLimit GrokWeekly { get; set; } = new() { Name = "weekly", RemainingPercent = 0 };
 
     [JsonPropertyName("cursor_monthly")]
     public UsageLimit CursorMonthly { get; set; } = new() { Name = "monthly", RemainingPercent = 0 };
@@ -154,11 +156,11 @@ public sealed class ResetCredits
 
 public sealed class UsageDisplay
 {
-    [JsonPropertyName("session")]
-    public string Session { get; set; } = CodexTrayDefaults.UnavailableDisplay;
-
     [JsonPropertyName("weekly")]
     public string Weekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+
+    [JsonPropertyName("grok_weekly")]
+    public string GrokWeekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
     [JsonPropertyName("cursor_monthly")]
     public string CursorMonthly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
@@ -166,5 +168,7 @@ public sealed class UsageDisplay
     [JsonPropertyName("summary")]
     public string Summary { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 }
+
+public sealed record GrokPluginUsage(UsageLimit Weekly, string Display);
 
 public sealed record CursorPluginUsage(UsageLimit Monthly, string Display);

@@ -1496,14 +1496,14 @@
                                       ToolTip="Start with Windows" />
                         </Grid>
 
-                        <Grid ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown"
+                        <Grid ToolTip="Show Weekly, Grok and Cursor resets as MM-dd instead of a countdown"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Resets use absolute time"
-                                       ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown"
+                                       ToolTip="Show Weekly, Grok and Cursor resets as MM-dd instead of a countdown"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -1511,7 +1511,7 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding UseAbsoluteResetTime}"
-                                      ToolTip="Show resets as absolute time (Session as HH:mm, Weekly, Grok and Cursor as MM-dd) instead of a countdown" />
+                                      ToolTip="Show Weekly, Grok and Cursor resets as MM-dd instead of a countdown" />
                         </Grid>
 
                         <Grid Margin="{StaticResource SettingsSectionEndMargin}"
@@ -1660,25 +1660,6 @@
                                       Margin="4,0,0,0"
                                       IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
                                       Style="{StaticResource IconButtonStyle}" />
-                        </Grid>
-
-                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
-                              ToolTip="Append reset countdown after the percentage in monitor plugins"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Show reset time"
-                                       ToolTip="Append reset countdown after the percentage in monitor plugins"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <CheckBox Grid.Column="1"
-                                      HorizontalAlignment="Right"
-                                      VerticalAlignment="Center"
-                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                      IsChecked="{Binding ShowResetTimeInPlugins}"
-                                      ToolTip="Append reset countdown after the percentage in monitor plugins" />
                         </Grid>
 
                         <!-- Advanced -->

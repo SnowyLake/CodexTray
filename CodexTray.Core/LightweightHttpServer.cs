@@ -443,7 +443,7 @@ public sealed class LightweightHttpServer : IDisposable
     /// </summary>
     private static Task WriteUsageTextAsync(NetworkStream stream, UsageResponse response, CancellationToken cancellationToken)
     {
-        string body = string.Join(Environment.NewLine, response.Display.Session, response.Display.Weekly, response.Display.CursorMonthly);
+        string body = string.Join(Environment.NewLine, response.Display.Weekly, response.Display.GrokWeekly, response.Display.CursorMonthly);
         return WriteResponseAsync(stream, 200, "OK", "text/plain; charset=utf-8", body, cancellationToken);
     }
 

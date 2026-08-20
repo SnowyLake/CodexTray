@@ -16,7 +16,7 @@
 
 ## 概览
 
-`CodexTray` 是一个适用于 Windows x64 的托盘应用. 它读取当前 Windows 用户的 Codex 登录信息, 从 ChatGPT 官方接口获取 Session 和 Weekly 额度, 并通过本地服务把 Codex 额度与 Cursor Monthly 额度提供给 LiteMonitor 和 TrafficMonitor 插件.
+`CodexTray` 是一个适用于 Windows x64 的托盘应用. 它读取当前 Windows 用户的 Codex, Grok Build 和 Cursor 登录信息, 并通过本地服务把 Codex Weekly, Grok Weekly 和 Cursor Monthly 剩余额度提供给 LiteMonitor 和 TrafficMonitor 插件.
 
 应用还会统计本机 Codex 会话与 OpenCode 中 OpenAI 调用的 token 用量, 按模型价格估算 API 等价成本. Grok 页面会另外统计本机 Grok Build session 中记录的 token 与费用. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
 
@@ -39,7 +39,7 @@
 - 支持 `System`, `Light`, `Dark` 主题和 Windows 11 Mica 背景材质, 主面板固定为 360 x 620. Windows 10 固定使用纯色背景.
 - 支持隐藏 Codex, Grok, Cursor 或 APIs 页面并停止对应后台采集.
 - 自动检测 LiteMonitor 与 TrafficMonitor 安装目录, 并一键安装对应插件.
-- 支持插件中显示或隐藏额度重置时间, 以及倒计时或绝对时间格式.
+- 插件固定显示 Codex, Grok 和 Cursor 三项剩余额度百分比.
 - 支持随 Windows 启动, 自定义本地 HTTP 端口和单实例运行.
 
 ## 安装
@@ -61,7 +61,7 @@
 - Grok 页: 查看从本机 Grok Build 登录信息获取的 Weekly 额度, 重置时间和本地 Token Cost 统计.
 - Cursor 页: 查看 Monthly, First party, APIs 额度和实际账单 Token Cost.
 - APIs 页: 添加和查看 DeepSeek, NewAPI, OpenRouter, NanoGPT 或 Vercel AI Gateway 监控卡片.
-- Settings 页: 调整可见页面, 刷新, 显示, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Grok, Cursor 和 APIs 入口并停止对应后台采集. 同时隐藏 Codex 和 Cursor 时会停止本地 HTTP 服务.
+- Settings 页: 调整可见页面, 刷新, 显示, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Grok, Cursor 和 APIs 入口并停止对应后台采集. 同时隐藏 Codex, Grok 和 Cursor 时会停止本地 HTTP 服务.
 - About 页: 查看当前版本, 项目主页和许可证信息.
 
 再次运行 `CodexTray.exe` 不会启动第二个实例, 而是通知已有实例打开主面板.
@@ -98,9 +98,9 @@ Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不�
 
 CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监控器, 使用 `Browse` 手动选择目录或 `Auto detect` 自动定位, 然后点击 `Setup` 安装插件. 安装完成后重启对应监控器或重新加载插件.
 
-LiteMonitor 显示 `Codex-Session`, `Codex-Weekly` 和 `Cursor-Monthly` 三项, 从 JSON 接口读取数据. TrafficMonitor 原生插件显示同样三项, 从三行文本接口读取数据. 插件默认保留宿主自己的 label 和布局.
+LiteMonitor 显示 `Codex`, `Grok` 和 `Cursor` 三项, 从 JSON 接口依次读取 Codex Weekly, Grok Weekly 和 Cursor Monthly. TrafficMonitor 原生插件显示同样三项, 从三行文本接口读取数据. 三项仅显示剩余百分比, 不附加重置时间.
 
-隐藏 Codex 或 Cursor 页面会停止对应数据采集, 并让对应插件项显示 `N/A`. 同时隐藏这两个页面后, 本地 HTTP 服务会停止.
+隐藏 Codex, Grok 或 Cursor 页面会停止对应数据采集, 并让对应插件项显示 `N/A`. 同时隐藏这三个页面后, 本地 HTTP 服务会停止.
 
 如果修改了 CodexTray 的 HTTP 端口, 请重新执行 `Setup`, 让插件配置同步到新端口.
 
@@ -139,7 +139,7 @@ Codex 页请确认发布目录包含 `Resources/model-pricing.json`, 并且当�
 
 ### 为什么 LiteMonitor 或 TrafficMonitor 没有更新
 
-请确认 CodexTray 正在运行, 且 Settings 中 Codex 或 Cursor 至少一个页面可见. 在托盘菜单中点击 `Refresh Now`, 再检查监控器路径并重新执行 `Setup`. 如果修改过 HTTP 端口, 必须重新安装插件配置.
+请确认 CodexTray 正在运行, 且 Settings 中 Codex, Grok 或 Cursor 至少一个页面可见. 在托盘菜单中点击 `Refresh Now`, 再检查监控器路径并重新执行 `Setup`. 如果修改过 HTTP 端口, 必须重新安装插件配置.
 
 ### 为什么找不到 LiteMonitor 或 TrafficMonitor
 

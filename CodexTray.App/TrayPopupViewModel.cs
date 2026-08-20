@@ -121,7 +121,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private PageItem m_SnapshotVisiblePages = PageItem.All;
     private bool m_SnapshotStartWithWindows;
     private bool m_SnapshotMicaEnabled;
-    private bool m_SnapshotShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins;
     private bool m_SnapshotUseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
 
     public event EventHandler? SaveSettingsRequested;
@@ -355,9 +354,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public bool IsMicaSupported => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
 
     [ObservableProperty]
-    public partial bool ShowResetTimeInPlugins { get; set; } = CodexTrayDefaults.ShowResetTimeInPlugins;
-
-    [ObservableProperty]
     public partial bool UseAbsoluteResetTime { get; set; } = CodexTrayDefaults.UseAbsoluteResetTime;
 
     public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
@@ -556,7 +552,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             VisiblePages = settings.VisiblePages;
             StartWithWindows = settings.StartWithWindows;
             MicaEnabled = settings.MicaEnabled;
-            ShowResetTimeInPlugins = settings.ShowResetTimeInPlugins;
             UseAbsoluteResetTime = settings.UseAbsoluteResetTime;
         }
         finally
@@ -593,11 +588,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     partial void OnStartWithWindowsChanged(bool value) => EvaluateDirtyState();
 
     /// <summary>
-    /// Recomputes dirty state after the plugin reset-time setting changes.
-    /// </summary>
-    partial void OnShowResetTimeInPluginsChanged(bool value) => EvaluateDirtyState();
-
-    /// <summary>
     /// Recomputes dirty state after the absolute reset-time setting changes.
     /// </summary>
     partial void OnUseAbsoluteResetTimeChanged(bool value) => EvaluateDirtyState();
@@ -616,7 +606,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_SnapshotVisiblePages = m_VisiblePages;
         m_SnapshotStartWithWindows = StartWithWindows;
         m_SnapshotMicaEnabled = m_MicaEnabled;
-        m_SnapshotShowResetTimeInPlugins = ShowResetTimeInPlugins;
         m_SnapshotUseAbsoluteResetTime = UseAbsoluteResetTime;
         m_SettingsBaseline = baseline;
         SettingsStatus = baseline;
@@ -642,7 +631,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             m_VisiblePages == m_SnapshotVisiblePages &&
             StartWithWindows == m_SnapshotStartWithWindows &&
             m_MicaEnabled == m_SnapshotMicaEnabled &&
-            ShowResetTimeInPlugins == m_SnapshotShowResetTimeInPlugins &&
             UseAbsoluteResetTime == m_SnapshotUseAbsoluteResetTime;
 
         SettingsStatus = matchesSnapshot ? m_SettingsBaseline : SettingsStatus.Unsaved;
@@ -681,7 +669,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_Settings.TokenUnit = TokenUnit;
         m_Settings.VisiblePages = VisiblePages;
         m_Settings.MicaEnabled = MicaEnabled;
-        m_Settings.ShowResetTimeInPlugins = ShowResetTimeInPlugins;
         m_Settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
         CaptureSnapshot(SettingsStatus.Saved);
     }

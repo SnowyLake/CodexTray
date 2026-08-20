@@ -111,8 +111,6 @@ public sealed class AppSettings
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? BackdropMode { get; set; }
 
-    public bool ShowResetTimeInPlugins { get; set; } = CodexTrayDefaults.ShowResetTimeInPlugins;
-
     public bool UseAbsoluteResetTime { get; set; } = CodexTrayDefaults.UseAbsoluteResetTime;
 
     public List<ApiMonitorSettings> ApiMonitors { get; set; } = [];

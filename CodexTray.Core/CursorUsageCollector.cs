@@ -172,7 +172,7 @@ public sealed class CursorUsageCollector
     /// <summary>
     /// Builds the Cursor Monthly value exposed to monitor plugins.
     /// </summary>
-    public static CursorPluginUsage BuildPluginUsage(CursorUsageDashboard dashboard, bool showResetTime, bool useAbsoluteResetTime)
+    public static CursorPluginUsage BuildPluginUsage(CursorUsageDashboard dashboard)
     {
         CursorUsageSnapshot? usage = dashboard.Usage;
         if (usage == null)
@@ -184,21 +184,14 @@ public sealed class CursorUsageCollector
 
         int usedPercent = (int)Math.Round(Math.Clamp(usage.MonthlyUsedPercent, 0, 100), MidpointRounding.AwayFromZero);
         int remainingPercent = 100 - usedPercent;
-        string resetLabel = useAbsoluteResetTime
-            ? CodexTrayCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
-            : CodexTrayCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
         UsageLimit monthly = new()
         {
             Name = "monthly",
             UsedPercent = usedPercent,
             RemainingPercent = remainingPercent,
             ResetsAt = usage.ResetsAt,
-            ResetLabel = resetLabel,
         };
-        string display = showResetTime
-            ? $"{remainingPercent}% {resetLabel}"
-            : $"{remainingPercent}%";
-        return new CursorPluginUsage(monthly, display);
+        return new CursorPluginUsage(monthly, $"{remainingPercent}%");
     }
 
     /// <summary>
@@ -489,7 +482,8 @@ public sealed class CursorUsageCollector
                 hasInputTokens,
                 hasOutputTokens,
                 hasCacheReadTokens,
-                hasCacheWriteTokens));
+                hasCacheWriteTokens,
+                string.IsNullOrWhiteSpace(model) ? "unknown" : model));
         }
 
         return new CursorUsageEventsPage(totalCount, displays.GetArrayLength(), result, zeroTokenMissingCostEventCount);

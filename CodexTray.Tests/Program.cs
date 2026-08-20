@@ -44,7 +44,7 @@ internal static class Program
         await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
         await RunAsync("collects Codex reset credits", TestResetCreditsAsync);
         await RunAsync("applies quota and reset credit color states", TestQuotaAndResetCreditColorStatesAsync);
-        await RunAsync("omits reset suffix when disabled", TestDisplayWithoutResetSuffixAsync);
+        await RunAsync("keeps plugin displays percentage-only", TestPluginDisplayPercentOnlyAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
         await RunAsync("merges and clears plugin usage sources", TestUsageCacheSourcesAsync);
@@ -577,8 +577,9 @@ internal static class Program
         AssertEqual(34, response.Limits.Weekly.UsedPercent, "weekly used percent");
         AssertEqual(66, response.Limits.Weekly.RemainingPercent, "weekly remaining percent");
         AssertEqual("pro", response.PlanType, "plan type");
-        AssertEqual("88% 2h05m", response.Display.Session, "session display");
-        AssertEqual("66% 3d04h", response.Display.Weekly, "weekly display");
+        AssertEqual("2h05m", response.Limits.Session.ResetLabel, "session reset label");
+        AssertEqual("3d04h", response.Limits.Weekly.ResetLabel, "weekly reset label");
+        AssertEqual("66%", response.Display.Weekly, "weekly plugin display");
         return Task.CompletedTask;
     }
 
@@ -596,7 +597,7 @@ internal static class Program
 
         UsageResponse response = collector.Collect(temp.Path);
 
-        AssertEqual("60% 0d03h", response.Display.Weekly, "weekly countdown display");
+        AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, "weekly countdown label");
         return Task.CompletedTask;
     }
 
@@ -614,7 +615,7 @@ internal static class Program
 
         UsageResponse response = collector.Collect(temp.Path);
 
-        AssertEqual("60% 0d03h", response.Display.Weekly, "weekly next-day countdown display");
+        AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, "weekly next-day countdown label");
         return Task.CompletedTask;
     }
 
@@ -628,7 +629,7 @@ internal static class Program
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(!response.Available, "response should be unavailable");
-        AssertEqual("N/A", response.Display.Session, "session unavailable display");
+        AssertEqual("N/A", response.Display.Weekly, "weekly unavailable display");
         AssertEqual("N/A", response.Display.Summary, "summary unavailable display");
         return Task.CompletedTask;
     }
@@ -678,15 +679,14 @@ internal static class Program
         AssertEqual("unknown", response.PlanType, "missing plan type");
         AssertEqual(75, response.Limits.Session.RemainingPercent, "official session remaining percent");
         AssertEqual(60, response.Limits.Weekly.RemainingPercent, "official weekly remaining percent");
-        AssertEqual("75% 1h15m", response.Display.Session, "official session display");
-        AssertEqual("60% 2d12h", response.Display.Weekly, "official weekly display");
+        AssertEqual("60%", response.Display.Weekly, "official weekly plugin display");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests that plugin display values drop the reset suffix when the option is disabled.
+    /// Tests that plugin display values never include reset suffixes.
     /// </summary>
-    private static Task TestDisplayWithoutResetSuffixAsync()
+    private static Task TestPluginDisplayPercentOnlyAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
@@ -695,11 +695,10 @@ internal static class Program
         CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
-        UsageResponse response = collector.Collect(temp.Path, showResetTimeInPlugins: false);
+        UsageResponse response = collector.Collect(temp.Path);
 
-        AssertEqual("75%", response.Display.Session, "session display without reset suffix");
-        AssertEqual("60%", response.Display.Weekly, "weekly display without reset suffix");
-        AssertEqual("1h15m", response.Limits.Session.ResetLabel, "session reset label remains available for plugins");
+        AssertEqual("60%", response.Display.Weekly, "weekly percentage-only plugin display");
+        AssertEqual("1h15m", response.Limits.Session.ResetLabel, "session reset label remains available internally");
         return Task.CompletedTask;
     }
 
@@ -715,12 +714,11 @@ internal static class Program
         CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
-        UsageResponse response = collector.Collect(temp.Path, showResetTimeInPlugins: true, useAbsoluteResetTime: true);
+        UsageResponse response = collector.Collect(temp.Path, useAbsoluteResetTime: true);
 
         AssertEqual("13:15", response.Limits.Session.ResetLabel, "session absolute reset clock");
         AssertEqual("07-04", response.Limits.Weekly.ResetLabel, "weekly absolute reset date");
-        AssertEqual("75% 13:15", response.Display.Session, "session display with absolute reset");
-        AssertEqual("60% 07-04", response.Display.Weekly, "weekly display with absolute reset");
+        AssertEqual("60%", response.Display.Weekly, "weekly plugin display should omit absolute reset");
         return Task.CompletedTask;
     }
 
@@ -735,15 +733,17 @@ internal static class Program
         using HttpClient _ = collectorClient;
         UsageCache usageCache = new();
         usageCache.UpdateCodex(collector.Collect(temp.Path));
+        usageCache.UpdateGrok(GrokUsageCollector.BuildPluginUsage(new GrokUsageDashboard(
+            new GrokUsageSnapshot(5, now.AddDays(7).ToUnixTimeSeconds()),
+            string.Empty,
+            now)));
         usageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(
             new CursorUsageDashboard(
                 new CursorUsageSnapshot("Pro", 25, 0, 0, now.AddDays(30).ToUnixTimeSeconds()),
                 null,
                 string.Empty,
                 string.Empty,
-                now),
-            showResetTime: true,
-            useAbsoluteResetTime: false));
+                now)));
         using LightweightHttpServer server = new(usageCache, 0);
         server.Start();
 
@@ -755,9 +755,12 @@ internal static class Program
         using JsonDocument document = JsonDocument.Parse(usageJson);
         JsonElement display = document.RootElement.GetProperty("display");
         JsonElement limits = document.RootElement.GetProperty("limits");
-        AssertEqual("90% 1h00m", display.GetProperty("session").GetString(), "HTTP plugin session display");
-        AssertEqual("80% 2d00h", display.GetProperty("weekly").GetString(), "HTTP plugin weekly display");
-        AssertEqual("75% 30d00h", display.GetProperty("cursor_monthly").GetString(), "HTTP plugin Cursor monthly display");
+        AssertTrue(!display.TryGetProperty("session", out JsonElement sessionDisplay), "HTTP plugin response should omit Codex Session display");
+        AssertTrue(!limits.TryGetProperty("session", out JsonElement sessionLimit), "HTTP plugin response should omit Codex Session limit");
+        AssertEqual("80%", display.GetProperty("weekly").GetString(), "HTTP plugin Codex display");
+        AssertEqual("95%", display.GetProperty("grok_weekly").GetString(), "HTTP plugin Grok display");
+        AssertEqual("75%", display.GetProperty("cursor_monthly").GetString(), "HTTP plugin Cursor display");
+        AssertEqual(95, limits.GetProperty("grok_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Grok remaining percent");
         AssertEqual(75, limits.GetProperty("cursor_monthly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Cursor monthly remaining percent");
         AssertTrue(!display.TryGetProperty("codex_5h", out JsonElement legacySession), "legacy session plugin field should be removed");
         AssertTrue(!display.TryGetProperty("codex_7d", out JsonElement legacyWeekly), "legacy weekly plugin field should be removed");
@@ -765,14 +768,14 @@ internal static class Program
         string usageText = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageTextEndpointPath}");
         string[] usageLines = usageText.Split(Environment.NewLine);
         AssertEqual(3, usageLines.Length, "text endpoint line count");
-        AssertEqual("90% 1h00m", usageLines[0], "text endpoint session display");
-        AssertEqual("80% 2d00h", usageLines[1], "text endpoint weekly display");
-        AssertEqual("75% 30d00h", usageLines[2], "text endpoint Cursor monthly display");
+        AssertEqual("80%", usageLines[0], "text endpoint Codex display");
+        AssertEqual("95%", usageLines[1], "text endpoint Grok display");
+        AssertEqual("75%", usageLines[2], "text endpoint Cursor display");
         await server.StopAsync();
     }
 
     /// <summary>
-    /// Tests independent merging and clearing of Codex and Cursor plugin values.
+    /// Tests independent merging and clearing of Codex, Grok, and Cursor plugin values.
     /// </summary>
     private static Task TestUsageCacheSourcesAsync()
     {
@@ -787,23 +790,31 @@ internal static class Program
             },
             Display = new UsageDisplay
             {
-                Session = "90%",
                 Weekly = "80%",
-                Summary = "Codex Session: 90% | Codex Weekly: 80%",
+                Summary = "Codex: 80%",
             },
         });
+        usageCache.UpdateGrok(new GrokPluginUsage(
+            new UsageLimit { Name = "weekly", RemainingPercent = 60 },
+            "60%"));
         usageCache.UpdateCursor(new CursorPluginUsage(
             new UsageLimit { Name = "monthly", RemainingPercent = 70 },
             "70%"));
 
         UsageResponse merged = usageCache.Get() ?? throw new InvalidOperationException("merged usage should be available");
-        AssertEqual("90%", merged.Display.Session, "merged Codex session display");
+        AssertEqual("80%", merged.Display.Weekly, "merged Codex display");
+        AssertEqual("60%", merged.Display.GrokWeekly, "merged Grok display");
         AssertEqual("70%", merged.Display.CursorMonthly, "merged Cursor monthly display");
 
         usageCache.ClearCodex();
+        UsageResponse grokAndCursor = usageCache.Get() ?? throw new InvalidOperationException("Grok and Cursor usage should be available");
+        AssertEqual("N/A", grokAndCursor.Display.Weekly, "cleared Codex display");
+        AssertEqual("60%", grokAndCursor.Display.GrokWeekly, "preserved Grok display");
+
+        usageCache.ClearGrok();
         UsageResponse cursorOnly = usageCache.Get() ?? throw new InvalidOperationException("Cursor-only usage should be available");
-        AssertEqual("N/A", cursorOnly.Display.Session, "cleared Codex session display");
-        AssertEqual("70%", cursorOnly.Display.CursorMonthly, "preserved Cursor monthly display");
+        AssertEqual("N/A", cursorOnly.Display.GrokWeekly, "cleared Grok display");
+        AssertEqual("70%", cursorOnly.Display.CursorMonthly, "preserved Cursor display");
 
         usageCache.ClearCursor();
         AssertTrue(usageCache.Get() == null, "cleared plugin usage should be empty");
@@ -946,10 +957,11 @@ internal static class Program
         using JsonDocument pluginDocument = JsonDocument.Parse(content);
         string expectedVersion = typeof(TrayPopupViewModel).Assembly.GetName().Version?.ToString(3) ?? string.Empty;
         AssertEqual(expectedVersion, pluginDocument.RootElement.GetProperty("meta").GetProperty("version").GetString(), "plugin version should match the app version");
-        AssertTrue(content.Contains("\"short_label\": \"Codex-Session\"", StringComparison.Ordinal), "plugin content should include Codex Session item");
-        AssertTrue(content.Contains("\"short_label\": \"Codex-Weekly\"", StringComparison.Ordinal), "plugin content should include Codex Weekly item");
-        AssertTrue(content.Contains("\"short_label\": \"Cursor-Monthly\"", StringComparison.Ordinal), "plugin content should include Cursor Monthly item");
-        AssertTrue(content.Contains("\"format_val\": \"{{cursor_monthly_display}}\"", StringComparison.Ordinal), "plugin content should include Cursor Monthly value");
+        AssertTrue(content.Contains("\"short_label\": \"Codex\"", StringComparison.Ordinal), "plugin content should include Codex item");
+        AssertTrue(content.Contains("\"short_label\": \"Grok\"", StringComparison.Ordinal), "plugin content should include Grok item");
+        AssertTrue(content.Contains("\"short_label\": \"Cursor\"", StringComparison.Ordinal), "plugin content should include Cursor item");
+        AssertTrue(content.Contains("\"format_val\": \"{{grok_display}}\"", StringComparison.Ordinal), "plugin content should include Grok value");
+        AssertTrue(content.Contains("\"format_val\": \"{{cursor_display}}\"", StringComparison.Ordinal), "plugin content should include Cursor value");
         AssertTrue(content.Contains($"http://{CodexTrayDefaults.Host}:17998{CodexTrayDefaults.UsageEndpointPath}", StringComparison.Ordinal), "plugin content should include bridge URL");
         return Task.CompletedTask;
     }
@@ -1010,7 +1022,7 @@ internal static class Program
     {
         using TempDirectory temp = new();
         SettingsStore store = new(temp.Path);
-        File.WriteAllText(store.SettingsPath, "{\"Port\":17996,\"HideInvalidProgressBars\":false}");
+        File.WriteAllText(store.SettingsPath, "{\"Port\":17996,\"HideInvalidProgressBars\":false,\"ShowResetTimeInPlugins\":false}");
 
         AppSettings settings = store.Load();
 
@@ -1023,7 +1035,6 @@ internal static class Program
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
         AssertEqual(AppSettings.TokenUnitEnglish, settings.TokenUnit, "default token unit");
         AssertTrue(settings.MicaEnabled, "Mica should be enabled by default");
-        AssertTrue(settings.ShowResetTimeInPlugins, "plugin reset time should be shown by default");
         AssertTrue(settings.UseAbsoluteResetTime, "absolute reset time should be enabled by default");
         AssertEqual(0, settings.ApiMonitors.Count, "default API monitors");
 
@@ -1039,6 +1050,7 @@ internal static class Program
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "repaired settings should include Mica toggle");
         AssertTrue(document.RootElement.TryGetProperty(nameof(AppSettings.ApiMonitors), out _), "repaired settings should include API monitors");
         AssertTrue(!document.RootElement.TryGetProperty("HideInvalidProgressBars", out _), "repaired settings should omit the retired progress bar toggle");
+        AssertTrue(!document.RootElement.TryGetProperty("ShowResetTimeInPlugins", out _), "repaired settings should omit the retired plugin reset-time toggle");
         AssertTrue(!document.RootElement.TryGetProperty("FirstRunCompleted", out _), "repaired settings should not include first-run flag");
 
         using TempDirectory legacyTemp = new();
@@ -2286,9 +2298,6 @@ internal static class Program
              viewModel => viewModel.RefreshIntervalText = "2",
              viewModel => viewModel.RefreshIntervalText = CodexTrayDefaults.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture)),
             (nameof(TrayPopupViewModel.StartWithWindows), viewModel => viewModel.StartWithWindows = true, viewModel => viewModel.StartWithWindows = false),
-            (nameof(TrayPopupViewModel.ShowResetTimeInPlugins),
-             viewModel => viewModel.ShowResetTimeInPlugins = !CodexTrayDefaults.ShowResetTimeInPlugins,
-             viewModel => viewModel.ShowResetTimeInPlugins = CodexTrayDefaults.ShowResetTimeInPlugins),
             (nameof(TrayPopupViewModel.UseAbsoluteResetTime),
              viewModel => viewModel.UseAbsoluteResetTime = !CodexTrayDefaults.UseAbsoluteResetTime,
              viewModel => viewModel.UseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime),
@@ -2514,10 +2523,9 @@ internal static class Program
 
         AssertTrue(response.Available, "response should be available");
         AssertEqual(0, response.Limits.Session.WindowMinutes, "session window should be absent");
-        AssertEqual("N/A", response.Display.Session, "session display should be unavailable");
         AssertEqual(10080, response.Limits.Weekly.WindowMinutes, "weekly window duration");
         AssertEqual(42, response.Limits.Weekly.RemainingPercent, "weekly remaining percent");
-        AssertEqual("42% 6d23h", response.Display.Weekly, "weekly display");
+        AssertEqual("42%", response.Display.Weekly, "weekly plugin display");
         return Task.CompletedTask;
     }
 

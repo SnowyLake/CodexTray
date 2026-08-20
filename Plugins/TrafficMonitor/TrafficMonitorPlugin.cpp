@@ -24,9 +24,9 @@ HMODULE g_Module = nullptr;
 
 struct UsageValues
 {
-    std::wstring session;
-    std::wstring weekly;
-    std::wstring monthly;
+    std::wstring codex;
+    std::wstring grok;
+    std::wstring cursor;
 };
 
 struct OptionsDialogState
@@ -490,10 +490,10 @@ bool FetchUsageValues(UsageValues& values)
         return false;
     }
 
-    values.session = TrimString(text.substr(0, firstSeparator));
-    values.weekly = TrimString(text.substr(firstSeparator + 1, secondSeparator - firstSeparator - 1));
-    values.monthly = TrimString(text.substr(secondSeparator + 1));
-    return !values.session.empty() && !values.weekly.empty() && !values.monthly.empty();
+    values.codex = TrimString(text.substr(0, firstSeparator));
+    values.grok = TrimString(text.substr(firstSeparator + 1, secondSeparator - firstSeparator - 1));
+    values.cursor = TrimString(text.substr(secondSeparator + 1));
+    return !values.codex.empty() && !values.grok.empty() && !values.cursor.empty();
 }
 
 class UsageItem final : public IPluginItem
@@ -560,9 +560,9 @@ class CodexTrayPlugin final : public ITMPlugin
 public:
     /// Creates the TrafficMonitor plugin singleton.
     CodexTrayPlugin()
-        : m_SessionItem(L"Codex Session", L"CodexTraySession", L"Codex-Session", L"100% 4h59m"),
-          m_WeeklyItem(L"Codex Weekly", L"CodexTrayWeekly", L"Codex-Weekly", L"100% 6d23h"),
-          m_MonthlyItem(L"Cursor Monthly", L"CodexTrayCursorMonthly", L"Cursor-Monthly", L"100% 08-31"),
+        : m_CodexItem(L"Codex", L"CodexTrayCodex", L"Codex", L"100%"),
+          m_GrokItem(L"Grok", L"CodexTrayGrok", L"Grok", L"100%"),
+          m_CursorItem(L"Cursor", L"CodexTrayCursor", L"Cursor", L"100%"),
           m_Tooltip(L"CodexTray waiting for data")
     {
     }
@@ -573,11 +573,11 @@ public:
         switch (index)
         {
         case 0:
-            return &m_SessionItem;
+            return &m_CodexItem;
         case 1:
-            return &m_WeeklyItem;
+            return &m_GrokItem;
         case 2:
-            return &m_MonthlyItem;
+            return &m_CursorItem;
         default:
             return nullptr;
         }
@@ -589,17 +589,17 @@ public:
         UsageValues values;
         if (!FetchUsageValues(values))
         {
-            m_SessionItem.SetFallback();
-            m_WeeklyItem.SetFallback();
-            m_MonthlyItem.SetFallback();
+            m_CodexItem.SetFallback();
+            m_GrokItem.SetFallback();
+            m_CursorItem.SetFallback();
             m_Tooltip = L"CodexTray bridge unavailable";
             return;
         }
 
-        m_SessionItem.SetValue(values.session);
-        m_WeeklyItem.SetValue(values.weekly);
-        m_MonthlyItem.SetValue(values.monthly);
-        m_Tooltip = L"Codex Session: " + values.session + L"\nCodex Weekly: " + values.weekly + L"\nCursor Monthly: " + values.monthly;
+        m_CodexItem.SetValue(values.codex);
+        m_GrokItem.SetValue(values.grok);
+        m_CursorItem.SetValue(values.cursor);
+        m_Tooltip = L"Codex: " + values.codex + L"\nGrok: " + values.grok + L"\nCursor: " + values.cursor;
     }
 
     /// Shows plugin options for editing the backend URL.
@@ -635,7 +635,7 @@ public:
         case TMI_NAME:
             return L"CodexTray";
         case TMI_DESCRIPTION:
-            return L"Displays Codex Session, Codex Weekly, and Cursor Monthly quota from CodexTray.";
+            return L"Displays Codex, Grok, and Cursor quota from CodexTray.";
         case TMI_AUTHOR:
             return L"SnowyLake";
         case TMI_COPYRIGHT:
@@ -656,9 +656,9 @@ public:
     }
 
 private:
-    UsageItem m_SessionItem;
-    UsageItem m_WeeklyItem;
-    UsageItem m_MonthlyItem;
+    UsageItem m_CodexItem;
+    UsageItem m_GrokItem;
+    UsageItem m_CursorItem;
     std::wstring m_Tooltip;
 };
 

@@ -43,7 +43,7 @@ internal sealed class TrayController : IDisposable
 
     private bool IsExiting => Volatile.Read(ref m_IsExiting) != 0;
 
-    private bool IsPluginServiceRequired => (m_Settings.VisiblePages & (PageItem.Codex | PageItem.Cursor)) != 0;
+    private bool IsPluginServiceRequired => (m_Settings.VisiblePages & (PageItem.Codex | PageItem.Grok | PageItem.Cursor)) != 0;
 
     /// <summary>
     /// Creates the tray controller and starts background work.
@@ -455,6 +455,7 @@ internal sealed class TrayController : IDisposable
 
         int previousPort = m_Settings.Port;
         bool codexWasEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
+        bool grokWasEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
         bool cursorWasEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
         bool serviceWasRequired = IsPluginServiceRequired;
         m_PopupViewModel?.ApplySettings();
@@ -463,10 +464,16 @@ internal sealed class TrayController : IDisposable
         m_SettingsStore.Save(m_Settings);
         ConfigureRefreshTimer();
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
+        bool grokIsEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
         bool cursorIsEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
         if (codexWasEnabled && !codexIsEnabled)
         {
             m_UsageCache.ClearCodex();
+        }
+
+        if (grokWasEnabled && !grokIsEnabled)
+        {
+            m_UsageCache.ClearGrok();
         }
 
         if (cursorWasEnabled && !cursorIsEnabled)
@@ -607,7 +614,6 @@ internal sealed class TrayController : IDisposable
         try
         {
             bool useAbsoluteResetTime = m_Settings.UseAbsoluteResetTime;
-            bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
             Task<UsageResponse>? codexUsageTask = null;
             Task<TokenCostStatistics?>? tokenCostTask = null;
             Task<GrokUsageDashboard>? grokDashboardTask = null;
@@ -616,7 +622,7 @@ internal sealed class TrayController : IDisposable
             Task<IReadOnlyList<ApiUsageResult>>? apiUsageTask = null;
             if ((visiblePages & PageItem.Codex) != 0)
             {
-                codexUsageTask = m_Collector.CollectAsync(showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
+                codexUsageTask = m_Collector.CollectAsync(useAbsoluteResetTime, cancellationToken);
                 tokenCostTask = Task.Run<TokenCostStatistics?>(() =>
                 {
                     try
@@ -678,13 +684,16 @@ internal sealed class TrayController : IDisposable
 
             if (grokDashboardTask != null && grokTokenCostTask != null)
             {
-                m_PopupViewModel?.UpdateGrokDashboard(grokDashboardTask.Result, grokTokenCostTask.Result);
+                GrokUsageDashboard dashboard = grokDashboardTask.Result;
+                m_UsageCache.UpdateGrok(GrokUsageCollector.BuildPluginUsage(dashboard));
+                RefreshPopupStatus();
+                m_PopupViewModel?.UpdateGrokDashboard(dashboard, grokTokenCostTask.Result);
             }
 
             if (cursorDashboardTask != null)
             {
                 CursorUsageDashboard dashboard = cursorDashboardTask.Result;
-                m_UsageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(dashboard, showResetTimeInPlugins, useAbsoluteResetTime));
+                m_UsageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(dashboard));
                 RefreshPopupStatus();
                 m_PopupViewModel?.UpdateCursorDashboard(dashboard);
             }

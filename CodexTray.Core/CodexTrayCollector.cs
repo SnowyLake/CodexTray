@@ -9,8 +9,6 @@ public sealed class CodexTrayCollector
 {
     private const int k_SessionWindowSeconds = 18000;
     private const int k_WeeklyWindowSeconds = 604800;
-    private const string k_PluginSessionDisplayLabel = "Codex Session";
-    private const string k_PluginWeeklyDisplayLabel = "Codex Weekly";
     private const string k_ResetCreditsEndpoint = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
 
     private static readonly HttpClient s_HttpClient = new()
@@ -33,33 +31,33 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Collects the latest Codex usage response from the default Codex directory.
     /// </summary>
-    public UsageResponse Collect(bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false)
+    public UsageResponse Collect(bool useAbsoluteResetTime = false)
     {
-        return CollectAsync(showResetTimeInPlugins, useAbsoluteResetTime).GetAwaiter().GetResult();
+        return CollectAsync(useAbsoluteResetTime).GetAwaiter().GetResult();
     }
 
     /// <summary>
     /// Collects the latest Codex usage response asynchronously from the default Codex directory.
     /// </summary>
-    public Task<UsageResponse> CollectAsync(bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
+    public Task<UsageResponse> CollectAsync(bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
     {
-        return CollectAsync(GetDefaultCodexDirectory(), showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
+        return CollectAsync(GetDefaultCodexDirectory(), useAbsoluteResetTime, cancellationToken);
     }
 
     /// <summary>
     /// Collects the latest Codex usage response from a Codex directory.
     /// </summary>
-    public UsageResponse Collect(string codexDirectory, bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false)
+    public UsageResponse Collect(string codexDirectory, bool useAbsoluteResetTime = false)
     {
-        return CollectAsync(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime).GetAwaiter().GetResult();
+        return CollectAsync(codexDirectory, useAbsoluteResetTime).GetAwaiter().GetResult();
     }
 
     /// <summary>
     /// Collects the latest Codex usage response asynchronously from a Codex directory.
     /// </summary>
-    public Task<UsageResponse> CollectAsync(string codexDirectory, bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
+    public Task<UsageResponse> CollectAsync(string codexDirectory, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
     {
-        return CollectOfficialUsageAsync(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
+        return CollectOfficialUsageAsync(codexDirectory, useAbsoluteResetTime, cancellationToken);
     }
 
     /// <summary>
@@ -73,7 +71,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Collects Codex usage from the official ChatGPT quota endpoint.
     /// </summary>
-    private async Task<UsageResponse> CollectOfficialUsageAsync(string codexDirectory, bool showResetTimeInPlugins, bool useAbsoluteResetTime, CancellationToken cancellationToken)
+    private async Task<UsageResponse> CollectOfficialUsageAsync(string codexDirectory, bool useAbsoluteResetTime, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset now = m_NowProvider();
@@ -108,7 +106,7 @@ public sealed class CodexTrayCollector
             }
 
             using JsonDocument document = JsonDocument.Parse(body);
-            UsageResponse usage = BuildOfficialResponse(codexDirectory, authPath, document.RootElement, now, showResetTimeInPlugins, useAbsoluteResetTime);
+            UsageResponse usage = BuildOfficialResponse(codexDirectory, authPath, document.RootElement, now, useAbsoluteResetTime);
             if (usage.Available)
             {
                 usage.ResetCredits = await CollectResetCreditsAsync(credentials, now, cancellationToken).ConfigureAwait(false);
@@ -129,7 +127,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Builds a usage response from the official quota endpoint JSON.
     /// </summary>
-    private UsageResponse BuildOfficialResponse(string codexDirectory, string authPath, JsonElement root, DateTimeOffset now, bool showResetTimeInPlugins, bool useAbsoluteResetTime)
+    private UsageResponse BuildOfficialResponse(string codexDirectory, string authPath, JsonElement root, DateTimeOffset now, bool useAbsoluteResetTime)
     {
         JsonElement rateLimit = GetObjectProperty(root, "rate_limit");
         JsonElement primary = GetObjectProperty(rateLimit, "primary_window");
@@ -149,7 +147,7 @@ public sealed class CodexTrayCollector
             return CreateEmptyResponse(codexDirectory, now, "Codex usage API did not return rate_limit windows");
         }
 
-        UsageDisplay display = BuildDisplay(session, weekly, showResetTimeInPlugins);
+        UsageDisplay display = BuildDisplay(weekly);
         string planType = GetStringProperty(root, "plan_type", "unknown");
         return new UsageResponse
         {
@@ -245,31 +243,27 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Builds all display strings for monitor plugins.
     /// </summary>
-    private static UsageDisplay BuildDisplay(UsageLimit session, UsageLimit weekly, bool showResetTimeInPlugins)
+    private static UsageDisplay BuildDisplay(UsageLimit weekly)
     {
-        string sessionDisplay = FormatDisplayValue(session, showResetTimeInPlugins);
-        string weeklyDisplay = FormatDisplayValue(weekly, showResetTimeInPlugins);
+        string weeklyDisplay = FormatDisplayValue(weekly);
         return new UsageDisplay
         {
-            Session = sessionDisplay,
             Weekly = weeklyDisplay,
-            Summary = $"{k_PluginSessionDisplayLabel}: {sessionDisplay} | {k_PluginWeeklyDisplayLabel}: {weeklyDisplay}",
+            Summary = $"Codex: {weeklyDisplay}",
         };
     }
 
     /// <summary>
-    /// Formats a plugin display value, optionally appending the reset time suffix.
+    /// Formats a percentage-only plugin display value.
     /// </summary>
-    private static string FormatDisplayValue(UsageLimit limit, bool showResetTimeInPlugins)
+    private static string FormatDisplayValue(UsageLimit limit)
     {
         if (limit.WindowMinutes <= 0)
         {
             return CodexTrayDefaults.UnavailableDisplay;
         }
 
-        return showResetTimeInPlugins
-            ? $"{limit.RemainingPercent}% {limit.ResetLabel}"
-            : $"{limit.RemainingPercent}%";
+        return $"{limit.RemainingPercent}%";
     }
 
     /// <summary>

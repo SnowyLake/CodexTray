@@ -87,6 +87,33 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
+    /// Builds the Grok Weekly value exposed to monitor plugins.
+    /// </summary>
+    public static GrokPluginUsage BuildPluginUsage(GrokUsageDashboard dashboard)
+    {
+        GrokUsageSnapshot? usage = dashboard.Usage;
+        if (usage == null)
+        {
+            return new GrokPluginUsage(
+                new UsageLimit { Name = "weekly", UsedPercent = 100, RemainingPercent = 0 },
+                CodexTrayDefaults.UnavailableDisplay);
+        }
+
+        int usedPercent = (int)Math.Round(Math.Clamp(usage.UsedPercent, 0, 100), MidpointRounding.AwayFromZero);
+        int remainingPercent = 100 - usedPercent;
+        return new GrokPluginUsage(
+            new UsageLimit
+            {
+                Name = "weekly",
+                UsedPercent = usedPercent,
+                RemainingPercent = remainingPercent,
+                WindowMinutes = 10080,
+                ResetsAt = usage.ResetsAt,
+            },
+            $"{remainingPercent}%");
+    }
+
+    /// <summary>
     /// Parses a Grok billing gRPC-web or raw protobuf response.
     /// </summary>
     public static GrokUsageSnapshot ParseGrpcWebResponse(byte[] responseBody, DateTimeOffset now)

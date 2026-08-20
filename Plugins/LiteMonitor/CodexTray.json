@@ -4,7 +4,7 @@
     "name": "CodexTray",
     "version": "4.0.0",
     "author": "SnowyLake",
-    "description": "显示 Codex Session, Codex Weekly 和 Cursor Monthly 的剩余百分比与重置时间"
+    "description": "显示 Codex, Grok 和 Cursor 的剩余额度百分比"
   },
   "inputs": [
     {
@@ -26,17 +26,17 @@
         "method": "GET",
         "response_format": "json",
         "extract": {
-          "codex_session_display": "display.session",
-          "codex_weekly_display": "display.weekly",
-          "cursor_monthly_display": "display.cursor_monthly",
-          "codex_session_remaining": "limits.session.remaining_percent",
-          "codex_weekly_remaining": "limits.weekly.remaining_percent",
-          "cursor_monthly_remaining": "limits.cursor_monthly.remaining_percent"
+          "codex_display": "display.weekly",
+          "grok_display": "display.grok_weekly",
+          "cursor_display": "display.cursor_monthly",
+          "codex_remaining": "limits.weekly.remaining_percent",
+          "grok_remaining": "limits.grok_weekly.remaining_percent",
+          "cursor_remaining": "limits.cursor_monthly.remaining_percent"
         },
         "process": [
           {
-            "var": "codex_session_color",
-            "source": "codex_session_remaining",
+            "var": "codex_color",
+            "source": "codex_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -45,8 +45,8 @@
             }
           },
           {
-            "var": "codex_weekly_color",
-            "source": "codex_weekly_remaining",
+            "var": "grok_color",
+            "source": "grok_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -55,8 +55,8 @@
             }
           },
           {
-            "var": "cursor_monthly_color",
-            "source": "cursor_monthly_remaining",
+            "var": "cursor_color",
+            "source": "cursor_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -70,28 +70,28 @@
   },
   "outputs": [
     {
-      "key": "codex_session",
-      "label": "Codex Session",
-      "short_label": "Codex-Session",
-      "format_val": "{{codex_session_display}}",
+      "key": "codex",
+      "label": "Codex",
+      "short_label": "Codex",
+      "format_val": "{{codex_display}}",
       "unit": "",
-      "color": "{{codex_session_color}}"
+      "color": "{{codex_color}}"
     },
     {
-      "key": "codex_weekly",
-      "label": "Codex Weekly",
-      "short_label": "Codex-Weekly",
-      "format_val": "{{codex_weekly_display}}",
+      "key": "grok",
+      "label": "Grok",
+      "short_label": "Grok",
+      "format_val": "{{grok_display}}",
       "unit": "",
-      "color": "{{codex_weekly_color}}"
+      "color": "{{grok_color}}"
     },
     {
-      "key": "cursor_monthly",
-      "label": "Cursor Monthly",
-      "short_label": "Cursor-Monthly",
-      "format_val": "{{cursor_monthly_display}}",
+      "key": "cursor",
+      "label": "Cursor",
+      "short_label": "Cursor",
+      "format_val": "{{cursor_display}}",
       "unit": "",
-      "color": "{{cursor_monthly_color}}"
+      "color": "{{cursor_color}}"
     }
   ]
 }
