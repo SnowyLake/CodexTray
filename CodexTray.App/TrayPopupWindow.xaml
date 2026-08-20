@@ -1463,13 +1463,13 @@
                                                   IsCheckable="True"
                                                   IsChecked="{Binding ShowCodexPage, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
-                                        <MenuItem Header="Grok"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowGrokPage, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
                                         <MenuItem Header="Cursor"
                                                   IsCheckable="True"
                                                   IsChecked="{Binding ShowCursorPage, Mode=TwoWay}"
+                                                  StaysOpenOnClick="True" />
+                                        <MenuItem Header="Grok"
+                                                  IsCheckable="True"
+                                                  IsChecked="{Binding ShowGrokPage, Mode=TwoWay}"
                                                   StaysOpenOnClick="True" />
                                         <MenuItem Header="APIs"
                                                   IsCheckable="True"
@@ -1496,14 +1496,14 @@
                                       ToolTip="Start with Windows" />
                         </Grid>
 
-                        <Grid ToolTip="Show Weekly, Grok and Cursor resets as MM-dd instead of a countdown"
+                        <Grid ToolTip="Show Weekly, Cursor and Grok resets as MM-dd instead of a countdown"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="140" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Resets use absolute time"
-                                       ToolTip="Show Weekly, Grok and Cursor resets as MM-dd instead of a countdown"
+                                       ToolTip="Show Weekly, Cursor and Grok resets as MM-dd instead of a countdown"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <CheckBox Grid.Column="1"
                                       HorizontalAlignment="Right"
@@ -1511,7 +1511,7 @@
                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                       IsChecked="{Binding UseAbsoluteResetTime}"
-                                      ToolTip="Show Weekly, Grok and Cursor resets as MM-dd instead of a countdown" />
+                                      ToolTip="Show Weekly, Cursor and Grok resets as MM-dd instead of a countdown" />
                         </Grid>
 
                         <Grid Margin="{StaticResource SettingsSectionEndMargin}"
@@ -1835,6 +1835,16 @@
                               Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
                               Stretch="Uniform" />
                     </Button>
+                    <Button Command="{Binding ShowCursorCommand}"
+                            ToolTip="Cursor"
+                            Visibility="{Binding IsCursorTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            Style="{StaticResource CursorTabButtonStyle}">
+                        <Path Width="18"
+                              Height="18"
+                              Data="{StaticResource CursorLogoGeometry}"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                              Stretch="Uniform" />
+                    </Button>
                     <Button x:Name="GrokTabButton"
                             Command="{Binding ShowGrokCommand}"
                             ToolTip="Grok"
@@ -1843,16 +1853,6 @@
                         <Path Width="18"
                               Height="18"
                               Data="{StaticResource GrokLogoGeometry}"
-                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
-                              Stretch="Uniform" />
-                    </Button>
-                    <Button Command="{Binding ShowCursorCommand}"
-                            ToolTip="Cursor"
-                            Visibility="{Binding IsCursorTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
-                            Style="{StaticResource CursorTabButtonStyle}">
-                        <Path Width="18"
-                              Height="18"
-                              Data="{StaticResource CursorLogoGeometry}"
                               Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
                               Stretch="Uniform" />
                     </Button>

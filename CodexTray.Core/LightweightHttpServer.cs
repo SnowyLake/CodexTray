@@ -439,11 +439,11 @@ public sealed class LightweightHttpServer : IDisposable
     }
 
     /// <summary>
-    /// Writes the compact text response used by the native TrafficMonitor plugin.
+    /// Writes Codex Weekly, Cursor Monthly, and Grok Weekly as a three-line text response for TrafficMonitor.
     /// </summary>
     private static Task WriteUsageTextAsync(NetworkStream stream, UsageResponse response, CancellationToken cancellationToken)
     {
-        string body = string.Join(Environment.NewLine, response.Display.Weekly, response.Display.GrokWeekly, response.Display.CursorMonthly);
+        string body = string.Join(Environment.NewLine, response.Display.Weekly, response.Display.CursorMonthly, response.Display.GrokWeekly);
         return WriteResponseAsync(stream, 200, "OK", "text/plain; charset=utf-8", body, cancellationToken);
     }
 

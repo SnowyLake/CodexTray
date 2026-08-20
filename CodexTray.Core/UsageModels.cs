@@ -105,11 +105,11 @@ public sealed class UsageLimits
     [JsonPropertyName("weekly")]
     public UsageLimit Weekly { get; set; } = new() { Name = "weekly" };
 
-    [JsonPropertyName("grok_weekly")]
-    public UsageLimit GrokWeekly { get; set; } = new() { Name = "weekly", RemainingPercent = 0 };
-
     [JsonPropertyName("cursor_monthly")]
     public UsageLimit CursorMonthly { get; set; } = new() { Name = "monthly", RemainingPercent = 0 };
+
+    [JsonPropertyName("grok_weekly")]
+    public UsageLimit GrokWeekly { get; set; } = new() { Name = "weekly", RemainingPercent = 0 };
 }
 
 public sealed class UsageLimit
@@ -159,11 +159,11 @@ public sealed class UsageDisplay
     [JsonPropertyName("weekly")]
     public string Weekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
-    [JsonPropertyName("grok_weekly")]
-    public string GrokWeekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
-
     [JsonPropertyName("cursor_monthly")]
     public string CursorMonthly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+
+    [JsonPropertyName("grok_weekly")]
+    public string GrokWeekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
     [JsonPropertyName("summary")]
     public string Summary { get; set; } = CodexTrayDefaults.UnavailableDisplay;

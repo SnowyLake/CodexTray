@@ -9,9 +9,9 @@
 
 ## 概览
 
-这个目录包含 CodexTray 的 TrafficMonitor 原生插件源码. 插件实现 TrafficMonitor 的 `ITMPlugin` 和 `IPluginItem` 接口, 提供 `Codex`, `Grok` 和 `Cursor` 三个显示项.
+这个目录包含 CodexTray 的 TrafficMonitor 原生插件源码. 插件实现 TrafficMonitor 的 `ITMPlugin` 和 `IPluginItem` 接口, 提供 `Codex`, `Cursor` 和 `Grok` 三个显示项.
 
-插件会请求本机 CodexTray 桥接服务的 `/codex-tray.txt` 接口, 并依次读取 Codex Weekly, Grok Weekly 和 Cursor Monthly 三行百分比值.
+插件会请求本机 CodexTray 桥接服务的 `/codex-tray.txt` 接口, 并依次读取 Codex Weekly, Cursor Monthly 和 Grok Weekly 三行百分比值.
 
 ## 构建
 

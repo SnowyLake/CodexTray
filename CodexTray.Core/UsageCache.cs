@@ -55,7 +55,7 @@ public sealed class UsageCache
     }
 
     /// <summary>
-    /// Gets a merged plugin response from the latest Codex, Grok, and Cursor values.
+    /// Gets a merged plugin response from the latest Codex, Cursor, and Grok values.
     /// </summary>
     public UsageResponse? Get()
     {
@@ -100,16 +100,16 @@ public sealed class UsageCache
             {
                 Session = codex.Limits.Session,
                 Weekly = codex.Limits.Weekly,
-                GrokWeekly = grokWeekly,
                 CursorMonthly = cursorMonthly,
+                GrokWeekly = grokWeekly,
             },
             ResetCredits = codex.ResetCredits,
             Display = new UsageDisplay
             {
                 Weekly = codex.Display.Weekly,
-                GrokWeekly = grokDisplay,
                 CursorMonthly = cursorDisplay,
-                Summary = $"Codex: {codex.Display.Weekly} | Grok: {grokDisplay} | Cursor: {cursorDisplay}",
+                GrokWeekly = grokDisplay,
+                Summary = $"Codex: {codex.Display.Weekly} | Cursor: {cursorDisplay} | Grok: {grokDisplay}",
             },
         };
     }

@@ -34,8 +34,8 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, NewAPI, Op
 1. `CodexTray.App/Program.cs` 使用 mutex 保证单实例. 后续进程通过 `TrayShowPanel` event 通知已有实例打开面板后退出.
 2. `CodexTray.App/App.cs` 创建 WPF application host, `TrayController` 管理托盘, 设置, 定时刷新, 插件安装和本地服务.
 3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
-4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Cursor/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
-5. `AppSettings.VisiblePages` 控制 Codex, Cursor 与 APIs 页的可见性和后台采集. Codex 与 Cursor 均隐藏时停止本地 HTTP 服务, 全部隐藏时停止定时刷新.
+4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Cursor/Grok/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
+5. `AppSettings.VisiblePages` 控制 Codex, Cursor, Grok 与 APIs 页的可见性和后台采集. 同时隐藏 Codex, Cursor 和 Grok 时停止本地 HTTP 服务, 全部隐藏时停止定时刷新.
 6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
 
 ### 额度与插件链路
@@ -44,7 +44,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, NewAPI, Op
 2. `TrayController` 将 Codex 与 Cursor 的最新结果分别写入 `UsageCache`, 由缓存合并为插件响应. 隐藏任一页面时会清除对应缓存数据.
 3. `LightweightHttpServer` 默认监听 `127.0.0.1:17890`, 暴露以下接口:
    - `/codex-tray`: LiteMonitor 使用的 JSON 响应.
-   - `/codex-tray.txt`: TrafficMonitor 使用的三行文本, 依次为 Codex Session, Codex Weekly 和 Cursor Monthly.
+   - `/codex-tray.txt`: TrafficMonitor 使用的三行文本, 依次为 Codex Weekly, Cursor Monthly 和 Grok Weekly.
    - `/health`: 返回本地服务健康状态.
 4. `LiteMonitorPluginInstaller` 和 `TrafficMonitorPluginInstaller` 从发布目录读取模板, 写入当前端口后安装到监控器目录.
 

@@ -506,10 +506,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         AutoDetectTrafficMonitorCommand = new AsyncRelayCommand(cancellationToken => DetectTrafficMonitorAsync(showNotFound: true, cancellationToken));
         m_CurrentPage = (settings.VisiblePages & PageItem.Codex) != 0
             ? k_CodexPageName
-            : (settings.VisiblePages & PageItem.Grok) != 0
-                ? k_GrokPageName
-                : (settings.VisiblePages & PageItem.Cursor) != 0
-                    ? k_CursorPageName
+            : (settings.VisiblePages & PageItem.Cursor) != 0
+                ? k_CursorPageName
+                : (settings.VisiblePages & PageItem.Grok) != 0
+                    ? k_GrokPageName
                     : (settings.VisiblePages & PageItem.Apis) != 0
                         ? k_ApiPageName
                         : k_SettingsPageName;

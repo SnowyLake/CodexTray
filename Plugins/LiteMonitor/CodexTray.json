@@ -4,7 +4,7 @@
     "name": "CodexTray",
     "version": "4.0.0",
     "author": "SnowyLake",
-    "description": "显示 Codex, Grok 和 Cursor 的剩余额度百分比"
+    "description": "显示 Codex, Cursor 和 Grok 的剩余额度百分比"
   },
   "inputs": [
     {
@@ -27,11 +27,11 @@
         "response_format": "json",
         "extract": {
           "codex_display": "display.weekly",
-          "grok_display": "display.grok_weekly",
           "cursor_display": "display.cursor_monthly",
+          "grok_display": "display.grok_weekly",
           "codex_remaining": "limits.weekly.remaining_percent",
-          "grok_remaining": "limits.grok_weekly.remaining_percent",
-          "cursor_remaining": "limits.cursor_monthly.remaining_percent"
+          "cursor_remaining": "limits.cursor_monthly.remaining_percent",
+          "grok_remaining": "limits.grok_weekly.remaining_percent"
         },
         "process": [
           {
@@ -45,8 +45,8 @@
             }
           },
           {
-            "var": "grok_color",
-            "source": "grok_remaining",
+            "var": "cursor_color",
+            "source": "cursor_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -55,8 +55,8 @@
             }
           },
           {
-            "var": "cursor_color",
-            "source": "cursor_remaining",
+            "var": "grok_color",
+            "source": "grok_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -78,20 +78,20 @@
       "color": "{{codex_color}}"
     },
     {
-      "key": "grok",
-      "label": "Grok",
-      "short_label": "Grok",
-      "format_val": "{{grok_display}}",
-      "unit": "",
-      "color": "{{grok_color}}"
-    },
-    {
       "key": "cursor",
       "label": "Cursor",
       "short_label": "Cursor",
       "format_val": "{{cursor_display}}",
       "unit": "",
       "color": "{{cursor_color}}"
+    },
+    {
+      "key": "grok",
+      "label": "Grok",
+      "short_label": "Grok",
+      "format_val": "{{grok_display}}",
+      "unit": "",
+      "color": "{{grok_color}}"
     }
   ]
 }

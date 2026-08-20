@@ -25,8 +25,8 @@ HMODULE g_Module = nullptr;
 struct UsageValues
 {
     std::wstring codex;
-    std::wstring grok;
     std::wstring cursor;
+    std::wstring grok;
 };
 
 struct OptionsDialogState
@@ -468,7 +468,7 @@ bool FetchUrl(const std::wstring& url, std::string& body)
     return !body.empty();
 }
 
-/// Fetches plugin usage display values from the local bridge service.
+/// Fetches Codex, Cursor, then Grok display values from the local three-line bridge service.
 bool FetchUsageValues(UsageValues& values)
 {
     std::string body;
@@ -491,9 +491,9 @@ bool FetchUsageValues(UsageValues& values)
     }
 
     values.codex = TrimString(text.substr(0, firstSeparator));
-    values.grok = TrimString(text.substr(firstSeparator + 1, secondSeparator - firstSeparator - 1));
-    values.cursor = TrimString(text.substr(secondSeparator + 1));
-    return !values.codex.empty() && !values.grok.empty() && !values.cursor.empty();
+    values.cursor = TrimString(text.substr(firstSeparator + 1, secondSeparator - firstSeparator - 1));
+    values.grok = TrimString(text.substr(secondSeparator + 1));
+    return !values.codex.empty() && !values.cursor.empty() && !values.grok.empty();
 }
 
 class UsageItem final : public IPluginItem
@@ -561,8 +561,8 @@ public:
     /// Creates the TrafficMonitor plugin singleton.
     CodexTrayPlugin()
         : m_CodexItem(L"Codex", L"CodexTrayCodex", L"Codex", L"100%"),
-          m_GrokItem(L"Grok", L"CodexTrayGrok", L"Grok", L"100%"),
           m_CursorItem(L"Cursor", L"CodexTrayCursor", L"Cursor", L"100%"),
+          m_GrokItem(L"Grok", L"CodexTrayGrok", L"Grok", L"100%"),
           m_Tooltip(L"CodexTray waiting for data")
     {
     }
@@ -575,9 +575,9 @@ public:
         case 0:
             return &m_CodexItem;
         case 1:
-            return &m_GrokItem;
-        case 2:
             return &m_CursorItem;
+        case 2:
+            return &m_GrokItem;
         default:
             return nullptr;
         }
@@ -590,16 +590,16 @@ public:
         if (!FetchUsageValues(values))
         {
             m_CodexItem.SetFallback();
-            m_GrokItem.SetFallback();
             m_CursorItem.SetFallback();
+            m_GrokItem.SetFallback();
             m_Tooltip = L"CodexTray bridge unavailable";
             return;
         }
 
         m_CodexItem.SetValue(values.codex);
-        m_GrokItem.SetValue(values.grok);
         m_CursorItem.SetValue(values.cursor);
-        m_Tooltip = L"Codex: " + values.codex + L"\nGrok: " + values.grok + L"\nCursor: " + values.cursor;
+        m_GrokItem.SetValue(values.grok);
+        m_Tooltip = L"Codex: " + values.codex + L"\nCursor: " + values.cursor + L"\nGrok: " + values.grok;
     }
 
     /// Shows plugin options for editing the backend URL.
@@ -635,7 +635,7 @@ public:
         case TMI_NAME:
             return L"CodexTray";
         case TMI_DESCRIPTION:
-            return L"Displays Codex, Grok, and Cursor quota from CodexTray.";
+            return L"Displays Codex, Cursor, and Grok quota from CodexTray.";
         case TMI_AUTHOR:
             return L"SnowyLake";
         case TMI_COPYRIGHT:
@@ -657,8 +657,8 @@ public:
 
 private:
     UsageItem m_CodexItem;
-    UsageItem m_GrokItem;
     UsageItem m_CursorItem;
+    UsageItem m_GrokItem;
     std::wstring m_Tooltip;
 };
 

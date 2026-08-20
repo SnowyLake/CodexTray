@@ -198,8 +198,8 @@ internal static class Program
                 System.Windows.Controls.Button grokTabButton = (System.Windows.Controls.Button)window.FindName("GrokTabButton");
                 System.Windows.Controls.StackPanel tabPanel = (System.Windows.Controls.StackPanel)grokTabButton.Parent;
                 int grokTabIndex = tabPanel.Children.IndexOf(grokTabButton);
-                AssertEqual("Codex", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex - 1]).ToolTip, "Grok tab predecessor");
-                AssertEqual("Cursor", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex + 1]).ToolTip, "Grok tab successor");
+                AssertEqual("Cursor", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex - 1]).ToolTip, "Grok tab predecessor");
+                AssertEqual("APIs", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex + 1]).ToolTip, "Grok tab successor");
 
                 viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
                     new CursorUsageSnapshot("Pro", 2, 3, 4, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds()),
@@ -758,10 +758,14 @@ internal static class Program
         AssertTrue(!display.TryGetProperty("session", out JsonElement sessionDisplay), "HTTP plugin response should omit Codex Session display");
         AssertTrue(!limits.TryGetProperty("session", out JsonElement sessionLimit), "HTTP plugin response should omit Codex Session limit");
         AssertEqual("80%", display.GetProperty("weekly").GetString(), "HTTP plugin Codex display");
-        AssertEqual("95%", display.GetProperty("grok_weekly").GetString(), "HTTP plugin Grok display");
         AssertEqual("75%", display.GetProperty("cursor_monthly").GetString(), "HTTP plugin Cursor display");
-        AssertEqual(95, limits.GetProperty("grok_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Grok remaining percent");
+        AssertEqual("95%", display.GetProperty("grok_weekly").GetString(), "HTTP plugin Grok display");
         AssertEqual(75, limits.GetProperty("cursor_monthly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Cursor monthly remaining percent");
+        AssertEqual(95, limits.GetProperty("grok_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Grok remaining percent");
+        string[] displayNames = [.. display.EnumerateObject().Select(property => property.Name)];
+        string[] limitNames = [.. limits.EnumerateObject().Select(property => property.Name)];
+        AssertTrue(Array.IndexOf(displayNames, "cursor_monthly") < Array.IndexOf(displayNames, "grok_weekly"), "HTTP plugin Cursor display should precede Grok");
+        AssertTrue(Array.IndexOf(limitNames, "cursor_monthly") < Array.IndexOf(limitNames, "grok_weekly"), "HTTP plugin Cursor limit should precede Grok");
         AssertTrue(!display.TryGetProperty("codex_5h", out JsonElement legacySession), "legacy session plugin field should be removed");
         AssertTrue(!display.TryGetProperty("codex_7d", out JsonElement legacyWeekly), "legacy weekly plugin field should be removed");
 
@@ -769,13 +773,13 @@ internal static class Program
         string[] usageLines = usageText.Split(Environment.NewLine);
         AssertEqual(3, usageLines.Length, "text endpoint line count");
         AssertEqual("80%", usageLines[0], "text endpoint Codex display");
-        AssertEqual("95%", usageLines[1], "text endpoint Grok display");
-        AssertEqual("75%", usageLines[2], "text endpoint Cursor display");
+        AssertEqual("75%", usageLines[1], "text endpoint Cursor display");
+        AssertEqual("95%", usageLines[2], "text endpoint Grok display");
         await server.StopAsync();
     }
 
     /// <summary>
-    /// Tests independent merging and clearing of Codex, Grok, and Cursor plugin values.
+    /// Tests independent merging and clearing of Codex, Cursor, and Grok plugin values.
     /// </summary>
     private static Task TestUsageCacheSourcesAsync()
     {
@@ -803,8 +807,9 @@ internal static class Program
 
         UsageResponse merged = usageCache.Get() ?? throw new InvalidOperationException("merged usage should be available");
         AssertEqual("80%", merged.Display.Weekly, "merged Codex display");
-        AssertEqual("60%", merged.Display.GrokWeekly, "merged Grok display");
         AssertEqual("70%", merged.Display.CursorMonthly, "merged Cursor monthly display");
+        AssertEqual("60%", merged.Display.GrokWeekly, "merged Grok display");
+        AssertEqual("Codex: 80% | Cursor: 70% | Grok: 60%", merged.Display.Summary, "merged plugin summary order");
 
         usageCache.ClearCodex();
         UsageResponse grokAndCursor = usageCache.Get() ?? throw new InvalidOperationException("Grok and Cursor usage should be available");
@@ -958,10 +963,13 @@ internal static class Program
         string expectedVersion = typeof(TrayPopupViewModel).Assembly.GetName().Version?.ToString(3) ?? string.Empty;
         AssertEqual(expectedVersion, pluginDocument.RootElement.GetProperty("meta").GetProperty("version").GetString(), "plugin version should match the app version");
         AssertTrue(content.Contains("\"short_label\": \"Codex\"", StringComparison.Ordinal), "plugin content should include Codex item");
-        AssertTrue(content.Contains("\"short_label\": \"Grok\"", StringComparison.Ordinal), "plugin content should include Grok item");
         AssertTrue(content.Contains("\"short_label\": \"Cursor\"", StringComparison.Ordinal), "plugin content should include Cursor item");
-        AssertTrue(content.Contains("\"format_val\": \"{{grok_display}}\"", StringComparison.Ordinal), "plugin content should include Grok value");
+        AssertTrue(content.Contains("\"short_label\": \"Grok\"", StringComparison.Ordinal), "plugin content should include Grok item");
         AssertTrue(content.Contains("\"format_val\": \"{{cursor_display}}\"", StringComparison.Ordinal), "plugin content should include Cursor value");
+        AssertTrue(content.Contains("\"format_val\": \"{{grok_display}}\"", StringComparison.Ordinal), "plugin content should include Grok value");
+        AssertTrue(
+            content.IndexOf("\"short_label\": \"Cursor\"", StringComparison.Ordinal) < content.IndexOf("\"short_label\": \"Grok\"", StringComparison.Ordinal),
+            "plugin Cursor item should precede Grok");
         AssertTrue(content.Contains($"http://{CodexTrayDefaults.Host}:17998{CodexTrayDefaults.UsageEndpointPath}", StringComparison.Ordinal), "plugin content should include bridge URL");
         return Task.CompletedTask;
     }

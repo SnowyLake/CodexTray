@@ -11,7 +11,7 @@ public enum PageItem
     Cursor = 1 << 1,
     Apis = 1 << 2,
     Grok = 1 << 3,
-    All = Codex | Grok | Cursor | Apis,
+    All = Codex | Cursor | Grok | Apis,
 }
 
 public sealed class ApiMonitorSettings
