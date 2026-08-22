@@ -1175,7 +1175,7 @@
                 </StackPanel>
 
                 <ScrollViewer Grid.Row="1"
-                              Margin="0,24,-8,0"
+                              Margin="0,18,-8,0"
                               Padding="0,0,8,0"
                               VerticalScrollBarVisibility="Auto">
                     <StackPanel>
@@ -1192,12 +1192,7 @@
                                 <DataTemplate>
                                     <Border x:Name="ApiMonitorCard"
                                             MinHeight="91"
-                                            Margin="0,0,0,12"
-                                            Padding="14"
-                                            CornerRadius="10"
-                                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
-                                            BorderThickness="1">
+                                            Style="{StaticResource UsageCardStyle}">
                                         <Grid>
                                             <StackPanel Visibility="{Binding IsEditing, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
                                                 <Grid>
