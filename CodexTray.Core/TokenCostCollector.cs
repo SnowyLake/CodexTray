@@ -104,7 +104,7 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Collects Codex session token usage for the supported calendar periods.
     /// </summary>
-    public TokenCostStatistics Collect(string? codexDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
+    public TokenCostStatistics CollectCodex(string? codexDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -112,7 +112,7 @@ public sealed class TokenCostCollector
         DateTimeOffset current = now ?? DateTimeOffset.Now;
         Dictionary<string, ModelPricing> pricing = LoadPricing(cancellationToken);
         TokenCostPeriodAccumulator accumulator = new(current);
-        string[] sessionFiles = EnumerateSessionFiles(root, cancellationToken).ToArray();
+        string[] sessionFiles = EnumerateCodexSessionFiles(root, cancellationToken).ToArray();
         Dictionary<string, string> rolloutIndex = BuildRolloutIndex(sessionFiles, cancellationToken);
         HashSet<string> seenFiles = new(StringComparer.OrdinalIgnoreCase);
         HashSet<string> seenRollouts = new(StringComparer.OrdinalIgnoreCase);
@@ -126,7 +126,7 @@ public sealed class TokenCostCollector
                 continue;
             }
 
-            CollectFile(path, pricing, rolloutIndex, accumulator, cancellationToken);
+            CollectCodexFile(path, pricing, rolloutIndex, accumulator, cancellationToken);
         }
 
         PruneFileUsageCache(seenFiles);
@@ -232,7 +232,7 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Enumerates active and archived Codex session logs.
     /// </summary>
-    private static IEnumerable<string> EnumerateSessionFiles(string codexDirectory, CancellationToken cancellationToken)
+    private static IEnumerable<string> EnumerateCodexSessionFiles(string codexDirectory, CancellationToken cancellationToken)
     {
         string sessions = Path.Combine(codexDirectory, "sessions");
         string archived = Path.Combine(codexDirectory, "archived_sessions");
@@ -405,7 +405,7 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Adds token deltas from one Codex session file.
     /// </summary>
-    private void CollectFile(
+    private void CollectCodexFile(
         string path,
         Dictionary<string, ModelPricing> pricing,
         Dictionary<string, string> rolloutIndex,

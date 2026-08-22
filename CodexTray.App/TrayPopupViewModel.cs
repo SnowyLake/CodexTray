@@ -751,8 +751,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             GrokPlanDisplay = FormatGrokPlan(usage.SubscriptionTier);
             GrokPlanBadgeBrush = GrokPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
             string reset = m_Settings.UseAbsoluteResetTime
-                ? CodexTrayCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
-                : CodexTrayCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
+                ? CodexUsageCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
+                : CodexUsageCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
             GrokWeeklyQuota.UpdateUsedPercent(usage.UsedPercent, reset, showReset: true);
         }
         else
@@ -794,8 +794,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             CursorPlanDisplay = FormatCursorPlan(usage.PlanType);
             CursorPlanBadgeBrush = CursorPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
             string reset = m_Settings.UseAbsoluteResetTime
-                ? CodexTrayCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
-                : CodexTrayCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
+                ? CodexUsageCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
+                : CodexUsageCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
             CursorMonthlyQuota.UpdateUsedPercent(usage.MonthlyUsedPercent, reset, showReset: true);
             CursorAutoQuota.UpdateUsedPercent(usage.AutoUsedPercent, string.Empty, showReset: false);
             CursorApiQuota.UpdateUsedPercent(usage.ApiUsedPercent, string.Empty, showReset: false);

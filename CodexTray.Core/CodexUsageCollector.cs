@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace CodexTray.Core;
 
-public sealed class CodexTrayCollector
+public sealed class CodexUsageCollector
 {
     private const int k_SessionWindowSeconds = 18000;
     private const int k_WeeklyWindowSeconds = 604800;
@@ -22,7 +22,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Creates a collector that reads Codex OAuth quota data.
     /// </summary>
-    public CodexTrayCollector(Func<DateTimeOffset>? nowProvider = null, HttpClient? httpClient = null)
+    public CodexUsageCollector(Func<DateTimeOffset>? nowProvider = null, HttpClient? httpClient = null)
     {
         m_NowProvider = nowProvider ?? (() => DateTimeOffset.Now);
         m_HttpClient = httpClient ?? s_HttpClient;

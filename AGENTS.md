@@ -21,11 +21,13 @@
 
 应用读取 `~/.codex/auth.json` 中的 OAuth 凭据, 请求 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口, 再通过仅监听 loopback 的本地 HTTP 服务向 LiteMonitor 和 TrafficMonitor 提供额度数据. OAuth 凭据缺失或无效时返回不可用状态.
 
-Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`, 使用 `Resources/model-pricing.json` 计算 token 总量, API 等价成本和当前时段缓存命中率, 再显示在 WPF 主面板. Codex Token Cost 不读取 OpenCode.
+Token Cost 是独立的本地统计: `TokenCostCollector.CollectCodex` 读取 `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`, 使用 `Resources/model-pricing.json` 计算 token 总量, API 等价成本和当前时段缓存命中率, 再显示在 WPF 主面板. `CollectGrok` 读取 `~/.grok/sessions` 与 `~/.grok/archived_sessions`. Codex Token Cost 不读取 OpenCode.
 
 Cursor 页面是另一条独立链路: `CursorUsageCollector` 使用本机 Cursor OAuth session 查询额度与账单事件. 完整 dashboard 显示在 WPF 主面板, 其中 Monthly 额度还会合并进插件 HTTP 响应.
 
-API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI, 并委托 `GrokUsageCollector` 使用本地 OAuth session 查询 Grok 用量. API 监控结果只显示在 WPF 主面板, 不进入插件 HTTP 响应.
+Grok 页面是另一条独立链路: `GrokUsageCollector` 使用本机 Grok Build OAuth session 查询 Weekly 额度. 完整 dashboard 显示在 WPF 主面板, 其中 Weekly 额度还会合并进插件 HTTP 响应.
+
+API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI. API 监控结果只显示在 WPF 主面板, 不进入插件 HTTP 响应.
 
 ## 架构与数据流
 
@@ -40,8 +42,8 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, OpenRouter
 
 ### 额度与插件链路
 
-1. `CodexTrayCollector` 从官方接口采集 Session, Weekly 和 Reset Credits. `CursorUsageCollector` 将 dashboard 中的 Monthly 额度转换为插件数据.
-2. `TrayController` 将 Codex 与 Cursor 的最新结果分别写入 `UsageCache`, 由缓存合并为插件响应. 隐藏任一页面时会清除对应缓存数据.
+1. `CodexUsageCollector` 从官方接口采集 Session, Weekly 和 Reset Credits. `CursorUsageCollector` 将 dashboard 中的 Monthly 额度转换为插件数据. `GrokUsageCollector` 将 dashboard 中的 Weekly 额度转换为插件数据.
+2. `TrayController` 将 Codex, Cursor 与 Grok 的最新结果分别写入 `UsageCache`, 由缓存合并为插件响应. 隐藏任一页面时会清除对应缓存数据.
 3. `LightweightHttpServer` 默认监听 `127.0.0.1:17890`, 暴露以下接口:
    - `/codex-tray`: LiteMonitor 使用的 JSON 响应.
    - `/codex-tray.txt`: TrafficMonitor 使用的三行文本, 依次为 Codex Weekly, Cursor Monthly 和 Grok Weekly.

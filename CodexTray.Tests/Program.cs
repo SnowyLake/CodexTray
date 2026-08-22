@@ -80,7 +80,7 @@ internal static class Program
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("computes cache hit percent", TestCacheHitPercentAsync);
-        await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
+        await RunAsync("collects exact Codex token cost", TestCodexTokenCostCollectorAsync);
         await RunAsync("prefers Codex last_token_usage over cumulative totals", TestCodexLastTokenUsageAsync);
         await RunAsync("deduplicates archived Codex rollouts by thread id", TestCodexArchivedRolloutDedupAsync);
         await RunAsync("applies model alias pricing", TestModelAliasPricingAsync);
@@ -570,7 +570,7 @@ internal static class Program
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
         long sessionResetAt = now.AddHours(2).AddMinutes(5).ToUnixTimeSeconds();
         long weeklyResetAt = now.AddDays(3).AddHours(4).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 12.0, 34.0, out HttpClient client);
+        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 12.0, 34.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
@@ -596,7 +596,7 @@ internal static class Program
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
         long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
         long weeklyResetAt = now.AddHours(3).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 20.0, 40.0, out HttpClient client);
+        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
@@ -614,7 +614,7 @@ internal static class Program
         DateTimeOffset now = new(2026, 7, 1, 23, 0, 0, TimeSpan.FromHours(8));
         long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
         DateTimeOffset weeklyResetAt = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
+        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
@@ -629,7 +629,7 @@ internal static class Program
     private static Task TestEmptyResponseAsync()
     {
         using TempDirectory temp = new();
-        CodexTrayCollector collector = new(() => new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8)));
+        CodexUsageCollector collector = new(() => new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8)));
         UsageResponse response = collector.Collect(temp.Path);
 
         AssertTrue(!response.Available, "response should be unavailable");
@@ -674,7 +674,7 @@ internal static class Program
             },
         });
         using HttpClient client = new(new FakeHttpMessageHandler(body));
-        CodexTrayCollector collector = new(() => now, client);
+        CodexUsageCollector collector = new(() => now, client);
 
         UsageResponse response = collector.Collect(temp.Path);
 
@@ -696,7 +696,7 @@ internal static class Program
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
         long sessionResetAt = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
         long weeklyResetAt = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
+        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
@@ -715,7 +715,7 @@ internal static class Program
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
         long sessionResetAt = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
         long weeklyResetAt = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
+        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path, useAbsoluteResetTime: true);
@@ -733,7 +733,7 @@ internal static class Program
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient collectorClient);
+        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient collectorClient);
         using HttpClient _ = collectorClient;
         UsageCache usageCache = new();
         usageCache.UpdateCodex(collector.Collect(temp.Path));
@@ -928,8 +928,8 @@ internal static class Program
         using TempDirectory temp = new();
         using CancellationTokenSource cancellation = new();
         cancellation.Cancel();
-        await AssertCanceledAsync(() => new CodexTrayCollector().CollectAsync(temp.Path, cancellationToken: cancellation.Token));
-        await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().Collect(temp.Path, cancellationToken: cancellation.Token)));
+        await AssertCanceledAsync(() => new CodexUsageCollector().CollectAsync(temp.Path, cancellationToken: cancellation.Token));
+        await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().CollectCodex(temp.Path, cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().CollectGrok(temp.Path, cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => Task.Run(() => LiteMonitorLocator.AutoDetect(cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => new CursorUsageCollector().CollectDashboardAsync(cancellationToken: cancellation.Token));
@@ -2546,7 +2546,7 @@ internal static class Program
             },
         });
         using HttpClient client = new(new FakeHttpMessageHandler(body));
-        CodexTrayCollector collector = new(() => now, client);
+        CodexUsageCollector collector = new(() => now, client);
 
         UsageResponse response = collector.Collect(temp.Path);
 
@@ -2577,7 +2577,7 @@ internal static class Program
                 new { status = "available", expires_at = nearestExpiry.AddDays(1).ToString("O") },
             },
         });
-        CodexTrayCollector collector = CreateOfficialCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient client, resetCreditsBody);
+        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient client, resetCreditsBody);
         using HttpClient _ = client;
 
         UsageResponse response = collector.Collect(temp.Path);
@@ -2654,7 +2654,7 @@ internal static class Program
     /// <summary>
     /// Verifies cumulative token deltas and cached input pricing.
     /// </summary>
-    private static Task TestTokenCostCollectorAsync()
+    private static Task TestCodexTokenCostCollectorAsync()
     {
         using TempDirectory temp = new();
         string pricingPath = Path.Combine(temp.Path, "pricing.json");
@@ -2703,13 +2703,13 @@ internal static class Program
             "{\"timestamp\":\"2026-07-12T10:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10000,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
         ]);
 
-        TokenCostSummary summary = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Today;
+        TokenCostSummary summary = collector.CollectCodex(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Today;
         AssertEqual(2900L, summary.TotalTokens, "today total tokens");
         AssertEqual(0.0062m, summary.CostUsd, "today API-equivalent cost");
         AssertEqual(1000L, summary.CacheReadTokens, "today cache-read tokens");
         AssertEqual(2600L, summary.CacheableInputTokens, "today cacheable input tokens");
         AssertEqual(38, summary.GetCacheHitPercent(), "today cache hit percent");
-        TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)));
+        TokenCostStatistics statistics = collector.CollectCodex(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)));
         AssertEqual(3520L, statistics.LastSevenDays.TotalTokens, "last 7 days total tokens");
         AssertEqual(3560L, statistics.LastThirtyDays.TotalTokens, "last 30 days total tokens");
         AssertEqual(0.00774m, statistics.LastThirtyDays.CostUsd, "last 30 days API-equivalent cost");
@@ -2824,7 +2824,7 @@ internal static class Program
         ]);
 
         TokenCostSummary summary = new TokenCostCollector(pricingPath)
-            .Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)))
+            .CollectCodex(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)))
             .Today;
         AssertEqual(110L, summary.TotalTokens, "archived duplicate rollout is skipped");
         AssertEqual(0.0003m, summary.CostUsd, "archived duplicate rollout cost");
@@ -2845,7 +2845,7 @@ internal static class Program
         string sessions = Path.Combine(collectRoot, "sessions", "2026", "07", "11");
         Directory.CreateDirectory(sessions);
         File.WriteAllLines(Path.Combine(sessions, fileName), ["{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}", .. lines]);
-        return new TokenCostCollector(pricingPath).Collect(collectRoot, now).Today;
+        return new TokenCostCollector(pricingPath).CollectCodex(collectRoot, now).Today;
     }
 
     /// <summary>
@@ -2903,7 +2903,7 @@ internal static class Program
         ]);
 
         TokenCostSummary summary = new TokenCostCollector(pricingPath)
-            .Collect(temp.Path, new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8)))
+            .CollectCodex(temp.Path, new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8)))
             .Today;
         AssertEqual(1_050L, summary.TotalTokens, "alias pricing total tokens");
         AssertEqual(0.00213m, summary.CostUsd, "alias pricing cost");
@@ -3051,7 +3051,7 @@ internal static class Program
         }
 
         TokenCostSummary summary = new TokenCostCollector(pricingPath)
-            .Collect(codexRoot, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)))
+            .CollectCodex(codexRoot, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)))
             .Today;
         AssertEqual(1_100L, summary.TotalTokens, "Codex tokens exclude OpenCode");
         AssertEqual(0.00228m, summary.CostUsd, "Codex cost excludes OpenCode");
@@ -3094,7 +3094,7 @@ internal static class Program
         ]);
 
         TokenCostCollector collector = new(pricingPath);
-        TokenCostSummary lifetime = collector.Collect(
+        TokenCostSummary lifetime = collector.CollectCodex(
             temp.Path,
             new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Lifetime;
         AssertEqual(2860L, lifetime.TotalTokens, "subagent lifetime excludes only matching replay prefix");
@@ -3105,7 +3105,7 @@ internal static class Program
     /// <summary>
     /// Creates a collector backed by fake OAuth credentials and a fixed official quota response.
     /// </summary>
-    private static CodexTrayCollector CreateOfficialCollector(string codexRoot, DateTimeOffset now, long sessionResetAt, long weeklyResetAt, double primaryUsed, double secondaryUsed, out HttpClient client, string? resetCreditsBody = null)
+    private static CodexUsageCollector CreateCodexUsageCollector(string codexRoot, DateTimeOffset now, long sessionResetAt, long weeklyResetAt, double primaryUsed, double secondaryUsed, out HttpClient client, string? resetCreditsBody = null)
     {
         File.WriteAllText(Path.Combine(codexRoot, "auth.json"), JsonSerializer.Serialize(new
         {
@@ -3137,7 +3137,7 @@ internal static class Program
             },
         });
         client = new HttpClient(new FakeHttpMessageHandler(body, resetCreditsBody));
-        return new CodexTrayCollector(() => now, client);
+        return new CodexUsageCollector(() => now, client);
     }
 
     /// <summary>

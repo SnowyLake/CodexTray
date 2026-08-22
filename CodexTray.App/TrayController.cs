@@ -18,7 +18,7 @@ internal sealed class TrayController : IDisposable
     private readonly EventWaitHandle m_ShowPanelEvent;
     private readonly Dispatcher m_Dispatcher;
     private readonly SettingsStore m_SettingsStore;
-    private readonly CodexTrayCollector m_Collector;
+    private readonly CodexUsageCollector m_CodexUsageCollector;
     private readonly GrokUsageCollector m_GrokUsageCollector;
     private readonly ApiUsageCollector m_ApiUsageCollector;
     private readonly CursorUsageCollector m_CursorUsageCollector;
@@ -55,7 +55,7 @@ internal sealed class TrayController : IDisposable
         m_ShowPanelEvent = showPanelEvent;
         m_Dispatcher = dispatcher;
         m_SettingsStore = new SettingsStore();
-        m_Collector = new CodexTrayCollector();
+        m_CodexUsageCollector = new CodexUsageCollector();
         m_GrokUsageCollector = new GrokUsageCollector();
         m_ApiUsageCollector = new ApiUsageCollector();
         m_CursorUsageCollector = new CursorUsageCollector();
@@ -655,8 +655,8 @@ internal sealed class TrayController : IDisposable
             Task<IReadOnlyList<ApiUsageResult>>? apiUsageTask = null;
             if ((visiblePages & PageItem.Codex) != 0)
             {
-                codexUsageTask = m_Collector.CollectAsync(useAbsoluteResetTime, cancellationToken);
-                tokenCostTask = Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.Collect(cancellationToken: cancellationToken)), cancellationToken);
+                codexUsageTask = m_CodexUsageCollector.CollectAsync(useAbsoluteResetTime, cancellationToken);
+                tokenCostTask = Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectCodex(cancellationToken: cancellationToken)), cancellationToken);
             }
 
             if ((visiblePages & PageItem.Grok) != 0)
