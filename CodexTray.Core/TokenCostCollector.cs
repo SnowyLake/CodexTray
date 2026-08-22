@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
@@ -9,6 +10,23 @@ public sealed class TokenCostSummary
     public long TotalTokens { get; init; }
 
     public decimal? CostUsd { get; init; }
+
+    public long CacheReadTokens { get; init; }
+
+    public long CacheableInputTokens { get; init; }
+
+    /// <summary>
+    /// Returns cache-read tokens as a percent of cacheable input for this period.
+    /// </summary>
+    public int GetCacheHitPercent()
+    {
+        if (CacheableInputTokens <= 0)
+        {
+            return 0;
+        }
+
+        return (int)Math.Clamp(Math.Round(CacheReadTokens * 100d / CacheableInputTokens), 0, 100);
+    }
 }
 
 public sealed class TokenCostDailySummary
@@ -63,6 +81,10 @@ public sealed class TokenCostCollector
     private const long GrokCostTicksPerUsd = 10_000_000_000L;
     private const long MaxGrokSessionFileBytes = 50L * 1024 * 1024;
     private readonly string m_PricingPath;
+    private readonly Dictionary<string, CachedFileUsage> m_FileUsageCache = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, ModelPricing>? m_CachedPricing;
+    private long m_CachedPricingLength;
+    private DateTime m_CachedPricingWriteUtc;
 
     /// <summary>
     /// Creates a collector using the published model pricing resource.
@@ -94,14 +116,19 @@ public sealed class TokenCostCollector
         TokenCostPeriodAccumulator accumulator = new(current);
         string[] sessionFiles = EnumerateSessionFiles(root, cancellationToken).ToArray();
         Dictionary<string, string> rolloutIndex = BuildRolloutIndex(sessionFiles, cancellationToken);
+        HashSet<string> seenFiles = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string path in sessionFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            seenFiles.Add(path);
             CollectFile(path, pricing, rolloutIndex, accumulator, cancellationToken);
         }
 
-        CollectOpenCode(Path.Combine(openCodeRoot, "opencode.db"), pricing, accumulator, cancellationToken);
+        string openCodeDatabase = Path.Combine(openCodeRoot, "opencode.db");
+        seenFiles.Add(openCodeDatabase);
+        CollectOpenCode(openCodeDatabase, pricing, accumulator, cancellationToken);
+        PruneFileUsageCache(seenFiles);
         return accumulator.ToStatistics();
     }
 
@@ -134,7 +161,7 @@ public sealed class TokenCostCollector
         foreach (GrokTurnUsage usage in turns.Values)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd, usage.Model);
+            accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd, usage.Model, usage.Counts.CacheReadTokens, usage.Counts.CacheableInputTokens);
         }
 
         return accumulator.ToStatistics();
@@ -160,16 +187,28 @@ public sealed class TokenCostCollector
     /// </summary>
     private Dictionary<string, ModelPricing> LoadPricing(CancellationToken cancellationToken)
     {
+        if (TryGetFileFingerprint(m_PricingPath, out long length, out DateTime lastWriteUtc) &&
+            m_CachedPricing != null &&
+            length == m_CachedPricingLength &&
+            lastWriteUtc == m_CachedPricingWriteUtc)
+        {
+            return m_CachedPricing;
+        }
+
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(m_PricingPath));
         Dictionary<string, ModelPricing> pricing = new(StringComparer.OrdinalIgnoreCase);
         foreach (JsonProperty property in document.RootElement.EnumerateObject())
         {
             cancellationToken.ThrowIfCancellationRequested();
             JsonElement value = property.Value;
-            ModelPricing modelPricing = new(
-                value.GetProperty("input").GetDecimal(),
-                value.GetProperty("cachedInput").GetDecimal(),
-                value.GetProperty("output").GetDecimal());
+            if (!TryGetDecimalProperty(value, "input", out decimal input) ||
+                !TryGetDecimalProperty(value, "cachedInput", out decimal cachedInput) ||
+                !TryGetDecimalProperty(value, "output", out decimal output))
+            {
+                continue;
+            }
+
+            ModelPricing modelPricing = new(input, cachedInput, output);
             pricing[property.Name] = modelPricing;
             if (value.TryGetProperty("aliases", out JsonElement aliases) && aliases.ValueKind == JsonValueKind.Array)
             {
@@ -183,6 +222,9 @@ public sealed class TokenCostCollector
             }
         }
 
+        m_CachedPricing = pricing;
+        m_CachedPricingLength = length;
+        m_CachedPricingWriteUtc = lastWriteUtc;
         return pricing;
     }
 
@@ -271,7 +313,7 @@ public sealed class TokenCostCollector
                 JsonElement update = GetObject(GetObject(root, "params"), "update");
                 string updateKind = GetString(update, "sessionUpdate");
                 JsonElement usage = GetObject(update, "usage");
-                if (updateKind.Length > 0 && updateKind != "turn_completed" ||
+                if (updateKind != "turn_completed" ||
                     usage.ValueKind != JsonValueKind.Object ||
                     !TryParseGrokTimestamp(root, out DateTimeOffset timestamp))
                 {
@@ -359,27 +401,31 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Adds token deltas from one Codex session file.
     /// </summary>
-    private static void CollectFile(
+    private void CollectFile(
         string path,
         Dictionary<string, ModelPricing> pricing,
         Dictionary<string, string> rolloutIndex,
         TokenCostPeriodAccumulator accumulator,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (TryGetCachedFileUsage(path, out List<CachedUsageEvent>? cachedEvents))
+        {
+            AddCachedUsage(cachedEvents, accumulator);
+            return;
+        }
+
         string model = "unknown";
         TokenCounts? previous = null;
-        cancellationToken.ThrowIfCancellationRequested();
+        List<CachedUsageEvent> events = [];
         IReadOnlyList<TokenUsageSignature>? parentSignatures = LoadParentSignatures(path, rolloutIndex, cancellationToken);
         int parentOffset = 0;
         bool matchingReplay = parentSignatures?.Count > 0;
         foreach (string line in ReadLinesShared(path, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!line.Contains("\"session_meta\"", StringComparison.Ordinal)
-                && !line.Contains("\"turn_context\"", StringComparison.Ordinal)
-                && !line.Contains("\"token_count\"", StringComparison.Ordinal)
-                && !line.Contains("\"thread_settings_applied\"", StringComparison.Ordinal)
-                && !line.Contains("\"inter_agent_communication", StringComparison.Ordinal))
+            if (!line.Contains("\"turn_context\"", StringComparison.Ordinal)
+                && !line.Contains("\"token_count\"", StringComparison.Ordinal))
             {
                 continue;
             }
@@ -447,19 +493,23 @@ public sealed class TokenCostCollector
                     continue;
                 }
 
-                accumulator.Add(timestamp, delta.Total, CalculateCost(pricing, model, delta), model);
+                decimal? costUsd = CalculateCost(pricing, model, delta);
+                events.Add(new CachedUsageEvent(timestamp, delta.Total, costUsd, model, delta.CacheReadTokens, delta.CacheableInputTokens));
+                accumulator.Add(timestamp, delta.Total, costUsd, model, delta.CacheReadTokens, delta.CacheableInputTokens);
             }
             catch (JsonException)
             {
                 // Codex can leave a partially written final JSONL line while a session is active.
             }
         }
+
+        StoreCachedFileUsage(path, events);
     }
 
     /// <summary>
     /// Adds OpenAI token usage from the local OpenCode database.
     /// </summary>
-    private static void CollectOpenCode(
+    private void CollectOpenCode(
         string databasePath,
         Dictionary<string, ModelPricing> pricing,
         TokenCostPeriodAccumulator accumulator,
@@ -471,6 +521,14 @@ public sealed class TokenCostCollector
             return;
         }
 
+        if (TryGetCachedFileUsage(databasePath, out List<CachedUsageEvent>? cachedEvents))
+        {
+            AddCachedUsage(cachedEvents, accumulator);
+            return;
+        }
+
+        List<CachedUsageEvent> events = [];
+        bool loaded = false;
         try
         {
             using SqliteConnection connection = new(new SqliteConnectionStringBuilder
@@ -509,17 +567,26 @@ public sealed class TokenCostCollector
 
                     DateTimeOffset timestamp = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(0));
                     string model = NormalizeModel(GetString(root, "modelID"));
-                    accumulator.Add(timestamp, counts.Total, CalculateCost(pricing, model, counts), model);
+                    decimal? costUsd = CalculateCost(pricing, model, counts);
+                    events.Add(new CachedUsageEvent(timestamp, counts.Total, costUsd, model, counts.CacheReadTokens, counts.CacheableInputTokens));
+                    accumulator.Add(timestamp, counts.Total, costUsd, model, counts.CacheReadTokens, counts.CacheableInputTokens);
                 }
                 catch (Exception exception) when (exception is JsonException or OverflowException or ArgumentOutOfRangeException)
                 {
                     // Ignore one malformed or partially written OpenCode message.
                 }
             }
+
+            loaded = true;
         }
         catch (Exception exception) when (exception is SqliteException or IOException or UnauthorizedAccessException)
         {
             // OpenCode usage is optional and must not hide available Codex usage.
+        }
+
+        if (loaded)
+        {
+            StoreCachedFileUsage(databasePath, events);
         }
     }
 
@@ -808,6 +875,128 @@ public sealed class TokenCostCollector
         return value.ValueKind == JsonValueKind.Object && value.TryGetProperty(name, out JsonElement result) && result.TryGetInt64(out long number) ? number : null;
     }
 
+    /// <summary>
+    /// Reads a required decimal pricing field.
+    /// </summary>
+    private static bool TryGetDecimalProperty(JsonElement value, string name, out decimal number)
+    {
+        number = 0;
+        return value.TryGetProperty(name, out JsonElement result) &&
+            result.ValueKind == JsonValueKind.Number &&
+            result.TryGetDecimal(out number);
+    }
+
+    /// <summary>
+    /// Replays cached usage events into a fresh period accumulator.
+    /// </summary>
+    private static void AddCachedUsage(List<CachedUsageEvent> events, TokenCostPeriodAccumulator accumulator)
+    {
+        foreach (CachedUsageEvent usageEvent in events)
+        {
+            accumulator.Add(usageEvent.Timestamp, usageEvent.Tokens, usageEvent.CostUsd, usageEvent.Model, usageEvent.CacheReadTokens, usageEvent.CacheableInputTokens);
+        }
+    }
+
+    /// <summary>
+    /// Returns cached usage when the file length and write time are unchanged.
+    /// </summary>
+    private bool TryGetCachedFileUsage(string path, [NotNullWhen(true)] out List<CachedUsageEvent>? events)
+    {
+        events = null;
+        if (!TryGetFileFingerprint(path, out long length, out DateTime lastWriteUtc) ||
+            !m_FileUsageCache.TryGetValue(path, out CachedFileUsage? cached) ||
+            cached.Length != length ||
+            cached.LastWriteUtc != lastWriteUtc)
+        {
+            return false;
+        }
+
+        events = cached.Events;
+        return true;
+    }
+
+    /// <summary>
+    /// Stores parsed usage for one file fingerprint.
+    /// </summary>
+    private void StoreCachedFileUsage(string path, List<CachedUsageEvent> events)
+    {
+        if (!TryGetFileFingerprint(path, out long length, out DateTime lastWriteUtc))
+        {
+            return;
+        }
+
+        m_FileUsageCache[path] = new CachedFileUsage
+        {
+            Length = length,
+            LastWriteUtc = lastWriteUtc,
+            Events = events,
+        };
+    }
+
+    /// <summary>
+    /// Drops cached files that were not seen in the current collection.
+    /// </summary>
+    private void PruneFileUsageCache(HashSet<string> seenFiles)
+    {
+        List<string> stale = [];
+        foreach (string path in m_FileUsageCache.Keys)
+        {
+            if (!seenFiles.Contains(path))
+            {
+                stale.Add(path);
+            }
+        }
+
+        foreach (string path in stale)
+        {
+            m_FileUsageCache.Remove(path);
+        }
+    }
+
+    /// <summary>
+    /// Reads the length and UTC write time of a local usage file.
+    /// </summary>
+    private static bool TryGetFileFingerprint(string path, out long length, out DateTime lastWriteUtc)
+    {
+        try
+        {
+            FileInfo info = new(path);
+            if (!info.Exists)
+            {
+                length = 0;
+                lastWriteUtc = default;
+                return false;
+            }
+
+            length = info.Length;
+            lastWriteUtc = info.LastWriteTimeUtc;
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            length = 0;
+            lastWriteUtc = default;
+            return false;
+        }
+    }
+
+    private readonly record struct CachedUsageEvent(
+        DateTimeOffset Timestamp,
+        long Tokens,
+        decimal? CostUsd,
+        string Model,
+        long CacheReadTokens,
+        long CacheableInputTokens);
+
+    private sealed class CachedFileUsage
+    {
+        public required long Length { get; init; }
+
+        public required DateTime LastWriteUtc { get; init; }
+
+        public required List<CachedUsageEvent> Events { get; init; }
+    }
+
     private readonly record struct ModelPricing(decimal Input, decimal CachedInput, decimal Output);
 
     private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp, string Model);
@@ -821,6 +1010,16 @@ public sealed class TokenCostCollector
     private readonly record struct TokenCounts(long Input, long CachedInput, long Output)
     {
         public long Total => Input + Output;
+
+        /// <summary>
+        /// Returns cache-read tokens clamped to the inclusive input counter.
+        /// </summary>
+        public long CacheReadTokens => Math.Min(Math.Max(0, CachedInput), Math.Max(0, Input));
+
+        /// <summary>
+        /// Returns cacheable input tokens used as the cache hit-rate denominator.
+        /// </summary>
+        public long CacheableInputTokens => Math.Max(0, Input);
 
         /// <summary>
         /// Computes a non-negative delta from cumulative counters.

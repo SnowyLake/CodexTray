@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -55,6 +56,13 @@ public sealed class CursorUsageCollector
     private static readonly SemaphoreSlim s_AuthLock = new(1, 1);
 
     private readonly HttpClient m_HttpClient;
+    private List<CursorUsageEvent>? m_CachedUsageEvents;
+    private int m_CachedUsageEventTotal = -1;
+    private int m_CachedFirstPageCount;
+    private int m_CachedPageCount;
+    private int m_CachedZeroTokenMissingCostEventCount;
+    private DateTimeOffset m_CachedFirstEventTimestamp;
+    private DateTimeOffset m_CachedFirstPageLastTimestamp;
 
     /// <summary>
     /// Creates a collector using the shared HTTP client.
@@ -136,7 +144,7 @@ public sealed class CursorUsageCollector
         }
         catch (CursorRequestException exception) when (exception.IsAuthenticationFailure)
         {
-            credential = await RefreshCredentialAsync(credential, cancellationToken).ConfigureAwait(false);
+            credential = await RefreshCredentialUnderLockAsync(credential, cancellationToken).ConfigureAwait(false);
             return await FetchUsageAsync(credential, DateTimeOffset.Now, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -225,6 +233,22 @@ public sealed class CursorUsageCollector
     /// <summary>
     /// Refreshes one already loaded Cursor credential without rereading the local database.
     /// </summary>
+    private async Task<CursorCredential> RefreshCredentialUnderLockAsync(CursorCredential credential, CancellationToken cancellationToken)
+    {
+        await s_AuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await RefreshCredentialAsync(credential, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            s_AuthLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Refreshes one already loaded Cursor credential without rereading the local database.
+    /// </summary>
     private async Task<CursorCredential> RefreshCredentialAsync(CursorCredential credential, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(credential.RefreshToken))
@@ -269,7 +293,7 @@ public sealed class CursorUsageCollector
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                refreshed = await RefreshCredentialAsync(credential, cancellationToken).ConfigureAwait(false);
+                refreshed = await RefreshCredentialUnderLockAsync(credential, cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
                 return new CursorEndpointResult<T>(await collect(refreshed).ConfigureAwait(false), string.Empty, refreshed, true);
             }
@@ -317,9 +341,31 @@ public sealed class CursorUsageCollector
         int displayedCount = 0;
         int zeroTokenMissingCostEventCount = 0;
         List<CursorUsageEvent> events = [];
+        CursorUsageEventsPage? firstPage = null;
         for (int page = 1; ; page++)
         {
             CursorUsageEventsPage response = await FetchUsageEventsPageAsync(credential, page, refreshedAt, cancellationToken).ConfigureAwait(false);
+            if (page == 1)
+            {
+                firstPage = response;
+                if (TryGetCachedUsageEvents(response, out List<CursorUsageEvent>? cachedEvents, out int cachedPageCount, out int cachedTokenEventCount, out int cachedZeroTokenMissingCostEventCount))
+                {
+                    stopwatch.Stop();
+                    return new CursorUsageEventsCollection(
+                        AggregateUsageEvents(cachedEvents, refreshedAt),
+                        new CursorUsageEventsDiagnostics(
+                            response.TotalCount,
+                            cachedPageCount,
+                            cachedTokenEventCount,
+                            cachedZeroTokenMissingCostEventCount,
+                            cachedEvents.Count(usageEvent => usageEvent.HasInputTokens),
+                            cachedEvents.Count(usageEvent => usageEvent.HasOutputTokens),
+                            cachedEvents.Count(usageEvent => usageEvent.HasCacheReadTokens),
+                            cachedEvents.Count(usageEvent => usageEvent.HasCacheWriteTokens),
+                            stopwatch.Elapsed));
+                }
+            }
+
             if (expectedCount < 0)
             {
                 expectedCount = response.TotalCount;
@@ -340,6 +386,7 @@ public sealed class CursorUsageCollector
             if (displayedCount == expectedCount)
             {
                 stopwatch.Stop();
+                StoreCachedUsageEvents(firstPage ?? response, events, page, zeroTokenMissingCostEventCount);
                 return new CursorUsageEventsCollection(
                     AggregateUsageEvents(events, refreshedAt),
                     new CursorUsageEventsDiagnostics(
@@ -359,6 +406,60 @@ public sealed class CursorUsageCollector
                 throw new InvalidOperationException("Cursor usage events ended before the reported total.");
             }
         }
+    }
+
+    /// <summary>
+    /// Returns cached usage events when page 1 still matches the previous lifetime snapshot.
+    /// ponytail: page-1 fingerprint reuse; upgrade to watermarked startDate if Cursor documents append-only events.
+    /// </summary>
+    private bool TryGetCachedUsageEvents(
+        CursorUsageEventsPage firstPage,
+        [NotNullWhen(true)] out List<CursorUsageEvent>? events,
+        out int pageCount,
+        out int tokenEventCount,
+        out int zeroTokenMissingCostEventCount)
+    {
+        events = null;
+        pageCount = 0;
+        tokenEventCount = 0;
+        zeroTokenMissingCostEventCount = 0;
+        if (m_CachedUsageEvents == null ||
+            firstPage.TotalCount != m_CachedUsageEventTotal ||
+            firstPage.DisplayCount != m_CachedFirstPageCount)
+        {
+            return false;
+        }
+
+        DateTimeOffset firstTimestamp = firstPage.Events.Count > 0 ? firstPage.Events[0].Timestamp : default;
+        DateTimeOffset lastTimestamp = firstPage.Events.Count > 0 ? firstPage.Events[^1].Timestamp : default;
+        if (firstTimestamp != m_CachedFirstEventTimestamp || lastTimestamp != m_CachedFirstPageLastTimestamp)
+        {
+            return false;
+        }
+
+        events = m_CachedUsageEvents;
+        pageCount = m_CachedPageCount;
+        tokenEventCount = m_CachedUsageEvents.Count;
+        zeroTokenMissingCostEventCount = m_CachedZeroTokenMissingCostEventCount;
+        return true;
+    }
+
+    /// <summary>
+    /// Stores one complete usage-events snapshot keyed by the first page fingerprint.
+    /// </summary>
+    private void StoreCachedUsageEvents(
+        CursorUsageEventsPage firstPage,
+        List<CursorUsageEvent> events,
+        int pageCount,
+        int zeroTokenMissingCostEventCount)
+    {
+        m_CachedUsageEvents = events;
+        m_CachedUsageEventTotal = firstPage.TotalCount;
+        m_CachedFirstPageCount = firstPage.DisplayCount;
+        m_CachedFirstEventTimestamp = firstPage.Events.Count > 0 ? firstPage.Events[0].Timestamp : default;
+        m_CachedFirstPageLastTimestamp = firstPage.Events.Count > 0 ? firstPage.Events[^1].Timestamp : default;
+        m_CachedPageCount = pageCount;
+        m_CachedZeroTokenMissingCostEventCount = zeroTokenMissingCostEventCount;
     }
 
     /// <summary>
@@ -499,7 +600,8 @@ public sealed class CursorUsageCollector
         foreach (CursorUsageEvent usageEvent in events)
         {
             long tokens = checked(usageEvent.InputTokens + usageEvent.OutputTokens + usageEvent.CacheReadTokens + usageEvent.CacheWriteTokens);
-            accumulator.Add(usageEvent.Timestamp, tokens, usageEvent.TotalCents / 100m, usageEvent.Model);
+            long cacheableInputTokens = checked(usageEvent.InputTokens + usageEvent.CacheWriteTokens + usageEvent.CacheReadTokens);
+            accumulator.Add(usageEvent.Timestamp, tokens, usageEvent.TotalCents / 100m, usageEvent.Model, usageEvent.CacheReadTokens, cacheableInputTokens);
         }
 
         return accumulator.ToStatistics();
@@ -568,7 +670,7 @@ public sealed class CursorUsageCollector
             {
                 accessToken = ReadItemValue(connection, k_AccessTokenKey);
                 refreshToken = ReadItemValue(connection, k_RefreshTokenKey);
-            });
+            }, readWrite: false);
 
             if (string.IsNullOrWhiteSpace(accessToken))
             {
@@ -608,7 +710,7 @@ public sealed class CursorUsageCollector
     /// <summary>
     /// Opens the Cursor state database with busy timeout and limited retries.
     /// </summary>
-    private static void WithSqlite(string dbPath, Action<SqliteConnection> action)
+    private static void WithSqlite(string dbPath, Action<SqliteConnection> action, bool readWrite = true)
     {
         SqliteException? lastBusy = null;
         for (int attempt = 1; attempt <= k_SqliteRetryCount; attempt++)
@@ -618,7 +720,7 @@ public sealed class CursorUsageCollector
                 using SqliteConnection connection = new(new SqliteConnectionStringBuilder
                 {
                     DataSource = dbPath,
-                    Mode = SqliteOpenMode.ReadWrite,
+                    Mode = readWrite ? SqliteOpenMode.ReadWrite : SqliteOpenMode.ReadOnly,
                     Pooling = false,
                 }.ToString());
                 connection.Open();

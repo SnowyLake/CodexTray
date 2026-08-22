@@ -30,7 +30,7 @@
 
 - 显示 Codex 计划状态, Weekly 剩余额度和重置时间.
 - 显示可用 Reset Credits 数量及最近到期时间.
-- Codex, Cursor 和 Grok Token Cost 在滚动模式显示 Today, 7d, 30d 和 Lifetime, 在自然周期模式显示 Today, Week, Month 和 Lifetime. 圆环模型占比与趋势图会同步切换周期. 自然月按整月固定宽度展示, 未来日期保留空白. Token 数量使用英制单位 K, M, B.
+- Codex, Cursor 和 Grok Token Cost 在滚动模式显示 Today, 7d, 30d 和 Lifetime, 在自然周期模式显示 Today, Week, Month 和 Lifetime. 圆环模型占比与趋势图会同步切换周期. 圆环中心显示当前时段 token 总量, 以及成本与缓存命中率同行 (`$N · N%`). 自然月按整月固定宽度展示, 未来日期保留空白. Token 数量使用英制单位 K, M, B.
 - Cursor 页面显示 Monthly, First party 和 APIs 剩余额度, 后两项以半宽卡片并排显示. 页面还会显示 Monthly 重置时间, 实际账单 token, 成本, 模型占比和可切换的 30 日趋势.
 - Grok 页面显示订阅类型, Weekly 剩余额度和重置时间, 并统计本机 Grok Build session 的 Today, 7d, 30d 和 Lifetime token 与费用. 登录信息仅从本机 Grok Build OAuth session 读取.
 - 支持 DeepSeek CNY 余额, OpenRouter 剩余与已用 credits, Vercel AI Gateway 剩余与累计已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 NewAPI 剩余与已用额度.
@@ -107,7 +107,7 @@ LiteMonitor 显示 `Codex`, `Cursor` 和 `Grok` 三项, 从 JSON 接口依次读
 ## 数据与隐私
 
 - 额度和 Reset Credits 来自 ChatGPT 官方接口. 应用读取 `~/.codex/auth.json` 中的 Codex OAuth 凭据.
-- Codex Token Cost 来自本机 Codex session 日志与 OpenCode `opencode.db` 中的 OpenAI 调用, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本. Grok Token Cost 只读取本机 `~/.grok/sessions` 和 `~/.grok/archived_sessions` 中的逐轮用量, 优先采用 Grok Build 自报费用并以本地价格表兜底, 不读取 OpenCode.
+- Codex Token Cost 来自本机 Codex session 日志与 OpenCode `opencode.db` 中的 OpenAI 调用, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本和缓存命中率. Grok Token Cost 只读取本机 `~/.grok/sessions` 和 `~/.grok/archived_sessions` 中的逐轮用量, 优先采用 Grok Build 自报费用并以本地价格表兜底, 不读取 OpenCode.
 - DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - Cursor 页面读取本机 Cursor IDE 的 `state.vscdb` OAuth session, 并向 Cursor 官方 usage-summary 与 usage-events 接口查询额度和账单用量. access token 过期前会通过 Cursor OAuth refresh 自动续期并写回原数据库. OAuth token 不会复制到 `settings.json`.
 - Grok 页面只读取 Grok Build 已保存的本地 OAuth session, 并向 Grok 官方接口查询用量. access token 过期前会通过 xAI OAuth refresh 自动续期并写回 `~/.grok/auth.json`. OAuth token 不会复制到 `settings.json`.

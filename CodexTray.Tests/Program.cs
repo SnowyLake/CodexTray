@@ -79,6 +79,7 @@ internal static class Program
         await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
+        await RunAsync("computes cache hit percent", TestCacheHitPercentAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
         await RunAsync("applies model alias pricing", TestModelAliasPricingAsync);
         await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
@@ -750,6 +751,8 @@ internal static class Program
         using HttpClient client = new();
         string health = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.HealthEndpointPath}");
         AssertTrue(health.Contains("\"ok\":true", StringComparison.Ordinal), "health response");
+        using HttpResponseMessage unknown = await client.GetAsync($"http://{CodexTrayDefaults.Host}:{server.Port}/healthz");
+        AssertEqual(HttpStatusCode.NotFound, unknown.StatusCode, "unknown HTTP paths should 404");
 
         string usageJson = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageEndpointPath}");
         using JsonDocument document = JsonDocument.Parse(usageJson);
@@ -806,12 +809,14 @@ internal static class Program
             "70%"));
 
         UsageResponse merged = usageCache.Get() ?? throw new InvalidOperationException("merged usage should be available");
+        AssertEqual(true, usageCache.GetCodex()?.Available, "Codex snapshot should stay available");
         AssertEqual("80%", merged.Display.Weekly, "merged Codex display");
         AssertEqual("70%", merged.Display.CursorMonthly, "merged Cursor monthly display");
         AssertEqual("60%", merged.Display.GrokWeekly, "merged Grok display");
         AssertEqual("Codex: 80% | Cursor: 70% | Grok: 60%", merged.Display.Summary, "merged plugin summary order");
 
         usageCache.ClearCodex();
+        AssertTrue(usageCache.GetCodex() == null, "cleared Codex snapshot should be empty");
         UsageResponse grokAndCursor = usageCache.Get() ?? throw new InvalidOperationException("Grok and Cursor usage should be available");
         AssertEqual("N/A", grokAndCursor.Display.Weekly, "cleared Codex display");
         AssertEqual("60%", grokAndCursor.Display.GrokWeekly, "preserved Grok display");
@@ -962,6 +967,13 @@ internal static class Program
         using JsonDocument pluginDocument = JsonDocument.Parse(content);
         string expectedVersion = typeof(TrayPopupViewModel).Assembly.GetName().Version?.ToString(3) ?? string.Empty;
         AssertEqual(expectedVersion, pluginDocument.RootElement.GetProperty("meta").GetProperty("version").GetString(), "plugin version should match the app version");
+        string trafficMonitorSource = File.ReadAllText(FindRepositoryFile(Path.Combine("Plugins", "TrafficMonitor", "TrafficMonitorPlugin.cpp")));
+        int versionIndex = trafficMonitorSource.IndexOf("case TMI_VERSION:", StringComparison.Ordinal);
+        AssertTrue(versionIndex >= 0, "TrafficMonitor plugin should declare TMI_VERSION");
+        int returnIndex = trafficMonitorSource.IndexOf("return L\"", versionIndex, StringComparison.Ordinal);
+        int quoteIndex = trafficMonitorSource.IndexOf('"', returnIndex + "return L\"".Length);
+        string trafficMonitorVersion = trafficMonitorSource[(returnIndex + "return L\"".Length)..quoteIndex];
+        AssertEqual(expectedVersion, trafficMonitorVersion, "TrafficMonitor version should match the app version");
         AssertTrue(content.Contains("\"short_label\": \"Codex\"", StringComparison.Ordinal), "plugin content should include Codex item");
         AssertTrue(content.Contains("\"short_label\": \"Cursor\"", StringComparison.Ordinal), "plugin content should include Cursor item");
         AssertTrue(content.Contains("\"short_label\": \"Grok\"", StringComparison.Ordinal), "plugin content should include Grok item");
@@ -1017,6 +1029,9 @@ internal static class Program
         AssertTrue(!Directory.Exists(Path.Combine(temp.Path, "CodexTray")), "settings directory should not exist");
         AssertEqual(17997, store.Load().Port, "saved settings port");
         AssertEqual(PageItem.Cursor | PageItem.Apis, store.Load().VisiblePages, "saved visible pages");
+        DateTime writeTime = File.GetLastWriteTimeUtc(expectedPath);
+        AssertEqual(17997, store.Load().Port, "unchanged settings should not rewrite the file");
+        AssertEqual(writeTime, File.GetLastWriteTimeUtc(expectedPath), "normalized settings load should keep the file timestamp");
         settings.VisiblePages = PageItem.Codex | PageItem.Cursor | PageItem.Apis;
         store.Save(settings);
         AssertEqual(PageItem.Codex | PageItem.Cursor | PageItem.Apis, store.Load().VisiblePages, "saved settings should keep Grok hidden");
@@ -1565,6 +1580,9 @@ internal static class Program
             AssertEqual(6, dashboard.TokenCostDiagnostics.CacheReadTokenFieldCount, "Cursor diagnostics cache read coverage");
             AssertEqual(6, dashboard.TokenCostDiagnostics.CacheWriteTokenFieldCount, "Cursor diagnostics cache write coverage");
             AssertEqual(160L, dashboard.TokenCost!.Today.TotalTokens, "Cursor cache tokens should contribute to total tokens");
+            AssertEqual(20L, dashboard.TokenCost.Today.CacheReadTokens, "Cursor today cache-read tokens");
+            AssertEqual(150L, dashboard.TokenCost.Today.CacheableInputTokens, "Cursor today cacheable input tokens");
+            AssertEqual(13, dashboard.TokenCost.Today.GetCacheHitPercent(), "Cursor today cache hit percent");
             AssertEqual(1.25m, dashboard.TokenCost.Today.CostUsd, "Cursor cost must use totalCents instead of chargedCents");
             AssertEqual(192L, dashboard.TokenCost.LastSevenDays.TotalTokens, "Cursor last 7 days boundary");
             AssertEqual(216L, dashboard.TokenCost.LastThirtyDays.TotalTokens, "Cursor last 30 days boundary");
@@ -1717,7 +1735,7 @@ internal static class Program
     /// </summary>
     private static Task TestPublishedModelPricingAsync()
     {
-        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Path.Combine("Resources", "model-pricing.json")));
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Resources", "model-pricing.json")));
         JsonElement pricing = document.RootElement.GetProperty("gpt-5.3-codex");
         AssertEqual(1.75m, pricing.GetProperty("input").GetDecimal(), "gpt-5.3-codex input price");
         AssertEqual(0.175m, pricing.GetProperty("cachedInput").GetDecimal(), "gpt-5.3-codex cached input price");
@@ -2181,10 +2199,10 @@ internal static class Program
             .ToArray();
         TokenCostStatistics statistics = new()
         {
-            Today = new TokenCostSummary { TotalTokens = 1_000, CostUsd = 7 },
-            LastSevenDays = new TokenCostSummary { TotalTokens = 2_000, CostUsd = 13 },
+            Today = new TokenCostSummary { TotalTokens = 1_000, CostUsd = 7, CacheReadTokens = 400, CacheableInputTokens = 1_000 },
+            LastSevenDays = new TokenCostSummary { TotalTokens = 2_000, CostUsd = 13, CacheReadTokens = 260, CacheableInputTokens = 2_000 },
             LastThirtyDays = new TokenCostSummary { TotalTokens = 3_000, CostUsd = 30 },
-            CurrentWeek = new TokenCostSummary { TotalTokens = 1_000, CostUsd = 9 },
+            CurrentWeek = new TokenCostSummary { TotalTokens = 1_000, CostUsd = 9, CacheReadTokens = 450, CacheableInputTokens = 1_000 },
             CurrentMonth = new TokenCostSummary { TotalTokens = 2_000, CostUsd = 20 },
             Lifetime = new TokenCostSummary { TotalTokens = 4_000, CostUsd = 100 },
             LastThirtyDaysDaily = daily,
@@ -2222,7 +2240,7 @@ internal static class Program
         AssertEqual(30, viewModel.CodexTokenCost.ChartColumnCount, "rolling Codex token cost chart columns");
         AssertEqual("1|10|20|30", string.Join('|', viewModel.CodexTokenCost.ChartLabels.Select(label => label.Text)), "rolling Codex token cost chart axis labels");
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected token total");
-        AssertEqual("$7.00", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected cost total");
+        AssertEqual("$7.00 · 40%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected cost and cache hit");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
         AssertEqual("Today|Week|Month|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "calendar Codex token cost row titles");
@@ -2236,13 +2254,13 @@ internal static class Program
         AssertTrue(viewModel.CodexTokenCost.ChartDays.Skip(20).All(day => day.BarHeight == 0), "current-month future slots should remain empty");
         viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected current-week token total");
-        AssertEqual("$9.00", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-week cost total");
+        AssertEqual("$9.00 · 45%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-week cost and cache hit");
         AssertEqual("80%|20%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-week donut model shares");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
         AssertEqual("Today|7d|30d|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "restored Codex token cost row titles");
         AssertEqual("$7.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "restored Codex token cost row values");
         AssertEqual("2.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected 7d token total");
-        AssertEqual("$13.00", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 7d cost total");
+        AssertEqual("$13.00 · 13%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 7d cost and cache hit");
         AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
         AssertEqual("65%|35%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 7d donut model shares");
         AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7d row should be selected");
@@ -2276,6 +2294,8 @@ internal static class Program
         viewModel.UpdateTokenCost(null);
         AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "unavailable Codex token cost chart day count");
         AssertEqual(0, viewModel.CodexTokenCost.DonutSegments.Count, "unavailable Codex donut segment count");
+        AssertEqual("N/A", viewModel.CodexTokenCost.SelectedTokenDisplay, "unavailable Codex token total");
+        AssertEqual("N/A", viewModel.CodexTokenCost.SelectedCostDisplay, "unavailable Codex cost and cache hit");
         return Task.CompletedTask;
     }
 
@@ -2616,6 +2636,19 @@ internal static class Program
     }
 
     /// <summary>
+    /// Verifies cache-read over cacheable-input hit percent rounding.
+    /// </summary>
+    private static Task TestCacheHitPercentAsync()
+    {
+        AssertEqual(0, new TokenCostSummary().GetCacheHitPercent(), "empty period cache hit");
+        AssertEqual(0, new TokenCostSummary { CacheableInputTokens = 100 }.GetCacheHitPercent(), "input without cache reads");
+        AssertEqual(40, new TokenCostSummary { CacheReadTokens = 400, CacheableInputTokens = 1_000 }.GetCacheHitPercent(), "cc-switch style cache hit");
+        AssertEqual(67, new TokenCostSummary { CacheReadTokens = 2, CacheableInputTokens = 3 }.GetCacheHitPercent(), "rounded cache hit");
+        AssertEqual(100, new TokenCostSummary { CacheReadTokens = 995, CacheableInputTokens = 1_000 }.GetCacheHitPercent(), "near-complete cache hit");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Verifies cumulative token deltas and cached input pricing.
     /// </summary>
     private static Task TestTokenCostCollectorAsync()
@@ -2671,6 +2704,9 @@ internal static class Program
         TokenCostSummary summary = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode).Today;
         AssertEqual(2900L, summary.TotalTokens, "today total tokens");
         AssertEqual(0.0062m, summary.CostUsd, "today API-equivalent cost");
+        AssertEqual(1000L, summary.CacheReadTokens, "today cache-read tokens");
+        AssertEqual(2600L, summary.CacheableInputTokens, "today cacheable input tokens");
+        AssertEqual(38, summary.GetCacheHitPercent(), "today cache hit percent");
         TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode);
         AssertEqual(3520L, statistics.LastSevenDays.TotalTokens, "last 7 days total tokens");
         AssertEqual(3560L, statistics.LastThirtyDays.TotalTokens, "last 30 days total tokens");
@@ -2781,6 +2817,7 @@ internal static class Program
                 .Replace("grok-4.5-build", "grok-4.6-build", StringComparison.Ordinal),
             CreateGrokTokenUpdate("prompt-future", today.AddDays(1), 1_000, 0, 100, 50_000_000),
             CreateGrokTokenUpdate("prompt-snapshot", today, 9_999, 0, 9, sessionUpdate: "usage_snapshot"),
+            CreateGrokTokenUpdate("prompt-empty-kind", today, 9_999, 0, 9, sessionUpdate: ""),
             "{\"method\":\"session/update\",\"params\":{\"_meta\":{\"totalTokens\":999999,\"promptId\":\"legacy\"}}}",
             "{malformed",
         ]);
@@ -2799,6 +2836,9 @@ internal static class Program
         }
 
         AssertEqual(2_831_302L, statistics.Today.TotalTokens, "Grok today tokens");
+        AssertEqual(1_506_880L, statistics.Today.CacheReadTokens, "Grok today cache-read tokens");
+        AssertEqual(2_620_837L, statistics.Today.CacheableInputTokens, "Grok today cacheable input tokens");
+        AssertEqual(57, statistics.Today.GetCacheHitPercent(), "Grok today cache hit percent");
         AssertEqual(2_831_472L, statistics.LastSevenDays.TotalTokens, "Grok last 7 days tokens");
         AssertEqual(2_831_472L, statistics.LastThirtyDays.TotalTokens, "Grok last 30 days tokens");
         AssertEqual(2_831_472L, statistics.Lifetime.TotalTokens, "Grok lifetime tokens");
@@ -2851,6 +2891,9 @@ internal static class Program
             .Today;
         AssertEqual(1150L, summary.TotalTokens, "OpenCode total tokens");
         AssertEqual(0.00278m, summary.CostUsd, "OpenCode API-equivalent cost");
+        AssertEqual(400L, summary.CacheReadTokens, "OpenCode cache-read tokens");
+        AssertEqual(1000L, summary.CacheableInputTokens, "OpenCode cacheable input tokens");
+        AssertEqual(40, summary.GetCacheHitPercent(), "OpenCode cache hit percent");
         return Task.CompletedTask;
     }
 
@@ -2962,6 +3005,26 @@ internal static class Program
         }
 
         throw new InvalidOperationException($"Could not find {typeof(T).Name} named {name}.");
+    }
+
+    /// <summary>
+    /// Resolves a repository-relative file from the test output directory.
+    /// </summary>
+    private static string FindRepositoryFile(string relativePath)
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory != null)
+        {
+            string candidate = Path.Combine(directory.FullName, relativePath);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException($"repository file was not found: {relativePath}");
     }
 
     /// <summary>

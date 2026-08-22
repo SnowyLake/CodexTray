@@ -116,7 +116,7 @@ internal sealed partial class TrayPopupWindow : Window
     protected override void OnDeactivated(EventArgs args)
     {
         base.OnDeactivated(args);
-        if (DataContext is TrayPopupViewModel { IsModalOpen: true } || HasOpenComboBox(this))
+        if (DataContext is TrayPopupViewModel { IsModalOpen: true } || HasOpenComboBox(this) || HasOpenContextMenu(this))
         {
             return;
         }
@@ -235,6 +235,28 @@ internal sealed partial class TrayPopupWindow : Window
         for (int index = 0; index < childCount; index++)
         {
             if (HasOpenComboBox(VisualTreeHelper.GetChild(parent, index)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when a context menu in the popup is currently open.
+    /// </summary>
+    private static bool HasOpenContextMenu(DependencyObject parent)
+    {
+        if (parent is FrameworkElement { ContextMenu.IsOpen: true })
+        {
+            return true;
+        }
+
+        int childCount = VisualTreeHelper.GetChildrenCount(parent);
+        for (int index = 0; index < childCount; index++)
+        {
+            if (HasOpenContextMenu(VisualTreeHelper.GetChild(parent, index)))
             {
                 return true;
             }

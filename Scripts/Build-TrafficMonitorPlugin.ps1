@@ -45,4 +45,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $outputPath = Join-Path $pluginRoot "Builds\$Platform\$Configuration\CodexTray.dll"
+if (-not (Test-Path -LiteralPath $outputPath)) {
+    throw "TrafficMonitor plugin DLL was not produced: $outputPath"
+}
+
 Write-Host "Plugin DLL: $outputPath"

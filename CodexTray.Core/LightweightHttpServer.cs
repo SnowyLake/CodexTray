@@ -8,6 +8,9 @@ namespace CodexTray.Core;
 
 public sealed class LightweightHttpServer : IDisposable
 {
+    private const int k_RequestTimeoutMilliseconds = 5_000;
+    private const int k_MaximumHeaderLines = 32;
+
     private static readonly JsonSerializerOptions s_JsonOptions = new()
     {
         WriteIndented = false,
@@ -279,6 +282,8 @@ public sealed class LightweightHttpServer : IDisposable
 
             start.SetResult();
         }
+
+        ReleaseFailedGeneration(listener);
     }
 
     /// <summary>
@@ -293,7 +298,7 @@ public sealed class LightweightHttpServer : IDisposable
             {
                 await HandleClientAsync(client, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception exception) when (cancellationToken.IsCancellationRequested && exception is OperationCanceledException or IOException or ObjectDisposedException)
+            catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException or IOException)
             {
             }
             catch (Exception exception)
@@ -330,7 +335,7 @@ public sealed class LightweightHttpServer : IDisposable
     }
 
     /// <summary>
-    /// Marks the current listener generation as failed without releasing its resources.
+    /// Marks the current listener generation as failed so a later Start can bind again.
     /// </summary>
     private void MarkGenerationFailed(TcpListener listener, string error)
     {
@@ -341,6 +346,37 @@ public sealed class LightweightHttpServer : IDisposable
                 m_IsRunning = false;
                 m_LastError = error;
             }
+        }
+    }
+
+    /// <summary>
+    /// Releases a failed accept-loop generation without waiting for StopAsync.
+    /// </summary>
+    private void ReleaseFailedGeneration(TcpListener listener)
+    {
+        lock (m_LifecycleLock)
+        {
+            if (!ReferenceEquals(m_Listener, listener) || m_StopTask != null)
+            {
+                return;
+            }
+
+            m_IsRunning = false;
+            try
+            {
+                listener.Stop();
+            }
+            catch (SocketException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
+            m_Cancellation?.Dispose();
+            m_Cancellation = null;
+            m_Listener = null;
+            m_AcceptTask = null;
         }
     }
 
@@ -364,17 +400,22 @@ public sealed class LightweightHttpServer : IDisposable
     /// </summary>
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
+        client.ReceiveTimeout = k_RequestTimeoutMilliseconds;
+        client.SendTimeout = k_RequestTimeoutMilliseconds;
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(k_RequestTimeoutMilliseconds);
+        CancellationToken requestToken = timeout.Token;
         await using NetworkStream stream = client.GetStream();
         using StreamReader reader = new(stream, Encoding.ASCII, leaveOpen: true);
-        string? requestLine = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+        string? requestLine = await reader.ReadLineAsync(requestToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(requestLine))
         {
             return;
         }
 
-        while (!cancellationToken.IsCancellationRequested)
+        for (int headerCount = 0; headerCount < k_MaximumHeaderLines && !requestToken.IsCancellationRequested; headerCount++)
         {
-            string? headerLine = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            string? headerLine = await reader.ReadLineAsync(requestToken).ConfigureAwait(false);
             if (string.IsNullOrEmpty(headerLine))
             {
                 break;
@@ -383,36 +424,53 @@ public sealed class LightweightHttpServer : IDisposable
 
         string[] parts = requestLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         string method = parts.Length > 0 ? parts[0] : string.Empty;
-        string path = parts.Length > 1 ? parts[1] : string.Empty;
+        string path = NormalizeRequestPath(parts.Length > 1 ? parts[1] : string.Empty);
         if (!string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
         {
-            await WriteResponseAsync(stream, 405, "Method Not Allowed", "application/json; charset=utf-8", "{\"error\":\"method_not_allowed\"}", cancellationToken).ConfigureAwait(false);
+            await WriteResponseAsync(stream, 405, "Method Not Allowed", "application/json; charset=utf-8", "{\"error\":\"method_not_allowed\"}", requestToken).ConfigureAwait(false);
             return;
         }
 
-        if (path.StartsWith(CodexTrayDefaults.HealthEndpointPath, StringComparison.OrdinalIgnoreCase))
+        if (IsExactPath(path, CodexTrayDefaults.HealthEndpointPath))
         {
-            await WriteJsonAsync(stream, 200, new { ok = true }, cancellationToken).ConfigureAwait(false);
+            await WriteJsonAsync(stream, 200, new { ok = true }, requestToken).ConfigureAwait(false);
             return;
         }
 
-        if (path.StartsWith(CodexTrayDefaults.UsageTextEndpointPath, StringComparison.OrdinalIgnoreCase))
+        if (IsExactPath(path, CodexTrayDefaults.UsageTextEndpointPath))
         {
             UsageResponse textResponse = m_UsageCache.Get() ?? CreatePendingResponse();
             SetLastError(null);
-            await WriteUsageTextAsync(stream, textResponse, cancellationToken).ConfigureAwait(false);
+            await WriteUsageTextAsync(stream, textResponse, requestToken).ConfigureAwait(false);
             return;
         }
 
-        if (!path.StartsWith(CodexTrayDefaults.UsageEndpointPath, StringComparison.OrdinalIgnoreCase))
+        if (!IsExactPath(path, CodexTrayDefaults.UsageEndpointPath))
         {
-            await WriteResponseAsync(stream, 404, "Not Found", "application/json; charset=utf-8", "{\"error\":\"not_found\"}", cancellationToken).ConfigureAwait(false);
+            await WriteResponseAsync(stream, 404, "Not Found", "application/json; charset=utf-8", "{\"error\":\"not_found\"}", requestToken).ConfigureAwait(false);
             return;
         }
 
         UsageResponse response = m_UsageCache.Get() ?? CreatePendingResponse();
         SetLastError(null);
-        await WriteJsonAsync(stream, 200, response, cancellationToken).ConfigureAwait(false);
+        await WriteJsonAsync(stream, 200, response, requestToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Strips the query string from an HTTP request path.
+    /// </summary>
+    private static string NormalizeRequestPath(string path)
+    {
+        int queryIndex = path.IndexOf('?');
+        return queryIndex >= 0 ? path[..queryIndex] : path;
+    }
+
+    /// <summary>
+    /// Returns true when the request path matches one local endpoint exactly.
+    /// </summary>
+    private static bool IsExactPath(string path, string endpoint)
+    {
+        return string.Equals(path, endpoint, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

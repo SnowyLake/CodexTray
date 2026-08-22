@@ -55,6 +55,14 @@ public sealed class UsageCache
     }
 
     /// <summary>
+    /// Gets the latest Codex plugin snapshot without synthesizing a missing Codex failure.
+    /// </summary>
+    public UsageResponse? GetCodex()
+    {
+        return m_CodexResponse;
+    }
+
+    /// <summary>
     /// Gets a merged plugin response from the latest Codex, Cursor, and Grok values.
     /// </summary>
     public UsageResponse? Get()

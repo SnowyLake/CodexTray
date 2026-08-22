@@ -136,7 +136,7 @@ public sealed class CodexTrayCollector
         UsageLimit weekly = BuildOfficialLimitFromRateLimit("weekly", rateLimit, k_WeeklyWindowSeconds, now);
 
         session.ResetLabel = useAbsoluteResetTime
-            ? FormatSessionResetClock(session.ResetsAt, now)
+            ? FormatResetClock(session.ResetsAt, now)
             : FormatSessionResetLabel(session.ResetsAt, now);
         weekly.ResetLabel = useAbsoluteResetTime
             ? FormatWeeklyResetDate(weekly.ResetsAt, now)
@@ -399,19 +399,6 @@ public sealed class CodexTrayCollector
         TimeSpan remaining = GetRemainingTime(epochSeconds, now);
         long days = (long)Math.Floor(remaining.TotalDays);
         return string.Create(CultureInfo.InvariantCulture, $"{days}d{remaining.Hours:D2}h");
-    }
-
-    /// <summary>
-    /// Formats the session reset as an absolute local clock label.
-    /// </summary>
-    private static string FormatSessionResetClock(long epochSeconds, DateTimeOffset now)
-    {
-        if (epochSeconds <= 0)
-        {
-            return "unknown";
-        }
-
-        return DateTimeOffset.FromUnixTimeSeconds(epochSeconds).ToOffset(now.Offset).ToString("HH:mm", CultureInfo.InvariantCulture);
     }
 
     /// <summary>

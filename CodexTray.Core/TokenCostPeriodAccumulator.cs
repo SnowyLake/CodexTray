@@ -42,7 +42,13 @@ internal sealed class TokenCostPeriodAccumulator
     /// <summary>
     /// Adds one event to every matching calendar period.
     /// </summary>
-    public void Add(DateTimeOffset timestamp, long tokens, decimal? costUsd, string? model = null)
+    public void Add(
+        DateTimeOffset timestamp,
+        long tokens,
+        decimal? costUsd,
+        string? model = null,
+        long cacheReadTokens = 0,
+        long cacheableInputTokens = 0)
     {
         DateTime eventDate = timestamp.LocalDateTime.Date;
         if (eventDate > m_Today)
@@ -52,40 +58,32 @@ internal sealed class TokenCostPeriodAccumulator
 
         if (eventDate == m_Today)
         {
-            m_TodayPeriod.Add(tokens, costUsd);
+            m_TodayPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         }
 
         if (eventDate >= m_LastSevenDaysStart)
         {
-            m_LastSevenDaysPeriod.Add(tokens, costUsd);
+            m_LastSevenDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         }
 
         if (eventDate >= m_LastThirtyDaysStart)
         {
-            m_LastThirtyDaysDailyPeriods[(eventDate - m_LastThirtyDaysStart).Days].Add(tokens, costUsd);
-        }
-
-        if (eventDate >= m_CurrentMonthStart)
-        {
-            m_CurrentMonthDailyPeriods[(eventDate - m_CurrentMonthStart).Days].Add(tokens, costUsd);
-        }
-
-        if (eventDate >= m_Today.AddDays(-29))
-        {
-            m_LastThirtyDaysPeriod.Add(tokens, costUsd);
+            m_LastThirtyDaysDailyPeriods[(eventDate - m_LastThirtyDaysStart).Days].Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
+            m_LastThirtyDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         }
 
         if (eventDate >= m_CurrentWeekStart)
         {
-            m_CurrentWeekPeriod.Add(tokens, costUsd);
+            m_CurrentWeekPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         }
 
         if (eventDate >= m_CurrentMonthStart)
         {
-            m_CurrentMonthPeriod.Add(tokens, costUsd);
+            m_CurrentMonthDailyPeriods[(eventDate - m_CurrentMonthStart).Days].Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
+            m_CurrentMonthPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         }
 
-        m_LifetimePeriod.Add(tokens, costUsd);
+        m_LifetimePeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         if (!string.IsNullOrWhiteSpace(model))
         {
             if (!m_ModelPeriods.TryGetValue(model, out ModelPeriodAccumulator? modelPeriods))
@@ -94,7 +92,7 @@ internal sealed class TokenCostPeriodAccumulator
                 m_ModelPeriods.Add(model, modelPeriods);
             }
 
-            modelPeriods.Add(eventDate, m_Today, m_LastSevenDaysStart, m_CurrentWeekStart, m_CurrentMonthStart, tokens, costUsd);
+            modelPeriods.Add(eventDate, m_Today, m_LastSevenDaysStart, m_CurrentWeekStart, m_CurrentMonthStart, tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         }
     }
 
@@ -172,34 +170,36 @@ internal sealed class TokenCostPeriodAccumulator
             DateTime currentWeekStart,
             DateTime currentMonthStart,
             long tokens,
-            decimal? costUsd)
+            decimal? costUsd,
+            long cacheReadTokens,
+            long cacheableInputTokens)
         {
             if (eventDate == today)
             {
-                m_TodayPeriod.Add(tokens, costUsd);
+                m_TodayPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
             }
 
             if (eventDate >= lastSevenDaysStart)
             {
-                m_LastSevenDaysPeriod.Add(tokens, costUsd);
+                m_LastSevenDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
             }
 
             if (eventDate >= today.AddDays(-29))
             {
-                m_LastThirtyDaysPeriod.Add(tokens, costUsd);
+                m_LastThirtyDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
             }
 
             if (eventDate >= currentWeekStart)
             {
-                m_CurrentWeekPeriod.Add(tokens, costUsd);
+                m_CurrentWeekPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
             }
 
             if (eventDate >= currentMonthStart)
             {
-                m_CurrentMonthPeriod.Add(tokens, costUsd);
+                m_CurrentMonthPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
             }
 
-            m_LifetimePeriod.Add(tokens, costUsd);
+            m_LifetimePeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         }
 
         /// <summary>
@@ -225,6 +225,8 @@ internal sealed class TokenCostPeriodAccumulator
         private readonly bool m_RequireCompleteCosts;
         private bool m_HasUnpricedUsage;
         private long m_TotalTokens;
+        private long m_CacheReadTokens;
+        private long m_CacheableInputTokens;
         private decimal m_TotalCost;
 
         /// <summary>
@@ -238,9 +240,11 @@ internal sealed class TokenCostPeriodAccumulator
         /// <summary>
         /// Adds one usage value to this period.
         /// </summary>
-        public void Add(long tokens, decimal? costUsd)
+        public void Add(long tokens, decimal? costUsd, long cacheReadTokens, long cacheableInputTokens)
         {
             m_TotalTokens = checked(m_TotalTokens + tokens);
+            m_CacheReadTokens = checked(m_CacheReadTokens + Math.Max(0, cacheReadTokens));
+            m_CacheableInputTokens = checked(m_CacheableInputTokens + Math.Max(0, cacheableInputTokens));
             if (costUsd.HasValue)
             {
                 m_TotalCost += costUsd.Value;
@@ -260,6 +264,8 @@ internal sealed class TokenCostPeriodAccumulator
             {
                 TotalTokens = m_TotalTokens,
                 CostUsd = m_RequireCompleteCosts && m_HasUnpricedUsage ? null : m_TotalCost,
+                CacheReadTokens = m_CacheReadTokens,
+                CacheableInputTokens = m_CacheableInputTokens,
             };
         }
     }

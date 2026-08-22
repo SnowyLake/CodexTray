@@ -21,7 +21,7 @@
 
 应用读取 `~/.codex/auth.json` 中的 OAuth 凭据, 请求 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口, 再通过仅监听 loopback 的本地 HTTP 服务向 LiteMonitor 和 TrafficMonitor 提供额度数据. OAuth 凭据缺失或无效时返回不可用状态.
 
-Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessions/**/*.jsonl`, `~/.codex/archived_sessions/*.jsonl` 和 OpenCode `opencode.db` 中的 OpenAI 调用, 使用 `Resources/model-pricing.json` 计算 token 总量和 API 等价成本, 再显示在 WPF 主面板.
+Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessions/**/*.jsonl`, `~/.codex/archived_sessions/*.jsonl` 和 OpenCode `opencode.db` 中的 OpenAI 调用, 使用 `Resources/model-pricing.json` 计算 token 总量, API 等价成本和当前时段缓存命中率, 再显示在 WPF 主面板.
 
 Cursor 页面是另一条独立链路: `CursorUsageCollector` 使用本机 Cursor OAuth session 查询额度与账单事件. 完整 dashboard 显示在 WPF 主面板, 其中 Monthly 额度还会合并进插件 HTTP 响应.
 
@@ -69,7 +69,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, OpenRouter
 - 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.
 - 主面板尺寸固定为 360 x 620.
 - Codex, Cursor, Grok 与 APIs 页面默认全部可见. 无可见数据页时不运行定时刷新.
-- Token Cost 支持滚动周期 Today, 7d, 30d, Lifetime 与自然周期 Today, Week, Month, Lifetime, 并显示可切换的 30 日趋势图. Token 数量使用英制单位 K, M, B.
+- Token Cost 支持滚动周期 Today, 7d, 30d, Lifetime 与自然周期 Today, Week, Month, Lifetime, 并显示可切换的 30 日趋势图. 圆环中心显示当前时段 token 总量, 以及成本与缓存命中率同行 (`$N · N%`). Token 数量使用英制单位 K, M, B.
 - 无有效窗口的 Codex Session 与 Weekly 进度条默认隐藏.
 - API provider 支持 `DeepSeek`, `OpenRouter`, `Vercel`, `NanoGPT` 和 `NewAPI`, 下拉顺序由 `ApiMonitorViewModel.ProviderOptions` 固定. 这些 provider 的凭据以明文保存在 `settings.json`.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.

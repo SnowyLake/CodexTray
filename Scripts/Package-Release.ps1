@@ -47,6 +47,24 @@ if ($projectVersion -ne $releaseVersion) {
     throw "Project version $projectVersion does not match requested release version $releaseVersion."
 }
 
+$liteMonitorPath = Join-Path $repoRoot "Plugins\LiteMonitor\CodexTray.json"
+$liteMonitorJson = Get-Content -LiteralPath $liteMonitorPath -Raw | ConvertFrom-Json
+$liteMonitorVersion = [string]$liteMonitorJson.meta.version
+if ($liteMonitorVersion -ne $releaseVersion) {
+    throw "LiteMonitor version $liteMonitorVersion does not match requested release version $releaseVersion."
+}
+
+$pluginCppPath = Join-Path $repoRoot "Plugins\TrafficMonitor\TrafficMonitorPlugin.cpp"
+$pluginCpp = Get-Content -LiteralPath $pluginCppPath -Raw
+if ($pluginCpp -notmatch 'case TMI_VERSION:\s+return L"([^"]+)"') {
+    throw "TrafficMonitor TMI_VERSION was not found in $pluginCppPath."
+}
+
+$trafficMonitorVersion = $Matches[1]
+if ($trafficMonitorVersion -ne $releaseVersion) {
+    throw "TrafficMonitor version $trafficMonitorVersion does not match requested release version $releaseVersion."
+}
+
 $releaseRoot = Join-Path $releaseBaseRoot $normalizedVersion
 $packageName = "CodexTray-$normalizedVersion-$runtime.zip"
 $stagingDir = Join-Path $releaseRoot "CodexTray-$normalizedVersion-$runtime"
@@ -66,6 +84,11 @@ function Invoke-ReleasePublish {
     $appPath = Join-Path $stagingDir $appFileName
     if (-not (Test-Path -LiteralPath $appPath)) {
         throw "Published executable not found: $appPath"
+    }
+
+    $pluginDllPath = Join-Path $stagingDir "Plugins\TrafficMonitor\CodexTray.dll"
+    if (-not (Test-Path -LiteralPath $pluginDllPath)) {
+        throw "TrafficMonitor plugin DLL was not published: $pluginDllPath"
     }
 }
 

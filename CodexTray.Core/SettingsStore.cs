@@ -243,7 +243,12 @@ public sealed class SettingsStore
             }
 
             settings.Normalize();
-            Save(settings);
+            string normalized = JsonSerializer.Serialize(settings, s_JsonOptions);
+            if (!string.Equals(json, normalized, StringComparison.Ordinal))
+            {
+                AtomicFile.WriteAllText(SettingsPath, normalized);
+            }
+
             return settings;
         }
         catch (JsonException)

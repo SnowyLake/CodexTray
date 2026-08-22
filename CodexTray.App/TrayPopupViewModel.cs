@@ -78,9 +78,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private const double k_TokenCostChartWidth = 310;
     private const double k_TokenCostChartHorizontalMargin = 10;
     private const double k_TokenCostChartLabelWidth = 28;
-    private const double k_TokenCostDonutCenter = 64;
-    private const double k_TokenCostDonutOuterRadius = 62;
-    private const double k_TokenCostDonutInnerRadius = 49;
+    private const double k_TokenCostDonutCenter = 72;
+    private const double k_TokenCostDonutOuterRadius = 70;
+    private const double k_TokenCostDonutInnerRadius = 55;
 
     private static readonly Media.Brush s_GreenBrush = CreateFrozenBrush(26, 188, 137);
     private static readonly Media.Brush s_YellowBrush = CreateFrozenBrush(226, 176, 54);
@@ -196,9 +196,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string ServiceStatus { get; private set; } = "Service: starting";
-
-    [ObservableProperty]
-    public partial string SourceDisplay { get; private set; } = "Source: unavailable";
 
     [ObservableProperty]
     public partial string ResetCreditsDisplay { get; private set; } = "N/A";
@@ -680,8 +677,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             ? $"Service: {(isRunning ? "Running" : "Stopped")} on {CodexTrayDefaults.Host}:{port}"
             : $"Service: Error on {CodexTrayDefaults.Host}:{port} - {error}";
 
-        SourceDisplay = $"Source: {FormatSource(response)}";
-
         if (response == null)
         {
             PlanDisplay = "UNKNOWN";
@@ -780,7 +775,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     ? "Token Cost updated, Usage N/A"
                     : "Update error";
         GrokStatusTooltip = FormatGrokStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
-        GrokTokenCost.Update(tokenCost, GrokStatusDotBrush);
+        if (tokenCost != null)
+        {
+            GrokTokenCost.Update(tokenCost, GrokStatusDotBrush);
+        }
     }
 
     /// <summary>
@@ -907,7 +905,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     [RelayCommand]
     public void ShowSettings()
     {
-        if (!IsAboutVisible)
+        if (!IsAboutVisible && SettingsStatus != SettingsStatus.Unsaved)
         {
             LoadSettings(m_Settings);
         }
@@ -1352,25 +1350,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Formats the usage source for display.
-    /// </summary>
-    private static string FormatSource(UsageResponse? response)
-    {
-        string? source = response?.SourceFile;
-        if (string.IsNullOrWhiteSpace(source))
-        {
-            source = response?.Source;
-        }
-
-        if (string.IsNullOrWhiteSpace(source))
-        {
-            return "unavailable";
-        }
-
-        return TrimMiddle(source, 42);
-    }
-
-    /// <summary>
     /// Formats the plan type as a supported subscription label.
     /// </summary>
     private static string FormatPlan(string? planType)
@@ -1448,20 +1427,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private static string FormatResponseError(UsageResponse response)
     {
         return string.IsNullOrWhiteSpace(response.Error) ? string.Empty : $": {response.Error}";
-    }
-
-    /// <summary>
-    /// Trims long paths in the middle for compact labels.
-    /// </summary>
-    private static string TrimMiddle(string value, int maxLength)
-    {
-        if (value.Length <= maxLength)
-        {
-            return value;
-        }
-
-        int keep = Math.Max(1, (maxLength - 3) / 2);
-        return value[..keep] + "..." + value[^keep..];
     }
 
     internal sealed partial class TokenCostDashboardViewModel : ObservableObject
@@ -1577,7 +1542,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         /// <summary>
-        /// Updates the selected token total, cost, and per-model donut segments.
+        /// Updates the selected token total, cost, cache hit rate, and per-model donut segments.
         /// </summary>
         private void UpdateDonut()
         {
@@ -1592,7 +1557,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
             TokenCostSummary summary = GetPeriodSummary(m_Statistics, period);
             SelectedTokenDisplay = AppSettings.FormatTokenCount(summary.TotalTokens);
-            SelectedCostDisplay = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
+            string cost = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
+            SelectedCostDisplay = string.Create(CultureInfo.InvariantCulture, $"{cost} · {summary.GetCacheHitPercent()}%");
 
             List<TokenCostModelShare> modelShares = m_Statistics.Models
                 .Select(model => new TokenCostModelShare(FormatModelLabel(model.Model), GetPeriodSummary(model, period).TotalTokens))

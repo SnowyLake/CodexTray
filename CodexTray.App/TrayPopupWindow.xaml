@@ -453,9 +453,6 @@
                                         <DataTrigger Binding="{Binding Title}" Value="Weekly">
                                             <Setter Property="FontSize" Value="20" />
                                         </DataTrigger>
-                                        <DataTrigger Binding="{Binding Title}" Value="Session">
-                                            <Setter Property="FontSize" Value="20" />
-                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding Title}" Value="Monthly">
                                             <Setter Property="FontSize" Value="20" />
                                         </DataTrigger>
@@ -637,46 +634,49 @@
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
                             <Grid Grid.RowSpan="2"
-                                  Width="128"
-                                  Height="128"
-                                  HorizontalAlignment="Center"
-                                  VerticalAlignment="Center">
-                                <Ellipse Width="124"
-                                         Height="124"
-                                         Stroke="{DynamicResource ControlStrokeColorDefaultBrush}"
-                                         StrokeThickness="13" />
-                                <ItemsControl Width="128"
-                                              Height="128"
-                                              ItemsSource="{Binding DonutSegments}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <Grid />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Path Data="{Binding Geometry}"
-                                                  Fill="{Binding Brush}"
-                                                  Stroke="{DynamicResource ApplicationBackgroundBrush}"
-                                                  StrokeThickness="0.8"
-                                                  ToolTip="{Binding Tooltip}"
-                                                  ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                  ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}" />
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <StackPanel HorizontalAlignment="Center"
-                                            VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding SelectedTokenDisplay}"
-                                               HorizontalAlignment="Center"
-                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                               FontSize="14" />
-                                    <TextBlock Text="{Binding SelectedCostDisplay}"
-                                               Margin="0,1,0,0"
-                                               HorizontalAlignment="Center"
-                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                               FontSize="11.5" />
-                                </StackPanel>
+                                  Height="156"
+                                  VerticalAlignment="Top">
+                                <Grid Width="144"
+                                      Height="144"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center">
+                                    <Ellipse Width="140"
+                                             Height="140"
+                                             Stroke="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                             StrokeThickness="15" />
+                                    <ItemsControl Width="144"
+                                                  Height="144"
+                                                  ItemsSource="{Binding DonutSegments}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <Grid />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Path Data="{Binding Geometry}"
+                                                      Fill="{Binding Brush}"
+                                                      Stroke="{DynamicResource ApplicationBackgroundBrush}"
+                                                      StrokeThickness="0.8"
+                                                      ToolTip="{Binding Tooltip}"
+                                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <StackPanel HorizontalAlignment="Center"
+                                                VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding SelectedTokenDisplay}"
+                                                   HorizontalAlignment="Center"
+                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                   FontSize="14" />
+                                        <TextBlock Text="{Binding SelectedCostDisplay}"
+                                                   Margin="0,1,0,0"
+                                                   HorizontalAlignment="Center"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                   FontSize="11.5" />
+                                    </StackPanel>
+                                </Grid>
                             </Grid>
                             <Button x:Name="TokenCostChartPeriodButton"
                                     Grid.Row="0"

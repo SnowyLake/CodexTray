@@ -26,6 +26,11 @@ public sealed class GrokUsageCollector
     };
 
     private readonly HttpClient m_HttpClient;
+    private string? m_SubscriptionLogPath;
+    private long m_SubscriptionLogLength;
+    private DateTime m_SubscriptionLogWriteUtc;
+    private string m_CachedLogSubscriptionTier = string.Empty;
+    private bool m_SubscriptionLogScanned;
 
     /// <summary>
     /// Creates a collector using the shared HTTP client.
@@ -394,7 +399,7 @@ public sealed class GrokUsageCollector
     /// <summary>
     /// Loads the most recent subscription tier cached by Grok Build, then checks the active auth entry.
     /// </summary>
-    private static bool TryLoadLocalSubscriptionTier(string accessToken, out string subscriptionTier)
+    private bool TryLoadLocalSubscriptionTier(string accessToken, out string subscriptionTier)
     {
         subscriptionTier = string.Empty;
         string authPath = GetGrokBuildAuthPath();
@@ -404,40 +409,62 @@ public sealed class GrokUsageCollector
         {
             try
             {
-                using FileStream stream = new(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                using StreamReader reader = new(stream);
-                while (reader.ReadLine() is string line)
+                FileInfo logInfo = new(logPath);
+                if (m_SubscriptionLogScanned &&
+                    string.Equals(m_SubscriptionLogPath, logPath, StringComparison.OrdinalIgnoreCase) &&
+                    logInfo.Length == m_SubscriptionLogLength &&
+                    logInfo.LastWriteTimeUtc == m_SubscriptionLogWriteUtc)
                 {
-                    if (!line.Contains("\"billing: fetched credits config\"", StringComparison.Ordinal) ||
-                        !line.Contains("\"subscriptionTier\"", StringComparison.Ordinal))
+                    if (m_CachedLogSubscriptionTier.Length > 0)
                     {
-                        continue;
+                        subscriptionTier = m_CachedLogSubscriptionTier;
+                        return true;
                     }
-
-                    try
+                }
+                else
+                {
+                    using FileStream stream = new(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using StreamReader reader = new(stream);
+                    string foundTier = string.Empty;
+                    while (reader.ReadLine() is string line)
                     {
-                        using JsonDocument document = JsonDocument.Parse(line);
-                        JsonElement context = document.RootElement.TryGetProperty("ctx", out JsonElement value) ? value : default;
-                        string candidate = GetSubscriptionTierProperty(context);
-                        if (LooksLikeSubscriptionTier(candidate))
+                        if (!line.Contains("\"billing: fetched credits config\"", StringComparison.Ordinal) ||
+                            !line.Contains("\"subscriptionTier\"", StringComparison.Ordinal))
                         {
-                            subscriptionTier = candidate.Trim();
+                            continue;
+                        }
+
+                        try
+                        {
+                            using JsonDocument document = JsonDocument.Parse(line);
+                            JsonElement context = document.RootElement.TryGetProperty("ctx", out JsonElement value) ? value : default;
+                            string candidate = GetSubscriptionTierProperty(context);
+                            if (LooksLikeSubscriptionTier(candidate))
+                            {
+                                foundTier = candidate.Trim();
+                            }
+                        }
+                        catch (JsonException)
+                        {
+                            // Ignore one partially written or legacy Grok Build log line.
                         }
                     }
-                    catch (JsonException)
+
+                    m_SubscriptionLogPath = logPath;
+                    m_SubscriptionLogLength = logInfo.Length;
+                    m_SubscriptionLogWriteUtc = logInfo.LastWriteTimeUtc;
+                    m_CachedLogSubscriptionTier = foundTier;
+                    m_SubscriptionLogScanned = true;
+                    if (foundTier.Length > 0)
                     {
-                        // Ignore one partially written or legacy Grok Build log line.
+                        subscriptionTier = foundTier;
+                        return true;
                     }
                 }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 // Fall through to the active Grok Build auth entry.
-            }
-
-            if (subscriptionTier.Length > 0)
-            {
-                return true;
             }
         }
 
