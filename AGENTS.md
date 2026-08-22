@@ -66,7 +66,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, OpenRouter
 
 ### 设置边界
 
-- 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults`.
+- 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults` (`CodexTray.Core/CodexTrayDefaults.cs`).
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
 - 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.
 - 主面板尺寸固定为 360 x 620.

@@ -139,8 +139,8 @@ public sealed class CodexUsageCollector
             ? FormatResetClock(session.ResetsAt, now)
             : FormatSessionResetLabel(session.ResetsAt, now);
         weekly.ResetLabel = useAbsoluteResetTime
-            ? FormatWeeklyResetDate(weekly.ResetsAt, now)
-            : FormatWeeklyResetLabel(weekly.ResetsAt, now);
+            ? UsageLimit.FormatResetDate(weekly.ResetsAt, now)
+            : UsageLimit.FormatResetLabel(weekly.ResetsAt, now);
 
         if (primary.ValueKind != JsonValueKind.Object && secondary.ValueKind != JsonValueKind.Object)
         {
@@ -381,47 +381,9 @@ public sealed class CodexUsageCollector
             return "unknown";
         }
 
-        TimeSpan remaining = GetRemainingTime(epochSeconds, now);
+        TimeSpan remaining = UsageLimit.GetRemainingTime(epochSeconds, now);
         long hours = (long)Math.Floor(remaining.TotalHours);
         return string.Create(CultureInfo.InvariantCulture, $"{hours}h{remaining.Minutes:D2}m");
-    }
-
-    /// <summary>
-    /// Formats the weekly reset as a countdown label.
-    /// </summary>
-    public static string FormatWeeklyResetLabel(long epochSeconds, DateTimeOffset now)
-    {
-        if (epochSeconds <= 0)
-        {
-            return "unknown";
-        }
-
-        TimeSpan remaining = GetRemainingTime(epochSeconds, now);
-        long days = (long)Math.Floor(remaining.TotalDays);
-        return string.Create(CultureInfo.InvariantCulture, $"{days}d{remaining.Hours:D2}h");
-    }
-
-    /// <summary>
-    /// Formats the weekly reset as an absolute local month-day label.
-    /// </summary>
-    public static string FormatWeeklyResetDate(long epochSeconds, DateTimeOffset now)
-    {
-        if (epochSeconds <= 0)
-        {
-            return "unknown";
-        }
-
-        return DateTimeOffset.FromUnixTimeSeconds(epochSeconds).ToOffset(now.Offset).ToString("MM-dd", CultureInfo.InvariantCulture);
-    }
-
-    /// <summary>
-    /// Gets the non-negative remaining time until a reset epoch.
-    /// </summary>
-    private static TimeSpan GetRemainingTime(long epochSeconds, DateTimeOffset now)
-    {
-        DateTimeOffset resetAt = DateTimeOffset.FromUnixTimeSeconds(epochSeconds).ToOffset(now.Offset);
-        TimeSpan remaining = resetAt - now;
-        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
     /// <summary>
