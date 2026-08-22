@@ -3,6 +3,8 @@ namespace CodexTray.Core;
 internal sealed class TokenCostPeriodAccumulator
 {
     private readonly bool m_RequireCompleteCosts;
+    private readonly DateTimeOffset m_AsOf;
+    private readonly DateTimeOffset m_LastTwentyFourHoursStart;
     private readonly DateTime m_Today;
     private readonly DateTime m_LastSevenDaysStart;
     private readonly DateTime m_LastThirtyDaysStart;
@@ -11,6 +13,7 @@ internal sealed class TokenCostPeriodAccumulator
     private readonly PeriodAccumulator[] m_LastThirtyDaysDailyPeriods;
     private readonly PeriodAccumulator[] m_CurrentMonthDailyPeriods;
     private readonly Dictionary<string, ModelPeriodAccumulator> m_ModelPeriods = new(StringComparer.OrdinalIgnoreCase);
+    private readonly PeriodAccumulator m_LastTwentyFourHoursPeriod;
     private readonly PeriodAccumulator m_TodayPeriod;
     private readonly PeriodAccumulator m_LastSevenDaysPeriod;
     private readonly PeriodAccumulator m_LastThirtyDaysPeriod;
@@ -19,16 +22,19 @@ internal sealed class TokenCostPeriodAccumulator
     private readonly PeriodAccumulator m_LifetimePeriod;
 
     /// <summary>
-    /// Creates calendar periods relative to one local timestamp with optional complete-cost enforcement.
+    /// Creates rolling and calendar periods relative to one local timestamp with optional complete-cost enforcement.
     /// </summary>
     public TokenCostPeriodAccumulator(DateTimeOffset asOf, bool requireCompleteCosts = false)
     {
         m_RequireCompleteCosts = requireCompleteCosts;
+        m_AsOf = asOf;
+        m_LastTwentyFourHoursStart = asOf.AddHours(-24);
         m_Today = asOf.LocalDateTime.Date;
         m_LastSevenDaysStart = m_Today.AddDays(-6);
         m_LastThirtyDaysStart = m_Today.AddDays(-29);
         m_CurrentWeekStart = m_Today.AddDays(-(((int)m_Today.DayOfWeek + 6) % 7));
         m_CurrentMonthStart = new DateTime(m_Today.Year, m_Today.Month, 1);
+        m_LastTwentyFourHoursPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_TodayPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_LastSevenDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_LastThirtyDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
@@ -40,7 +46,7 @@ internal sealed class TokenCostPeriodAccumulator
     }
 
     /// <summary>
-    /// Adds one event to every matching calendar period.
+    /// Adds one event to every matching rolling and calendar period.
     /// </summary>
     public void Add(
         DateTimeOffset timestamp,
@@ -54,6 +60,12 @@ internal sealed class TokenCostPeriodAccumulator
         if (eventDate > m_Today)
         {
             return;
+        }
+
+        bool isLastTwentyFourHours = timestamp >= m_LastTwentyFourHoursStart && timestamp <= m_AsOf;
+        if (isLastTwentyFourHours)
+        {
+            m_LastTwentyFourHoursPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         }
 
         if (eventDate == m_Today)
@@ -92,17 +104,18 @@ internal sealed class TokenCostPeriodAccumulator
                 m_ModelPeriods.Add(model, modelPeriods);
             }
 
-            modelPeriods.Add(eventDate, m_Today, m_LastSevenDaysStart, m_CurrentWeekStart, m_CurrentMonthStart, tokens, costUsd, cacheReadTokens, cacheableInputTokens);
+            modelPeriods.Add(isLastTwentyFourHours, eventDate, m_Today, m_LastSevenDaysStart, m_CurrentWeekStart, m_CurrentMonthStart, tokens, costUsd, cacheReadTokens, cacheableInputTokens);
         }
     }
 
     /// <summary>
-    /// Converts the accumulated calendar periods into token-cost statistics.
+    /// Converts the accumulated rolling and calendar periods into token-cost statistics.
     /// </summary>
     public TokenCostStatistics ToStatistics()
     {
         return new TokenCostStatistics
         {
+            LastTwentyFourHours = m_LastTwentyFourHoursPeriod.ToSummary(),
             Today = m_TodayPeriod.ToSummary(),
             LastSevenDays = m_LastSevenDaysPeriod.ToSummary(),
             LastThirtyDays = m_LastThirtyDaysPeriod.ToSummary(),
@@ -140,6 +153,7 @@ internal sealed class TokenCostPeriodAccumulator
 
     private sealed class ModelPeriodAccumulator
     {
+        private readonly PeriodAccumulator m_LastTwentyFourHoursPeriod;
         private readonly PeriodAccumulator m_TodayPeriod;
         private readonly PeriodAccumulator m_LastSevenDaysPeriod;
         private readonly PeriodAccumulator m_LastThirtyDaysPeriod;
@@ -152,6 +166,7 @@ internal sealed class TokenCostPeriodAccumulator
         /// </summary>
         public ModelPeriodAccumulator(bool requireCompleteCosts)
         {
+            m_LastTwentyFourHoursPeriod = new PeriodAccumulator(requireCompleteCosts);
             m_TodayPeriod = new PeriodAccumulator(requireCompleteCosts);
             m_LastSevenDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
             m_LastThirtyDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
@@ -161,9 +176,10 @@ internal sealed class TokenCostPeriodAccumulator
         }
 
         /// <summary>
-        /// Adds one model event to every matching calendar period.
+        /// Adds one model event to every matching rolling and calendar period.
         /// </summary>
         public void Add(
+            bool isLastTwentyFourHours,
             DateTime eventDate,
             DateTime today,
             DateTime lastSevenDaysStart,
@@ -174,6 +190,11 @@ internal sealed class TokenCostPeriodAccumulator
             long cacheReadTokens,
             long cacheableInputTokens)
         {
+            if (isLastTwentyFourHours)
+            {
+                m_LastTwentyFourHoursPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
+            }
+
             if (eventDate == today)
             {
                 m_TodayPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens);
@@ -210,6 +231,7 @@ internal sealed class TokenCostPeriodAccumulator
             return new TokenCostModelStatistics
             {
                 Model = model,
+                LastTwentyFourHours = m_LastTwentyFourHoursPeriod.ToSummary(),
                 Today = m_TodayPeriod.ToSummary(),
                 LastSevenDays = m_LastSevenDaysPeriod.ToSummary(),
                 LastThirtyDays = m_LastThirtyDaysPeriod.ToSummary(),

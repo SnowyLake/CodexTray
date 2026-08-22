@@ -44,6 +44,7 @@ internal sealed record TokenCostModelShare(string Label, long Tokens);
 
 internal enum TokenCostPeriod
 {
+    LastTwentyFourHours,
     Today,
     LastSevenDays,
     LastThirtyDays,
@@ -1474,9 +1475,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             return
             [
-                new TokenCostRowViewModel("Today", TokenCostPeriod.Today, isSelected: true),
-                new TokenCostRowViewModel("7d", TokenCostPeriod.LastSevenDays),
-                new TokenCostRowViewModel("30d", TokenCostPeriod.LastThirtyDays),
+                new TokenCostRowViewModel("24H", TokenCostPeriod.LastTwentyFourHours, isSelected: true),
+                new TokenCostRowViewModel("7D", TokenCostPeriod.LastSevenDays),
+                new TokenCostRowViewModel("30D", TokenCostPeriod.LastThirtyDays),
                 new TokenCostRowViewModel("Lifetime", TokenCostPeriod.Lifetime, isLast: true),
             ];
         }
@@ -1528,9 +1529,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         private void UpdatePeriodRows()
         {
             bool useCalendarPeriods = m_ChartPeriod == TokenCostChartPeriod.CurrentMonth;
-            Rows[1].Title = useCalendarPeriods ? "Week" : "7d";
+            Rows[0].Title = useCalendarPeriods ? "Today" : "24H";
+            Rows[0].Period = useCalendarPeriods ? TokenCostPeriod.Today : TokenCostPeriod.LastTwentyFourHours;
+            Rows[1].Title = useCalendarPeriods ? "Week" : "7D";
             Rows[1].Period = useCalendarPeriods ? TokenCostPeriod.CurrentWeek : TokenCostPeriod.LastSevenDays;
-            Rows[2].Title = useCalendarPeriods ? "Month" : "30d";
+            Rows[2].Title = useCalendarPeriods ? "Month" : "30D";
             Rows[2].Period = useCalendarPeriods ? TokenCostPeriod.CurrentMonth : TokenCostPeriod.LastThirtyDays;
 
             foreach (TokenCostRowViewModel row in Rows)
@@ -1546,7 +1549,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// </summary>
         private void UpdateDonut()
         {
-            TokenCostPeriod period = Rows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.Today;
+            TokenCostPeriod period = Rows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.LastTwentyFourHours;
             if (m_Statistics == null)
             {
                 SelectedTokenDisplay = "N/A";
@@ -1640,6 +1643,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             return period switch
             {
+                TokenCostPeriod.LastTwentyFourHours => statistics.LastTwentyFourHours,
                 TokenCostPeriod.Today => statistics.Today,
                 TokenCostPeriod.LastSevenDays => statistics.LastSevenDays,
                 TokenCostPeriod.LastThirtyDays => statistics.LastThirtyDays,
@@ -1656,6 +1660,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             return period switch
             {
+                TokenCostPeriod.LastTwentyFourHours => statistics.LastTwentyFourHours,
                 TokenCostPeriod.Today => statistics.Today,
                 TokenCostPeriod.LastSevenDays => statistics.LastSevenDays,
                 TokenCostPeriod.LastThirtyDays => statistics.LastThirtyDays,

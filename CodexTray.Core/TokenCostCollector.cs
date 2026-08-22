@@ -39,6 +39,8 @@ public sealed class TokenCostModelStatistics
 {
     public string Model { get; init; } = string.Empty;
 
+    public TokenCostSummary LastTwentyFourHours { get; init; } = new();
+
     public TokenCostSummary Today { get; init; } = new();
 
     public TokenCostSummary LastSevenDays { get; init; } = new();
@@ -54,6 +56,8 @@ public sealed class TokenCostModelStatistics
 
 public sealed class TokenCostStatistics
 {
+    public TokenCostSummary LastTwentyFourHours { get; init; } = new();
+
     public TokenCostSummary Today { get; init; } = new();
 
     public TokenCostSummary LastSevenDays { get; init; } = new();
