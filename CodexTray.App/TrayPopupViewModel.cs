@@ -132,7 +132,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public event Action<InAppDialogRequest>? InAppDialogRequested;
 
-    public QuotaViewModel WeeklyQuota { get; } = new("Weekly");
+    public QuotaViewModel CodexWeeklyQuota { get; } = new("Weekly");
 
     public QuotaViewModel GrokWeeklyQuota { get; } = new("Weekly");
 
@@ -169,16 +169,16 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public ObservableCollection<ApiMonitorViewModel> ApiMonitors { get; } = [];
 
     [ObservableProperty]
-    public partial string PlanDisplay { get; private set; } = "UNKNOWN";
+    public partial string CodexPlanDisplay { get; private set; } = "UNKNOWN";
 
     [ObservableProperty]
-    public partial Media.Brush PlanBadgeBrush { get; private set; } = s_PlanBadgeInactiveBrush;
+    public partial Media.Brush CodexPlanBadgeBrush { get; private set; } = s_PlanBadgeInactiveBrush;
 
     [ObservableProperty]
-    public partial Media.Brush StatusDotBrush { get; private set; } = s_RedBrush;
+    public partial Media.Brush CodexStatusDotBrush { get; private set; } = s_RedBrush;
 
     [ObservableProperty]
-    public partial string UpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
+    public partial string CodexUpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SettingsStatusText))]
@@ -199,13 +199,13 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial string ServiceStatus { get; private set; } = "Service: starting";
 
     [ObservableProperty]
-    public partial string ResetCreditsDisplay { get; private set; } = "N/A";
+    public partial string CodexResetCreditsDisplay { get; private set; } = "N/A";
 
     [ObservableProperty]
-    public partial string ResetCreditsExpiryDates { get; private set; } = "unknown";
+    public partial string CodexResetCreditsExpiryDates { get; private set; } = "unknown";
 
     [ObservableProperty]
-    public partial bool HasResetCredits { get; private set; }
+    public partial bool CodexHasResetCredits { get; private set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LiteMonitorDirDisplay))]
@@ -680,31 +680,31 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
         if (response == null)
         {
-            PlanDisplay = "UNKNOWN";
-            PlanBadgeBrush = s_PlanBadgeInactiveBrush;
-            StatusDotBrush = s_RedBrush;
-            UpdatedAtDisplay = FormatUpdatedAt(null);
-            WeeklyQuota.UpdateUnavailable();
+            CodexPlanDisplay = "UNKNOWN";
+            CodexPlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            CodexStatusDotBrush = s_RedBrush;
+            CodexUpdatedAtDisplay = FormatUpdatedAt(null);
+            CodexWeeklyQuota.UpdateUnavailable();
             UpdateResetCredits(null);
             return;
         }
 
         if (!response.Available)
         {
-            PlanDisplay = "UNKNOWN";
-            PlanBadgeBrush = s_PlanBadgeInactiveBrush;
-            StatusDotBrush = s_RedBrush;
-            UpdatedAtDisplay = $"Error{FormatResponseError(response)}";
-            WeeklyQuota.UpdateUnavailable();
+            CodexPlanDisplay = "UNKNOWN";
+            CodexPlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            CodexStatusDotBrush = s_RedBrush;
+            CodexUpdatedAtDisplay = $"Error{FormatResponseError(response)}";
+            CodexWeeklyQuota.UpdateUnavailable();
             UpdateResetCredits(null);
             return;
         }
 
-        PlanDisplay = FormatPlan(response.PlanType);
-        PlanBadgeBrush = s_PlanBadgeActiveBrush;
-        StatusDotBrush = s_GreenBrush;
-        UpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
-        WeeklyQuota.Update(response.Limits.Weekly);
+        CodexPlanDisplay = FormatPlan(response.PlanType);
+        CodexPlanBadgeBrush = s_PlanBadgeActiveBrush;
+        CodexStatusDotBrush = s_GreenBrush;
+        CodexUpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
+        CodexWeeklyQuota.Update(response.Limits.Weekly);
         UpdateResetCredits(response.ResetCredits);
     }
 
@@ -715,20 +715,20 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         if (resetCredits?.Available == true)
         {
-            HasResetCredits = resetCredits.AvailableCount > 0;
-            ResetCreditsDisplay = $"{resetCredits.AvailableCount} available";
+            CodexHasResetCredits = resetCredits.AvailableCount > 0;
+            CodexResetCreditsDisplay = $"{resetCredits.AvailableCount} available";
             string nearestExpiry = resetCredits.NearestExpiryLocal.Length >= 10
                 ? resetCredits.NearestExpiryLocal[5..10]
                 : resetCredits.NearestExpiryLocal;
-            ResetCreditsExpiryDates = resetCredits.AvailableCount > 0
+            CodexResetCreditsExpiryDates = resetCredits.AvailableCount > 0
                 ? string.Join(" · ", new[] { nearestExpiry, resetCredits.OtherExpiriesLocal }.Where(value => !string.IsNullOrWhiteSpace(value)))
                 : string.Empty;
         }
         else
         {
-            HasResetCredits = false;
-            ResetCreditsDisplay = "N/A";
-            ResetCreditsExpiryDates = "unknown";
+            CodexHasResetCredits = false;
+            CodexResetCreditsDisplay = "N/A";
+            CodexResetCreditsExpiryDates = "unknown";
         }
     }
 
@@ -737,7 +737,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     public void UpdateTokenCost(TokenCostStatistics? statistics)
     {
-        CodexTokenCost.Update(statistics, StatusDotBrush);
+        CodexTokenCost.Update(statistics, CodexStatusDotBrush);
     }
 
     /// <summary>

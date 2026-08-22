@@ -801,10 +801,10 @@
                                     Padding="6,0"
                                     CornerRadius="4"
                                     Background="Transparent"
-                                    BorderBrush="{Binding PlanBadgeBrush}"
+                                    BorderBrush="{Binding CodexPlanBadgeBrush}"
                                     BorderThickness="1">
-                                <TextBlock Text="{Binding PlanDisplay}"
-                                           Foreground="{Binding PlanBadgeBrush}"
+                                <TextBlock Text="{Binding CodexPlanDisplay}"
+                                           Foreground="{Binding CodexPlanBadgeBrush}"
                                            FontWeight="Normal"
                                            FontSize="9.5"
                                            HorizontalAlignment="Center"
@@ -826,8 +826,8 @@
                                  Height="7"
                                  Margin="0,0,6,0"
                                  VerticalAlignment="Center"
-                                 Fill="{Binding StatusDotBrush}" />
-                        <TextBlock Text="{Binding UpdatedAtDisplay}"
+                                 Fill="{Binding CodexStatusDotBrush}" />
+                        <TextBlock Text="{Binding CodexUpdatedAtDisplay}"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    FontSize="12" />
@@ -845,7 +845,7 @@
                         <Border x:Name="CodexWeeklyCard"
                                 Margin="0,0,0,12"
                                 Style="{StaticResource LargeUsageCardStyle}">
-                            <ContentControl Content="{Binding WeeklyQuota}"
+                            <ContentControl Content="{Binding CodexWeeklyQuota}"
                                             ContentTemplate="{StaticResource QuotaDataTemplate}"
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
@@ -865,21 +865,21 @@
                                            FontWeight="Medium" />
                                 <StackPanel Grid.Column="1"
                                             HorizontalAlignment="Right">
-                                    <TextBlock Text="{Binding ResetCreditsDisplay}"
+                                    <TextBlock Text="{Binding CodexResetCreditsDisplay}"
                                                HorizontalAlignment="Right"
                                                FontSize="14">
                                         <TextBlock.Style>
                                             <Style TargetType="{x:Type TextBlock}">
                                                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding HasResetCredits}" Value="True">
-                                                        <Setter Property="Foreground" Value="{Binding StatusDotBrush}" />
+                                                    <DataTrigger Binding="{Binding CodexHasResetCredits}" Value="True">
+                                                        <Setter Property="Foreground" Value="{Binding CodexStatusDotBrush}" />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
-                                    <TextBlock Text="{Binding ResetCreditsExpiryDates}"
+                                    <TextBlock Text="{Binding CodexResetCreditsExpiryDates}"
                                                HorizontalAlignment="Right"
                                                Margin="0,5,0,0"
                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
@@ -887,7 +887,7 @@
                                         <TextBlock.Style>
                                             <Style TargetType="{x:Type TextBlock}">
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding ResetCreditsExpiryDates}" Value="">
+                                                    <DataTrigger Binding="{Binding CodexResetCreditsExpiryDates}" Value="">
                                                         <Setter Property="Visibility" Value="Collapsed" />
                                                     </DataTrigger>
                                                 </Style.Triggers>

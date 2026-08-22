@@ -107,7 +107,7 @@ internal static class Program
                     ApiMonitors = [new ApiMonitorSettings()],
                 };
                 TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
-                AssertEqual("Weekly", viewModel.WeeklyQuota.Title, "Codex weekly quota title");
+                AssertEqual("Weekly", viewModel.CodexWeeklyQuota.Title, "Codex weekly quota title");
                 AssertEqual("Weekly", viewModel.GrokWeeklyQuota.Title, "Grok weekly quota title");
                 AssertEqual("Monthly", viewModel.CursorMonthlyQuota.Title, "Cursor monthly quota title");
                 viewModel.UpdateStatus(
@@ -196,7 +196,7 @@ internal static class Program
                 System.Windows.Controls.ContentPresenter grokChartPresenter = (System.Windows.Controls.ContentPresenter)grokChartItemsControl.ItemContainerGenerator.ContainerFromIndex(29);
                 System.Windows.Controls.Border grokChartBar = (System.Windows.Controls.Border)grokChartItemsControl.ItemTemplate.FindName("TokenCostChartBar", grokChartPresenter);
                 System.Windows.Media.Color grokStatusColor = ((System.Windows.Media.SolidColorBrush)viewModel.GrokStatusDotBrush).Color;
-                System.Windows.Media.Color codexStatusColor = ((System.Windows.Media.SolidColorBrush)viewModel.StatusDotBrush).Color;
+                System.Windows.Media.Color codexStatusColor = ((System.Windows.Media.SolidColorBrush)viewModel.CodexStatusDotBrush).Color;
                 AssertEqual(grokStatusColor, ((System.Windows.Media.SolidColorBrush)grokChartBar.Background).Color, "Grok token chart status color");
                 AssertTrue(grokStatusColor != codexStatusColor, "Grok token chart should not reuse the Codex status color");
                 System.Windows.Controls.Button grokTabButton = (System.Windows.Controls.Button)window.FindName("GrokTabButton");
@@ -2655,11 +2655,11 @@ internal static class Program
             ResetCredits = new ResetCredits { Available = true, AvailableCount = 0 },
         };
         viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
-        AssertTrue(!viewModel.HasResetCredits, "zero reset credits should use the inactive color");
+        AssertTrue(!viewModel.CodexHasResetCredits, "zero reset credits should use the inactive color");
 
         response.ResetCredits.AvailableCount = 1;
         viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
-        AssertTrue(viewModel.HasResetCredits, "positive reset credits should use the active color");
+        AssertTrue(viewModel.CodexHasResetCredits, "positive reset credits should use the active color");
         return Task.CompletedTask;
     }
 
