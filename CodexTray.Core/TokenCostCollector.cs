@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 
 namespace CodexTray.Core;
 
@@ -103,31 +102,33 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Collects Codex and OpenCode token usage for the supported calendar periods.
+    /// Collects Codex session token usage for the supported calendar periods.
     /// </summary>
-    public TokenCostStatistics Collect(string? codexDirectory = null, DateTimeOffset? now = null, string? openCodeDirectory = null, CancellationToken cancellationToken = default)
+    public TokenCostStatistics Collect(string? codexDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         string root = codexDirectory ?? Path.Combine(userProfile, ".codex");
-        string openCodeRoot = openCodeDirectory ?? Path.Combine(userProfile, ".local", "share", "opencode");
         DateTimeOffset current = now ?? DateTimeOffset.Now;
         Dictionary<string, ModelPricing> pricing = LoadPricing(cancellationToken);
         TokenCostPeriodAccumulator accumulator = new(current);
         string[] sessionFiles = EnumerateSessionFiles(root, cancellationToken).ToArray();
         Dictionary<string, string> rolloutIndex = BuildRolloutIndex(sessionFiles, cancellationToken);
         HashSet<string> seenFiles = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> seenRollouts = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string path in sessionFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
             seenFiles.Add(path);
+            if (TryGetRolloutThreadId(path, out string threadId) && !seenRollouts.Add(threadId))
+            {
+                continue;
+            }
+
             CollectFile(path, pricing, rolloutIndex, accumulator, cancellationToken);
         }
 
-        string openCodeDatabase = Path.Combine(openCodeRoot, "opencode.db");
-        seenFiles.Add(openCodeDatabase);
-        CollectOpenCode(openCodeDatabase, pricing, accumulator, cancellationToken);
         PruneFileUsageCache(seenFiles);
         return accumulator.ToStatistics();
     }
@@ -157,7 +158,7 @@ public sealed class TokenCostCollector
             }
         }
 
-        TokenCostPeriodAccumulator accumulator = new(current, requireCompleteCosts: true);
+        TokenCostPeriodAccumulator accumulator = new(current);
         foreach (GrokTurnUsage usage in turns.Values)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -358,20 +359,23 @@ public sealed class TokenCostCollector
         Dictionary<string, ModelPricing> pricing,
         Dictionary<string, GrokTurnUsage> turns)
     {
+        model = NormalizeModel(model);
         TokenCounts counts = new(
             Math.Max(0, GetInt64(value, "inputTokens")),
             Math.Max(0, GetInt64(value, "cachedReadTokens")),
             Math.Max(0, GetInt64(value, "outputTokens")));
-        if (counts.Total == 0 && counts.CachedInput == 0)
+        long costTicks = Math.Max(0, GetInt64(value, "costUsdTicks"));
+        decimal? reportedCost = costTicks > 0 ? costTicks / (decimal)GrokCostTicksPerUsd : null;
+        if (!counts.HasUsage && reportedCost == null)
         {
             return;
         }
 
-        long costTicks = Math.Max(0, GetInt64(value, "costUsdTicks"));
-        decimal? reportedCost = costTicks > 0 ? costTicks / (decimal)GrokCostTicksPerUsd : null;
         bool costIsPartial = eventCostIsPartial || GetBoolean(value, "costIsPartial");
-        decimal? localCost = CalculateCost(pricing, model, counts);
-        decimal? cost = reportedCost.HasValue && !costIsPartial ? reportedCost : localCost ?? reportedCost;
+        decimal? localCost = counts.HasUsage ? CalculateCost(pricing, model, counts) : null;
+        decimal? cost = !counts.HasUsage
+            ? reportedCost
+            : reportedCost.HasValue && !costIsPartial ? reportedCost : localCost ?? reportedCost;
         turns[$"{sessionId}\0{turnKey}\0{model}"] = new GrokTurnUsage(counts, cost, timestamp, model);
     }
 
@@ -416,7 +420,8 @@ public sealed class TokenCostCollector
         }
 
         string model = "unknown";
-        TokenCounts? previous = null;
+        TokenCounts? totalHighWater = null;
+        TokenUsageSnapshot? previousSnapshot = null;
         List<CachedUsageEvent> events = [];
         IReadOnlyList<TokenUsageSignature>? parentSignatures = LoadParentSignatures(path, rolloutIndex, cancellationToken);
         int parentOffset = 0;
@@ -449,10 +454,7 @@ public sealed class TokenCostCollector
                 }
 
                 JsonElement info = GetObject(payload, "info");
-                JsonElement total = GetObject(info, "total_token_usage");
-                bool isCumulative = total.ValueKind == JsonValueKind.Object;
-                JsonElement usage = isCumulative ? total : GetObject(info, "last_token_usage");
-                if (usage.ValueKind != JsonValueKind.Object)
+                if (!HasUsageObject(info, "last_token_usage") && !HasUsageObject(info, "total_token_usage"))
                 {
                     continue;
                 }
@@ -479,23 +481,17 @@ public sealed class TokenCostCollector
                     matchingReplay = false;
                 }
 
-                TokenCounts current = ParseCounts(usage);
-                TokenCounts delta = isCumulative && previous != null ? current.Subtract(previous.Value) : current;
-                previous = isCumulative ? current : previous;
-                if (isReplay)
+                bool shouldBill = TryResolveCodexIncrement(info, ref totalHighWater, ref previousSnapshot, out TokenCounts increment);
+                if (isReplay
+                    || !shouldBill
+                    || !DateTimeOffset.TryParse(GetString(root, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp))
                 {
                     continue;
                 }
 
-                if (!DateTimeOffset.TryParse(GetString(root, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp)
-                    || delta.Total == 0)
-                {
-                    continue;
-                }
-
-                decimal? costUsd = CalculateCost(pricing, model, delta);
-                events.Add(new CachedUsageEvent(timestamp, delta.Total, costUsd, model, delta.CacheReadTokens, delta.CacheableInputTokens));
-                accumulator.Add(timestamp, delta.Total, costUsd, model, delta.CacheReadTokens, delta.CacheableInputTokens);
+                decimal? costUsd = CalculateCost(pricing, model, increment);
+                events.Add(new CachedUsageEvent(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens));
+                accumulator.Add(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens);
             }
             catch (JsonException)
             {
@@ -504,90 +500,6 @@ public sealed class TokenCostCollector
         }
 
         StoreCachedFileUsage(path, events);
-    }
-
-    /// <summary>
-    /// Adds OpenAI token usage from the local OpenCode database.
-    /// </summary>
-    private void CollectOpenCode(
-        string databasePath,
-        Dictionary<string, ModelPricing> pricing,
-        TokenCostPeriodAccumulator accumulator,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!File.Exists(databasePath))
-        {
-            return;
-        }
-
-        if (TryGetCachedFileUsage(databasePath, out List<CachedUsageEvent>? cachedEvents))
-        {
-            AddCachedUsage(cachedEvents, accumulator);
-            return;
-        }
-
-        List<CachedUsageEvent> events = [];
-        bool loaded = false;
-        try
-        {
-            using SqliteConnection connection = new(new SqliteConnectionStringBuilder
-            {
-                DataSource = databasePath,
-                Mode = SqliteOpenMode.ReadOnly,
-                Pooling = false,
-            }.ToString());
-            connection.Open();
-            using SqliteCommand command = connection.CreateCommand();
-            command.CommandText = "SELECT time_created, data FROM message;";
-            using SqliteDataReader reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    using JsonDocument document = JsonDocument.Parse(reader.GetString(1));
-                    JsonElement root = document.RootElement;
-                    if (GetString(root, "role") != "assistant"
-                        || !string.Equals(GetString(root, "providerID"), "openai", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    JsonElement tokens = GetObject(root, "tokens");
-                    JsonElement cache = GetObject(tokens, "cache");
-                    TokenCounts counts = new(
-                        checked(GetInt64(tokens, "input") + GetInt64(cache, "read") + GetInt64(cache, "write")),
-                        GetInt64(cache, "read"),
-                        checked(GetInt64(tokens, "output") + GetInt64(tokens, "reasoning")));
-                    if (counts.Total == 0)
-                    {
-                        continue;
-                    }
-
-                    DateTimeOffset timestamp = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(0));
-                    string model = NormalizeModel(GetString(root, "modelID"));
-                    decimal? costUsd = CalculateCost(pricing, model, counts);
-                    events.Add(new CachedUsageEvent(timestamp, counts.Total, costUsd, model, counts.CacheReadTokens, counts.CacheableInputTokens));
-                    accumulator.Add(timestamp, counts.Total, costUsd, model, counts.CacheReadTokens, counts.CacheableInputTokens);
-                }
-                catch (Exception exception) when (exception is JsonException or OverflowException or ArgumentOutOfRangeException)
-                {
-                    // Ignore one malformed or partially written OpenCode message.
-                }
-            }
-
-            loaded = true;
-        }
-        catch (Exception exception) when (exception is SqliteException or IOException or UnauthorizedAccessException)
-        {
-            // OpenCode usage is optional and must not hide available Codex usage.
-        }
-
-        if (loaded)
-        {
-            StoreCachedFileUsage(databasePath, events);
-        }
     }
 
     /// <summary>
@@ -614,14 +526,29 @@ public sealed class TokenCostCollector
         foreach (string path in paths)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string name = Path.GetFileNameWithoutExtension(path);
-            if (name.Length >= 36 && Guid.TryParse(name[^36..], out Guid threadId))
+            if (TryGetRolloutThreadId(path, out string threadId))
             {
-                result.TryAdd(threadId.ToString(), path);
+                result.TryAdd(threadId, path);
             }
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Reads the thread UUID from the end of a Codex rollout file name.
+    /// </summary>
+    private static bool TryGetRolloutThreadId(string path, out string threadId)
+    {
+        threadId = string.Empty;
+        string name = Path.GetFileNameWithoutExtension(path);
+        if (name.Length < 36 || !Guid.TryParse(name[^36..], out Guid parsed))
+        {
+            return false;
+        }
+
+        threadId = parsed.ToString();
+        return true;
     }
 
     /// <summary>
@@ -787,6 +714,81 @@ public sealed class TokenCostCollector
         }
 
         return model;
+    }
+
+    /// <summary>
+    /// Resolves one Codex token_count event to a billed increment.
+    /// </summary>
+    private static bool TryResolveCodexIncrement(
+        JsonElement info,
+        ref TokenCounts? totalHighWater,
+        ref TokenUsageSnapshot? previousSnapshot,
+        out TokenCounts increment)
+    {
+        bool hasLast = TryGetUsageCounts(info, "last_token_usage", out TokenCounts last);
+        bool hasTotal = TryGetUsageCounts(info, "total_token_usage", out TokenCounts total);
+        increment = default;
+        if (!hasLast && !hasTotal)
+        {
+            return false;
+        }
+
+        TokenUsageSnapshot snapshot = new(hasLast ? last : null, hasTotal ? total : null);
+        bool duplicate = previousSnapshot == snapshot;
+        previousSnapshot = snapshot;
+        if (hasLast && last.HasUsage)
+        {
+            increment = last;
+        }
+        else if (hasTotal)
+        {
+            increment = totalHighWater is { } water ? total.Subtract(water) : total;
+        }
+
+        if (hasTotal)
+        {
+            totalHighWater = totalHighWater is { } water ? water.RaiseHighWater(total) : total;
+        }
+
+        return !duplicate && increment.HasUsage;
+    }
+
+    /// <summary>
+    /// Reads a non-empty Codex usage object into token counters.
+    /// </summary>
+    private static bool TryGetUsageCounts(JsonElement parent, string name, out TokenCounts counts)
+    {
+        counts = default;
+        JsonElement value = GetObject(parent, name);
+        if (value.ValueKind != JsonValueKind.Object || !HasAnyProperty(value))
+        {
+            return false;
+        }
+
+        counts = ParseCounts(value);
+        return true;
+    }
+
+    /// <summary>
+    /// Returns whether a JSON object exists and contains at least one property.
+    /// </summary>
+    private static bool HasUsageObject(JsonElement parent, string name)
+    {
+        JsonElement value = GetObject(parent, name);
+        return value.ValueKind == JsonValueKind.Object && HasAnyProperty(value);
+    }
+
+    /// <summary>
+    /// Returns whether a JSON object has any properties.
+    /// </summary>
+    private static bool HasAnyProperty(JsonElement value)
+    {
+        foreach (JsonProperty _ in value.EnumerateObject())
+        {
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1007,9 +1009,16 @@ public sealed class TokenCostCollector
 
     private readonly record struct TokenUsageSignature(TokenCounterSignature? Total, TokenCounterSignature? Last);
 
+    private readonly record struct TokenUsageSnapshot(TokenCounts? Last, TokenCounts? Total);
+
     private readonly record struct TokenCounts(long Input, long CachedInput, long Output)
     {
         public long Total => Input + Output;
+
+        /// <summary>
+        /// Returns whether this increment contains any billed tokens.
+        /// </summary>
+        public bool HasUsage => Total != 0 || CachedInput != 0;
 
         /// <summary>
         /// Returns cache-read tokens clamped to the inclusive input counter.
@@ -1030,6 +1039,17 @@ public sealed class TokenCostCollector
                 Math.Max(0, Input - previous.Input),
                 Math.Max(0, CachedInput - previous.CachedInput),
                 Math.Max(0, Output - previous.Output));
+        }
+
+        /// <summary>
+        /// Advances a high-water mark without allowing a later regression to lower it.
+        /// </summary>
+        public TokenCounts RaiseHighWater(TokenCounts current)
+        {
+            return new TokenCounts(
+                Math.Max(Input, current.Input),
+                Math.Max(CachedInput, current.CachedInput),
+                Math.Max(Output, current.Output));
         }
     }
 }

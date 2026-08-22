@@ -21,7 +21,7 @@
 
 应用读取 `~/.codex/auth.json` 中的 OAuth 凭据, 请求 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口, 再通过仅监听 loopback 的本地 HTTP 服务向 LiteMonitor 和 TrafficMonitor 提供额度数据. OAuth 凭据缺失或无效时返回不可用状态.
 
-Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessions/**/*.jsonl`, `~/.codex/archived_sessions/*.jsonl` 和 OpenCode `opencode.db` 中的 OpenAI 调用, 使用 `Resources/model-pricing.json` 计算 token 总量, API 等价成本和当前时段缓存命中率, 再显示在 WPF 主面板.
+Token Cost 是独立的本地统计: `TokenCostCollector` 读取 `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`, 使用 `Resources/model-pricing.json` 计算 token 总量, API 等价成本和当前时段缓存命中率, 再显示在 WPF 主面板. Codex Token Cost 不读取 OpenCode.
 
 Cursor 页面是另一条独立链路: `CursorUsageCollector` 使用本机 Cursor OAuth session 查询额度与账单事件. 完整 dashboard 显示在 WPF 主面板, 其中 Monthly 额度还会合并进插件 HTTP 响应.
 

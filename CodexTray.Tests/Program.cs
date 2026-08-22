@@ -81,9 +81,12 @@ internal static class Program
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("computes cache hit percent", TestCacheHitPercentAsync);
         await RunAsync("collects exact Codex token cost", TestTokenCostCollectorAsync);
+        await RunAsync("prefers Codex last_token_usage over cumulative totals", TestCodexLastTokenUsageAsync);
+        await RunAsync("deduplicates archived Codex rollouts by thread id", TestCodexArchivedRolloutDedupAsync);
         await RunAsync("applies model alias pricing", TestModelAliasPricingAsync);
         await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
-        await RunAsync("collects local OpenCode token cost", TestOpenCodeTokenCostAsync);
+        await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
+        await RunAsync("ignores OpenCode token cost for Codex", TestOpenCodeTokenCostIgnoredAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
@@ -926,7 +929,7 @@ internal static class Program
         using CancellationTokenSource cancellation = new();
         cancellation.Cancel();
         await AssertCanceledAsync(() => new CodexTrayCollector().CollectAsync(temp.Path, cancellationToken: cancellation.Token));
-        await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().Collect(temp.Path, openCodeDirectory: temp.Path, cancellationToken: cancellation.Token)));
+        await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().Collect(temp.Path, cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().CollectGrok(temp.Path, cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => Task.Run(() => LiteMonitorLocator.AutoDetect(cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => new CursorUsageCollector().CollectDashboardAsync(cancellationToken: cancellation.Token));
@@ -2700,14 +2703,13 @@ internal static class Program
             "{\"timestamp\":\"2026-07-12T10:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10000,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
         ]);
 
-        string missingOpenCode = Path.Combine(temp.Path, "missing-opencode");
-        TokenCostSummary summary = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode).Today;
+        TokenCostSummary summary = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Today;
         AssertEqual(2900L, summary.TotalTokens, "today total tokens");
         AssertEqual(0.0062m, summary.CostUsd, "today API-equivalent cost");
         AssertEqual(1000L, summary.CacheReadTokens, "today cache-read tokens");
         AssertEqual(2600L, summary.CacheableInputTokens, "today cacheable input tokens");
         AssertEqual(38, summary.GetCacheHitPercent(), "today cache hit percent");
-        TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), missingOpenCode);
+        TokenCostStatistics statistics = collector.Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)));
         AssertEqual(3520L, statistics.LastSevenDays.TotalTokens, "last 7 days total tokens");
         AssertEqual(3560L, statistics.LastThirtyDays.TotalTokens, "last 30 days total tokens");
         AssertEqual(0.00774m, statistics.LastThirtyDays.CostUsd, "last 30 days API-equivalent cost");
@@ -2736,8 +2738,136 @@ internal static class Program
     }
 
     /// <summary>
-    /// Verifies that model aliases reuse the canonical pricing entry.
+    /// Verifies Codex last_token_usage wins over non-monotonic and interleaved totals.
     /// </summary>
+    private static Task TestCodexLastTokenUsageAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{\"gpt-test\":{\"input\":2,\"cachedInput\":0.2,\"output\":10}}");
+        DateTimeOffset now = new(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8));
+
+        TokenCostSummary interleaved = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            now,
+            "interleaved.jsonl",
+            [
+                CreateCodexTokenCount("2026-07-11T09:00:00+08:00", last: (151_258, 10_000, 500), total: (76_780_408, 70_000_000, 1_000_000)),
+                CreateCodexTokenCount("2026-07-11T10:00:00+08:00", last: (200_000, 20_000, 800), total: (87_709_262, 80_000_000, 2_000_000)),
+            ]);
+        AssertEqual(352_558L, interleaved.TotalTokens, "interleaved last usage tokens");
+        AssertEqual(0.661516m, interleaved.CostUsd, "interleaved last usage cost");
+
+        TokenCostSummary regression = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            now,
+            "regression.jsonl",
+            [
+                CreateCodexTokenCount("2026-07-11T09:00:00+08:00", total: (1_000, 400, 100)),
+                CreateCodexTokenCount("2026-07-11T10:00:00+08:00", total: (500, 200, 50)),
+                CreateCodexTokenCount("2026-07-11T11:00:00+08:00", total: (1_200, 500, 150)),
+            ]);
+        AssertEqual(1_350L, regression.TotalTokens, "non-monotonic total high-water tokens");
+        AssertEqual(0.003m, regression.CostUsd, "non-monotonic total high-water cost");
+
+        TokenCostSummary preferred = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            now,
+            "last-preferred.jsonl",
+            [
+                CreateCodexTokenCount("2026-07-11T09:00:00+08:00", last: (100, 20, 10), total: (10_000, 8_000, 500)),
+                CreateCodexTokenCount("2026-07-11T10:00:00+08:00", total: (10_200, 8_040, 520), emptyLast: true),
+            ]);
+        AssertEqual(330L, preferred.TotalTokens, "empty last object falls back to total high-water");
+        AssertEqual(0.000792m, preferred.CostUsd, "empty last object fallback cost");
+
+        TokenCostSummary replayed = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            now,
+            "snapshot-replay.jsonl",
+            [
+                CreateCodexTokenCount("2026-07-11T09:00:00+08:00", last: (100, 20, 10), total: (1_000, 400, 100)),
+                CreateCodexTokenCount("2026-07-11T09:00:01+08:00", last: (100, 20, 10), total: (1_000, 400, 100)),
+                CreateCodexTokenCount("2026-07-11T10:00:00+08:00", last: (80, 10, 8), total: (1_080, 410, 108)),
+            ]);
+        AssertEqual(198L, replayed.TotalTokens, "unchanged snapshot is not billed twice");
+        AssertEqual(0.000486m, replayed.CostUsd, "unchanged snapshot cost");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies an archived Codex rollout does not double-count an active copy.
+    /// </summary>
+    private static Task TestCodexArchivedRolloutDedupAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{\"gpt-test\":{\"input\":2,\"cachedInput\":0.2,\"output\":10}}");
+        const string threadId = "11111111-1111-1111-1111-111111111111";
+        string sessions = Path.Combine(temp.Path, "sessions", "2026", "07", "11");
+        string archived = Path.Combine(temp.Path, "archived_sessions");
+        Directory.CreateDirectory(sessions);
+        Directory.CreateDirectory(archived);
+        File.WriteAllLines(Path.Combine(sessions, $"rollout-{threadId}.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-07-11T09:00:00+08:00", last: (100, 0, 10)),
+        ]);
+        File.WriteAllLines(Path.Combine(archived, $"rollout-{threadId}.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-07-11T09:00:00+08:00", last: (9_999, 0, 999)),
+        ]);
+
+        TokenCostSummary summary = new TokenCostCollector(pricingPath)
+            .Collect(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)))
+            .Today;
+        AssertEqual(110L, summary.TotalTokens, "archived duplicate rollout is skipped");
+        AssertEqual(0.0003m, summary.CostUsd, "archived duplicate rollout cost");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Collects one isolated Codex session file under a unique directory.
+    /// </summary>
+    private static TokenCostSummary CollectCodexSession(
+        string root,
+        string pricingPath,
+        DateTimeOffset now,
+        string fileName,
+        string[] lines)
+    {
+        string collectRoot = Path.Combine(root, Path.GetFileNameWithoutExtension(fileName));
+        string sessions = Path.Combine(collectRoot, "sessions", "2026", "07", "11");
+        Directory.CreateDirectory(sessions);
+        File.WriteAllLines(Path.Combine(sessions, fileName), ["{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}", .. lines]);
+        return new TokenCostCollector(pricingPath).Collect(collectRoot, now).Today;
+    }
+
+    /// <summary>
+    /// Builds one Codex token_count JSONL line with optional last and total usage.
+    /// </summary>
+    private static string CreateCodexTokenCount(
+        string timestamp,
+        (long Input, long Cached, long Output)? last = null,
+        (long Input, long Cached, long Output)? total = null,
+        bool emptyLast = false)
+    {
+        string lastJson = emptyLast
+            ? "\"last_token_usage\":{}"
+            : last is { } lastUsage
+                ? $"\"last_token_usage\":{{\"input_tokens\":{lastUsage.Input},\"cached_input_tokens\":{lastUsage.Cached},\"output_tokens\":{lastUsage.Output}}}"
+                : string.Empty;
+        string totalJson = total is { } totalUsage
+            ? $"\"total_token_usage\":{{\"input_tokens\":{totalUsage.Input},\"cached_input_tokens\":{totalUsage.Cached},\"output_tokens\":{totalUsage.Output}}}"
+            : string.Empty;
+        string info = string.Join(',', new[] { lastJson, totalJson }.Where(part => part.Length > 0));
+        return $"{{\"timestamp\":\"{timestamp}\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"token_count\",\"info\":{{{info}}}}}}}";
+    }
     private static Task TestModelAliasPricingAsync()
     {
         using TempDirectory temp = new();
@@ -2773,7 +2903,7 @@ internal static class Program
         ]);
 
         TokenCostSummary summary = new TokenCostCollector(pricingPath)
-            .Collect(temp.Path, new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8)), Path.Combine(temp.Path, "missing-opencode"))
+            .Collect(temp.Path, new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8)))
             .Today;
         AssertEqual(1_050L, summary.TotalTokens, "alias pricing total tokens");
         AssertEqual(0.00213m, summary.CostUsd, "alias pricing cost");
@@ -2856,22 +2986,58 @@ internal static class Program
 
         File.AppendAllLines(archivedPath, [CreateGrokTokenUpdate("prompt-unpriced", yesterday, 10, 0, 1).Replace("grok-4.5-build", "future-grok-model", StringComparison.Ordinal)]);
         TokenCostStatistics unpricedStatistics = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now);
-        AssertEqual<decimal?>(null, unpricedStatistics.Lifetime.CostUsd, "unpriced Grok usage should make total cost unavailable");
+        AssertEqual(2_831_483L, unpricedStatistics.Lifetime.TotalTokens, "unpriced Grok tokens still count");
+        AssertEqual(0.8546555m, unpricedStatistics.Lifetime.CostUsd, "unpriced Grok usage keeps priced cost at $0.00 increment");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Verifies OpenCode OpenAI messages use cached and reasoning token pricing.
+    /// Verifies Grok model-name cleanup, ticks-only turns, and unpriced models as $0.00.
     /// </summary>
-    private static Task TestOpenCodeTokenCostAsync()
+    private static Task TestGrokBillingEdgesAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{\"grok-4.5-build\":{\"input\":2,\"cachedInput\":0.3,\"output\":6}}");
+        string session = Path.Combine(temp.Path, "sessions", "workspace", "session-edges");
+        Directory.CreateDirectory(session);
+        DateTimeOffset now = new(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset today = new(2026, 8, 12, 9, 0, 0, TimeSpan.FromHours(8));
+        File.WriteAllLines(Path.Combine(session, "updates.jsonl"),
+        [
+            CreateGrokTokenUpdate("prompt-prefix", today, 1_000, 0, 100).Replace("grok-4.5-build", "xai/grok-4.5-build", StringComparison.Ordinal),
+            CreateGrokTokenUpdate("prompt-date", today.AddMinutes(1), 500, 0, 50).Replace("grok-4.5-build", "grok-4.5-build-2026-08-01", StringComparison.Ordinal),
+            CreateGrokTokenUpdate("prompt-tools", today.AddMinutes(2), 0, 0, 0, 100_000_000),
+            CreateGrokTokenUpdate("prompt-unknown", today.AddMinutes(3), 10, 0, 1).Replace("grok-4.5-build", "future-grok-model", StringComparison.Ordinal),
+        ]);
+
+        TokenCostStatistics statistics = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now);
+        AssertEqual(1_661L, statistics.Today.TotalTokens, "normalized and unpriced Grok tokens");
+        AssertEqual(0.0139m, statistics.Today.CostUsd, "Grok prefix, snapshot, and ticks-only cost");
+        AssertEqual("future-grok-model|grok-4.5-build", string.Join('|', statistics.Models.Select(model => model.Model)), "normalized Grok model names");
+        AssertEqual(0m, statistics.Models[0].Today.CostUsd, "unknown Grok model costs $0.00");
+        AssertEqual(0.0139m, statistics.Models[1].Today.CostUsd, "normalized Grok model keeps priced and ticks cost");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies Codex token cost ignores an adjacent OpenCode database.
+    /// </summary>
+    private static Task TestOpenCodeTokenCostIgnoredAsync()
     {
         using TempDirectory temp = new();
         string pricingPath = Path.Combine(temp.Path, "pricing.json");
         File.WriteAllText(pricingPath, "{\"gpt-test\":{\"input\":2,\"cachedInput\":0.2,\"output\":10}}");
         string codexRoot = Path.Combine(temp.Path, "codex");
-        string openCodeRoot = Path.Combine(temp.Path, "opencode");
-        Directory.CreateDirectory(codexRoot);
+        string sessions = Path.Combine(codexRoot, "sessions", "2026", "07", "11");
+        string openCodeRoot = Path.Combine(codexRoot, ".local", "share", "opencode");
+        Directory.CreateDirectory(sessions);
         Directory.CreateDirectory(openCodeRoot);
+        File.WriteAllLines(Path.Combine(sessions, "rollout.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            "{\"timestamp\":\"2026-07-11T09:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":1000,\"cached_input_tokens\":400,\"output_tokens\":100}}}}",
+        ]);
         using (SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = Path.Combine(openCodeRoot, "opencode.db"), Pooling = false }.ToString()))
         {
             connection.Open();
@@ -2882,18 +3048,13 @@ internal static class Program
             command.Parameters.AddWithValue("$time", new DateTimeOffset(2026, 7, 11, 9, 0, 0, TimeSpan.FromHours(8)).ToUnixTimeMilliseconds());
             command.Parameters.AddWithValue("$data", "{\"role\":\"assistant\",\"providerID\":\"openai\",\"modelID\":\"gpt-test\",\"tokens\":{\"input\":600,\"output\":100,\"reasoning\":50,\"cache\":{\"read\":400,\"write\":0}}}");
             command.ExecuteNonQuery();
-            command.Parameters["$data"].Value = "{\"role\":\"assistant\",\"providerID\":\"deepseek\",\"modelID\":\"gpt-test\",\"tokens\":{\"input\":1000,\"output\":1000}}";
-            command.ExecuteNonQuery();
         }
 
         TokenCostSummary summary = new TokenCostCollector(pricingPath)
-            .Collect(codexRoot, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)), openCodeRoot)
+            .Collect(codexRoot, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)))
             .Today;
-        AssertEqual(1150L, summary.TotalTokens, "OpenCode total tokens");
-        AssertEqual(0.00278m, summary.CostUsd, "OpenCode API-equivalent cost");
-        AssertEqual(400L, summary.CacheReadTokens, "OpenCode cache-read tokens");
-        AssertEqual(1000L, summary.CacheableInputTokens, "OpenCode cacheable input tokens");
-        AssertEqual(40, summary.GetCacheHitPercent(), "OpenCode cache hit percent");
+        AssertEqual(1_100L, summary.TotalTokens, "Codex tokens exclude OpenCode");
+        AssertEqual(0.00228m, summary.CostUsd, "Codex cost excludes OpenCode");
         return Task.CompletedTask;
     }
 
@@ -2935,8 +3096,7 @@ internal static class Program
         TokenCostCollector collector = new(pricingPath);
         TokenCostSummary lifetime = collector.Collect(
             temp.Path,
-            new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)),
-            Path.Combine(temp.Path, "missing-opencode")).Lifetime;
+            new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Lifetime;
         AssertEqual(2860L, lifetime.TotalTokens, "subagent lifetime excludes only matching replay prefix");
         AssertEqual(0.006m, lifetime.CostUsd, "subagent lifetime cost");
         return Task.CompletedTask;

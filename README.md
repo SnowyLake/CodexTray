@@ -18,7 +18,7 @@
 
 `CodexTray` 是一个适用于 Windows x64 的托盘应用. 它读取当前 Windows 用户的 Codex, Cursor 和 Grok Build 登录信息, 并通过本地服务把 Codex Weekly, Cursor Monthly 和 Grok Weekly 剩余额度提供给 LiteMonitor 和 TrafficMonitor 插件.
 
-应用还会统计本机 Codex 会话与 OpenCode 中 OpenAI 调用的 token 用量, 按模型价格估算 API 等价成本. Grok 页面会另外统计本机 Grok Build session 中记录的 token 与费用. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
+应用还会统计本机 Codex 会话的 token 用量, 按模型价格估算 API 等价成本. Grok 页面会另外统计本机 Grok Build session 中记录的 token 与费用. 所有信息都集中显示在托盘弹窗中, 无需持续打开主窗口.
 
 除了 Codex 额度, 应用还可以在独立的 Cursor 页面查看 Cursor 额度与 token 账单统计, 在独立的 Grok 页面查看 Weekly 额度, 并在 APIs 页面监控 DeepSeek, OpenRouter, Vercel AI Gateway, NanoGPT 和 NewAPI 的余额或用量.
 
@@ -78,7 +78,7 @@ Grok 页面只读取本机 Grok Build 保存在 `~/.grok/auth.json` 中的 xAI O
 
 页面下方会读取 `~/.grok/sessions/**/updates.jsonl` 与 `~/.grok/archived_sessions/**/updates.jsonl`, 按 `turn_completed` 事件汇总 Today, 7d, 30d 和 Lifetime token 与费用, 并显示模型占比和可切换的 30 日趋势. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在 output 中, 不会重复相加.
 
-费用规则与 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs) 保持一致. 完整的 `costUsdTicks` 是 Grok Build 自报的本轮精确费用, CodexTray 会优先使用它, 因而可以保留工具调用等官方已计入的费用. 当自报费用缺失或被 `costIsPartial` 标记为部分费用时, 再使用 `Resources/model-pricing.json` 中对应模型的输入, 缓存输入和输出价格回算. 如果既没有可用的自报费用也找不到模型价格, 对应周期的 Cost 显示为 `N/A`.
+费用规则与 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs) 保持一致. 完整的 `costUsdTicks` 是 Grok Build 自报的本轮精确费用, CodexTray 会优先使用它, 因而可以保留工具调用等官方已计入的费用. 当自报费用缺失或被 `costIsPartial` 标记为部分费用时, 再使用 `Resources/model-pricing.json` 中对应模型的输入, 缓存输入和输出价格回算. 未收录价格的模型仍统计 token, 成本按 `$0.00` 计入.
 
 access token 临近过期或被接口拒绝时, CodexTray 会使用 refresh token 自动续期并写回 Grok Build 的 `auth.json`. OAuth token 不会复制到 `settings.json`. 隐藏 Grok 页面后会停止 Grok 用量采集.
 
@@ -107,7 +107,7 @@ LiteMonitor 显示 `Codex`, `Cursor` 和 `Grok` 三项, 从 JSON 接口依次读
 ## 数据与隐私
 
 - 额度和 Reset Credits 来自 ChatGPT 官方接口. 应用读取 `~/.codex/auth.json` 中的 Codex OAuth 凭据.
-- Codex Token Cost 来自本机 Codex session 日志与 OpenCode `opencode.db` 中的 OpenAI 调用, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本和缓存命中率. Grok Token Cost 只读取本机 `~/.grok/sessions` 和 `~/.grok/archived_sessions` 中的逐轮用量, 优先采用 Grok Build 自报费用并以本地价格表兜底, 不读取 OpenCode.
+- Codex Token Cost 来自本机 Codex session 日志, 并使用发布包中的 `Resources/model-pricing.json` 计算 API 等价成本和缓存命中率. 它不读取 OpenCode. Grok Token Cost 只读取本机 `~/.grok/sessions` 和 `~/.grok/archived_sessions` 中的逐轮用量, 优先采用 Grok Build 自报费用并以本地价格表兜底.
 - DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - Cursor 页面读取本机 Cursor IDE 的 `state.vscdb` OAuth session, 并向 Cursor 官方 usage-summary 与 usage-events 接口查询额度和账单用量. access token 过期前会通过 Cursor OAuth refresh 自动续期并写回原数据库. OAuth token 不会复制到 `settings.json`.
 - Grok 页面只读取 Grok Build 已保存的本地 OAuth session, 并向 Grok 官方接口查询用量. access token 过期前会通过 xAI OAuth refresh 自动续期并写回 `~/.grok/auth.json`. OAuth token 不会复制到 `settings.json`.
@@ -123,7 +123,7 @@ LiteMonitor 显示 `Codex`, `Cursor` 和 `Grok` 三项, 从 JSON 接口依次读
 
 ### 为什么 Token Cost 显示 N/A
 
-Codex 页请确认发布目录包含 `Resources/model-pricing.json`, 并且当前用户存在 Codex session 日志或 OpenCode OpenAI 调用记录. 未收录价格的模型可以统计 token, 但无法计算成本. Grok 页请确认 session 日志中存在 `turn_completed` usage. 完整的自报费用不依赖本地价格表, 但缺少自报费用的模型必须能在 `Resources/model-pricing.json` 中匹配, 否则包含该模型的周期会显示 `N/A`.
+Codex 页请确认发布目录包含 `Resources/model-pricing.json`, 并且当前用户存在 Codex session 日志. 未收录价格的模型可以统计 token, 成本按 `$0.00` 计入. Grok 页请确认 session 日志中存在 `turn_completed` usage. 完整的自报费用不依赖本地价格表; 缺少自报费用且未收录价格的模型同样按 `$0.00` 计入.
 
 ### 为什么 API 卡片显示 N/A
 
