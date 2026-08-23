@@ -995,6 +995,33 @@
                                             ContentTemplate="{StaticResource QuotaDataTemplate}"
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
+
+                        <Border x:Name="GrokProductUsageCard"
+                                Margin="0"
+                                Style="{StaticResource SmallUsageCardStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Used by product"
+                                           VerticalAlignment="Top"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                           FontSize="13.5"
+                                           FontWeight="Medium" />
+                                <TextBlock x:Name="GrokProductUsageText"
+                                           Grid.Column="1"
+                                           Margin="12,1,0,0"
+                                           HorizontalAlignment="Stretch"
+                                           VerticalAlignment="Top"
+                                           Text="{Binding GrokProductUsageDisplay}"
+                                           TextAlignment="Right"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap"
+                                           ToolTip="{Binding GrokProductUsageDisplay}"
+                                           FontSize="13.5" />
+                            </Grid>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
 

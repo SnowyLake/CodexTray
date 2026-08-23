@@ -7,12 +7,18 @@ using System.Text.Json.Nodes;
 
 namespace CodexTray.Core;
 
-public sealed record GrokUsageSnapshot(double UsedPercent, long ResetsAt, string SubscriptionTier = "");
+public sealed record GrokProductUsage(string Product, double UsedPercent);
+
+public sealed record GrokUsageSnapshot(double UsedPercent, long ResetsAt, string SubscriptionTier = "")
+{
+    public IReadOnlyList<GrokProductUsage> ProductUsage { get; init; } = [];
+}
 
 public sealed record GrokUsageDashboard(GrokUsageSnapshot? Usage, string Error, DateTimeOffset UpdatedAt);
 
 public sealed class GrokUsageCollector
 {
+    private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
     private const string k_BillingEndpoint = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private const string k_DefaultClientId = "b1a00492-073a-47ea-816f-4c329264a828";
@@ -53,16 +59,16 @@ public sealed class GrokUsageCollector
     /// </summary>
     public async Task<GrokUsageSnapshot> CollectAsync(CancellationToken cancellationToken = default)
     {
-        string accessToken = await ResolveGrokBuildAccessTokenAsync(forceRefresh: false, cancellationToken).ConfigureAwait(false);
+        (string accessToken, string userId) = await ResolveGrokBuildAccessTokenAsync(forceRefresh: false, cancellationToken).ConfigureAwait(false);
         GrokUsageSnapshot usage;
         try
         {
-            usage = await FetchBillingAsync(accessToken, cancellationToken).ConfigureAwait(false);
+            usage = await FetchBillingAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidOperationException exception) when (IsAuthFailure(exception))
         {
-            accessToken = await ResolveGrokBuildAccessTokenAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
-            usage = await FetchBillingAsync(accessToken, cancellationToken).ConfigureAwait(false);
+            (accessToken, userId) = await ResolveGrokBuildAccessTokenAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
+            usage = await FetchBillingAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
         }
 
         return TryLoadLocalSubscriptionTier(accessToken, out string subscriptionTier)
@@ -119,6 +125,82 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
+    /// Parses the JSON credits response used by the official Grok Build client.
+    /// </summary>
+    public static GrokUsageSnapshot ParseCreditsResponse(string responseBody)
+    {
+        using JsonDocument document = JsonDocument.Parse(responseBody);
+        if (document.RootElement.ValueKind != JsonValueKind.Object ||
+            !document.RootElement.TryGetProperty("config", out JsonElement config) ||
+            config.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Could not parse Grok billing usage.");
+        }
+
+        bool hasCurrentPeriod = config.TryGetProperty("currentPeriod", out JsonElement currentPeriod) &&
+            currentPeriod.ValueKind == JsonValueKind.Object;
+        double usedPercent = 0;
+        if (config.TryGetProperty("creditUsagePercent", out JsonElement usedPercentElement))
+        {
+            if (usedPercentElement.ValueKind != JsonValueKind.Number || !usedPercentElement.TryGetDouble(out usedPercent) || !double.IsFinite(usedPercent))
+            {
+                throw new InvalidOperationException("Could not parse Grok billing usage.");
+            }
+        }
+        else if (!hasCurrentPeriod)
+        {
+            throw new InvalidOperationException("Could not parse Grok billing usage.");
+        }
+
+        string resetText = hasCurrentPeriod && currentPeriod.TryGetProperty("end", out JsonElement periodEnd) && periodEnd.ValueKind == JsonValueKind.String
+            ? periodEnd.GetString() ?? string.Empty
+            : config.TryGetProperty("billingPeriodEnd", out JsonElement billingPeriodEnd) && billingPeriodEnd.ValueKind == JsonValueKind.String
+                ? billingPeriodEnd.GetString() ?? string.Empty
+                : string.Empty;
+        if (!DateTimeOffset.TryParse(resetText, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out DateTimeOffset resetsAt))
+        {
+            throw new InvalidOperationException("Could not parse Grok billing usage.");
+        }
+
+        List<GrokProductUsage> productUsage = [];
+        if (config.TryGetProperty("productUsage", out JsonElement productUsageElement) && productUsageElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement item in productUsageElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object ||
+                    !item.TryGetProperty("product", out JsonElement productElement) ||
+                    productElement.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(productElement.GetString()))
+                {
+                    continue;
+                }
+
+                double productUsedPercent = 0;
+                if (item.TryGetProperty("usagePercent", out JsonElement productPercentElement) &&
+                    (productPercentElement.ValueKind != JsonValueKind.Number ||
+                     !productPercentElement.TryGetDouble(out productUsedPercent) ||
+                     !double.IsFinite(productUsedPercent)))
+                {
+                    continue;
+                }
+
+                productUsage.Add(new GrokProductUsage(productElement.GetString()!.Trim(), Math.Clamp(productUsedPercent, 0, 100)));
+            }
+        }
+
+        string subscriptionTier = GetSubscriptionTierProperty(document.RootElement);
+        if (subscriptionTier.Length == 0)
+        {
+            subscriptionTier = GetSubscriptionTierProperty(config);
+        }
+
+        return new GrokUsageSnapshot(Math.Clamp(usedPercent, 0, 100), resetsAt.ToUnixTimeSeconds(), subscriptionTier)
+        {
+            ProductUsage = productUsage,
+        };
+    }
+
+    /// <summary>
     /// Parses a Grok billing gRPC-web or raw protobuf response.
     /// </summary>
     public static GrokUsageSnapshot ParseGrpcWebResponse(byte[] responseBody, DateTimeOffset now)
@@ -154,7 +236,7 @@ public sealed class GrokUsageCollector
     /// <summary>
     /// Loads Grok Build credentials and refreshes them when expired or forced.
     /// </summary>
-    private async Task<string> ResolveGrokBuildAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
+    private async Task<(string AccessToken, string UserId)> ResolveGrokBuildAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         await s_GrokBuildAuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -166,7 +248,7 @@ public sealed class GrokUsageCollector
 
             if (!forceRefresh && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken))
             {
-                return credential.AccessToken;
+                return (credential.AccessToken, credential.UserId);
             }
 
             if (string.IsNullOrWhiteSpace(credential.RefreshToken))
@@ -179,7 +261,7 @@ public sealed class GrokUsageCollector
             OAuthTokenRefresh refresh = await RefreshOAuthTokenAsync(credential.RefreshToken, credential.ClientId, cancellationToken)
                 .ConfigureAwait(false);
             SaveGrokBuildCredential(credential, refresh);
-            return refresh.AccessToken;
+            return (refresh.AccessToken, credential.UserId);
         }
         finally
         {
@@ -210,9 +292,71 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Sends the Grok billing gRPC-web request for one access token.
+    /// Fetches Grok credits through the official JSON endpoint with a gRPC-web fallback.
     /// </summary>
-    private async Task<GrokUsageSnapshot> FetchBillingAsync(string accessToken, CancellationToken cancellationToken)
+    private async Task<GrokUsageSnapshot> FetchBillingAsync(string accessToken, string userId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await FetchCreditsAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (JsonException)
+        {
+        }
+        catch (FormatException)
+        {
+        }
+        catch (OverflowException)
+        {
+        }
+        catch (InvalidOperationException exception) when (!IsAuthFailure(exception))
+        {
+        }
+
+        return await FetchGrpcWebBillingAsync(accessToken, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sends the Grok credits JSON request for one access token.
+    /// </summary>
+    private async Task<GrokUsageSnapshot> FetchCreditsAsync(string accessToken, string userId, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, k_CreditsEndpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.TryAddWithoutValidation("X-XAI-Token-Auth", "xai-grok-cli");
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            request.Headers.TryAddWithoutValidation("x-userid", userId);
+        }
+
+        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.UserAgent.ParseAdd("CodexTray");
+
+        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        string responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("Grok Build OAuth token expired or unauthorized. Run grok login again.");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Grok credits request failed: HTTP {(int)response.StatusCode}");
+        }
+
+        return ParseCreditsResponse(responseBody);
+    }
+
+    /// <summary>
+    /// Sends the Grok billing gRPC-web fallback request for one access token.
+    /// </summary>
+    private async Task<GrokUsageSnapshot> FetchGrpcWebBillingAsync(string accessToken, CancellationToken cancellationToken)
     {
         using HttpRequestMessage request = new(HttpMethod.Post, k_BillingEndpoint);
         using ByteArrayContent content = new([0, 0, 0, 0, 0]);
@@ -358,7 +502,11 @@ public sealed class GrokUsageCollector
             }
         }
 
-        return new GrokBuildCredential(authPath, entryKey, accessToken, refreshToken, expiresAt, clientId);
+        string userId = entry.TryGetProperty("user_id", out JsonElement userIdElement) &&
+            userIdElement.ValueKind == JsonValueKind.String
+                ? userIdElement.GetString() ?? string.Empty
+                : string.Empty;
+        return new GrokBuildCredential(authPath, entryKey, accessToken, refreshToken, expiresAt, clientId, userId);
     }
 
     /// <summary>
@@ -796,6 +944,7 @@ public sealed class GrokUsageCollector
         string AccessToken,
         string? RefreshToken,
         DateTimeOffset? ExpiresAt,
-        string ClientId);
+        string ClientId,
+        string UserId);
 
 }

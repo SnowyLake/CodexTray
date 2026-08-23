@@ -417,6 +417,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial string GrokStatusTooltip { get; private set; } = string.Empty;
 
     [ObservableProperty]
+    public partial string GrokProductUsageDisplay { get; private set; } = "N/A";
+
+    [ObservableProperty]
     public partial Media.Brush CursorStatusDotBrush { get; private set; } = s_RedBrush;
 
     [ObservableProperty]
@@ -751,6 +754,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             GrokPlanDisplay = FormatGrokPlan(usage.SubscriptionTier);
             GrokPlanBadgeBrush = GrokPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
+            GrokProductUsageDisplay = FormatGrokProductUsage(usage.ProductUsage);
             string reset = m_Settings.UseAbsoluteResetTime
                 ? UsageLimit.FormatResetDate(usage.ResetsAt, dashboard.UpdatedAt)
                 : UsageLimit.FormatResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
@@ -760,6 +764,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             GrokPlanDisplay = "UNKNOWN";
             GrokPlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            GrokProductUsageDisplay = "N/A";
             GrokWeeklyQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
         }
 
@@ -1392,6 +1397,46 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         return string.IsNullOrEmpty(normalized)
             ? "UNKNOWN"
             : normalized.Replace("premium plus", "premium+", StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
+    }
+
+    /// <summary>
+    /// Formats Grok product usage values for the compact quota card.
+    /// </summary>
+    private static string FormatGrokProductUsage(IReadOnlyList<GrokProductUsage> productUsage)
+    {
+        string display = string.Join(" · ", productUsage
+            .Where(item => double.IsFinite(item.UsedPercent) && item.UsedPercent > 0)
+            .Select(item =>
+            {
+                double usedPercent = Math.Clamp(item.UsedPercent, 0, 100);
+                return $"{FormatGrokProductName(item.Product)} {usedPercent.ToString("0.##", CultureInfo.InvariantCulture)}%";
+            }));
+        return display.Length == 0 ? "N/A" : display;
+    }
+
+    /// <summary>
+    /// Converts Grok product identifiers into compact display names.
+    /// </summary>
+    private static string FormatGrokProductName(string product)
+    {
+        const string protoPrefix = "PRODUCT_GROK_";
+        string normalized = product.Trim();
+        if (normalized.StartsWith(protoPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[protoPrefix.Length..];
+        }
+        else if (normalized.StartsWith("Grok", StringComparison.OrdinalIgnoreCase) && normalized.Length > 4)
+        {
+            normalized = normalized[4..];
+        }
+
+        normalized = string.Join(' ', normalized.Replace('_', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (normalized.Equals("API", StringComparison.OrdinalIgnoreCase))
+        {
+            return "API";
+        }
+
+        return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(normalized.ToLowerInvariant());
     }
 
     /// <summary>

@@ -32,7 +32,7 @@
 - 显示可用 Reset Credits 数量及最近到期时间.
 - Codex, Cursor 和 Grok Token Cost 在滚动模式显示 24H, 7D, 30D 和 Lifetime, 在自然周期模式显示 Today, Week, Month 和 Lifetime. 24H 按当前时刻精确向前滚动 24 小时. 圆环模型占比与趋势图会同步切换周期. 圆环中心显示当前时段 token 总量, 以及成本与缓存命中率同行 (`$N · N%`). 自然月按整月固定宽度展示, 未来日期保留空白. Token 数量使用英制单位 K, M, B.
 - Cursor 页面显示 Monthly, First party 和 APIs 剩余额度, 后两项以半宽卡片并排显示. 页面还会显示 Monthly 重置时间, 实际账单 token, 成本, 模型占比和可切换的 30 日趋势.
-- Grok 页面显示订阅类型, Weekly 剩余额度和重置时间, 并统计本机 Grok Build session 的 24H, 7D, 30D 和 Lifetime token 与费用. 登录信息仅从本机 Grok Build OAuth session 读取.
+- Grok 页面显示订阅类型, Weekly 剩余额度, 重置时间和各产品使用占比, 并统计本机 Grok Build session 的 24H, 7D, 30D 和 Lifetime token 与费用. 登录信息仅从本机 Grok Build OAuth session 读取.
 - 支持 DeepSeek CNY 余额, OpenRouter 剩余与已用 credits, Vercel AI Gateway 剩余与累计已用 credits, NanoGPT USD 余额与最近 30 天用量, 以及 NewAPI 剩余与已用额度.
 - 支持添加, 命名, 排序和删除多个 API 监控卡片, 并显示单项与汇总刷新状态.
 - 默认每 1 分钟自动刷新, 支持 1 到 1440 分钟的自定义间隔和手动刷新.
@@ -59,7 +59,7 @@
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
 - Codex 页: 查看 Weekly 额度, Reset Credits, 四个时段的 Token Cost, 当前时段模型 token 占比, 可切换的最近 30 天与当前自然月趋势, 以及最近更新时间.
 - Cursor 页: 查看 Monthly, First party, APIs 额度和实际账单 Token Cost.
-- Grok 页: 查看从本机 Grok Build 登录信息获取的 Weekly 额度, 重置时间和本地 Token Cost 统计.
+- Grok 页: 查看从本机 Grok Build 登录信息获取的 Weekly 额度, 重置时间, 各产品使用占比和本地 Token Cost 统计.
 - APIs 页: 添加和查看 DeepSeek, OpenRouter, Vercel AI Gateway, NanoGPT 或 NewAPI 监控卡片.
 - Settings 页: 调整可见页面, 刷新, 显示, 自启动, 插件目录和 HTTP 端口设置. `Visible pages` 可分别隐藏 Codex, Cursor, Grok 和 APIs 入口并停止对应后台采集. 同时隐藏 Codex, Cursor 和 Grok 时会停止本地 HTTP 服务.
 - About 页: 查看当前版本, 项目主页和许可证信息.
@@ -74,7 +74,7 @@ Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不�
 
 ## Grok 页面
 
-Grok 页面只读取本机 Grok Build 保存在 `~/.grok/auth.json` 中的 xAI OAuth session, 并向 Grok 官方 billing 接口查询 Weekly 额度和重置时间. 订阅类型显示在页面标题旁, 使用 Grok Build 本地 billing 日志中的最近类型; 日志中没有有效记录时, 仅检查当前 access token 对应的 auth 条目, 不会从未知 protobuf 字段猜测套餐. 常见返回值包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列. 上方额度区域只有一张 Weekly 大卡片, 重置时间遵循 Settings 页中的倒计时或绝对时间格式设置.
+Grok 页面只读取本机 Grok Build 保存在 `~/.grok/auth.json` 中的 xAI OAuth session, 并向 Grok 官方 billing 接口查询 Weekly 额度, 重置时间和 `productUsage` 产品占比. 订阅类型显示在页面标题旁, 使用 Grok Build 本地 billing 日志中的最近类型; 日志中没有有效记录时, 仅检查当前 access token 对应的 auth 条目, 不会从未知 protobuf 字段猜测套餐. 常见返回值包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列. 上方额度区域包含 Weekly 大卡片和产品使用小卡片, 重置时间遵循 Settings 页中的倒计时或绝对时间格式设置. 产品卡片按接口实际返回动态显示 Chat, Build, Tasks 等项目, 过滤 `0%` 项目, 不可用时显示 `N/A`.
 
 页面下方会读取 `~/.grok/sessions/**/updates.jsonl` 与 `~/.grok/archived_sessions/**/updates.jsonl`, 按 `turn_completed` 事件汇总 24H, 7D, 30D 和 Lifetime token 与费用, 并显示模型占比和可切换的 30 日趋势. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在 output 中, 不会重复相加.
 

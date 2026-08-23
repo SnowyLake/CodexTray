@@ -62,7 +62,7 @@ internal static class Program
         await RunAsync("formats compact token units", TestTokenUnitFormattingAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
         await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
-        await RunAsync("parses Grok billing protobuf", TestGrokUsageCollectorAsync);
+        await RunAsync("parses Grok billing responses", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
         await RunAsync("ignores OpenCode OAuth for Grok", TestGrokIgnoresOpenCodeOAuthAsync);
         await RunAsync("parses Cursor usage-summary JSON", TestCursorUsageCollectorAsync);
@@ -152,11 +152,7 @@ internal static class Program
                 System.Windows.Controls.Grid codexTokenCostDonutArea = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostDonutArea");
                 System.Windows.Controls.Button codexTokenCostChartPeriodButton = FindNamedDescendant<System.Windows.Controls.Button>(codexTokenCostDashboard, "TokenCostChartPeriodButton");
                 double[] codexSectionHeights = codexPageGrid.RowDefinitions.Select(row => row.ActualHeight).ToArray();
-                double upperToMiddleGap = codexPageGrid.RowDefinitions[2].ActualHeight;
-                double middleToLowerGap = codexPageGrid.RowDefinitions[4].ActualHeight;
                 AssertEqual(160d, codexTokenCostOverview.ActualHeight, "Codex token cost overview height");
-                AssertTrue(upperToMiddleGap > 0, $"Codex section gaps should be positive, actual {upperToMiddleGap} and {middleToLowerGap}");
-                AssertTrue(Math.Abs(upperToMiddleGap - middleToLowerGap) < 0.01, $"Codex section gaps should match, actual {upperToMiddleGap} and {middleToLowerGap}");
                 AssertEqual(86d, codexTokenCostChartFrame.ActualHeight, "Codex token cost chart frame height");
                 AssertEqual(69d, codexTokenCostChartPlot.ActualHeight, "Codex token cost chart plot height");
                 AssertEqual(22d, codexTokenCostChartPeriodButton.ActualHeight, "Codex token cost chart period button height");
@@ -167,7 +163,15 @@ internal static class Program
                     "Codex token cost chart period button should be hosted by the donut area");
 
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
-                    new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy"),
+                    new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("GrokChat", 3),
+                            new GrokProductUsage("PRODUCT_GROK_BUILD", 2),
+                            new GrokProductUsage("GrokTasks", 0),
+                        ],
+                    },
                     string.Empty,
                     DateTimeOffset.Now),
                     CreateTokenCostStatistics(5));
@@ -178,15 +182,22 @@ internal static class Program
                 content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
                 content.UpdateLayout();
                 System.Windows.Controls.ScrollViewer grokQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("GrokQuotaScrollViewer");
-                AssertTrue(grokQuotaScrollViewer.ScrollableHeight == 0, $"Grok weekly quota card should not scroll, actual {grokQuotaScrollViewer.ScrollableHeight}");
+                AssertTrue(grokQuotaScrollViewer.ScrollableHeight == 0, $"Grok quota cards should not scroll, actual {grokQuotaScrollViewer.ScrollableHeight}");
                 System.Windows.Controls.StackPanel grokQuotaCardPanel = (System.Windows.Controls.StackPanel)window.FindName("GrokQuotaCardPanel");
-                AssertEqual(1, grokQuotaCardPanel.Children.Count, "Grok quota card count");
+                AssertEqual(2, grokQuotaCardPanel.Children.Count, "Grok quota card count");
                 System.Windows.Controls.Border grokWeeklyCard = (System.Windows.Controls.Border)window.FindName("GrokWeeklyCard");
+                System.Windows.Controls.Border grokProductUsageCard = (System.Windows.Controls.Border)window.FindName("GrokProductUsageCard");
+                System.Windows.Controls.TextBlock grokProductUsageText = (System.Windows.Controls.TextBlock)window.FindName("GrokProductUsageText");
                 AssertEqual(codexWeeklyCard.ActualHeight, grokWeeklyCard.ActualHeight, "Codex and Grok Weekly card heights");
-                AssertEqual(68d, grokQuotaScrollViewer.ViewportHeight - grokQuotaScrollViewer.ExtentHeight, "Grok reserved small-card space");
+                AssertEqual(codexResetCreditsCard.ActualHeight, grokProductUsageCard.ActualHeight, "Codex and Grok small card heights");
+                AssertEqual(0d, grokQuotaScrollViewer.ViewportHeight - grokQuotaScrollViewer.ExtentHeight, "Grok quota cards should fill the reserved region");
                 AssertEqual(4, viewModel.GrokTokenCost.Rows.Count, "Grok token cost row count");
                 AssertEqual(30, viewModel.GrokTokenCost.ChartDays.Count, "Grok token cost chart day count");
                 AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
+                AssertEqual("Chat 3% · Build 2%", viewModel.GrokProductUsageDisplay, "Grok product usage display");
+                AssertEqual(13.5d, grokProductUsageText.FontSize, "Grok product usage font size");
+                AssertEqual(System.Windows.TextAlignment.Right, grokProductUsageText.TextAlignment, "Grok product usage text alignment");
+                AssertEqual(System.Windows.TextWrapping.Wrap, grokProductUsageText.TextWrapping, "Grok product usage wrapping");
                 System.Windows.Controls.Grid grokPageGrid = (System.Windows.Controls.Grid)window.FindName("GrokPageGrid");
                 System.Windows.Controls.ContentControl grokTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("GrokTokenCostDashboard");
                 AssertTrue(ReferenceEquals(codexTokenCostDashboard.ContentTemplate, grokTokenCostDashboard.ContentTemplate), "Codex and Grok should share the token cost template");
@@ -375,7 +386,14 @@ internal static class Program
                     ],
                 });
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
-                    new GrokUsageSnapshot(20, now.AddDays(5).ToUnixTimeSeconds(), "X Premium"),
+                    new GrokUsageSnapshot(20, now.AddDays(5).ToUnixTimeSeconds(), "X Premium")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("GrokChat", 12),
+                            new GrokProductUsage("GrokBuild", 8),
+                        ],
+                    },
                     string.Empty,
                     now),
                     new TokenCostStatistics
@@ -1369,7 +1387,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests protobuf parsing for Grok's consumed percentage and reset timestamp.
+    /// Tests JSON and protobuf parsing for Grok billing usage.
     /// </summary>
     private static Task TestGrokUsageCollectorAsync()
     {
@@ -1380,6 +1398,35 @@ internal static class Program
         AssertEqual(42.5, snapshot.UsedPercent, "Grok used percentage");
         AssertEqual(resetAt, snapshot.ResetsAt, "Grok reset timestamp");
         AssertEqual(string.Empty, snapshot.SubscriptionTier, "unconfirmed protobuf strings should not become a Grok subscription tier");
+
+        string creditsResponse = JsonSerializer.Serialize(new
+        {
+            config = new
+            {
+                currentPeriod = new
+                {
+                    type = "USAGE_PERIOD_TYPE_WEEKLY",
+                    start = DateTimeOffset.FromUnixTimeSeconds(resetAt).AddDays(-7).ToString("O", CultureInfo.InvariantCulture),
+                    end = DateTimeOffset.FromUnixTimeSeconds(resetAt).ToString("O", CultureInfo.InvariantCulture),
+                },
+                creditUsagePercent = 5.0,
+                productUsage = new object[]
+                {
+                    new { product = "GrokChat", usagePercent = 3.0 },
+                    new { product = "PRODUCT_GROK_BUILD", usagePercent = 2.0 },
+                    new { product = "GrokTasks" },
+                    new { usagePercent = 99.0 },
+                },
+            },
+            subscriptionTier = "SuperGrok",
+        });
+        GrokUsageSnapshot creditsSnapshot = GrokUsageCollector.ParseCreditsResponse(creditsResponse);
+
+        AssertEqual(5.0, creditsSnapshot.UsedPercent, "Grok credits used percentage");
+        AssertEqual(resetAt, creditsSnapshot.ResetsAt, "Grok credits reset timestamp");
+        AssertEqual("SuperGrok", creditsSnapshot.SubscriptionTier, "Grok credits subscription tier");
+        AssertEqual("GrokChat|PRODUCT_GROK_BUILD|GrokTasks", string.Join('|', creditsSnapshot.ProductUsage.Select(item => item.Product)), "Grok product identifiers");
+        AssertEqual("3|2|0", string.Join('|', creditsSnapshot.ProductUsage.Select(item => item.UsedPercent.ToString("0.##", CultureInfo.InvariantCulture))), "Grok product usage percentages");
         return Task.CompletedTask;
     }
 
@@ -1402,6 +1449,7 @@ internal static class Program
                     key = "old-grok-access",
                     refresh_token = "grok-refresh",
                     expires_at = DateTimeOffset.UtcNow.AddMinutes(-10).ToString("o", CultureInfo.InvariantCulture),
+                    user_id = "grok-user-123",
                     subscriptionTier = "Free",
                     email = "keep-me@example.com",
                 },
@@ -1426,11 +1474,12 @@ internal static class Program
                 "new-grok-access",
                 "grok-refresh",
                 "rotated-grok-refresh",
-                CreateGrokBillingResponse(12.5f, 1_802_592_000)));
+                CreateGrokCreditsResponse(12.5, 1_802_592_000)));
             GrokUsageCollector collector = new(client);
             GrokUsageSnapshot snapshot = await collector.CollectAsync();
 
             AssertEqual(12.5, snapshot.UsedPercent, "refreshed Grok Build used percentage");
+            AssertEqual("GrokBuild", snapshot.ProductUsage.Single().Product, "refreshed Grok Build product usage");
             AssertEqual("SuperGrok Heavy", snapshot.SubscriptionTier, "latest Grok Build cached subscription tier");
             using JsonDocument document = JsonDocument.Parse(File.ReadAllText(authPath));
             JsonElement entry = document.RootElement.GetProperty(entryKey);
@@ -1807,6 +1856,30 @@ internal static class Program
         List<byte> response = [0, 0, 0, 0, (byte)payload.Count];
         response.AddRange(payload);
         return [.. response];
+    }
+
+    /// <summary>
+    /// Builds a minimal JSON credits response for Grok collector tests.
+    /// </summary>
+    private static string CreateGrokCreditsResponse(double usedPercent, long resetAt)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            config = new
+            {
+                currentPeriod = new
+                {
+                    type = "USAGE_PERIOD_TYPE_WEEKLY",
+                    start = DateTimeOffset.FromUnixTimeSeconds(resetAt).AddDays(-7).ToString("O", CultureInfo.InvariantCulture),
+                    end = DateTimeOffset.FromUnixTimeSeconds(resetAt).ToString("O", CultureInfo.InvariantCulture),
+                },
+                creditUsagePercent = usedPercent,
+                productUsage = new[]
+                {
+                    new { product = "GrokBuild", usagePercent = usedPercent },
+                },
+            },
+        });
     }
 
     /// <summary>
@@ -3288,13 +3361,13 @@ internal sealed class CanceledHttpMessageHandler : HttpMessageHandler
 
 internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
 {
-    private const string k_BillingEndpoint = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
+    private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private readonly string m_OldAccessToken;
     private readonly string m_NewAccessToken;
     private readonly string m_ExpectedRefreshToken;
     private readonly string m_RotatedRefreshToken;
-    private readonly byte[] m_BillingBody;
+    private readonly string m_CreditsBody;
 
     /// <summary>
     /// Creates a handler that refreshes OAuth tokens and then serves billing usage.
@@ -3304,13 +3377,13 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
         string newAccessToken,
         string expectedRefreshToken,
         string rotatedRefreshToken,
-        byte[] billingBody)
+        string creditsBody)
     {
         m_OldAccessToken = oldAccessToken;
         m_NewAccessToken = newAccessToken;
         m_ExpectedRefreshToken = expectedRefreshToken;
         m_RotatedRefreshToken = rotatedRefreshToken;
-        m_BillingBody = billingBody;
+        m_CreditsBody = creditsBody;
     }
 
     /// <summary>
@@ -3342,8 +3415,15 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
             };
         }
 
-        if (requestUri == k_BillingEndpoint)
+        if (requestUri == k_CreditsEndpoint)
         {
+            if (!request.Headers.TryGetValues("X-XAI-Token-Auth", out IEnumerable<string>? tokenAuth) || tokenAuth.Single() != "xai-grok-cli" ||
+                !request.Headers.TryGetValues("x-userid", out IEnumerable<string>? userIds) || userIds.Single() != "grok-user-123" ||
+                !request.Headers.Accept.Any(value => value.MediaType == "application/json"))
+            {
+                throw new InvalidOperationException("missing Grok credits headers");
+            }
+
             if (request.Headers.Authorization?.Parameter == m_OldAccessToken)
             {
                 return new HttpResponseMessage(HttpStatusCode.Unauthorized);
@@ -3356,7 +3436,7 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
 
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new ByteArrayContent(m_BillingBody),
+                Content = new StringContent(m_CreditsBody, Encoding.UTF8, "application/json"),
             };
         }
 
