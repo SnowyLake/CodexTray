@@ -291,10 +291,15 @@ internal static class Program
                 System.Windows.Controls.ItemsControl grokChartItemsControl = FindNamedDescendant<System.Windows.Controls.ItemsControl>(grokTokenCostDashboard, "TokenCostChartItemsControl");
                 System.Windows.Controls.ContentPresenter grokChartPresenter = (System.Windows.Controls.ContentPresenter)grokChartItemsControl.ItemContainerGenerator.ContainerFromIndex(29);
                 System.Windows.Controls.Border grokChartBar = (System.Windows.Controls.Border)grokChartItemsControl.ItemTemplate.FindName("TokenCostChartBar", grokChartPresenter);
-                System.Windows.Media.Color grokStatusColor = ((System.Windows.Media.SolidColorBrush)viewModel.GrokStatusDotBrush).Color;
-                System.Windows.Media.Color codexStatusColor = ((System.Windows.Media.SolidColorBrush)viewModel.CodexStatusDotBrush).Color;
-                AssertEqual(grokStatusColor, ((System.Windows.Media.SolidColorBrush)grokChartBar.Background).Color, "Grok token chart status color");
-                AssertTrue(grokStatusColor != codexStatusColor, "Grok token chart should not reuse the Codex status color");
+                System.Windows.Shapes.Path grokPeriodSelectionIndicator = FindNamedDescendant<System.Windows.Shapes.Path>(grokTokenCostDashboard, "SelectionIndicator");
+                System.Windows.Media.Color tokenCostAccentColor = System.Windows.Media.Color.FromRgb(26, 188, 137);
+                AssertEqual(tokenCostAccentColor, ((System.Windows.Media.SolidColorBrush)grokChartBar.Background).Color, "Grok token chart should keep the green accent");
+                AssertEqual(tokenCostAccentColor, ((System.Windows.Media.SolidColorBrush)grokPeriodSelectionIndicator.Fill).Color, "Grok period selection indicator should keep the green accent");
+                AssertEqual(tokenCostAccentColor, ((System.Windows.Media.SolidColorBrush)viewModel.GrokTokenCost.AccentBrush).Color, "Grok token cost accent should stay green");
+                AssertEqual(
+                    System.Windows.Media.Color.FromRgb(224, 91, 77),
+                    ((System.Windows.Media.SolidColorBrush)viewModel.CodexStatusDotBrush).Color,
+                    "Codex status should stay independent from token cost accent");
                 System.Windows.Controls.Button grokTabButton = (System.Windows.Controls.Button)window.FindName("GrokTabButton");
                 System.Windows.Controls.StackPanel tabPanel = (System.Windows.Controls.StackPanel)grokTabButton.Parent;
                 int grokTabIndex = tabPanel.Children.IndexOf(grokTabButton);
@@ -2476,6 +2481,14 @@ internal static class Program
         };
         viewModel.UpdateTokenCost(statistics);
 
+        AssertEqual(
+            System.Windows.Media.Color.FromRgb(26, 188, 137),
+            ((System.Windows.Media.SolidColorBrush)viewModel.CodexTokenCost.AccentBrush).Color,
+            "Codex token cost accent should stay green before usage status is available");
+        AssertEqual(
+            System.Windows.Media.Color.FromRgb(224, 91, 77),
+            ((System.Windows.Media.SolidColorBrush)viewModel.CodexStatusDotBrush).Color,
+            "Codex usage status should remain red before the first usage refresh");
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "Codex token cost row titles");
         AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "Codex token cost row values");
         AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "Codex token cost chart day count");
@@ -2514,6 +2527,14 @@ internal static class Program
         AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7D row should be selected");
 
         viewModel.UpdateCursorDashboard(new CursorUsageDashboard(null, statistics, "N/A", string.Empty, DateTimeOffset.Now));
+        AssertEqual(
+            System.Windows.Media.Color.FromRgb(226, 176, 54),
+            ((System.Windows.Media.SolidColorBrush)viewModel.CursorStatusDotBrush).Color,
+            "Cursor usage-only token cost should keep a yellow status");
+        AssertEqual(
+            System.Windows.Media.Color.FromRgb(26, 188, 137),
+            ((System.Windows.Media.SolidColorBrush)viewModel.CursorTokenCost.AccentBrush).Color,
+            "Cursor token cost accent should stay green when usage is unavailable");
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.CursorTokenCost.Rows.Select(row => row.Title)), "Cursor token cost row titles");
         AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CursorTokenCost.Rows.Select(row => row.Display.Cost)), "Cursor token cost row values");
         AssertEqual(30, viewModel.CursorTokenCost.ChartDays.Count, "Cursor token cost chart day count");
@@ -2535,6 +2556,14 @@ internal static class Program
                 .ToArray(),
         };
         viewModel.UpdateGrokDashboard(new GrokUsageDashboard(null, "N/A", DateTimeOffset.Now), grokStatistics);
+        AssertEqual(
+            System.Windows.Media.Color.FromRgb(226, 176, 54),
+            ((System.Windows.Media.SolidColorBrush)viewModel.GrokStatusDotBrush).Color,
+            "Grok usage-only token cost should keep a yellow status");
+        AssertEqual(
+            System.Windows.Media.Color.FromRgb(26, 188, 137),
+            ((System.Windows.Media.SolidColorBrush)viewModel.GrokTokenCost.AccentBrush).Color,
+            "Grok token cost accent should stay green when usage is unavailable");
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Title)), "Grok token cost row titles");
         AssertEqual("N/A|N/A|N/A|N/A", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Display.Cost)), "Grok unknown cost values");
         AssertEqual(58d, viewModel.GrokTokenCost.ChartDays[29].BarHeight, "Grok token chart maximum height");

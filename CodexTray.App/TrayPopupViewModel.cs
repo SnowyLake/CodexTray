@@ -749,7 +749,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     public void UpdateTokenCost(TokenCostStatistics? statistics)
     {
-        CodexTokenCost.Update(statistics, CodexStatusDotBrush);
+        CodexTokenCost.Update(statistics);
     }
 
     /// <summary>
@@ -792,7 +792,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         GrokStatusTooltip = FormatGrokStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
         if (tokenCost != null)
         {
-            GrokTokenCost.Update(tokenCost, GrokStatusDotBrush);
+            GrokTokenCost.Update(tokenCost);
         }
     }
 
@@ -837,7 +837,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     ? "Token Cost updated, Usage N/A"
                     : "Update error";
         CursorStatusTooltip = FormatCursorStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
-        CursorTokenCost.Update(dashboard.TokenCost, CursorStatusDotBrush);
+        CursorTokenCost.Update(dashboard.TokenCost);
     }
 
     /// <summary>
@@ -1636,16 +1636,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         [ObservableProperty]
         public partial string SelectedCostDisplay { get; private set; } = "N/A";
 
-        [ObservableProperty]
-        public partial Media.Brush AccentBrush { get; private set; } = s_RedBrush;
+        public Media.Brush AccentBrush { get; } = s_GreenBrush;
 
         /// <summary>
         /// Updates all token-cost views from one statistics snapshot.
         /// </summary>
-        public void Update(TokenCostStatistics? statistics, Media.Brush accentBrush)
+        public void Update(TokenCostStatistics? statistics)
         {
             m_Statistics = statistics;
-            AccentBrush = accentBrush;
             Refresh();
         }
 
