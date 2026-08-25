@@ -503,14 +503,7 @@
                                    VerticalAlignment="Center">
                             <TextBlock.Style>
                                 <Style BasedOn="{StaticResource QuotaValueTextStyle}" TargetType="{x:Type TextBlock}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Title}" Value="Weekly">
-                                            <Setter Property="FontSize" Value="20" />
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding Title}" Value="Monthly">
-                                            <Setter Property="FontSize" Value="20" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
+                                    <Setter Property="FontSize" Value="20" />
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
@@ -901,60 +894,76 @@
                               HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Hidden">
                     <StackPanel VerticalAlignment="Top">
-                        <Border x:Name="CodexWeeklyCard"
+                        <Border x:Name="CodexPrimaryCard"
                                 Margin="0,0,0,12"
                                 Style="{StaticResource LargeUsageCardStyle}">
-                            <ContentControl Content="{Binding CodexWeeklyQuota}"
+                            <ContentControl Content="{Binding CodexPrimaryQuota}"
                                             ContentTemplate="{StaticResource QuotaDataTemplate}"
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
 
-                        <Border x:Name="CodexResetCreditsCard"
-                                Margin="0"
-                                Style="{StaticResource SmallUsageCardStyle}">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="Reset credits"
-                                           VerticalAlignment="Top"
-                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                           FontSize="13.5"
-                                           FontWeight="Medium" />
-                                <StackPanel Grid.Column="1"
-                                            HorizontalAlignment="Right">
-                                    <TextBlock Text="{Binding CodexResetCreditsDisplay}"
-                                               HorizontalAlignment="Right"
-                                               FontSize="14">
-                                        <TextBlock.Style>
-                                            <Style TargetType="{x:Type TextBlock}">
-                                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CodexHasResetCredits}" Value="True">
-                                                        <Setter Property="Foreground" Value="{Binding CodexStatusDotBrush}" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                    <TextBlock x:Name="CodexResetCreditsExpiryDatesText"
-                                               Text="{Binding CodexResetCreditsExpiryDates}"
-                                               HorizontalAlignment="Right"
-                                               Margin="0,5,0,0">
-                                        <TextBlock.Style>
-                                            <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource UsageCardCaptionTextStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CodexResetCreditsExpiryDates}" Value="">
-                                                        <Setter Property="Visibility" Value="Collapsed" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="CodexSecondaryCard"
+                                    Margin="0"
+                                    Style="{StaticResource SmallUsageCardStyle}">
+                                <ContentControl Content="{Binding CodexSecondaryQuota}"
+                                                ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
+                                                HorizontalContentAlignment="Stretch" />
+                            </Border>
+
+                            <Border x:Name="CodexResetCreditsCard"
+                                    Grid.Column="2"
+                                    Margin="0"
+                                    Style="{StaticResource SmallUsageCardStyle}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Resets"
+                                               VerticalAlignment="Top"
+                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                               FontSize="13.5"
+                                               FontWeight="Medium" />
+                                    <StackPanel Grid.Column="1"
+                                                HorizontalAlignment="Right">
+                                        <TextBlock Text="{Binding CodexResetCreditsDisplay}"
+                                                   HorizontalAlignment="Right"
+                                                   FontSize="14">
+                                            <TextBlock.Style>
+                                                <Style TargetType="{x:Type TextBlock}">
+                                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CodexHasResetCredits}" Value="True">
+                                                            <Setter Property="Foreground" Value="{Binding CodexStatusDotBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock x:Name="CodexResetCreditsExpiryDatesText"
+                                                   Text="{Binding CodexResetCreditsExpiryDates}"
+                                                   HorizontalAlignment="Right"
+                                                   Margin="0,5,0,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource UsageCardCaptionTextStyle}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CodexResetCreditsExpiryDates}" Value="">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </Grid>
 
                     </StackPanel>
                 </ScrollViewer>

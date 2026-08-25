@@ -135,7 +135,19 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public event Action<InAppDialogRequest>? InAppDialogRequested;
 
+    public QuotaViewModel CodexSessionQuota { get; } = new("Session");
+
     public QuotaViewModel CodexWeeklyQuota { get; } = new("Weekly");
+
+    /// <summary>
+    /// Gets the large Codex quota card, using Session when its window is valid.
+    /// </summary>
+    public QuotaViewModel CodexPrimaryQuota => CodexHasValidSession ? CodexSessionQuota : CodexWeeklyQuota;
+
+    /// <summary>
+    /// Gets the compact Codex quota card opposite the large Session or Weekly card.
+    /// </summary>
+    public QuotaViewModel CodexSecondaryQuota => CodexHasValidSession ? CodexWeeklyQuota : CodexSessionQuota;
 
     public QuotaViewModel GrokWeeklyQuota { get; } = new("Weekly");
 
@@ -209,6 +221,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     [ObservableProperty]
     public partial bool CodexHasResetCredits { get; private set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CodexPrimaryQuota))]
+    [NotifyPropertyChangedFor(nameof(CodexSecondaryQuota))]
+    public partial bool CodexHasValidSession { get; private set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LiteMonitorDirDisplay))]
@@ -697,6 +714,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             CodexStatusDotBrush = s_RedBrush;
             CodexUpdatedAtDisplay = FormatUpdatedAt(null);
             CodexWeeklyQuota.UpdateUnavailable();
+            CodexSessionQuota.UpdateUnavailable();
+            CodexHasValidSession = false;
             UpdateResetCredits(null);
             return;
         }
@@ -708,6 +727,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             CodexStatusDotBrush = s_RedBrush;
             CodexUpdatedAtDisplay = $"Error{FormatResponseError(response)}";
             CodexWeeklyQuota.UpdateUnavailable();
+            CodexSessionQuota.UpdateUnavailable();
+            CodexHasValidSession = false;
             UpdateResetCredits(null);
             return;
         }
@@ -717,6 +738,17 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         CodexStatusDotBrush = s_GreenBrush;
         CodexUpdatedAtDisplay = FormatUpdatedAt(response.UpdatedAt);
         CodexWeeklyQuota.Update(response.Limits.Weekly);
+        if (response.Limits.Session.WindowMinutes > 0)
+        {
+            CodexSessionQuota.Update(response.Limits.Session);
+            CodexHasValidSession = true;
+        }
+        else
+        {
+            CodexSessionQuota.UpdateUnlimited();
+            CodexHasValidSession = false;
+        }
+
         UpdateResetCredits(response.ResetCredits);
     }
 
@@ -728,7 +760,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         if (resetCredits?.Available == true)
         {
             CodexHasResetCredits = resetCredits.AvailableCount > 0;
-            CodexResetCreditsDisplay = $"{resetCredits.AvailableCount} available";
+            CodexResetCreditsDisplay = string.Create(CultureInfo.InvariantCulture, $"{resetCredits.AvailableCount} Avail.");
             string nearestExpiry = resetCredits.NearestExpiryLocal.Length >= 10
                 ? resetCredits.NearestExpiryLocal[5..10]
                 : resetCredits.NearestExpiryLocal;
@@ -2130,6 +2162,19 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             AccentBrush = s_RedBrush;
             IsVisible = true;
             IsResetVisible = showReset;
+        }
+
+        /// <summary>
+        /// Updates the quota display for a missing window as a full unlimited bar.
+        /// </summary>
+        public void UpdateUnlimited()
+        {
+            RemainingPercent = 100;
+            PercentText = string.Empty;
+            ResetText = "unknown";
+            AccentBrush = GetAccentBrush(100);
+            IsVisible = true;
+            IsResetVisible = false;
         }
 
         /// <summary>

@@ -72,7 +72,7 @@ API 监控同样是独立链路: `ApiUsageCollector` 查询 DeepSeek, OpenRouter
 - 主面板尺寸固定为 360 x 620.
 - Codex, Cursor, Grok 与 APIs 页面默认全部可见. 无可见数据页时不运行定时刷新.
 - Token Cost 支持滚动周期 Today, 7d, 30d, Lifetime 与自然周期 Today, Week, Month, Lifetime, 并显示可切换的 30 日趋势图. 圆环中心显示当前时段 token 总量, 以及成本与缓存命中率同行 (`$N · N%`). Token 数量使用英制单位 K, M, B.
-- 无有效窗口的 Codex Session 与 Weekly 进度条默认隐藏.
+- Codex 面板在 Session 窗口无效时将 Session 与 Resets 并排为半宽小卡片, Session 进度条拉满且不显示百分比; Session 有效时 Session 使用大卡片, Weekly 改为半宽小卡片.
 - API provider 支持 `DeepSeek`, `OpenRouter`, `Vercel`, `NanoGPT` 和 `NewAPI`, 下拉顺序由 `ApiMonitorViewModel.ProviderOptions` 固定. 这些 provider 的凭据以明文保存在 `settings.json`.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
 
