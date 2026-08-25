@@ -169,7 +169,9 @@ internal static class Program
                         [
                             new GrokProductUsage("GrokChat", 3),
                             new GrokProductUsage("PRODUCT_GROK_BUILD", 2),
-                            new GrokProductUsage("GrokTasks", 0),
+                            new GrokProductUsage("GrokTasks", 1),
+                            new GrokProductUsage("GrokVoice", 0.5),
+                            new GrokProductUsage("GrokImagine", 0),
                         ],
                     },
                     string.Empty,
@@ -187,17 +189,100 @@ internal static class Program
                 AssertEqual(2, grokQuotaCardPanel.Children.Count, "Grok quota card count");
                 System.Windows.Controls.Border grokWeeklyCard = (System.Windows.Controls.Border)window.FindName("GrokWeeklyCard");
                 System.Windows.Controls.Border grokProductUsageCard = (System.Windows.Controls.Border)window.FindName("GrokProductUsageCard");
-                System.Windows.Controls.TextBlock grokProductUsageText = (System.Windows.Controls.TextBlock)window.FindName("GrokProductUsageText");
+                System.Windows.Controls.Border grokProductUsageBar = (System.Windows.Controls.Border)window.FindName("GrokProductUsageBar");
+                System.Windows.Controls.ItemsControl grokProductUsageBarItems = (System.Windows.Controls.ItemsControl)window.FindName("GrokProductUsageBarItems");
+                System.Windows.Controls.ItemsControl grokProductUsageLegend = (System.Windows.Controls.ItemsControl)window.FindName("GrokProductUsageLegend");
+                System.Windows.Controls.Border grokProductUsageBarSegment = FindItemsControlTemplateChild<System.Windows.Controls.Border>(grokProductUsageBarItems, 0, "GrokProductUsageBarSegment");
+                System.Windows.Shapes.Ellipse grokProductUsageLegendDot = FindItemsControlTemplateChild<System.Windows.Shapes.Ellipse>(grokProductUsageLegend, 0, "GrokProductUsageLegendDot");
+                System.Windows.Controls.TextBlock grokProductUsageNameText = FindItemsControlTemplateChild<System.Windows.Controls.TextBlock>(grokProductUsageLegend, 0, "GrokProductUsageNameText");
+                System.Windows.Controls.TextBlock grokProductUsagePercentText = FindItemsControlTemplateChild<System.Windows.Controls.TextBlock>(grokProductUsageLegend, 0, "GrokProductUsagePercentText");
                 AssertEqual(codexWeeklyCard.ActualHeight, grokWeeklyCard.ActualHeight, "Codex and Grok Weekly card heights");
                 AssertEqual(codexResetCreditsCard.ActualHeight, grokProductUsageCard.ActualHeight, "Codex and Grok small card heights");
                 AssertEqual(0d, grokQuotaScrollViewer.ViewportHeight - grokQuotaScrollViewer.ExtentHeight, "Grok quota cards should fill the reserved region");
                 AssertEqual(4, viewModel.GrokTokenCost.Rows.Count, "Grok token cost row count");
                 AssertEqual(30, viewModel.GrokTokenCost.ChartDays.Count, "Grok token cost chart day count");
                 AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
-                AssertEqual("Chat 3% · Build 2%", viewModel.GrokProductUsageDisplay, "Grok product usage display");
-                AssertEqual(13.5d, grokProductUsageText.FontSize, "Grok product usage font size");
-                AssertEqual(System.Windows.TextAlignment.Right, grokProductUsageText.TextAlignment, "Grok product usage text alignment");
-                AssertEqual(System.Windows.TextWrapping.Wrap, grokProductUsageText.TextWrapping, "Grok product usage wrapping");
+                AssertTrue(window.FindName("GrokProductUsageTitle") is null, "Grok product usage card should not show a title");
+                AssertEqual("Tasks 1%\nVoice 0.5%", viewModel.GrokProductUsageDisplay, "Grok product usage others tooltip");
+                AssertEqual("Tasks 1%\nVoice 0.5%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others item tooltip");
+                AssertTrue(viewModel.GrokProductUsageItems[0].Tooltip is null, "Grok product usage first item should not have a tooltip");
+                AssertTrue(viewModel.GrokProductUsageItems[1].Tooltip is null, "Grok product usage second item should not have a tooltip");
+                AssertEqual(3, viewModel.GrokProductUsageItems.Count, "Grok product usage item count");
+                AssertEqual("Chat", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name");
+                AssertEqual("3%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage first percent");
+                AssertEqual(3d, viewModel.GrokProductUsageItems[0].UsedPercent, "Grok product usage first used percent");
+                AssertEqual("Build", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name");
+                AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name");
+                AssertEqual("1.5%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage others percent");
+                System.Windows.Controls.ProgressBar grokWeeklyProgressBar = FindTypedDescendant<System.Windows.Controls.ProgressBar>(grokWeeklyCard);
+                AssertEqual(grokWeeklyProgressBar.ActualHeight, grokProductUsageBar.ActualHeight, "Grok product usage bar should match quota bar height");
+                AssertEqual(grokWeeklyProgressBar.ActualHeight, grokProductUsageBarSegment.ActualHeight, "Grok product usage segments should match quota bar height");
+                AssertEqual(3, grokProductUsageBarItems.Items.Count, "Grok product usage bar segment count");
+                AssertEqual(3, grokProductUsageLegend.Items.Count, "Grok product usage legend count");
+                AssertTrue(FindTypedDescendant<System.Windows.Controls.Primitives.UniformGrid>(grokProductUsageLegend) is not null, "Grok product usage legend should keep three items on one row");
+                AssertEqual("Chat", grokProductUsageNameText.Text, "Grok product usage legend name");
+                AssertEqual("3%", grokProductUsagePercentText.Text, "Grok product usage legend percent");
+                System.Windows.Controls.TextBlock codexResetCreditsExpiryDatesText = (System.Windows.Controls.TextBlock)window.FindName("CodexResetCreditsExpiryDatesText");
+                System.Windows.Style usageCardCaptionTextStyle = (System.Windows.Style)window.FindResource("UsageCardCaptionTextStyle");
+                AssertTrue(ReferenceEquals(grokProductUsageNameText.Style, usageCardCaptionTextStyle), "Grok product usage name should use the reset-credit caption style");
+                AssertTrue(ReferenceEquals(grokProductUsagePercentText.Style, usageCardCaptionTextStyle), "Grok product usage percent should use the reset-credit caption style");
+                AssertEqual(codexResetCreditsExpiryDatesText.FontSize, grokProductUsageNameText.FontSize, "Grok product usage name font size");
+                AssertEqual(codexResetCreditsExpiryDatesText.FontSize, grokProductUsagePercentText.FontSize, "Grok product usage percent font size");
+                AssertEqual(codexResetCreditsExpiryDatesText.FontWeight, grokProductUsageNameText.FontWeight, "Grok product usage name font weight");
+                AssertEqual(codexResetCreditsExpiryDatesText.FontWeight, grokProductUsagePercentText.FontWeight, "Grok product usage percent font weight");
+                AssertEqual(
+                    ((System.Windows.Media.SolidColorBrush)codexResetCreditsExpiryDatesText.Foreground).Color,
+                    ((System.Windows.Media.SolidColorBrush)grokProductUsageNameText.Foreground).Color,
+                    "Grok product usage name color");
+                AssertEqual(
+                    ((System.Windows.Media.SolidColorBrush)codexResetCreditsExpiryDatesText.Foreground).Color,
+                    ((System.Windows.Media.SolidColorBrush)grokProductUsagePercentText.Foreground).Color,
+                    "Grok product usage percent color");
+                AssertEqual(System.Windows.TextWrapping.NoWrap, grokProductUsageNameText.TextWrapping, "Grok product usage name should not wrap inside an item");
+                AssertEqual(System.Windows.TextWrapping.NoWrap, grokProductUsagePercentText.TextWrapping, "Grok product usage percent should not wrap inside an item");
+                System.Windows.Controls.TextBlock grokProductUsageOthersNameText = FindItemsControlTemplateChild<System.Windows.Controls.TextBlock>(grokProductUsageLegend, 2, "GrokProductUsageNameText");
+                AssertEqual("Others", grokProductUsageOthersNameText.Text, "Grok product usage others legend name");
+                AssertEqual(
+                    grokProductUsageNameText.TranslatePoint(new System.Windows.Point(), window).Y,
+                    grokProductUsagePercentText.TranslatePoint(new System.Windows.Point(), window).Y,
+                    "Grok product usage legend item should stay on one line");
+                AssertEqual(
+                    grokProductUsageNameText.TranslatePoint(new System.Windows.Point(), window).Y,
+                    grokProductUsageOthersNameText.TranslatePoint(new System.Windows.Point(), window).Y,
+                    "Grok product usage legend items should share one row");
+                System.Windows.Controls.StackPanel grokProductUsageChatLegendItem = FindItemsControlTemplateChild<System.Windows.Controls.StackPanel>(grokProductUsageLegend, 0, "GrokProductUsageLegendItem");
+                System.Windows.Controls.StackPanel grokProductUsageOthersLegendItem = FindItemsControlTemplateChild<System.Windows.Controls.StackPanel>(grokProductUsageLegend, 2, "GrokProductUsageLegendItem");
+                AssertTrue(grokProductUsageLegend.ToolTip is null, "Grok product usage legend should not show a shared tooltip");
+                AssertTrue(grokProductUsageChatLegendItem.ToolTip is null, "Grok product usage chat item should not show a tooltip");
+                AssertEqual("Tasks 1%\nVoice 0.5%", grokProductUsageOthersLegendItem.ToolTip, "Grok product usage others item tooltip");
+                AssertEqual(
+                    System.Windows.Media.Color.FromRgb(26, 188, 137),
+                    ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageItems[0].Brush).Color,
+                    "Grok product usage first color");
+                AssertEqual(
+                    System.Windows.Media.Color.FromRgb(82, 193, 181),
+                    ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageItems[1].Brush).Color,
+                    "Grok product usage second color");
+                AssertEqual(
+                    System.Windows.Media.Color.FromRgb(92, 143, 202),
+                    ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageItems[2].Brush).Color,
+                    "Grok product usage third color");
+                AssertEqual(
+                    ((System.Windows.Media.SolidColorBrush)viewModel.GrokTokenCost.DonutSegments[0].Brush).Color,
+                    ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageItems[0].Brush).Color,
+                    "Grok product usage first color should match the donut");
+                AssertEqual(
+                    ((System.Windows.Media.SolidColorBrush)viewModel.GrokTokenCost.DonutSegments[1].Brush).Color,
+                    ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageItems[1].Brush).Color,
+                    "Grok product usage second color should match the donut");
+                AssertEqual(
+                    ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageItems[0].Brush).Color,
+                    ((System.Windows.Media.SolidColorBrush)grokProductUsageBarSegment.Background).Color,
+                    "Grok product usage bar segment color");
+                AssertEqual(
+                    ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageItems[0].Brush).Color,
+                    ((System.Windows.Media.SolidColorBrush)grokProductUsageLegendDot.Fill).Color,
+                    "Grok product usage legend dot color");
                 System.Windows.Controls.Grid grokPageGrid = (System.Windows.Controls.Grid)window.FindName("GrokPageGrid");
                 System.Windows.Controls.ContentControl grokTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("GrokTokenCostDashboard");
                 AssertTrue(ReferenceEquals(codexTokenCostDashboard.ContentTemplate, grokTokenCostDashboard.ContentTemplate), "Codex and Grok should share the token cost template");
@@ -215,6 +300,67 @@ internal static class Program
                 int grokTabIndex = tabPanel.Children.IndexOf(grokTabButton);
                 AssertEqual("Cursor", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex - 1]).ToolTip, "Grok tab predecessor");
                 AssertEqual("APIs", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex + 1]).ToolTip, "Grok tab successor");
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("GrokChat", 3),
+                            new GrokProductUsage("PRODUCT_GROK_BUILD", 2),
+                        ],
+                    },
+                    string.Empty,
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                AssertEqual("Others 0%", viewModel.GrokProductUsageDisplay, "Grok product usage tooltip with two items");
+                AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip with two items");
+                AssertEqual(3, viewModel.GrokProductUsageItems.Count, "Grok product usage item count with two items");
+                AssertEqual("Chat", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name with two items");
+                AssertEqual("Build", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name with two items");
+                AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name with two items");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage others percent with two items");
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(0, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("GrokChat", 0),
+                            new GrokProductUsage("PRODUCT_GROK_BUILD", 0),
+                            new GrokProductUsage("GrokTasks", 0),
+                        ],
+                    },
+                    string.Empty,
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name when all zero");
+                AssertEqual("Chat", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name when all zero");
+                AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name when all zero");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage build percent when all zero");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage chat percent when all zero");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage others percent when all zero");
+                AssertEqual("Others 0%", viewModel.GrokProductUsageDisplay, "Grok product usage tooltip when all zero");
+                AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip when all zero");
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(7, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("GrokImagine", 7),
+                            new GrokProductUsage("PRODUCT_GROK_BUILD", 0),
+                            new GrokProductUsage("GrokChat", 0),
+                        ],
+                    },
+                    string.Empty,
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                AssertEqual("Imagine", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name with one non-zero item");
+                AssertEqual("7%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage first percent with one non-zero item");
+                AssertEqual("Build", viewModel.GrokProductUsageItems[1].Name, "Grok product usage build name with one non-zero item");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage build percent with one non-zero item");
+                AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name with one non-zero item");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage others percent with one non-zero item");
+                AssertEqual("Others 0%", viewModel.GrokProductUsageDisplay, "Grok product usage tooltip with one non-zero item");
+                AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip with one non-zero item");
 
                 viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
                     new CursorUsageSnapshot("Pro", 2, 3, 4, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds()),
@@ -392,6 +538,8 @@ internal static class Program
                         [
                             new GrokProductUsage("GrokChat", 12),
                             new GrokProductUsage("GrokBuild", 8),
+                            new GrokProductUsage("GrokTasks", 3),
+                            new GrokProductUsage("GrokVoice", 1),
                         ],
                     },
                     string.Empty,
@@ -3241,6 +3389,26 @@ internal static class Program
     }
 
     /// <summary>
+    /// Finds one named element inside an ItemsControl item template.
+    /// </summary>
+    private static T FindItemsControlTemplateChild<T>(System.Windows.Controls.ItemsControl itemsControl, int index, string name)
+        where T : System.Windows.FrameworkElement
+    {
+        if (itemsControl.ItemContainerGenerator.ContainerFromIndex(index) is not System.Windows.Controls.ContentPresenter presenter)
+        {
+            throw new InvalidOperationException($"Could not find ItemsControl container {index} for {name}.");
+        }
+
+        presenter.ApplyTemplate();
+        if (itemsControl.ItemTemplate.FindName(name, presenter) is not T child)
+        {
+            throw new InvalidOperationException($"Could not find {typeof(T).Name} named {name} in ItemsControl item {index}.");
+        }
+
+        return child;
+    }
+
+    /// <summary>
     /// Finds one named element inside a generated WPF template tree.
     /// </summary>
     private static T FindNamedDescendant<T>(System.Windows.DependencyObject root, string name)
@@ -3265,6 +3433,32 @@ internal static class Program
         }
 
         throw new InvalidOperationException($"Could not find {typeof(T).Name} named {name}.");
+    }
+
+    /// <summary>
+    /// Finds the first descendant of the specified type.
+    /// </summary>
+    private static T FindTypedDescendant<T>(System.Windows.DependencyObject root)
+        where T : System.Windows.DependencyObject
+    {
+        if (root is T match)
+        {
+            return match;
+        }
+
+        int childCount = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int index = 0; index < childCount; index++)
+        {
+            try
+            {
+                return FindTypedDescendant<T>(System.Windows.Media.VisualTreeHelper.GetChild(root, index));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        throw new InvalidOperationException($"Could not find {typeof(T).Name}.");
     }
 
     /// <summary>

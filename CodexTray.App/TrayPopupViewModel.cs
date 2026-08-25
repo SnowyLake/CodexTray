@@ -70,6 +70,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 {
     private const string k_CodexPageName = "Codex";
     private const string k_GrokPageName = "Grok";
+    private const string k_GrokBuildProductName = "Build";
+    private const string k_GrokChatProductName = "Chat";
+    private const string k_GrokOthersProductName = "Others";
     private const string k_CursorPageName = "Cursor";
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
@@ -420,6 +423,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial string GrokProductUsageDisplay { get; private set; } = "N/A";
 
     [ObservableProperty]
+    public partial IReadOnlyList<GrokProductUsageItemViewModel> GrokProductUsageItems { get; private set; } = [];
+
+    [ObservableProperty]
+    public partial bool HasGrokProductUsageItems { get; private set; }
+
+    [ObservableProperty]
     public partial Media.Brush CursorStatusDotBrush { get; private set; } = s_RedBrush;
 
     [ObservableProperty]
@@ -754,7 +763,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             GrokPlanDisplay = FormatGrokPlan(usage.SubscriptionTier);
             GrokPlanBadgeBrush = GrokPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
-            GrokProductUsageDisplay = FormatGrokProductUsage(usage.ProductUsage);
+            ApplyGrokProductUsage(usage.ProductUsage);
             string reset = m_Settings.UseAbsoluteResetTime
                 ? UsageLimit.FormatResetDate(usage.ResetsAt, dashboard.UpdatedAt)
                 : UsageLimit.FormatResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
@@ -764,7 +773,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             GrokPlanDisplay = "UNKNOWN";
             GrokPlanBadgeBrush = s_PlanBadgeInactiveBrush;
-            GrokProductUsageDisplay = "N/A";
+            ClearGrokProductUsage();
             GrokWeeklyQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
         }
 
@@ -1400,18 +1409,145 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Formats Grok product usage values for the compact quota card.
+    /// Applies Grok product usage items to the compact quota card.
     /// </summary>
-    private static string FormatGrokProductUsage(IReadOnlyList<GrokProductUsage> productUsage)
+    private void ApplyGrokProductUsage(IReadOnlyList<GrokProductUsage> productUsage)
     {
-        string display = string.Join(" · ", productUsage
-            .Where(item => double.IsFinite(item.UsedPercent) && item.UsedPercent > 0)
-            .Select(item =>
+        IReadOnlyList<GrokProductUsageItemViewModel> all = NormalizeGrokProductUsageItems(productUsage);
+        IReadOnlyList<GrokProductUsageItemViewModel> items = ColorGrokProductUsageItems(SummarizeGrokProductUsageItems(all));
+        GrokProductUsageItems = items;
+        GrokProductUsageDisplay = items.Count > 0 ? items[^1].Tooltip ?? "N/A" : "N/A";
+        HasGrokProductUsageItems = true;
+    }
+
+    /// <summary>
+    /// Clears the Grok product usage card after a failed refresh.
+    /// </summary>
+    private void ClearGrokProductUsage()
+    {
+        GrokProductUsageItems = [];
+        GrokProductUsageDisplay = "N/A";
+        HasGrokProductUsageItems = false;
+    }
+
+    /// <summary>
+    /// Normalizes Grok product usage entries, including zero-percent products.
+    /// </summary>
+    private static IReadOnlyList<GrokProductUsageItemViewModel> NormalizeGrokProductUsageItems(IReadOnlyList<GrokProductUsage> productUsage)
+    {
+        return productUsage
+            .Where(item => !string.IsNullOrWhiteSpace(item.Product) && double.IsFinite(item.UsedPercent))
+            .Select(item => CreateGrokProductUsageItem(FormatGrokProductName(item.Product), item.UsedPercent))
+            .Where(item => item.Name.Length > 0)
+            .GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => CreateGrokProductUsageItem(group.First().Name, group.Sum(item => item.UsedPercent)))
+            .OrderByDescending(item => item.UsedPercent)
+            .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Collapses Grok product usage into three legend items with an Others bucket.
+    /// </summary>
+    private static IReadOnlyList<GrokProductUsageItemViewModel> SummarizeGrokProductUsageItems(IReadOnlyList<GrokProductUsageItemViewModel> items)
+    {
+        GrokProductUsageItemViewModel[] nonZero = items.Where(item => item.UsedPercent > 0).ToArray();
+        if (nonZero.Length == 0)
+        {
+            return
+            [
+                GetGrokProductUsageItem(items, k_GrokBuildProductName),
+                GetGrokProductUsageItem(items, k_GrokChatProductName),
+                CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokChatProductName),
+            ];
+        }
+
+        if (nonZero.Length == 1)
+        {
+            GrokProductUsageItemViewModel primary = nonZero[0];
+            if (IsGrokBuildProduct(primary.Name))
             {
-                double usedPercent = Math.Clamp(item.UsedPercent, 0, 100);
-                return $"{FormatGrokProductName(item.Product)} {usedPercent.ToString("0.##", CultureInfo.InvariantCulture)}%";
-            }));
-        return display.Length == 0 ? "N/A" : display;
+                return
+                [
+                    primary,
+                    GetGrokProductUsageItem(items, k_GrokChatProductName),
+                    CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokChatProductName),
+                ];
+            }
+
+            return
+            [
+                primary,
+                GetGrokProductUsageItem(items, k_GrokBuildProductName),
+                CreateGrokOthersItem(items, primary.Name, k_GrokBuildProductName),
+            ];
+        }
+
+        return
+        [
+            nonZero[0],
+            nonZero[1],
+            CreateGrokOthersItem(items, nonZero[0].Name, nonZero[1].Name),
+        ];
+    }
+
+    /// <summary>
+    /// Assigns the same colors used by the token-cost donut.
+    /// </summary>
+    private static IReadOnlyList<GrokProductUsageItemViewModel> ColorGrokProductUsageItems(IReadOnlyList<GrokProductUsageItemViewModel> items)
+    {
+        return items
+            .Select((item, index) => item with { Brush = s_TokenCostDonutBrushes[index % s_TokenCostDonutBrushes.Length] })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Returns a named Grok product usage item, or a zero-percent placeholder.
+    /// </summary>
+    private static GrokProductUsageItemViewModel GetGrokProductUsageItem(IReadOnlyList<GrokProductUsageItemViewModel> items, string name)
+    {
+        GrokProductUsageItemViewModel? match = items.FirstOrDefault(item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        return match ?? CreateGrokProductUsageItem(name, 0);
+    }
+
+    /// <summary>
+    /// Builds the Others bucket from products not shown as named legend items.
+    /// </summary>
+    private static GrokProductUsageItemViewModel CreateGrokOthersItem(IReadOnlyList<GrokProductUsageItemViewModel> items, params string[] excludedNames)
+    {
+        HashSet<string> excluded = new(excludedNames, StringComparer.OrdinalIgnoreCase);
+        GrokProductUsageItemViewModel[] packed = items
+            .Where(item => !excluded.Contains(item.Name))
+            .ToArray();
+        GrokProductUsageItemViewModel[] usedPacked = packed
+            .Where(item => item.UsedPercent > 0)
+            .ToArray();
+        string tooltip = usedPacked.Length == 0
+            ? $"{k_GrokOthersProductName} 0%"
+            : string.Join('\n', usedPacked.Select(item => $"{item.Name} {item.PercentText}"));
+        return CreateGrokProductUsageItem(k_GrokOthersProductName, packed.Sum(item => item.UsedPercent), tooltip);
+    }
+
+    /// <summary>
+    /// Creates one Grok product usage legend item.
+    /// </summary>
+    private static GrokProductUsageItemViewModel CreateGrokProductUsageItem(string name, double usedPercent, string? tooltip = null)
+    {
+        double percent = double.IsFinite(usedPercent) ? Math.Clamp(usedPercent, 0, 100) : 0;
+        return new GrokProductUsageItemViewModel(
+            name,
+            $"{percent.ToString("0.##", CultureInfo.InvariantCulture)}%",
+            percent,
+            s_GreenBrush,
+            tooltip);
+    }
+
+    /// <summary>
+    /// Returns whether the product name is the Grok Build legend item.
+    /// </summary>
+    private static bool IsGrokBuildProduct(string name)
+    {
+        return name.Equals(k_GrokBuildProductName, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1926,6 +2062,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             IsSelected = isSelected;
         }
     }
+
+    /// <summary>
+    /// Displays one Grok product usage entry on the compact quota card.
+    /// </summary>
+    internal sealed record GrokProductUsageItemViewModel(string Name, string PercentText, double UsedPercent, Media.Brush Brush, string? Tooltip = null);
 
     internal sealed partial class QuotaViewModel : ObservableObject
     {

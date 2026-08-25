@@ -74,7 +74,7 @@ Cursor Token Cost 使用 Cursor usage events 返回的实际 `totalCents`, 不�
 
 ## Grok 页面
 
-Grok 页面只读取本机 Grok Build 保存在 `~/.grok/auth.json` 中的 xAI OAuth session, 并向 Grok 官方 billing 接口查询 Weekly 额度, 重置时间和 `productUsage` 产品占比. 订阅类型显示在页面标题旁, 使用 Grok Build 本地 billing 日志中的最近类型; 日志中没有有效记录时, 仅检查当前 access token 对应的 auth 条目, 不会从未知 protobuf 字段猜测套餐. 常见返回值包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列. 上方额度区域包含 Weekly 大卡片和产品使用小卡片, 重置时间遵循 Settings 页中的倒计时或绝对时间格式设置. 产品卡片按接口实际返回动态显示 Chat, Build, Tasks 等项目, 过滤 `0%` 项目, 不可用时显示 `N/A`.
+Grok 页面只读取本机 Grok Build 保存在 `~/.grok/auth.json` 中的 xAI OAuth session, 并向 Grok 官方 billing 接口查询 Weekly 额度, 重置时间和 `productUsage` 产品占比. 订阅类型显示在页面标题旁, 使用 Grok Build 本地 billing 日志中的最近类型; 日志中没有有效记录时, 仅检查当前 access token 对应的 auth 条目, 不会从未知 protobuf 字段猜测套餐. 常见返回值包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列. 上方额度区域包含 Weekly 大卡片和产品占比小卡片, 重置时间遵循 Settings 页中的倒计时或绝对时间格式设置. 产品占比卡片用与 Weekly 相同粗细的分段进度条和一行三个图例展示产品占比. 全部为 `0%` 时仍显示 `Build`, `Chat` 和 `Others`. 只有一个产品大于 `0%` 时显示该产品, `Build` 和 `Others`. 有两个及以上产品大于 `0%` 时显示占比最高的两个, 其余合并为 `Others`. 进度条和图例均分在卡片的两行中. 鼠标悬停 `Others` 时, tooltip 只列出归入其中且有用量的产品; `Others` 为 `0%` 时显示 `Others 0%`. 用量不可用时显示 `N/A`.
 
 页面下方会读取 `~/.grok/sessions/**/updates.jsonl` 与 `~/.grok/archived_sessions/**/updates.jsonl`, 按 `turn_completed` 事件汇总 24H, 7D, 30D 和 Lifetime token 与费用, 并显示模型占比和可切换的 30 日趋势. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在 output 中, 不会重复相加.
 
