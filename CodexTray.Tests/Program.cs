@@ -65,7 +65,7 @@ internal static class Program
         await RunAsync("parses Grok billing responses", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
         await RunAsync("ignores OpenCode OAuth for Grok", TestGrokIgnoresOpenCodeOAuthAsync);
-        await RunAsync("parses Cursor usage-summary JSON", TestCursorUsageCollectorAsync);
+        await RunAsync("parses Cursor quota JSON", TestCursorUsageCollectorAsync);
         await RunAsync("refreshes expired Cursor OAuth", TestCursorOAuthRefreshAsync);
         await RunAsync("collects complete Cursor dashboard token cost", TestCursorDashboardAsync);
         await RunAsync("classifies Cursor event totalCents validation", TestCursorTotalCentsValidationAsync);
@@ -385,7 +385,8 @@ internal static class Program
                     CreateTokenCostStatistics(4),
                     string.Empty,
                     string.Empty,
-                    DateTimeOffset.Now));
+                    DateTimeOffset.Now,
+                    GrokBotUsage: new CursorGrokBotUsageSnapshot(49, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds())));
                 viewModel.ShowCursor();
                 content.InvalidateMeasure();
                 content.Measure(new System.Windows.Size(window.Width, window.Height));
@@ -401,6 +402,48 @@ internal static class Program
                 AssertEqual(codexSecondaryCard.ActualHeight, cursorAutoCard.ActualHeight, "Codex secondary and Cursor small card heights");
                 AssertEqual(cursorAutoCard.ActualHeight, cursorApiCard.ActualHeight, "Cursor small card heights");
                 AssertEqual(cursorAutoCard.ActualWidth, cursorApiCard.ActualWidth, "Cursor small card widths");
+                System.Windows.Controls.Button cursorMonthlyPageButton = (System.Windows.Controls.Button)window.FindName("CursorMonthlyPageButton");
+                System.Windows.Controls.Button cursorGrokBotPageButton = (System.Windows.Controls.Button)window.FindName("CursorGrokBotPageButton");
+                System.Windows.Shapes.Ellipse cursorMonthlyPageIndicator = FindNamedDescendant<System.Windows.Shapes.Ellipse>(cursorMonthlyPageButton, "PageIndicator");
+                System.Windows.Shapes.Ellipse cursorGrokBotPageIndicator = FindNamedDescendant<System.Windows.Shapes.Ellipse>(cursorGrokBotPageButton, "PageIndicator");
+                System.Windows.Controls.ContentControl cursorMonthlyQuotaContent = (System.Windows.Controls.ContentControl)window.FindName("CursorMonthlyQuotaContent");
+                System.Windows.Controls.ContentControl cursorGrokBotQuotaContent = (System.Windows.Controls.ContentControl)window.FindName("CursorGrokBotQuotaContent");
+                AssertEqual(cursorMonthlyPageIndicator.ActualWidth, cursorGrokBotPageIndicator.ActualWidth, "Cursor quota page indicator widths");
+                AssertEqual(cursorMonthlyPageIndicator.ActualHeight, cursorGrokBotPageIndicator.ActualHeight, "Cursor quota page indicator heights");
+                AssertEqual("Grok Bot Weekly", viewModel.CursorGrokBotQuota.Title, "Cursor Grok Bot quota title");
+                AssertEqual("51%", viewModel.CursorGrokBotQuota.PercentText, "Cursor Grok Bot remaining percentage");
+                AssertTrue(!viewModel.IsCursorGrokBotQuotaSelected, "Cursor main quota should be selected by default");
+                AssertEqual(System.Windows.Visibility.Visible, cursorMonthlyQuotaContent.Visibility, "Cursor monthly quota should be visible by default");
+                AssertEqual(System.Windows.Visibility.Collapsed, cursorGrokBotQuotaContent.Visibility, "Cursor Grok Bot quota should be hidden by default");
+                System.Windows.Media.Color pageIndicatorGreen = System.Windows.Media.Color.FromRgb(26, 188, 137);
+                AssertEqual(pageIndicatorGreen, ((System.Windows.Media.SolidColorBrush)cursorMonthlyPageIndicator.Fill).Color, "selected Cursor monthly page indicator color");
+                cursorGrokBotPageButton.Command.Execute(cursorGrokBotPageButton.CommandParameter);
+                AssertTrue(viewModel.IsCursorGrokBotQuotaSelected, "Cursor Grok Bot page button should select its quota");
+                cursorMonthlyPageButton.Command.Execute(cursorMonthlyPageButton.CommandParameter);
+                AssertTrue(!viewModel.IsCursorGrokBotQuotaSelected, "Cursor monthly page button should select its quota");
+                cursorMonthlyCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(
+                    System.Windows.Input.Mouse.PrimaryDevice,
+                    Environment.TickCount,
+                    -120)
+                {
+                    RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
+                });
+                content.UpdateLayout();
+                AssertTrue(viewModel.IsCursorGrokBotQuotaSelected, "mouse wheel down should select Cursor Grok Bot quota");
+                AssertEqual(System.Windows.Visibility.Collapsed, cursorMonthlyQuotaContent.Visibility, "Cursor monthly quota should hide on page two");
+                AssertEqual(System.Windows.Visibility.Visible, cursorGrokBotQuotaContent.Visibility, "Cursor Grok Bot quota should show on page two");
+                AssertEqual(pageIndicatorGreen, ((System.Windows.Media.SolidColorBrush)cursorGrokBotPageIndicator.Fill).Color, "selected Cursor Grok Bot page indicator color");
+                AssertTrue(
+                    !Equals(cursorMonthlyPageIndicator.Fill, cursorGrokBotPageIndicator.Fill),
+                    "Cursor quota page indicators should differ only by selected color");
+                cursorMonthlyCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(
+                    System.Windows.Input.Mouse.PrimaryDevice,
+                    Environment.TickCount,
+                    120)
+                {
+                    RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
+                });
+                AssertTrue(!viewModel.IsCursorGrokBotQuotaSelected, "mouse wheel up should select Cursor monthly quota");
                 AssertEqual(
                     cursorAutoCard.TranslatePoint(new System.Windows.Point(), window).Y,
                     cursorApiCard.TranslatePoint(new System.Windows.Point(), window).Y,
@@ -713,6 +756,8 @@ internal static class Program
         CursorUsageDashboard dashboard = await new CursorUsageCollector().CollectDashboardAsync();
         Console.WriteLine($"LIVE Cursor usage: {(dashboard.Usage == null ? "unavailable" : "available")}");
         Console.WriteLine($"LIVE Cursor usage error: {FormatLiveError(dashboard.UsageError)}");
+        Console.WriteLine($"LIVE Cursor Grok Bot: {(dashboard.GrokBotUsage == null ? "unavailable" : $"usedPercent={dashboard.GrokBotUsage.UsedPercent:0.##}, resetsAt={dashboard.GrokBotUsage.ResetsAt}")}");
+        Console.WriteLine($"LIVE Cursor Grok Bot error: {FormatLiveError(dashboard.GrokBotUsageError)}");
         Console.WriteLine($"LIVE Cursor refresh: initial={dashboard.InitialCredentialRefreshUsed}, forced={dashboard.ForcedCredentialRefreshUsed}");
         if (dashboard.TokenCostDiagnostics is not CursorUsageEventsDiagnostics diagnostics)
         {
@@ -728,7 +773,7 @@ internal static class Program
             $"cacheRead={diagnostics.CacheReadTokenFieldCount}/{diagnostics.TokenEventCount}, " +
             $"cacheWrite={diagnostics.CacheWriteTokenFieldCount}/{diagnostics.TokenEventCount}");
         Console.WriteLine($"LIVE Cursor usage-events elapsed: {diagnostics.Elapsed.TotalMilliseconds:0} ms");
-        return dashboard.Usage == null ? 1 : 0;
+        return dashboard.Usage == null || dashboard.GrokBotUsage == null ? 1 : 0;
     }
 
     /// <summary>
@@ -763,6 +808,7 @@ internal static class Program
             error.StartsWith("Cursor local auth database was not found.", StringComparison.Ordinal) ||
             error.StartsWith("Cursor OAuth access token was not found.", StringComparison.Ordinal) ||
             error.StartsWith("Cursor OAuth token", StringComparison.Ordinal) ||
+            error.StartsWith("Cursor Grok Bot ", StringComparison.Ordinal) ||
             error.StartsWith("Cursor usage request failed:", StringComparison.Ordinal) ||
             error.StartsWith("Cursor usage-events request failed:", StringComparison.Ordinal) ||
             error.StartsWith("Cursor usage events ", StringComparison.Ordinal) ||
@@ -1735,7 +1781,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests Cursor usage-summary parsing for consumed percentage and billing cycle end.
+    /// Tests Cursor main and Grok Bot quota parsing.
     /// </summary>
     private static Task TestCursorUsageCollectorAsync()
     {
@@ -1750,6 +1796,12 @@ internal static class Program
         AssertEqual(12, snapshot.AutoUsedPercent, "Cursor first-party used percentage");
         AssertEqual(0, snapshot.ApiUsedPercent, "Cursor API used percentage");
         AssertEqual(resetAt, snapshot.ResetsAt, "Cursor reset timestamp");
+
+        CursorGrokBotUsageSnapshot grokBot = CursorUsageCollector.ParseGrokBotUsage(
+            CreateCursorGrokBotUsageJson(49, DateTimeOffset.FromUnixTimeSeconds(resetAt)),
+            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
+        AssertEqual(49, grokBot.UsedPercent, "Cursor Grok Bot used percentage");
+        AssertEqual(resetAt, grokBot.ResetsAt, "Cursor Grok Bot reset timestamp");
         return Task.CompletedTask;
     }
 
@@ -1941,7 +1993,17 @@ internal static class Program
                 usageStatus: HttpStatusCode.InternalServerError));
             CursorUsageDashboard usageFailure = await new CursorUsageCollector(usageFailureClient).CollectDashboardAsync(now);
             AssertTrue(usageFailure.Usage == null, "failed usage-summary must clear usage region");
+            AssertTrue(usageFailure.GrokBotUsage != null, "Grok Bot usage should survive usage-summary failure");
             AssertTrue(usageFailure.TokenCost != null, "usage-events should remain available after usage-summary failure");
+
+            using HttpClient grokBotFailureClient = new(new CursorDashboardHttpMessageHandler(
+                CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
+                _ => JsonResponse(CreateCursorUsageEventsJson(1, eventRecord)),
+                grokBotUsageStatus: HttpStatusCode.InternalServerError));
+            CursorUsageDashboard grokBotFailure = await new CursorUsageCollector(grokBotFailureClient).CollectDashboardAsync(now);
+            AssertTrue(grokBotFailure.Usage != null, "usage-summary should survive Grok Bot usage failure");
+            AssertTrue(grokBotFailure.GrokBotUsage == null, "failed Grok Bot usage must clear its quota region");
+            AssertTrue(grokBotFailure.TokenCost != null, "usage-events should survive Grok Bot usage failure");
 
             using HttpClient pagingFailureClient = new(new CursorDashboardHttpMessageHandler(
                 CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
@@ -2231,6 +2293,18 @@ internal static class Program
                     apiPercentUsed = apiUsedPercent,
                 },
             },
+        });
+    }
+
+    /// <summary>
+    /// Builds a redacted Cursor Grok Bot usage fixture.
+    /// </summary>
+    private static string CreateCursorGrokBotUsageJson(double usedPercent, DateTimeOffset reset)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            usagePercent = usedPercent,
+            nextResetTimestampUtc = reset.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
         });
     }
 
@@ -3826,6 +3900,7 @@ internal sealed class CursorOAuthRefreshHttpMessageHandler : HttpMessageHandler
 internal sealed class CursorDashboardHttpMessageHandler : HttpMessageHandler
 {
     private const string k_UsageEndpoint = "https://cursor.com/api/usage-summary";
+    private const string k_GrokBotUsageEndpoint = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus";
     private const string k_UsageEventsEndpoint = "https://cursor.com/api/dashboard/get-filtered-usage-events";
     private const string k_TokenEndpoint = "https://api2.cursor.sh/oauth/token";
     private readonly string m_UsageBody;
@@ -3834,6 +3909,8 @@ internal sealed class CursorDashboardHttpMessageHandler : HttpMessageHandler
     private readonly string? m_NewAccessToken;
     private readonly string? m_ExpectedRefreshToken;
     private readonly HttpStatusCode m_UsageStatus;
+    private readonly string m_GrokBotUsageBody;
+    private readonly HttpStatusCode m_GrokBotUsageStatus;
 
     public int RequestCount { get; private set; }
 
@@ -3848,7 +3925,9 @@ internal sealed class CursorDashboardHttpMessageHandler : HttpMessageHandler
         string? oldAccessToken = null,
         string? newAccessToken = null,
         string? expectedRefreshToken = null,
-        HttpStatusCode usageStatus = HttpStatusCode.OK)
+        HttpStatusCode usageStatus = HttpStatusCode.OK,
+        string? grokBotUsageBody = null,
+        HttpStatusCode grokBotUsageStatus = HttpStatusCode.OK)
     {
         m_UsageBody = usageBody;
         m_UsageEventsResponse = usageEventsResponse;
@@ -3856,6 +3935,8 @@ internal sealed class CursorDashboardHttpMessageHandler : HttpMessageHandler
         m_NewAccessToken = newAccessToken;
         m_ExpectedRefreshToken = expectedRefreshToken;
         m_UsageStatus = usageStatus;
+        m_GrokBotUsageBody = grokBotUsageBody ?? "{\"usagePercent\":49,\"nextResetTimestampUtc\":\"2030-01-01T00:00:00.000Z\"}";
+        m_GrokBotUsageStatus = grokBotUsageStatus;
     }
 
     /// <summary>
@@ -3904,6 +3985,33 @@ internal sealed class CursorDashboardHttpMessageHandler : HttpMessageHandler
             return CreateJsonResponse(m_UsageBody);
         }
 
+        if (requestUri == k_GrokBotUsageEndpoint)
+        {
+            if (ShouldRejectOldBearer(request))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            if (m_GrokBotUsageStatus != HttpStatusCode.OK)
+            {
+                return new HttpResponseMessage(m_GrokBotUsageStatus);
+            }
+
+            string body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (request.Method != HttpMethod.Post ||
+                body != "{}" ||
+                request.Content?.Headers.ContentType?.MediaType != "application/json" ||
+                !request.Headers.Accept.Any(header => header.MediaType == "application/json") ||
+                !request.Headers.TryGetValues("connect-protocol-version", out IEnumerable<string>? versions) ||
+                versions.Single() != "1")
+            {
+                throw new InvalidOperationException("invalid Cursor Grok Bot usage request");
+            }
+
+            ValidateNewBearer(request);
+            return CreateJsonResponse(m_GrokBotUsageBody);
+        }
+
         if (requestUri == k_UsageEventsEndpoint)
         {
             if (ShouldRejectOldCookie(request))
@@ -3945,6 +4053,14 @@ internal sealed class CursorDashboardHttpMessageHandler : HttpMessageHandler
     }
 
     /// <summary>
+    /// Returns whether the request still carries the initial bearer token.
+    /// </summary>
+    private bool ShouldRejectOldBearer(HttpRequestMessage request)
+    {
+        return m_OldAccessToken != null && request.Headers.Authorization?.Parameter == m_OldAccessToken;
+    }
+
+    /// <summary>
     /// Verifies that forced-refresh requests use the rotated access token.
     /// </summary>
     private void ValidateNewCookie(HttpRequestMessage request)
@@ -3958,6 +4074,19 @@ internal sealed class CursorDashboardHttpMessageHandler : HttpMessageHandler
             !string.Join(';', cookies).Contains(m_NewAccessToken, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("missing refreshed Cursor dashboard cookie");
+        }
+    }
+
+    /// <summary>
+    /// Verifies the Cursor Grok Bot bearer token.
+    /// </summary>
+    private void ValidateNewBearer(HttpRequestMessage request)
+    {
+        string? token = request.Headers.Authorization?.Parameter;
+        if (request.Headers.Authorization?.Scheme != "Bearer" || string.IsNullOrWhiteSpace(token) ||
+            (m_NewAccessToken != null && token != m_NewAccessToken))
+        {
+            throw new InvalidOperationException("missing Cursor Grok Bot bearer token");
         }
     }
 

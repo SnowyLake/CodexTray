@@ -155,6 +155,28 @@
                 </Setter>
             </Style>
 
+            <Style x:Key="QuotaPageIndicatorButtonStyle"
+                   BasedOn="{StaticResource IconButtonStyle}"
+                   TargetType="{x:Type Button}">
+                <Setter Property="Width" Value="14" />
+                <Setter Property="Height" Value="14" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type Button}">
+                            <Grid Background="Transparent">
+                                <Ellipse x:Name="PageIndicator"
+                                         Width="7"
+                                         Height="7"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center"
+                                         Fill="{TemplateBinding Foreground}" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- ============ Shared page sections ============ -->
             <Thickness x:Key="SectionHeaderMargin">0,0,0,12</Thickness>
             <Thickness x:Key="SectionHeaderSpacedMargin">0,22,0,10</Thickness>
@@ -1210,11 +1232,56 @@
                     <StackPanel VerticalAlignment="Top">
                         <Border x:Name="CursorMonthlyCard"
                                 Margin="0,0,0,12"
+                                PreviewMouseWheel="CursorMonthlyCard_PreviewMouseWheel"
                                 Style="{StaticResource LargeUsageCardStyle}"
                                 Visibility="{Binding CursorMonthlyQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <ContentControl Content="{Binding CursorMonthlyQuota}"
-                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                            HorizontalContentAlignment="Stretch" />
+                            <Grid>
+                                <ContentControl x:Name="CursorMonthlyQuotaContent"
+                                                Content="{Binding CursorMonthlyQuota}"
+                                                ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                                HorizontalContentAlignment="Stretch"
+                                                Visibility="{Binding IsCursorGrokBotQuotaSelected, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                                <ContentControl x:Name="CursorGrokBotQuotaContent"
+                                                Content="{Binding CursorGrokBotQuota}"
+                                                ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                                HorizontalContentAlignment="Stretch"
+                                                Visibility="{Binding IsCursorGrokBotQuotaSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <StackPanel HorizontalAlignment="Left"
+                                            VerticalAlignment="Bottom"
+                                            Orientation="Horizontal">
+                                    <Button x:Name="CursorMonthlyPageButton"
+                                            Command="{Binding ShowCursorQuotaCommand}"
+                                            CommandParameter="{Binding CursorMonthlyQuota}"
+                                            ToolTip="Monthly"
+                                            AutomationProperties.Name="Show Cursor monthly quota">
+                                        <Button.Style>
+                                            <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type Button}">
+                                                <Setter Property="Foreground" Value="{Binding CursorTokenCost.AccentBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsCursorGrokBotQuotaSelected}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <Button x:Name="CursorGrokBotPageButton"
+                                            Command="{Binding ShowCursorQuotaCommand}"
+                                            CommandParameter="{Binding CursorGrokBotQuota}"
+                                            ToolTip="Grok Bot Weekly"
+                                            AutomationProperties.Name="Show Cursor Grok Bot weekly quota">
+                                        <Button.Style>
+                                            <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type Button}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsCursorGrokBotQuotaSelected}" Value="True">
+                                                        <Setter Property="Foreground" Value="{Binding CursorTokenCost.AccentBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         <Grid>

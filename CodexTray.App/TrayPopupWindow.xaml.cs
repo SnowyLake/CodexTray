@@ -159,6 +159,18 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
+    /// Switches the Cursor large quota card with the mouse wheel.
+    /// </summary>
+    private void CursorMonthlyCard_PreviewMouseWheel(object sender, Input.MouseWheelEventArgs args)
+    {
+        if (DataContext is TrayPopupViewModel viewModel && args.Delta != 0)
+        {
+            viewModel.ShowCursorQuota(args.Delta < 0 ? viewModel.CursorGrokBotQuota : viewModel.CursorMonthlyQuota);
+            args.Handled = true;
+        }
+    }
+
+    /// <summary>
     /// Positions the popup near a visible tray icon or at the work area corner.
     /// </summary>
     private void PositionNearTray(Drawing.Point? trayIconPosition)

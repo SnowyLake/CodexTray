@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
@@ -15,6 +16,8 @@ public sealed record CursorUsageSnapshot(
     double ApiUsedPercent,
     long ResetsAt);
 
+public sealed record CursorGrokBotUsageSnapshot(double UsedPercent, long ResetsAt);
+
 public sealed record CursorUsageDashboard(
     CursorUsageSnapshot? Usage,
     TokenCostStatistics? TokenCost,
@@ -23,7 +26,9 @@ public sealed record CursorUsageDashboard(
     DateTimeOffset UpdatedAt,
     CursorUsageEventsDiagnostics? TokenCostDiagnostics = null,
     bool InitialCredentialRefreshUsed = false,
-    bool ForcedCredentialRefreshUsed = false);
+    bool ForcedCredentialRefreshUsed = false,
+    CursorGrokBotUsageSnapshot? GrokBotUsage = null,
+    string GrokBotUsageError = "");
 
 public sealed record CursorUsageEventsDiagnostics(
     int EventCount,
@@ -39,6 +44,7 @@ public sealed record CursorUsageEventsDiagnostics(
 public sealed class CursorUsageCollector
 {
     private const string k_UsageEndpoint = "https://cursor.com/api/usage-summary";
+    private const string k_GrokBotUsageEndpoint = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus";
     private const string k_UsageEventsEndpoint = "https://cursor.com/api/dashboard/get-filtered-usage-events";
     private const string k_TokenEndpoint = "https://api2.cursor.sh/oauth/token";
     private const string k_ClientId = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB";
@@ -99,7 +105,7 @@ public sealed class CursorUsageCollector
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {
             string error = FormatError(exception);
-            return new CursorUsageDashboard(null, null, error, error, refreshedAt);
+            return new CursorUsageDashboard(null, null, error, error, refreshedAt, GrokBotUsageError: error);
         }
 
         CursorCredential credential = initialCredential.Credential;
@@ -112,6 +118,15 @@ public sealed class CursorUsageCollector
             cancellationToken).ConfigureAwait(false);
         credential = usageResult.Credential;
         refreshUsed = usageResult.RefreshUsed;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        CursorEndpointResult<CursorGrokBotUsageSnapshot> grokBotUsageResult = await CollectEndpointAsync(
+            current => FetchGrokBotUsageAsync(current, refreshedAt, cancellationToken),
+            credential,
+            refreshUsed,
+            cancellationToken).ConfigureAwait(false);
+        credential = grokBotUsageResult.Credential;
+        refreshUsed = grokBotUsageResult.RefreshUsed;
 
         cancellationToken.ThrowIfCancellationRequested();
         CursorEndpointResult<CursorUsageEventsCollection> tokenCostResult = await CollectEndpointAsync(
@@ -128,7 +143,9 @@ public sealed class CursorUsageCollector
             refreshedAt,
             tokenCostResult.Value?.Diagnostics,
             initialCredential.RefreshUsed,
-            usageResult.RefreshUsed || tokenCostResult.RefreshUsed);
+            usageResult.RefreshUsed || grokBotUsageResult.RefreshUsed || tokenCostResult.RefreshUsed,
+            grokBotUsageResult.Value,
+            grokBotUsageResult.Error);
     }
 
     /// <summary>
@@ -175,6 +192,25 @@ public sealed class CursorUsageCollector
             autoUsedPercent,
             apiUsedPercent,
             resetsAt.ToUnixTimeSeconds());
+    }
+
+    /// <summary>
+    /// Parses Cursor Grok Bot weekly usage and reset data.
+    /// </summary>
+    public static CursorGrokBotUsageSnapshot ParseGrokBotUsage(string json, DateTimeOffset now)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object ||
+            !TryGetPlanPercent(root, "usagePercent", out double usedPercent) ||
+            !root.TryGetProperty("nextResetTimestampUtc", out JsonElement resetElement) ||
+            !TryGetTimestamp(resetElement, out DateTimeOffset resetsAt) ||
+            resetsAt <= now)
+        {
+            throw new InvalidOperationException("Cursor Grok Bot response did not include valid weekly usage.");
+        }
+
+        return new CursorGrokBotUsageSnapshot(usedPercent, resetsAt.ToUnixTimeSeconds());
     }
 
     /// <summary>
@@ -329,6 +365,25 @@ public sealed class CursorUsageCollector
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         EnsureSuccess(response, "Cursor usage request failed");
         return ParseUsageSummary(body, now);
+    }
+
+    /// <summary>
+    /// Sends the Cursor Grok Bot weekly usage request for one credential.
+    /// </summary>
+    private async Task<CursorGrokBotUsageSnapshot> FetchGrokBotUsageAsync(CursorCredential credential, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, k_GrokBotUsageEndpoint)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.AccessToken);
+        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.TryAddWithoutValidation("connect-protocol-version", "1");
+
+        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response, "Cursor Grok Bot usage request failed");
+        return ParseGrokBotUsage(body, now);
     }
 
     /// <summary>

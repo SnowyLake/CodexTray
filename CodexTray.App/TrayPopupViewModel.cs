@@ -153,6 +153,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public QuotaViewModel CursorMonthlyQuota { get; } = new("Monthly");
 
+    public QuotaViewModel CursorGrokBotQuota { get; } = new("Grok Bot Weekly");
+
     public QuotaViewModel CursorAutoQuota { get; } = new("First party");
 
     public QuotaViewModel CursorApiQuota { get; } = new("APIs");
@@ -459,6 +461,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string CursorStatusTooltip { get; private set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial bool IsCursorGrokBotQuotaSelected { get; private set; }
 
     [ObservableProperty]
     public partial bool IsRefreshing { get; set; }
@@ -835,6 +840,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         CursorUsageSnapshot? usage = dashboard.Usage;
         bool usageAvailable = usage != null;
+        bool grokBotUsageAvailable = dashboard.GrokBotUsage != null;
         bool tokenCostAvailable = dashboard.TokenCost != null;
         if (usage != null)
         {
@@ -856,31 +862,48 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             CursorApiQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
         }
 
-        CursorStatusDotBrush = usageAvailable && tokenCostAvailable
+        if (dashboard.GrokBotUsage is CursorGrokBotUsageSnapshot grokBotUsage)
+        {
+            string reset = m_Settings.UseAbsoluteResetTime
+                ? UsageLimit.FormatResetDate(grokBotUsage.ResetsAt, dashboard.UpdatedAt)
+                : UsageLimit.FormatResetLabel(grokBotUsage.ResetsAt, dashboard.UpdatedAt);
+            CursorGrokBotQuota.UpdateUsedPercent(grokBotUsage.UsedPercent, reset, showReset: true);
+        }
+        else
+        {
+            CursorGrokBotQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
+        }
+
+        bool allAvailable = usageAvailable && grokBotUsageAvailable && tokenCostAvailable;
+        bool anyAvailable = usageAvailable || grokBotUsageAvailable || tokenCostAvailable;
+        CursorStatusDotBrush = allAvailable
             ? s_GreenBrush
-            : usageAvailable || tokenCostAvailable
+            : anyAvailable
                 ? s_YellowBrush
                 : s_RedBrush;
-        CursorUpdatedAtDisplay = usageAvailable && tokenCostAvailable
+        CursorUpdatedAtDisplay = allAvailable
             ? FormatUpdatedAt(dashboard.UpdatedAt.ToString("O", CultureInfo.InvariantCulture))
-            : usageAvailable
-                ? "Usage updated, Token Cost N/A"
-                : tokenCostAvailable
-                    ? "Token Cost updated, Usage N/A"
-                    : "Update error";
-        CursorStatusTooltip = FormatCursorStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
+            : anyAvailable
+                ? "Partial update"
+                : "Update error";
+        CursorStatusTooltip = FormatCursorStatusTooltip(dashboard, usageAvailable, grokBotUsageAvailable, tokenCostAvailable);
         CursorTokenCost.Update(dashboard.TokenCost);
     }
 
     /// <summary>
     /// Combines sanitized Cursor endpoint errors for the status tooltip.
     /// </summary>
-    private static string FormatCursorStatusTooltip(CursorUsageDashboard dashboard, bool usageAvailable, bool tokenCostAvailable)
+    private static string FormatCursorStatusTooltip(CursorUsageDashboard dashboard, bool usageAvailable, bool grokBotUsageAvailable, bool tokenCostAvailable)
     {
         List<string> errors = [];
         if (!usageAvailable && dashboard.UsageError.Length > 0)
         {
             errors.Add($"Usage: {dashboard.UsageError}");
+        }
+
+        if (!grokBotUsageAvailable && dashboard.GrokBotUsageError.Length > 0)
+        {
+            errors.Add($"Grok Bot: {dashboard.GrokBotUsageError}");
         }
 
         if (!tokenCostAvailable && dashboard.TokenCostError.Length > 0)
@@ -935,6 +958,15 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public void ShowCursor()
     {
         SetPage(k_CursorPageName);
+    }
+
+    /// <summary>
+    /// Shows the selected Cursor quota on the large card.
+    /// </summary>
+    [RelayCommand]
+    public void ShowCursorQuota(QuotaViewModel quota)
+    {
+        IsCursorGrokBotQuotaSelected = ReferenceEquals(quota, CursorGrokBotQuota);
     }
 
     /// <summary>
