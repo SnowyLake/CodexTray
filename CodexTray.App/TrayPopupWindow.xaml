@@ -562,6 +562,58 @@
                 </StackPanel>
             </DataTemplate>
 
+            <DataTemplate x:Key="QuotaPagerDataTemplate">
+                <Grid>
+                    <ContentControl x:Name="FirstQuotaContent"
+                                    Content="{Binding FirstQuota}"
+                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                    HorizontalContentAlignment="Stretch"
+                                    Visibility="{Binding IsFirstVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <ContentControl x:Name="SecondQuotaContent"
+                                    Content="{Binding SecondQuota}"
+                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                    HorizontalContentAlignment="Stretch"
+                                    Visibility="{Binding IsSecondVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <StackPanel x:Name="PageIndicators"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Bottom"
+                                Orientation="Horizontal"
+                                Visibility="{Binding HasMultiplePages, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Button x:Name="FirstPageButton"
+                                Command="{Binding SelectQuotaCommand}"
+                                CommandParameter="{Binding FirstQuota}"
+                                ToolTip="{Binding FirstQuota.Title}"
+                                AutomationProperties.Name="{Binding FirstQuota.Title}">
+                            <Button.Style>
+                                <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type Button}">
+                                    <Setter Property="Foreground" Value="{Binding SelectedBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSecondSelected}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <Button x:Name="SecondPageButton"
+                                Command="{Binding SelectQuotaCommand}"
+                                CommandParameter="{Binding SecondQuota}"
+                                ToolTip="{Binding SecondQuota.Title}"
+                                AutomationProperties.Name="{Binding SecondQuota.Title}">
+                            <Button.Style>
+                                <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type Button}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSecondSelected}" Value="True">
+                                            <Setter Property="Foreground" Value="{Binding SelectedBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+
             <DataTemplate x:Key="CompactQuotaDataTemplate">
                 <StackPanel>
                     <Grid>
@@ -917,75 +969,61 @@
                               VerticalScrollBarVisibility="Hidden">
                     <StackPanel VerticalAlignment="Top">
                         <Border x:Name="CodexPrimaryCard"
+                                DataContext="{Binding CodexQuotaPager}"
                                 Margin="0,0,0,12"
+                                PreviewMouseWheel="QuotaCard_PreviewMouseWheel"
                                 Style="{StaticResource LargeUsageCardStyle}">
-                            <ContentControl Content="{Binding CodexPrimaryQuota}"
-                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
+                            <ContentControl Content="{Binding}"
+                                            ContentTemplate="{StaticResource QuotaPagerDataTemplate}"
                                             HorizontalContentAlignment="Stretch" />
                         </Border>
 
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="12" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Border x:Name="CodexSecondaryCard"
-                                    Margin="0"
-                                    Style="{StaticResource SmallUsageCardStyle}">
-                                <ContentControl Content="{Binding CodexSecondaryQuota}"
-                                                ContentTemplate="{StaticResource CompactQuotaDataTemplate}"
-                                                HorizontalContentAlignment="Stretch" />
-                            </Border>
-
-                            <Border x:Name="CodexResetCreditsCard"
-                                    Grid.Column="2"
-                                    Margin="0"
-                                    Style="{StaticResource SmallUsageCardStyle}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Resets"
-                                               VerticalAlignment="Top"
-                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                               FontSize="13.5"
-                                               FontWeight="Medium" />
-                                    <StackPanel Grid.Column="1"
-                                                HorizontalAlignment="Right">
-                                        <TextBlock Text="{Binding CodexResetCreditsDisplay}"
-                                                   HorizontalAlignment="Right"
-                                                   FontSize="14">
-                                            <TextBlock.Style>
-                                                <Style TargetType="{x:Type TextBlock}">
-                                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding CodexHasResetCredits}" Value="True">
-                                                            <Setter Property="Foreground" Value="{Binding CodexStatusDotBrush}" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                        <TextBlock x:Name="CodexResetCreditsExpiryDatesText"
-                                                   Text="{Binding CodexResetCreditsExpiryDates}"
-                                                   HorizontalAlignment="Right"
-                                                   Margin="0,5,0,0">
-                                            <TextBlock.Style>
-                                                <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource UsageCardCaptionTextStyle}">
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding CodexResetCreditsExpiryDates}" Value="">
-                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
-                        </Grid>
+                        <Border x:Name="CodexResetCreditsCard"
+                                Margin="0"
+                                Style="{StaticResource SmallUsageCardStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Resets"
+                                           VerticalAlignment="Top"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                           FontSize="13.5"
+                                           FontWeight="Medium" />
+                                <StackPanel Grid.Column="1"
+                                            HorizontalAlignment="Right">
+                                    <TextBlock Text="{Binding CodexResetCreditsDisplay}"
+                                               HorizontalAlignment="Right"
+                                               FontSize="14">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}">
+                                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CodexHasResetCredits}" Value="True">
+                                                        <Setter Property="Foreground" Value="{Binding CodexStatusDotBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock x:Name="CodexResetCreditsExpiryDatesText"
+                                               Text="{Binding CodexResetCreditsExpiryDates}"
+                                               HorizontalAlignment="Right"
+                                               Margin="0,5,0,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource UsageCardCaptionTextStyle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CodexResetCreditsExpiryDates}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
 
                     </StackPanel>
                 </ScrollViewer>
@@ -1231,57 +1269,14 @@
                               VerticalScrollBarVisibility="Hidden">
                     <StackPanel VerticalAlignment="Top">
                         <Border x:Name="CursorMonthlyCard"
+                                DataContext="{Binding CursorQuotaPager}"
                                 Margin="0,0,0,12"
-                                PreviewMouseWheel="CursorMonthlyCard_PreviewMouseWheel"
+                                PreviewMouseWheel="QuotaCard_PreviewMouseWheel"
                                 Style="{StaticResource LargeUsageCardStyle}"
-                                Visibility="{Binding CursorMonthlyQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <Grid>
-                                <ContentControl x:Name="CursorMonthlyQuotaContent"
-                                                Content="{Binding CursorMonthlyQuota}"
-                                                ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                                HorizontalContentAlignment="Stretch"
-                                                Visibility="{Binding IsCursorGrokBotQuotaSelected, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
-                                <ContentControl x:Name="CursorGrokBotQuotaContent"
-                                                Content="{Binding CursorGrokBotQuota}"
-                                                ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                                HorizontalContentAlignment="Stretch"
-                                                Visibility="{Binding IsCursorGrokBotQuotaSelected, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                <StackPanel HorizontalAlignment="Left"
-                                            VerticalAlignment="Bottom"
-                                            Orientation="Horizontal">
-                                    <Button x:Name="CursorMonthlyPageButton"
-                                            Command="{Binding ShowCursorQuotaCommand}"
-                                            CommandParameter="{Binding CursorMonthlyQuota}"
-                                            ToolTip="Monthly"
-                                            AutomationProperties.Name="Show Cursor monthly quota">
-                                        <Button.Style>
-                                            <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type Button}">
-                                                <Setter Property="Foreground" Value="{Binding CursorTokenCost.AccentBrush}" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsCursorGrokBotQuotaSelected}" Value="True">
-                                                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-                                    <Button x:Name="CursorGrokBotPageButton"
-                                            Command="{Binding ShowCursorQuotaCommand}"
-                                            CommandParameter="{Binding CursorGrokBotQuota}"
-                                            ToolTip="Grok Bot Weekly"
-                                            AutomationProperties.Name="Show Cursor Grok Bot weekly quota">
-                                        <Button.Style>
-                                            <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type Button}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsCursorGrokBotQuotaSelected}" Value="True">
-                                                        <Setter Property="Foreground" Value="{Binding CursorTokenCost.AccentBrush}" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-                                </StackPanel>
-                            </Grid>
+                                Visibility="{Binding FirstQuota.IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ContentControl Content="{Binding}"
+                                            ContentTemplate="{StaticResource QuotaPagerDataTemplate}"
+                                            HorizontalContentAlignment="Stretch" />
                         </Border>
 
                         <Grid>

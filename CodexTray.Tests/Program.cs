@@ -140,21 +140,32 @@ internal static class Program
                 System.Windows.Controls.ScrollViewer codexQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CodexQuotaScrollViewer");
                 AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"default Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
                 System.Windows.Controls.Border codexPrimaryCard = (System.Windows.Controls.Border)window.FindName("CodexPrimaryCard");
-                System.Windows.Controls.Border codexSecondaryCard = (System.Windows.Controls.Border)window.FindName("CodexSecondaryCard");
                 System.Windows.Controls.Border codexResetCreditsCard = (System.Windows.Controls.Border)window.FindName("CodexResetCreditsCard");
                 AssertEqual(91d, codexPrimaryCard.ActualHeight, "Codex primary card height");
-                AssertEqual(68d, codexSecondaryCard.ActualHeight, "Codex secondary card height");
                 AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex small card height");
-                AssertEqual(codexSecondaryCard.ActualWidth, codexResetCreditsCard.ActualWidth, "Codex small card widths");
-                AssertEqual(
-                    codexSecondaryCard.TranslatePoint(new System.Windows.Point(), window).Y,
-                    codexResetCreditsCard.TranslatePoint(new System.Windows.Point(), window).Y,
-                    "Codex small card vertical alignment");
-                AssertEqual("Weekly", viewModel.CodexPrimaryQuota.Title, "invalid Session keeps Weekly as the large card");
-                AssertEqual("Session", viewModel.CodexSecondaryQuota.Title, "invalid Session uses the compact card");
-                AssertEqual(string.Empty, viewModel.CodexSessionQuota.PercentText, "invalid Session hides percent text");
-                AssertEqual(100, viewModel.CodexSessionQuota.RemainingPercent, "invalid Session fills the compact bar");
-                AssertTrue(!viewModel.CodexHasValidSession, "missing Session window is invalid");
+                AssertEqual(codexPrimaryCard.ActualWidth, codexResetCreditsCard.ActualWidth, "Codex Resets should use the full card width");
+                System.Windows.Controls.ContentControl codexFirstQuotaContent = FindNamedDescendant<System.Windows.Controls.ContentControl>(codexPrimaryCard, "FirstQuotaContent");
+                System.Windows.Controls.ContentControl codexSecondQuotaContent = FindNamedDescendant<System.Windows.Controls.ContentControl>(codexPrimaryCard, "SecondQuotaContent");
+                System.Windows.Controls.StackPanel codexPageIndicators = FindNamedDescendant<System.Windows.Controls.StackPanel>(codexPrimaryCard, "PageIndicators");
+                System.Windows.Controls.Button codexFirstPageButton = FindNamedDescendant<System.Windows.Controls.Button>(codexPrimaryCard, "FirstPageButton");
+                System.Windows.Controls.Button codexSecondPageButton = FindNamedDescendant<System.Windows.Controls.Button>(codexPrimaryCard, "SecondPageButton");
+                System.Windows.Shapes.Ellipse codexFirstPageIndicator = FindNamedDescendant<System.Windows.Shapes.Ellipse>(codexFirstPageButton, "PageIndicator");
+                System.Windows.Shapes.Ellipse codexSecondPageIndicator = FindNamedDescendant<System.Windows.Shapes.Ellipse>(codexSecondPageButton, "PageIndicator");
+                AssertTrue(ReferenceEquals(codexFirstQuotaContent.Content, viewModel.CodexSessionQuota), "Codex Session should be the first large-card page");
+                AssertTrue(ReferenceEquals(codexSecondQuotaContent.Content, viewModel.CodexWeeklyQuota), "Codex Weekly should be the second large-card page");
+                AssertTrue(!viewModel.CodexSessionQuota.IsVisible, "invalid Codex Session should be hidden");
+                AssertEqual(System.Windows.Visibility.Collapsed, codexFirstQuotaContent.Visibility, "invalid Codex Session content should be hidden");
+                AssertEqual(System.Windows.Visibility.Visible, codexSecondQuotaContent.Visibility, "Codex Weekly should replace an invalid Session");
+                AssertEqual(System.Windows.Visibility.Collapsed, codexPageIndicators.Visibility, "single Codex quota page should hide page indicators");
+                System.Windows.Input.MouseWheelEventArgs singlePageWheelArgs = new(
+                    System.Windows.Input.Mouse.PrimaryDevice,
+                    Environment.TickCount,
+                    -120)
+                {
+                    RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
+                };
+                codexPrimaryCard.RaiseEvent(singlePageWheelArgs);
+                AssertTrue(!singlePageWheelArgs.Handled, "single Codex quota page should ignore mouse wheel switching");
                 AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "Codex token cost chart day count");
                 AssertTrue(viewModel.CodexTokenCost.DonutSegments.Count > 0, "Codex model donut should have segments");
                 System.Windows.Controls.ContentControl codexTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("CodexTokenCostDashboard");
@@ -399,28 +410,27 @@ internal static class Program
                 System.Windows.Controls.Border cursorApiCard = (System.Windows.Controls.Border)window.FindName("CursorApiCard");
                 AssertEqual(codexPrimaryCard.ActualHeight, cursorMonthlyCard.ActualHeight, "Codex and Cursor large card heights");
                 AssertEqual(codexResetCreditsCard.ActualHeight, cursorAutoCard.ActualHeight, "Codex and Cursor small card heights");
-                AssertEqual(codexSecondaryCard.ActualHeight, cursorAutoCard.ActualHeight, "Codex secondary and Cursor small card heights");
                 AssertEqual(cursorAutoCard.ActualHeight, cursorApiCard.ActualHeight, "Cursor small card heights");
                 AssertEqual(cursorAutoCard.ActualWidth, cursorApiCard.ActualWidth, "Cursor small card widths");
-                System.Windows.Controls.Button cursorMonthlyPageButton = (System.Windows.Controls.Button)window.FindName("CursorMonthlyPageButton");
-                System.Windows.Controls.Button cursorGrokBotPageButton = (System.Windows.Controls.Button)window.FindName("CursorGrokBotPageButton");
+                System.Windows.Controls.Button cursorMonthlyPageButton = FindNamedDescendant<System.Windows.Controls.Button>(cursorMonthlyCard, "FirstPageButton");
+                System.Windows.Controls.Button cursorGrokBotPageButton = FindNamedDescendant<System.Windows.Controls.Button>(cursorMonthlyCard, "SecondPageButton");
                 System.Windows.Shapes.Ellipse cursorMonthlyPageIndicator = FindNamedDescendant<System.Windows.Shapes.Ellipse>(cursorMonthlyPageButton, "PageIndicator");
                 System.Windows.Shapes.Ellipse cursorGrokBotPageIndicator = FindNamedDescendant<System.Windows.Shapes.Ellipse>(cursorGrokBotPageButton, "PageIndicator");
-                System.Windows.Controls.ContentControl cursorMonthlyQuotaContent = (System.Windows.Controls.ContentControl)window.FindName("CursorMonthlyQuotaContent");
-                System.Windows.Controls.ContentControl cursorGrokBotQuotaContent = (System.Windows.Controls.ContentControl)window.FindName("CursorGrokBotQuotaContent");
+                System.Windows.Controls.ContentControl cursorMonthlyQuotaContent = FindNamedDescendant<System.Windows.Controls.ContentControl>(cursorMonthlyCard, "FirstQuotaContent");
+                System.Windows.Controls.ContentControl cursorGrokBotQuotaContent = FindNamedDescendant<System.Windows.Controls.ContentControl>(cursorMonthlyCard, "SecondQuotaContent");
                 AssertEqual(cursorMonthlyPageIndicator.ActualWidth, cursorGrokBotPageIndicator.ActualWidth, "Cursor quota page indicator widths");
                 AssertEqual(cursorMonthlyPageIndicator.ActualHeight, cursorGrokBotPageIndicator.ActualHeight, "Cursor quota page indicator heights");
                 AssertEqual("Grok Bot Weekly", viewModel.CursorGrokBotQuota.Title, "Cursor Grok Bot quota title");
                 AssertEqual("51%", viewModel.CursorGrokBotQuota.PercentText, "Cursor Grok Bot remaining percentage");
-                AssertTrue(!viewModel.IsCursorGrokBotQuotaSelected, "Cursor main quota should be selected by default");
+                AssertTrue(!viewModel.CursorQuotaPager.IsSecondSelected, "Cursor main quota should be selected by default");
                 AssertEqual(System.Windows.Visibility.Visible, cursorMonthlyQuotaContent.Visibility, "Cursor monthly quota should be visible by default");
                 AssertEqual(System.Windows.Visibility.Collapsed, cursorGrokBotQuotaContent.Visibility, "Cursor Grok Bot quota should be hidden by default");
                 System.Windows.Media.Color pageIndicatorGreen = System.Windows.Media.Color.FromRgb(26, 188, 137);
                 AssertEqual(pageIndicatorGreen, ((System.Windows.Media.SolidColorBrush)cursorMonthlyPageIndicator.Fill).Color, "selected Cursor monthly page indicator color");
                 cursorGrokBotPageButton.Command.Execute(cursorGrokBotPageButton.CommandParameter);
-                AssertTrue(viewModel.IsCursorGrokBotQuotaSelected, "Cursor Grok Bot page button should select its quota");
+                AssertTrue(viewModel.CursorQuotaPager.IsSecondSelected, "Cursor Grok Bot page button should select its quota");
                 cursorMonthlyPageButton.Command.Execute(cursorMonthlyPageButton.CommandParameter);
-                AssertTrue(!viewModel.IsCursorGrokBotQuotaSelected, "Cursor monthly page button should select its quota");
+                AssertTrue(!viewModel.CursorQuotaPager.IsSecondSelected, "Cursor monthly page button should select its quota");
                 cursorMonthlyCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(
                     System.Windows.Input.Mouse.PrimaryDevice,
                     Environment.TickCount,
@@ -429,7 +439,7 @@ internal static class Program
                     RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
                 });
                 content.UpdateLayout();
-                AssertTrue(viewModel.IsCursorGrokBotQuotaSelected, "mouse wheel down should select Cursor Grok Bot quota");
+                AssertTrue(viewModel.CursorQuotaPager.IsSecondSelected, "mouse wheel down should select Cursor Grok Bot quota");
                 AssertEqual(System.Windows.Visibility.Collapsed, cursorMonthlyQuotaContent.Visibility, "Cursor monthly quota should hide on page two");
                 AssertEqual(System.Windows.Visibility.Visible, cursorGrokBotQuotaContent.Visibility, "Cursor Grok Bot quota should show on page two");
                 AssertEqual(pageIndicatorGreen, ((System.Windows.Media.SolidColorBrush)cursorGrokBotPageIndicator.Fill).Color, "selected Cursor Grok Bot page indicator color");
@@ -443,7 +453,7 @@ internal static class Program
                 {
                     RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
                 });
-                AssertTrue(!viewModel.IsCursorGrokBotQuotaSelected, "mouse wheel up should select Cursor monthly quota");
+                AssertTrue(!viewModel.CursorQuotaPager.IsSecondSelected, "mouse wheel up should select Cursor monthly quota");
                 AssertEqual(
                     cursorAutoCard.TranslatePoint(new System.Windows.Point(), window).Y,
                     cursorApiCard.TranslatePoint(new System.Windows.Point(), window).Y,
@@ -486,16 +496,47 @@ internal static class Program
                 content.Measure(new System.Windows.Size(window.Width, window.Height));
                 content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
                 content.UpdateLayout();
-                AssertTrue(viewModel.CodexHasValidSession, "valid Session window should swap the Codex cards");
-                AssertTrue(
-                    ReferenceEquals(((System.Windows.Controls.ContentControl)codexPrimaryCard.Child).Content, viewModel.CodexSessionQuota),
-                    "valid Session binds the large card");
-                AssertTrue(
-                    ReferenceEquals(((System.Windows.Controls.ContentControl)codexSecondaryCard.Child).Content, viewModel.CodexWeeklyQuota),
-                    "valid Session binds Weekly to the compact card");
-                AssertEqual(91d, codexPrimaryCard.ActualHeight, "Codex primary card height after Session swap");
-                AssertEqual(68d, codexSecondaryCard.ActualHeight, "Codex secondary card height after Session swap");
-                AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"swapped Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
+                AssertTrue(viewModel.CodexSessionQuota.IsVisible, "valid Codex Session should be visible");
+                AssertEqual("40%", viewModel.CodexSessionQuota.PercentText, "valid Session remains on the first large-card page");
+                AssertEqual("80%", viewModel.CodexWeeklyQuota.PercentText, "Weekly remains on the second large-card page");
+                AssertEqual(System.Windows.Visibility.Visible, codexFirstQuotaContent.Visibility, "valid Codex Session should show by default");
+                AssertEqual(System.Windows.Visibility.Collapsed, codexSecondQuotaContent.Visibility, "Codex Weekly should start on page two");
+                AssertEqual(System.Windows.Visibility.Visible, codexPageIndicators.Visibility, "two Codex quota pages should show page indicators");
+                AssertEqual(codexFirstPageIndicator.ActualWidth, codexSecondPageIndicator.ActualWidth, "Codex quota page indicator widths");
+                AssertEqual(codexFirstPageIndicator.ActualHeight, codexSecondPageIndicator.ActualHeight, "Codex quota page indicator heights");
+                AssertEqual(
+                    System.Windows.Media.Color.FromRgb(26, 188, 137),
+                    ((System.Windows.Media.SolidColorBrush)codexFirstPageIndicator.Fill).Color,
+                    "selected Codex Session page indicator color");
+                codexSecondPageButton.Command.Execute(codexSecondPageButton.CommandParameter);
+                content.UpdateLayout();
+                AssertTrue(viewModel.CodexQuotaPager.IsSecondSelected, "Codex Weekly page button should select its quota");
+                AssertEqual(System.Windows.Visibility.Visible, codexSecondQuotaContent.Visibility, "Codex Weekly should show on page two");
+                AssertEqual(
+                    System.Windows.Media.Color.FromRgb(26, 188, 137),
+                    ((System.Windows.Media.SolidColorBrush)codexSecondPageIndicator.Fill).Color,
+                    "selected Codex Weekly page indicator color");
+                codexFirstPageButton.Command.Execute(codexFirstPageButton.CommandParameter);
+                AssertTrue(!viewModel.CodexQuotaPager.IsSecondSelected, "Codex Session page button should select its quota");
+                codexPrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(
+                    System.Windows.Input.Mouse.PrimaryDevice,
+                    Environment.TickCount,
+                    -120)
+                {
+                    RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
+                });
+                AssertTrue(viewModel.CodexQuotaPager.IsSecondSelected, "mouse wheel down should select Codex Weekly quota");
+                codexPrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(
+                    System.Windows.Input.Mouse.PrimaryDevice,
+                    Environment.TickCount,
+                    120)
+                {
+                    RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
+                });
+                AssertTrue(!viewModel.CodexQuotaPager.IsSecondSelected, "mouse wheel up should select Codex Session quota");
+                AssertEqual(91d, codexPrimaryCard.ActualHeight, "Codex primary card height after Session update");
+                AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex Resets height after Session update");
+                AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"updated Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
                 window.Close();
             }
             catch (Exception exception)
@@ -547,6 +588,7 @@ internal static class Program
                         UpdatedAt = now.ToString("O", CultureInfo.InvariantCulture),
                         Limits = new UsageLimits
                         {
+                            Session = new UsageLimit { WindowMinutes = 300, RemainingPercent = 82, ResetLabel = "resets 18:30" },
                             Weekly = new UsageLimit { WindowMinutes = 10_080, RemainingPercent = 69, ResetLabel = "resets 08-16" },
                         },
                         ResetCredits = new ResetCredits
@@ -3024,31 +3066,25 @@ internal static class Program
         };
         viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
         AssertTrue(!viewModel.CodexHasResetCredits, "zero reset credits should use the inactive color");
-        AssertEqual("0 Avail.", viewModel.CodexResetCreditsDisplay, "zero reset credits should show the count and Avail.");
-        AssertEqual(string.Empty, viewModel.CodexSessionQuota.PercentText, "missing Session window hides percent text");
-        AssertEqual(100, viewModel.CodexSessionQuota.RemainingPercent, "missing Session window fills the bar");
-        AssertEqual(
-            System.Windows.Media.Color.FromRgb(26, 188, 137),
-            ((System.Windows.Media.SolidColorBrush)viewModel.CodexSessionQuota.AccentBrush).Color,
-            "unlimited Session uses the full remaining color");
-        AssertTrue(!viewModel.CodexHasValidSession, "missing Session window keeps Weekly as the large card");
-        AssertEqual("Weekly", viewModel.CodexPrimaryQuota.Title, "invalid Session primary card");
-        AssertEqual("Session", viewModel.CodexSecondaryQuota.Title, "invalid Session secondary card");
+        AssertEqual("0 Available", viewModel.CodexResetCreditsDisplay, "zero reset credits should show the full Available label");
+        AssertTrue(!viewModel.CodexSessionQuota.IsVisible, "missing Session window should hide its quota page");
+        AssertTrue(!viewModel.CodexQuotaPager.HasMultiplePages, "missing Session window should leave one Codex quota page");
+        AssertTrue(ReferenceEquals(viewModel.CodexQuotaPager.FirstQuota, viewModel.CodexSessionQuota), "Session stays on the first Codex quota page");
+        AssertTrue(ReferenceEquals(viewModel.CodexQuotaPager.SecondQuota, viewModel.CodexWeeklyQuota), "Weekly stays on the second Codex quota page");
 
         response.ResetCredits.AvailableCount = 1;
         viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
         AssertTrue(viewModel.CodexHasResetCredits, "positive reset credits should use the active color");
-        AssertEqual("1 Avail.", viewModel.CodexResetCreditsDisplay, "positive reset credits should show the count and Avail.");
+        AssertEqual("1 Available", viewModel.CodexResetCreditsDisplay, "positive reset credits should show the full Available label");
 
         response.Limits.Session = new UsageLimit { WindowMinutes = 300, RemainingPercent = 40, ResetLabel = "1h15m" };
         response.Limits.Weekly = new UsageLimit { WindowMinutes = 10_080, RemainingPercent = 80, ResetLabel = "3d04h" };
         viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
-        AssertTrue(viewModel.CodexHasValidSession, "valid Session window promotes Session to the large card");
+        AssertTrue(viewModel.CodexSessionQuota.IsVisible, "valid Session window should show its quota page");
+        AssertTrue(viewModel.CodexQuotaPager.HasMultiplePages, "valid Session window should enable Codex quota paging");
         AssertEqual("40%", viewModel.CodexSessionQuota.PercentText, "valid Session percent text");
         AssertEqual("1h15m", viewModel.CodexSessionQuota.ResetText, "valid Session reset text");
         AssertEqual("80%", viewModel.CodexWeeklyQuota.PercentText, "Weekly percent text after Session becomes valid");
-        AssertEqual("Session", viewModel.CodexPrimaryQuota.Title, "valid Session primary card");
-        AssertEqual("Weekly", viewModel.CodexSecondaryQuota.Title, "valid Session secondary card");
         return Task.CompletedTask;
     }
 

@@ -2,6 +2,7 @@ using CodexTray.Core;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -135,19 +136,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public event Action<InAppDialogRequest>? InAppDialogRequested;
 
-    public QuotaViewModel CodexSessionQuota { get; } = new("Session");
+    public QuotaViewModel CodexSessionQuota { get; } = new("Session", isVisible: false);
 
     public QuotaViewModel CodexWeeklyQuota { get; } = new("Weekly");
-
-    /// <summary>
-    /// Gets the large Codex quota card, using Session when its window is valid.
-    /// </summary>
-    public QuotaViewModel CodexPrimaryQuota => CodexHasValidSession ? CodexSessionQuota : CodexWeeklyQuota;
-
-    /// <summary>
-    /// Gets the compact Codex quota card opposite the large Session or Weekly card.
-    /// </summary>
-    public QuotaViewModel CodexSecondaryQuota => CodexHasValidSession ? CodexWeeklyQuota : CodexSessionQuota;
 
     public QuotaViewModel GrokWeeklyQuota { get; } = new("Weekly");
 
@@ -158,6 +149,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public QuotaViewModel CursorAutoQuota { get; } = new("First party");
 
     public QuotaViewModel CursorApiQuota { get; } = new("APIs");
+
+    public QuotaPagerViewModel CodexQuotaPager { get; }
+
+    public QuotaPagerViewModel CursorQuotaPager { get; }
 
     public TokenCostDashboardViewModel CodexTokenCost { get; }
 
@@ -223,11 +218,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     [ObservableProperty]
     public partial bool CodexHasResetCredits { get; private set; }
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CodexPrimaryQuota))]
-    [NotifyPropertyChangedFor(nameof(CodexSecondaryQuota))]
-    public partial bool CodexHasValidSession { get; private set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LiteMonitorDirDisplay))]
@@ -463,9 +453,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial string CursorStatusTooltip { get; private set; } = string.Empty;
 
     [ObservableProperty]
-    public partial bool IsCursorGrokBotQuotaSelected { get; private set; }
-
-    [ObservableProperty]
     public partial bool IsRefreshing { get; set; }
 
     public bool IsModalOpen => m_IsInAppDialogOpen || m_IsNativeModalOpen;
@@ -503,6 +490,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public TrayPopupViewModel(AppSettings settings, Func<Task> refreshAsync)
     {
         m_Settings = settings;
+        CodexQuotaPager = new QuotaPagerViewModel(CodexSessionQuota, CodexWeeklyQuota);
+        CursorQuotaPager = new QuotaPagerViewModel(CursorMonthlyQuota, CursorGrokBotQuota);
         CodexTokenCost = new TokenCostDashboardViewModel();
         GrokTokenCost = new TokenCostDashboardViewModel();
         CursorTokenCost = new TokenCostDashboardViewModel();
@@ -719,8 +708,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             CodexStatusDotBrush = s_RedBrush;
             CodexUpdatedAtDisplay = FormatUpdatedAt(null);
             CodexWeeklyQuota.UpdateUnavailable();
-            CodexSessionQuota.UpdateUnavailable();
-            CodexHasValidSession = false;
+            CodexSessionQuota.Hide();
             UpdateResetCredits(null);
             return;
         }
@@ -732,8 +720,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             CodexStatusDotBrush = s_RedBrush;
             CodexUpdatedAtDisplay = $"Error{FormatResponseError(response)}";
             CodexWeeklyQuota.UpdateUnavailable();
-            CodexSessionQuota.UpdateUnavailable();
-            CodexHasValidSession = false;
+            CodexSessionQuota.Hide();
             UpdateResetCredits(null);
             return;
         }
@@ -746,12 +733,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         if (response.Limits.Session.WindowMinutes > 0)
         {
             CodexSessionQuota.Update(response.Limits.Session);
-            CodexHasValidSession = true;
         }
         else
         {
-            CodexSessionQuota.UpdateUnlimited();
-            CodexHasValidSession = false;
+            CodexSessionQuota.Hide();
         }
 
         UpdateResetCredits(response.ResetCredits);
@@ -765,7 +750,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         if (resetCredits?.Available == true)
         {
             CodexHasResetCredits = resetCredits.AvailableCount > 0;
-            CodexResetCreditsDisplay = string.Create(CultureInfo.InvariantCulture, $"{resetCredits.AvailableCount} Avail.");
+            CodexResetCreditsDisplay = string.Create(CultureInfo.InvariantCulture, $"{resetCredits.AvailableCount} Available");
             string nearestExpiry = resetCredits.NearestExpiryLocal.Length >= 10
                 ? resetCredits.NearestExpiryLocal[5..10]
                 : resetCredits.NearestExpiryLocal;
@@ -958,15 +943,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public void ShowCursor()
     {
         SetPage(k_CursorPageName);
-    }
-
-    /// <summary>
-    /// Shows the selected Cursor quota on the large card.
-    /// </summary>
-    [RelayCommand]
-    public void ShowCursorQuota(QuotaViewModel quota)
-    {
-        IsCursorGrokBotQuotaSelected = ReferenceEquals(quota, CursorGrokBotQuota);
     }
 
     /// <summary>
@@ -2130,6 +2106,65 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     internal sealed record GrokProductUsageItemViewModel(string Name, string PercentText, double UsedPercent, Media.Brush Brush, string? Tooltip = null);
 
+    /// <summary>
+    /// Selects between two quota pages displayed by one large card.
+    /// </summary>
+    internal sealed partial class QuotaPagerViewModel : ObservableObject
+    {
+        public QuotaViewModel FirstQuota { get; }
+
+        public QuotaViewModel SecondQuota { get; }
+
+        public Media.Brush SelectedBrush { get; } = s_GreenBrush;
+
+        public bool HasMultiplePages => FirstQuota.IsVisible && SecondQuota.IsVisible;
+
+        public bool IsFirstVisible => FirstQuota.IsVisible && (!IsSecondSelected || !SecondQuota.IsVisible);
+
+        public bool IsSecondVisible => SecondQuota.IsVisible && (IsSecondSelected || !FirstQuota.IsVisible);
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsFirstVisible))]
+        [NotifyPropertyChangedFor(nameof(IsSecondVisible))]
+        public partial bool IsSecondSelected { get; private set; }
+
+        /// <summary>
+        /// Creates a pager for two quota models.
+        /// </summary>
+        public QuotaPagerViewModel(QuotaViewModel firstQuota, QuotaViewModel secondQuota)
+        {
+            FirstQuota = firstQuota;
+            SecondQuota = secondQuota;
+            FirstQuota.PropertyChanged += OnQuotaPropertyChanged;
+            SecondQuota.PropertyChanged += OnQuotaPropertyChanged;
+        }
+
+        /// <summary>
+        /// Selects one quota page.
+        /// </summary>
+        [RelayCommand]
+        public void SelectQuota(QuotaViewModel quota)
+        {
+            if (quota.IsVisible)
+            {
+                IsSecondSelected = ReferenceEquals(quota, SecondQuota);
+            }
+        }
+
+        /// <summary>
+        /// Updates pager visibility when a quota page appears or disappears.
+        /// </summary>
+        private void OnQuotaPropertyChanged(object? sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(QuotaViewModel.IsVisible))
+            {
+                OnPropertyChanged(nameof(HasMultiplePages));
+                OnPropertyChanged(nameof(IsFirstVisible));
+                OnPropertyChanged(nameof(IsSecondVisible));
+            }
+        }
+    }
+
     internal sealed partial class QuotaViewModel : ObservableObject
     {
         public string Title { get; }
@@ -2155,9 +2190,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// <summary>
         /// Creates a quota display model.
         /// </summary>
-        public QuotaViewModel(string title)
+        public QuotaViewModel(string title, bool isVisible = true)
         {
             Title = title;
+            IsVisible = isVisible;
         }
 
         /// <summary>
@@ -2197,16 +2233,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         /// <summary>
-        /// Updates the quota display for a missing window as a full unlimited bar.
+        /// Hides the quota when its usage window is unavailable.
         /// </summary>
-        public void UpdateUnlimited()
+        public void Hide()
         {
-            RemainingPercent = 100;
-            PercentText = string.Empty;
-            ResetText = "unknown";
-            AccentBrush = GetAccentBrush(100);
-            IsVisible = true;
-            IsResetVisible = false;
+            IsVisible = false;
         }
 
         /// <summary>

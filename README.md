@@ -28,8 +28,8 @@
 
 ## 功能
 
-- 显示 Codex 计划状态, Session 与 Weekly 剩余额度和重置时间. Session 无有效窗口时进度条拉满且不显示百分比, 与 Resets 并排为半宽小卡片; Session 有效时改为大卡片, Weekly 改为半宽小卡片.
-- 显示 Resets 数量及最近到期时间, 以半宽小卡片与 Session 或 Weekly 并排.
+- 显示 Codex 计划状态, Session 与 Weekly 剩余额度和重置时间. Session 仅在有效时显示, 大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly, 只有一个有效页面时隐藏页点.
+- 显示 Resets 数量及最近到期时间, 使用全宽小卡片.
 - Codex, Cursor 和 Grok Token Cost 在滚动模式显示 24H, 7D, 30D 和 Lifetime, 在自然周期模式显示 Today, Week, Month 和 Lifetime. 24H 按当前时刻精确向前滚动 24 小时. 圆环模型占比与趋势图会同步切换周期. 圆环中心显示当前时段 token 总量, 以及成本与缓存命中率同行 (`$N · N%`). 自然月按整月固定宽度展示, 未来日期保留空白. Token 数量使用英制单位 K, M, B.
 - Cursor 页面显示 Monthly, Grok Bot Weekly, First party 和 APIs 剩余额度. 大卡片通过左下角页点切换 Monthly 与 Grok Bot Weekly, 后两项以半宽卡片并排显示. 页面还会显示额度重置时间, 实际账单 token, 成本, 模型占比和可切换的 30 日趋势.
 - Grok 页面显示订阅类型, Weekly 剩余额度, 重置时间和各产品使用占比, 并统计本机 Grok Build session 的 24H, 7D, 30D 和 Lifetime token 与费用. 登录信息仅从本机 Grok Build OAuth session 读取.

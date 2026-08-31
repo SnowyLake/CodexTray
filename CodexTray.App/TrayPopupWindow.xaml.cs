@@ -159,13 +159,13 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
-    /// Switches the Cursor large quota card with the mouse wheel.
+    /// Switches a two-page quota card with the mouse wheel.
     /// </summary>
-    private void CursorMonthlyCard_PreviewMouseWheel(object sender, Input.MouseWheelEventArgs args)
+    private void QuotaCard_PreviewMouseWheel(object sender, Input.MouseWheelEventArgs args)
     {
-        if (DataContext is TrayPopupViewModel viewModel && args.Delta != 0)
+        if (sender is FrameworkElement { DataContext: TrayPopupViewModel.QuotaPagerViewModel pager } && pager.HasMultiplePages && args.Delta != 0)
         {
-            viewModel.ShowCursorQuota(args.Delta < 0 ? viewModel.CursorGrokBotQuota : viewModel.CursorMonthlyQuota);
+            pager.SelectQuota(args.Delta < 0 ? pager.SecondQuota : pager.FirstQuota);
             args.Handled = true;
         }
     }
