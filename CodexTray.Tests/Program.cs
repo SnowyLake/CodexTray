@@ -227,7 +227,6 @@ internal static class Program
                 AssertEqual(30, viewModel.GrokTokenCost.ChartDays.Count, "Grok token cost chart day count");
                 AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
                 AssertTrue(window.FindName("GrokProductUsageTitle") is null, "Grok product usage card should not show a title");
-                AssertEqual("Tasks 1%\nVoice 0.5%", viewModel.GrokProductUsageDisplay, "Grok product usage others tooltip");
                 AssertEqual("Tasks 1%\nVoice 0.5%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others item tooltip");
                 AssertTrue(viewModel.GrokProductUsageItems[0].Tooltip is null, "Grok product usage first item should not have a tooltip");
                 AssertTrue(viewModel.GrokProductUsageItems[1].Tooltip is null, "Grok product usage second item should not have a tooltip");
@@ -341,7 +340,6 @@ internal static class Program
                     string.Empty,
                     DateTimeOffset.Now),
                     CreateTokenCostStatistics(5));
-                AssertEqual("Others 0%", viewModel.GrokProductUsageDisplay, "Grok product usage tooltip with two items");
                 AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip with two items");
                 AssertEqual(3, viewModel.GrokProductUsageItems.Count, "Grok product usage item count with two items");
                 AssertEqual("Chat", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name with two items");
@@ -367,7 +365,6 @@ internal static class Program
                 AssertEqual("0%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage build percent when all zero");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage chat percent when all zero");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage others percent when all zero");
-                AssertEqual("Others 0%", viewModel.GrokProductUsageDisplay, "Grok product usage tooltip when all zero");
                 AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip when all zero");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(7, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
@@ -388,7 +385,6 @@ internal static class Program
                 AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage build percent with one non-zero item");
                 AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name with one non-zero item");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage others percent with one non-zero item");
-                AssertEqual("Others 0%", viewModel.GrokProductUsageDisplay, "Grok product usage tooltip with one non-zero item");
                 AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip with one non-zero item");
 
                 viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
@@ -883,7 +879,7 @@ internal static class Program
     /// <summary>
     /// Tests standard limit parsing and display formatting.
     /// </summary>
-    private static Task TestCollectsLimitsAndDisplayLabelsAsync()
+    private static async Task TestCollectsLimitsAndDisplayLabelsAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
@@ -892,7 +888,7 @@ internal static class Program
         CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 12.0, 34.0, out HttpClient client);
         using HttpClient _ = client;
 
-        UsageResponse response = collector.Collect(temp.Path);
+        UsageResponse response = await collector.CollectAsync(temp.Path);
 
         AssertTrue(response.Available, "response should be available");
         AssertEqual(12, response.Limits.Session.UsedPercent, "session used percent");
@@ -903,13 +899,12 @@ internal static class Program
         AssertEqual("2h05m", response.Limits.Session.ResetLabel, "session reset label");
         AssertEqual("3d04h", response.Limits.Weekly.ResetLabel, "weekly reset label");
         AssertEqual("66%", response.Display.Weekly, "weekly plugin display");
-        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Tests weekly countdown labels on the current day.
     /// </summary>
-    private static Task TestWeeklyCountdownLabelAsync()
+    private static async Task TestWeeklyCountdownLabelAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
@@ -918,16 +913,15 @@ internal static class Program
         CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
-        UsageResponse response = collector.Collect(temp.Path);
+        UsageResponse response = await collector.CollectAsync(temp.Path);
 
         AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, "weekly countdown label");
-        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Tests weekly countdown labels on the next day even when below twenty four hours.
     /// </summary>
-    private static Task TestNextDayWeeklyCountdownLabelAsync()
+    private static async Task TestNextDayWeeklyCountdownLabelAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 23, 0, 0, TimeSpan.FromHours(8));
@@ -936,31 +930,29 @@ internal static class Program
         CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
-        UsageResponse response = collector.Collect(temp.Path);
+        UsageResponse response = await collector.CollectAsync(temp.Path);
 
         AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, "weekly next-day countdown label");
-        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Tests the unavailable response when OAuth credentials are missing.
     /// </summary>
-    private static Task TestEmptyResponseAsync()
+    private static async Task TestEmptyResponseAsync()
     {
         using TempDirectory temp = new();
         CodexUsageCollector collector = new(() => new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8)));
-        UsageResponse response = collector.Collect(temp.Path);
+        UsageResponse response = await collector.CollectAsync(temp.Path);
 
         AssertTrue(!response.Available, "response should be unavailable");
         AssertEqual("N/A", response.Display.Weekly, "weekly unavailable display");
         AssertEqual("N/A", response.Display.Summary, "summary unavailable display");
-        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Tests official ChatGPT quota parsing for Codex OAuth accounts.
     /// </summary>
-    private static Task TestOfficialQuotaAsync()
+    private static async Task TestOfficialQuotaAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
@@ -995,7 +987,7 @@ internal static class Program
         using HttpClient client = new(new FakeHttpMessageHandler(body));
         CodexUsageCollector collector = new(() => now, client);
 
-        UsageResponse response = collector.Collect(temp.Path);
+        UsageResponse response = await collector.CollectAsync(temp.Path);
 
         AssertTrue(response.Available, "official response should be available");
         AssertEqual("official_api", response.Source, "official source");
@@ -1003,13 +995,12 @@ internal static class Program
         AssertEqual(75, response.Limits.Session.RemainingPercent, "official session remaining percent");
         AssertEqual(60, response.Limits.Weekly.RemainingPercent, "official weekly remaining percent");
         AssertEqual("60%", response.Display.Weekly, "official weekly plugin display");
-        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Tests that plugin display values never include reset suffixes.
     /// </summary>
-    private static Task TestPluginDisplayPercentOnlyAsync()
+    private static async Task TestPluginDisplayPercentOnlyAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
@@ -1018,17 +1009,16 @@ internal static class Program
         CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
-        UsageResponse response = collector.Collect(temp.Path);
+        UsageResponse response = await collector.CollectAsync(temp.Path);
 
         AssertEqual("60%", response.Display.Weekly, "weekly percentage-only plugin display");
         AssertEqual("1h15m", response.Limits.Session.ResetLabel, "session reset label remains available internally");
-        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Tests that reset labels use absolute clock and date when the option is enabled.
     /// </summary>
-    private static Task TestAbsoluteResetTimeAsync()
+    private static async Task TestAbsoluteResetTimeAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
@@ -1037,12 +1027,11 @@ internal static class Program
         CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
         using HttpClient _ = client;
 
-        UsageResponse response = collector.Collect(temp.Path, useAbsoluteResetTime: true);
+        UsageResponse response = await collector.CollectAsync(temp.Path, useAbsoluteResetTime: true);
 
         AssertEqual("13:15", response.Limits.Session.ResetLabel, "session absolute reset clock");
         AssertEqual("07-04", response.Limits.Weekly.ResetLabel, "weekly absolute reset date");
         AssertEqual("60%", response.Display.Weekly, "weekly plugin display should omit absolute reset");
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -1055,7 +1044,7 @@ internal static class Program
         CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient collectorClient);
         using HttpClient _ = collectorClient;
         UsageCache usageCache = new();
-        usageCache.UpdateCodex(collector.Collect(temp.Path));
+        usageCache.UpdateCodex(await collector.CollectAsync(temp.Path));
         usageCache.UpdateGrok(GrokUsageCollector.BuildPluginUsage(new GrokUsageDashboard(
             new GrokUsageSnapshot(5, now.AddDays(7).ToUnixTimeSeconds()),
             string.Empty,
@@ -1870,7 +1859,8 @@ internal static class Program
                 "rotated-cursor-refresh",
                 usageJson));
             CursorUsageCollector collector = new(client);
-            CursorUsageSnapshot snapshot = await collector.CollectAsync();
+            CursorUsageDashboard dashboard = await collector.CollectDashboardAsync();
+            CursorUsageSnapshot snapshot = dashboard.Usage ?? throw new InvalidOperationException("Cursor usage should be available after OAuth refresh.");
 
             AssertEqual(12.5, snapshot.MonthlyUsedPercent, "refreshed Cursor monthly used percentage");
             AssertEqual(20, snapshot.AutoUsedPercent, "refreshed Cursor first-party used percentage");
@@ -2954,7 +2944,7 @@ internal static class Program
     /// <summary>
     /// Tests that a weekly window in the primary slot is not mistaken for a five hour window.
     /// </summary>
-    private static Task TestLoneWeeklyQuotaAsync()
+    private static async Task TestLoneWeeklyQuotaAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 13, 12, 0, 0, TimeSpan.FromHours(8));
@@ -2983,20 +2973,19 @@ internal static class Program
         using HttpClient client = new(new FakeHttpMessageHandler(body));
         CodexUsageCollector collector = new(() => now, client);
 
-        UsageResponse response = collector.Collect(temp.Path);
+        UsageResponse response = await collector.CollectAsync(temp.Path);
 
         AssertTrue(response.Available, "response should be available");
         AssertEqual(0, response.Limits.Session.WindowMinutes, "session window should be absent");
         AssertEqual(10080, response.Limits.Weekly.WindowMinutes, "weekly window duration");
         AssertEqual(42, response.Limits.Weekly.RemainingPercent, "weekly remaining percent");
         AssertEqual("42%", response.Display.Weekly, "weekly plugin display");
-        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Tests reset credit parsing and local expiry conversion.
     /// </summary>
-    private static Task TestResetCreditsAsync()
+    private static async Task TestResetCreditsAsync()
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
@@ -3015,7 +3004,7 @@ internal static class Program
         CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10.0, 20.0, out HttpClient client, resetCreditsBody);
         using HttpClient _ = client;
 
-        UsageResponse response = collector.Collect(temp.Path);
+        UsageResponse response = await collector.CollectAsync(temp.Path);
 
         AssertTrue(response.ResetCredits.Available, "reset credits should be available");
         AssertEqual(3, response.ResetCredits.AvailableCount, "reset credit count");
@@ -3024,7 +3013,6 @@ internal static class Program
             $"{nearestExpiry.AddDays(1).ToLocalTime():MM-dd} · {nearestExpiry.AddDays(2).ToLocalTime():MM-dd}",
             response.ResetCredits.OtherExpiriesLocal,
             "other local reset credit expiries");
-        return Task.CompletedTask;
     }
 
     /// <summary>

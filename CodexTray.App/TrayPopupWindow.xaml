@@ -177,23 +177,6 @@
                 </Setter>
             </Style>
 
-            <!-- ============ Shared page sections ============ -->
-            <Thickness x:Key="SectionHeaderMargin">0,0,0,12</Thickness>
-            <Thickness x:Key="SectionHeaderSpacedMargin">0,22,0,10</Thickness>
-
-            <Style x:Key="SectionHeaderStyle" TargetType="{x:Type TextBlock}">
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="FontSize" Value="12" />
-                <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="Margin" Value="{StaticResource SectionHeaderMargin}" />
-            </Style>
-
-            <Style x:Key="SectionHeaderSpacedStyle"
-                   BasedOn="{StaticResource SectionHeaderStyle}"
-                   TargetType="{x:Type TextBlock}">
-                <Setter Property="Margin" Value="{StaticResource SectionHeaderSpacedMargin}" />
-            </Style>
-
             <!-- ============ Settings: native Fluent controls ============ -->
             <!-- Only layout tweaks; templates stay Fluent so inputs work. -->
             <Thickness x:Key="SettingsSectionHeaderMargin">0,0,0,10</Thickness>
@@ -276,8 +259,6 @@
                                 <ContentPresenter HorizontalAlignment="Center"
                                                   VerticalAlignment="Center" />
                             </Border>
-                            <ControlTemplate.Triggers>
-                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
@@ -299,7 +280,7 @@
                     <Trigger Property="IsPressed" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </Trigger>
-                    <DataTrigger Binding="{Binding IsCodexSelected}" Value="True">
+                    <DataTrigger Binding="{Binding IsCodexVisible}" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </DataTrigger>
                 </Style.Triggers>
@@ -321,7 +302,7 @@
                     <Trigger Property="IsPressed" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </Trigger>
-                    <DataTrigger Binding="{Binding IsGrokSelected}" Value="True">
+                    <DataTrigger Binding="{Binding IsGrokVisible}" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </DataTrigger>
                 </Style.Triggers>
@@ -342,7 +323,7 @@
                     <Trigger Property="IsPressed" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </Trigger>
-                    <DataTrigger Binding="{Binding IsSettingsSelected}" Value="True">
+                    <DataTrigger Binding="{Binding IsSettingsVisible}" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </DataTrigger>
                 </Style.Triggers>
@@ -364,7 +345,7 @@
                     <Trigger Property="IsPressed" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </Trigger>
-                    <DataTrigger Binding="{Binding IsApiSelected}" Value="True">
+                    <DataTrigger Binding="{Binding IsApiVisible}" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </DataTrigger>
                 </Style.Triggers>
@@ -386,7 +367,7 @@
                     <Trigger Property="IsPressed" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </Trigger>
-                    <DataTrigger Binding="{Binding IsCursorSelected}" Value="True">
+                    <DataTrigger Binding="{Binding IsCursorVisible}" Value="True">
                         <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     </DataTrigger>
                 </Style.Triggers>
@@ -2007,7 +1988,7 @@
                             HorizontalAlignment="Right">
                     <Button Command="{Binding ShowCodexCommand}"
                             ToolTip="Codex"
-                            Visibility="{Binding IsCodexTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            Visibility="{Binding ShowCodexPage, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource CodexTabButtonStyle}">
                         <Path Width="18"
                               Height="18"
@@ -2017,7 +1998,7 @@
                     </Button>
                     <Button Command="{Binding ShowCursorCommand}"
                             ToolTip="Cursor"
-                            Visibility="{Binding IsCursorTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            Visibility="{Binding ShowCursorPage, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource CursorTabButtonStyle}">
                         <Path Width="18"
                               Height="18"
@@ -2028,7 +2009,7 @@
                     <Button x:Name="GrokTabButton"
                             Command="{Binding ShowGrokCommand}"
                             ToolTip="Grok"
-                            Visibility="{Binding IsGrokTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            Visibility="{Binding ShowGrokPage, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource GrokTabButtonStyle}">
                         <Path Width="18"
                               Height="18"
@@ -2039,7 +2020,7 @@
                     <Button Command="{Binding ShowApiCommand}"
                             Content="&#xE774;"
                             ToolTip="APIs"
-                            Visibility="{Binding IsApiTabVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            Visibility="{Binding ShowApisPage, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource ApiTabButtonStyle}" />
                     <Button Command="{Binding ShowSettingsCommand}"
                             Content="&#xE713;"

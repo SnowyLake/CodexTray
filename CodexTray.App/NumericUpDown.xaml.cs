@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Input;
+using DataObject = System.Windows.DataObject;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace CodexTray.App;
@@ -51,6 +53,8 @@ internal sealed partial class NumericUpDown : UserControl
     public NumericUpDown()
     {
         InitializeComponent();
+        PART_TextBox.PreviewTextInput += OnPreviewTextInput;
+        DataObject.AddPastingHandler(PART_TextBox, OnPaste);
         PART_Up.Click += (_, _) => Step(1);
         PART_Down.Click += (_, _) => Step(-1);
     }
@@ -101,5 +105,26 @@ internal sealed partial class NumericUpDown : UserControl
             : DefaultValue;
         int next = Math.Clamp(current + delta, Minimum, Maximum);
         Value = next.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Rejects typed input containing non-ASCII digits.
+    /// </summary>
+    private static void OnPreviewTextInput(object sender, TextCompositionEventArgs args)
+    {
+        args.Handled = !args.Text.All(char.IsAsciiDigit);
+    }
+
+    /// <summary>
+    /// Rejects pasted content containing non-ASCII digits.
+    /// </summary>
+    private static void OnPaste(object sender, DataObjectPastingEventArgs args)
+    {
+        if (args.DataObject.GetData(typeof(string)) is string text && text.All(char.IsAsciiDigit))
+        {
+            return;
+        }
+
+        args.CancelCommand();
     }
 }

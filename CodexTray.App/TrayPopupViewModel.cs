@@ -255,7 +255,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         get => m_ThemeMode;
         set
         {
-            if (SetProperty(ref m_ThemeMode, NormalizeThemeMode(value)))
+            if (SetProperty(ref m_ThemeMode, AppSettings.NormalizeThemeMode(value)))
             {
                 EvaluateDirtyState();
             }
@@ -277,10 +277,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             if (SetProperty(ref m_VisiblePages, value & PageItem.All))
             {
                 OnPropertyChanged(nameof(VisiblePagesDisplay));
-                OnPropertyChanged(nameof(IsCodexTabVisible));
-                OnPropertyChanged(nameof(IsGrokTabVisible));
-                OnPropertyChanged(nameof(IsCursorTabVisible));
-                OnPropertyChanged(nameof(IsApiTabVisible));
                 OnPropertyChanged(nameof(ShowCodexPage));
                 OnPropertyChanged(nameof(ShowGrokPage));
                 OnPropertyChanged(nameof(ShowCursorPage));
@@ -357,24 +353,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public bool IsAboutVisible => m_CurrentPage == k_AboutPageName;
 
-    public bool IsCodexSelected => m_CurrentPage == k_CodexPageName;
-
-    public bool IsGrokSelected => m_CurrentPage == k_GrokPageName;
-
-    public bool IsCursorSelected => m_CurrentPage == k_CursorPageName;
-
-    public bool IsApiSelected => m_CurrentPage == k_ApiPageName;
-
-    public bool IsSettingsSelected => m_CurrentPage == k_SettingsPageName;
-
-    public bool IsCodexTabVisible => (m_VisiblePages & PageItem.Codex) != 0;
-
-    public bool IsGrokTabVisible => (m_VisiblePages & PageItem.Grok) != 0;
-
-    public bool IsCursorTabVisible => (m_VisiblePages & PageItem.Cursor) != 0;
-
-    public bool IsApiTabVisible => (m_VisiblePages & PageItem.Apis) != 0;
-
     public string AppVersion => typeof(TrayPopupViewModel).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
 
@@ -427,9 +405,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string GrokStatusTooltip { get; private set; } = string.Empty;
-
-    [ObservableProperty]
-    public partial string GrokProductUsageDisplay { get; private set; } = "N/A";
 
     [ObservableProperty]
     public partial IReadOnlyList<GrokProductUsageItemViewModel> GrokProductUsageItems { get; private set; } = [];
@@ -994,11 +969,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsAboutVisible));
-        OnPropertyChanged(nameof(IsCodexSelected));
-        OnPropertyChanged(nameof(IsGrokSelected));
-        OnPropertyChanged(nameof(IsCursorSelected));
-        OnPropertyChanged(nameof(IsApiSelected));
-        OnPropertyChanged(nameof(IsSettingsSelected));
     }
 
     /// <summary>
@@ -1456,7 +1426,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         IReadOnlyList<GrokProductUsageItemViewModel> all = NormalizeGrokProductUsageItems(productUsage);
         IReadOnlyList<GrokProductUsageItemViewModel> items = ColorGrokProductUsageItems(SummarizeGrokProductUsageItems(all));
         GrokProductUsageItems = items;
-        GrokProductUsageDisplay = items.Count > 0 ? items[^1].Tooltip ?? "N/A" : "N/A";
         HasGrokProductUsageItems = true;
     }
 
@@ -1466,7 +1435,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private void ClearGrokProductUsage()
     {
         GrokProductUsageItems = [];
-        GrokProductUsageDisplay = "N/A";
         HasGrokProductUsageItems = false;
     }
 
@@ -1628,19 +1596,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         return DateTimeOffset.TryParse(updatedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTimeOffset parsed)
             ? $"Updated {parsed.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)}"
             : updatedAt;
-    }
-
-    /// <summary>
-    /// Normalizes a theme mode string for UI selection.
-    /// </summary>
-    private static string NormalizeThemeMode(string? themeMode)
-    {
-        return themeMode?.Trim().ToLowerInvariant() switch
-        {
-            "light" => AppSettings.ThemeModeLight,
-            "dark" => AppSettings.ThemeModeDark,
-            _ => AppSettings.ThemeModeSystem,
-        };
     }
 
     /// <summary>

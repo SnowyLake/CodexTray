@@ -149,24 +149,6 @@ public sealed class CursorUsageCollector
     }
 
     /// <summary>
-    /// Collects Cursor plan usage from the local IDE OAuth session.
-    /// </summary>
-    public async Task<CursorUsageSnapshot> CollectAsync(CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        CursorCredential credential = (await ResolveInitialCredentialAsync(cancellationToken).ConfigureAwait(false)).Credential;
-        try
-        {
-            return await FetchUsageAsync(credential, DateTimeOffset.Now, cancellationToken).ConfigureAwait(false);
-        }
-        catch (CursorRequestException exception) when (exception.IsAuthenticationFailure)
-        {
-            credential = await RefreshCredentialUnderLockAsync(credential, cancellationToken).ConfigureAwait(false);
-            return await FetchUsageAsync(credential, DateTimeOffset.Now, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
     /// Parses a Cursor usage-summary JSON body into remaining-percent inputs.
     /// </summary>
     public static CursorUsageSnapshot ParseUsageSummary(string json, DateTimeOffset now)

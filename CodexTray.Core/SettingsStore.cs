@@ -175,7 +175,7 @@ public sealed class AppSettings
     /// <summary>
     /// Normalizes a theme mode string to a supported value.
     /// </summary>
-    private static string NormalizeThemeMode(string? themeMode)
+    public static string NormalizeThemeMode(string? themeMode)
     {
         return themeMode?.Trim().ToLowerInvariant() switch
         {

@@ -12,18 +12,14 @@ $publishDir = Join-Path $repoRoot "Builds\Output\win-x64"
 $appPath = Join-Path $publishDir "CodexTray.exe"
 . (Join-Path $scriptRoot "Publish-Shared.ps1")
 
-function Invoke-AppPublish {
+$exitCode = 0
+try {
     Stop-CodexTrayApp
     Invoke-CodexTrayPublish -RepoRoot $repoRoot -ProjectPath $projectPath -OutputPath $publishDir -Clean
     Start-CodexTrayApp -AppPath $appPath
     Write-Host ""
     Write-Host "Publish completed."
     Write-Host "Executable: $appPath"
-}
-
-$exitCode = 0
-try {
-    Invoke-AppPublish
 }
 catch {
     Write-Host ""

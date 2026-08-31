@@ -884,7 +884,7 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private static bool TryValidateLiteMonitorDirectory(string directory, out string message)
     {
-        string normalized = NormalizePluginDirectory(directory);
+        string normalized = TrayPopupViewModel.PluginPathOrEmpty(directory);
         if (normalized.Length == 0)
         {
             message = "LiteMonitor folder is not configured. Use Browse or Auto Detect first.";
@@ -899,17 +899,6 @@ internal sealed class TrayController : IDisposable
 
         message = string.Empty;
         return true;
-    }
-
-    /// <summary>
-    /// Returns the plugin directory, treating the None sentinel as unset.
-    /// </summary>
-    private static string NormalizePluginDirectory(string directory)
-    {
-        string trimmed = (directory ?? string.Empty).Trim();
-        return string.Equals(trimmed, CodexTrayDefaults.PluginPathNone, StringComparison.OrdinalIgnoreCase)
-            ? string.Empty
-            : trimmed;
     }
 
     /// <summary>
@@ -933,7 +922,7 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private static bool TryValidateTrafficMonitorDirectory(string directory, out string message)
     {
-        string normalized = NormalizePluginDirectory(directory);
+        string normalized = TrayPopupViewModel.PluginPathOrEmpty(directory);
         if (normalized.Length == 0)
         {
             message = "TrafficMonitor folder is not configured. Use Browse or Auto Detect first.";

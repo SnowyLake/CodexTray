@@ -1,9 +1,6 @@
 param(
     [ValidateSet("Debug", "Release")]
-    [string]$Configuration = "Release",
-
-    [ValidateSet("x64")]
-    [string]$Platform = "x64"
+    [string]$Configuration = "Release"
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,12 +36,12 @@ Write-Host "Building TrafficMonitor plugin."
 Write-Host "Project: $projectPath"
 Write-Host "MSBuild: $msbuildPath"
 
-& $msbuildPath $projectPath /m /p:Configuration=$Configuration /p:Platform=$Platform
+& $msbuildPath $projectPath /m /p:Configuration=$Configuration /p:Platform=x64
 if ($LASTEXITCODE -ne 0) {
     throw "TrafficMonitor plugin build failed with exit code $LASTEXITCODE."
 }
 
-$outputPath = Join-Path $pluginRoot "Builds\$Platform\$Configuration\CodexTray.dll"
+$outputPath = Join-Path $pluginRoot "Builds\x64\$Configuration\CodexTray.dll"
 if (-not (Test-Path -LiteralPath $outputPath)) {
     throw "TrafficMonitor plugin DLL was not produced: $outputPath"
 }

@@ -12,8 +12,6 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptRoot
 $projectPath = Join-Path $repoRoot "CodexTray.App\CodexTray.App.csproj"
 $releaseBaseRoot = Join-Path $repoRoot "Builds\Release"
-$runtime = "win-x64"
-$appFileName = "CodexTray.exe"
 . (Join-Path $scriptRoot "Publish-Shared.ps1")
 
 function Get-NormalizedVersion {
@@ -66,8 +64,8 @@ if ($trafficMonitorVersion -ne $releaseVersion) {
 }
 
 $releaseRoot = Join-Path $releaseBaseRoot $normalizedVersion
-$packageName = "CodexTray-$normalizedVersion-$runtime.zip"
-$stagingDir = Join-Path $releaseRoot "CodexTray-$normalizedVersion-$runtime"
+$packageName = "CodexTray-$normalizedVersion-$CodexTrayRuntime.zip"
+$stagingDir = Join-Path $releaseRoot "CodexTray-$normalizedVersion-$CodexTrayRuntime"
 $packagePath = Join-Path $releaseRoot $packageName
 
 function Invoke-ReleasePublish {
@@ -81,7 +79,7 @@ function Invoke-ReleasePublish {
     Write-Host "Staging: $stagingDir"
 
     Invoke-CodexTrayPublish -RepoRoot $repoRoot -ProjectPath $projectPath -OutputPath $stagingDir -Title "Release package publish started."
-    $appPath = Join-Path $stagingDir $appFileName
+    $appPath = Join-Path $stagingDir "CodexTray.exe"
     if (-not (Test-Path -LiteralPath $appPath)) {
         throw "Published executable not found: $appPath"
     }

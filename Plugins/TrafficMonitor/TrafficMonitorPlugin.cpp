@@ -511,12 +511,6 @@ public:
         m_Value = value.empty() ? k_FallbackValue : std::move(value);
     }
 
-    /// Updates the displayed item value to the fallback text.
-    void SetFallback()
-    {
-        m_Value = k_FallbackValue;
-    }
-
     /// Returns the display item name.
     const wchar_t* GetItemName() const override
     {
@@ -589,9 +583,9 @@ public:
         UsageValues values;
         if (!FetchUsageValues(values))
         {
-            m_CodexItem.SetFallback();
-            m_CursorItem.SetFallback();
-            m_GrokItem.SetFallback();
+            m_CodexItem.SetValue({});
+            m_CursorItem.SetValue({});
+            m_GrokItem.SetValue({});
             m_Tooltip = L"CodexTray bridge unavailable";
             return;
         }
@@ -662,12 +656,6 @@ private:
     std::wstring m_Tooltip;
 };
 
-/// Returns the plugin singleton instance.
-CodexTrayPlugin& GetPluginInstance()
-{
-    static CodexTrayPlugin plugin;
-    return plugin;
-}
 }
 
 /// Stores this module handle for configuration lookup.
@@ -687,6 +675,7 @@ extern "C"
     /// Returns the TrafficMonitor plugin instance.
     __declspec(dllexport) ITMPlugin* TMPluginGetInstance()
     {
-        return &TrafficMonitorPlugin::GetPluginInstance();
+        static TrafficMonitorPlugin::CodexTrayPlugin plugin;
+        return &plugin;
     }
 }

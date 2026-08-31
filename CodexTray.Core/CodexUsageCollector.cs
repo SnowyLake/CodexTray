@@ -29,27 +29,12 @@ public sealed class CodexUsageCollector
     }
 
     /// <summary>
-    /// Collects the latest Codex usage response from the default Codex directory.
-    /// </summary>
-    public UsageResponse Collect(bool useAbsoluteResetTime = false)
-    {
-        return CollectAsync(useAbsoluteResetTime).GetAwaiter().GetResult();
-    }
-
-    /// <summary>
     /// Collects the latest Codex usage response asynchronously from the default Codex directory.
     /// </summary>
     public Task<UsageResponse> CollectAsync(bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
     {
-        return CollectAsync(GetDefaultCodexDirectory(), useAbsoluteResetTime, cancellationToken);
-    }
-
-    /// <summary>
-    /// Collects the latest Codex usage response from a Codex directory.
-    /// </summary>
-    public UsageResponse Collect(string codexDirectory, bool useAbsoluteResetTime = false)
-    {
-        return CollectAsync(codexDirectory, useAbsoluteResetTime).GetAwaiter().GetResult();
+        string codexDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+        return CollectAsync(codexDirectory, useAbsoluteResetTime, cancellationToken);
     }
 
     /// <summary>
@@ -58,14 +43,6 @@ public sealed class CodexUsageCollector
     public Task<UsageResponse> CollectAsync(string codexDirectory, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
     {
         return CollectOfficialUsageAsync(codexDirectory, useAbsoluteResetTime, cancellationToken);
-    }
-
-    /// <summary>
-    /// Gets the default Codex home directory.
-    /// </summary>
-    public static string GetDefaultCodexDirectory()
-    {
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
     }
 
     /// <summary>
