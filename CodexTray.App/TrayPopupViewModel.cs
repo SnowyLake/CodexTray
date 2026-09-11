@@ -41,7 +41,7 @@ internal sealed record TokenCostChartLabel(string Text, double Left);
 
 internal sealed record TokenCostDonutSegment(string Label, string Share, Media.Brush Brush, Media.Geometry Geometry, string Tooltip);
 
-internal sealed record TokenCostModelShare(string Label, long Tokens);
+internal sealed record TokenCostModelShare(string Label, long Tokens, decimal? CostUsd);
 
 internal enum TokenCostPeriod
 {
@@ -1738,10 +1738,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             SelectedCostDisplay = string.Create(CultureInfo.InvariantCulture, $"{cost} · {summary.GetCacheHitPercent()}%");
 
             List<TokenCostModelShare> modelShares = m_Statistics.Models
-                .Select(model => new TokenCostModelShare(FormatModelLabel(model.Model), GetPeriodSummary(model, period).TotalTokens))
+                .Select(model =>
+                {
+                    TokenCostSummary modelSummary = GetPeriodSummary(model, period);
+                    return new TokenCostModelShare(FormatModelLabel(model.Model), modelSummary.TotalTokens, modelSummary.CostUsd);
+                })
                 .Where(model => model.Tokens > 0)
                 .GroupBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
-                .Select(group => new TokenCostModelShare(group.Key, group.Sum(model => model.Tokens)))
+                .Select(group => new TokenCostModelShare(group.Key, group.Sum(model => model.Tokens), SumModelCosts(group)))
                 .OrderByDescending(model => model.Tokens)
                 .ThenBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -1753,10 +1757,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
             int directModelCount = modelShares.Count > 4 ? 3 : Math.Min(4, modelShares.Count);
             List<TokenCostModelShare> displayedShares = modelShares.Take(directModelCount).ToList();
-            long otherTokens = modelShares.Skip(directModelCount).Sum(model => model.Tokens);
+            List<TokenCostModelShare> remainingShares = modelShares.Skip(directModelCount).ToList();
+            long otherTokens = remainingShares.Sum(model => model.Tokens);
             if (otherTokens > 0)
             {
-                displayedShares.Add(new TokenCostModelShare("Other", otherTokens));
+                displayedShares.Add(new TokenCostModelShare("Other", otherTokens, SumModelCosts(remainingShares)));
             }
 
             long totalTokens = displayedShares.Sum(model => model.Tokens);
@@ -1771,7 +1776,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 double share = model.Tokens / (double)totalTokens;
                 string shareText = $"{Math.Round(share * 100):0}%";
                 string tokensText = AppSettings.FormatTokenCount(model.Tokens);
-                string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Share: {shareText}";
+                string costText = model.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
+                string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}{Environment.NewLine}Share: {shareText}";
                 segments.Add(new TokenCostDonutSegment(
                     model.Label,
                     shareText,
@@ -1842,6 +1848,25 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 TokenCostPeriod.CurrentMonth => statistics.CurrentMonth,
                 _ => statistics.Lifetime,
             };
+        }
+
+        /// <summary>
+        /// Sums model costs when every share has a priced value.
+        /// </summary>
+        private static decimal? SumModelCosts(IEnumerable<TokenCostModelShare> models)
+        {
+            decimal total = 0;
+            foreach (TokenCostModelShare model in models)
+            {
+                if (!model.CostUsd.HasValue)
+                {
+                    return null;
+                }
+
+                total += model.CostUsd.Value;
+            }
+
+            return total;
         }
 
         /// <summary>

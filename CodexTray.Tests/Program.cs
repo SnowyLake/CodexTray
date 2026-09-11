@@ -2616,20 +2616,20 @@ internal static class Program
                 new TokenCostModelStatistics
                 {
                     Model = "gpt-5.6-sol-high",
-                    LastTwentyFourHours = new TokenCostSummary { TotalTokens = 500 },
-                    Today = new TokenCostSummary { TotalTokens = 600 },
-                    LastSevenDays = new TokenCostSummary { TotalTokens = 1_300 },
-                    CurrentWeek = new TokenCostSummary { TotalTokens = 800 },
-                    CurrentMonth = new TokenCostSummary { TotalTokens = 1_200 },
+                    LastTwentyFourHours = new TokenCostSummary { TotalTokens = 500, CostUsd = 4 },
+                    Today = new TokenCostSummary { TotalTokens = 600, CostUsd = 4.5m },
+                    LastSevenDays = new TokenCostSummary { TotalTokens = 1_300, CostUsd = 8.45m },
+                    CurrentWeek = new TokenCostSummary { TotalTokens = 800, CostUsd = 7.2m },
+                    CurrentMonth = new TokenCostSummary { TotalTokens = 1_200, CostUsd = 12 },
                 },
                 new TokenCostModelStatistics
                 {
                     Model = "gpt-5.4",
-                    LastTwentyFourHours = new TokenCostSummary { TotalTokens = 400 },
-                    Today = new TokenCostSummary { TotalTokens = 400 },
-                    LastSevenDays = new TokenCostSummary { TotalTokens = 700 },
-                    CurrentWeek = new TokenCostSummary { TotalTokens = 200 },
-                    CurrentMonth = new TokenCostSummary { TotalTokens = 800 },
+                    LastTwentyFourHours = new TokenCostSummary { TotalTokens = 400, CostUsd = 2 },
+                    Today = new TokenCostSummary { TotalTokens = 400, CostUsd = 2.5m },
+                    LastSevenDays = new TokenCostSummary { TotalTokens = 700, CostUsd = 4.55m },
+                    CurrentWeek = new TokenCostSummary { TotalTokens = 200, CostUsd = 1.8m },
+                    CurrentMonth = new TokenCostSummary { TotalTokens = 800, CostUsd = 8 },
                 },
             ],
         };
@@ -2655,11 +2655,23 @@ internal static class Program
         AssertEqual("0.90K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected 24-hour token total");
         AssertEqual("$6.00 · 40%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 24-hour cost and cache hit");
         AssertEqual("56%|44%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 24-hour donut model shares");
+        AssertEqual(
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
+            viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
+            "Codex 24-hour donut model tooltip");
+        AssertEqual(
+            $"GPT-5.4{Environment.NewLine}Tokens: 0.40K{Environment.NewLine}Cost: $2.00{Environment.NewLine}Share: 44%",
+            viewModel.CodexTokenCost.DonutSegments[1].Tooltip,
+            "Codex 24-hour donut second model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
         AssertEqual("Today|Week|Month|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "calendar Codex token cost row titles");
         AssertEqual("$7.00|$9.00|$20.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "calendar Codex token cost row values");
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected today token total");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
+        AssertEqual(
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Share: 60%",
+            viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
+            "Codex today donut model tooltip");
         AssertEqual(31, viewModel.CodexTokenCost.ChartDays.Count, "current-month Codex token cost chart day count");
         AssertEqual(31, viewModel.CodexTokenCost.ChartColumnCount, "current-month Codex token cost chart columns");
         AssertEqual("1|11|21|31", string.Join('|', viewModel.CodexTokenCost.ChartLabels.Select(label => label.Text)), "current-month Codex token cost chart axis labels");
@@ -2671,6 +2683,10 @@ internal static class Program
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected current-week token total");
         AssertEqual("$9.00 · 45%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-week cost and cache hit");
         AssertEqual("80%|20%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-week donut model shares");
+        AssertEqual(
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Share: 80%",
+            viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
+            "Codex current-week donut model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "restored Codex token cost row titles");
         AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "restored Codex token cost row values");
@@ -2678,6 +2694,10 @@ internal static class Program
         AssertEqual("$13.00 · 13%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 7D cost and cache hit");
         AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
         AssertEqual("65%|35%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 7D donut model shares");
+        AssertEqual(
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
+            viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
+            "Codex 7D donut model tooltip");
         AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7D row should be selected");
 
         viewModel.UpdateCursorDashboard(new CursorUsageDashboard(null, statistics, "N/A", string.Empty, DateTimeOffset.Now));
@@ -2722,6 +2742,42 @@ internal static class Program
         AssertEqual("N/A|N/A|N/A|N/A", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Display.Cost)), "Grok unknown cost values");
         AssertEqual(58d, viewModel.GrokTokenCost.ChartDays[29].BarHeight, "Grok token chart maximum height");
         AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K{Environment.NewLine}Cost: N/A", viewModel.GrokTokenCost.ChartDays[29].Tooltip, "Grok token chart tooltip");
+
+        viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[0]);
+        viewModel.UpdateTokenCost(new TokenCostStatistics
+        {
+            LastTwentyFourHours = new TokenCostSummary { TotalTokens = 1_500, CostUsd = 15 },
+            Models =
+            [
+                new TokenCostModelStatistics { Model = "a", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 500, CostUsd = 5 } },
+                new TokenCostModelStatistics { Model = "b", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 400, CostUsd = 4 } },
+                new TokenCostModelStatistics { Model = "c", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 300, CostUsd = 3 } },
+                new TokenCostModelStatistics { Model = "d", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 200, CostUsd = 2 } },
+                new TokenCostModelStatistics { Model = "e", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 100, CostUsd = 1 } },
+            ],
+        });
+        AssertEqual("a|b|c|Other", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut other model labels");
+        AssertEqual(
+            $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Share: 20%",
+            viewModel.CodexTokenCost.DonutSegments[3].Tooltip,
+            "Codex donut other model tooltip");
+
+        viewModel.UpdateTokenCost(new TokenCostStatistics
+        {
+            LastTwentyFourHours = new TokenCostSummary { TotalTokens = 241_460 },
+            Models =
+            [
+                new TokenCostModelStatistics
+                {
+                    Model = "grok-4.6-build",
+                    LastTwentyFourHours = new TokenCostSummary { TotalTokens = 241_460 },
+                },
+            ],
+        });
+        AssertEqual(
+            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Cost: N/A{Environment.NewLine}Share: 100%",
+            viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
+            "unpriced donut model tooltip");
 
         viewModel.UpdateTokenCost(null);
         AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "unavailable Codex token cost chart day count");
