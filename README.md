@@ -19,7 +19,7 @@
 
 `CodexTray` 是一个适用于 Windows x64 的托盘应用, 用于查看 Codex, Cursor 和 Grok 的剩余额度, 重置时间, token 用量与费用, 也支持监控多个 API 账户的余额. 点击托盘图标即可查看, 平时无需保持窗口打开.
 
-配合 LiteMonitor 或 TrafficMonitor, 还可以在监控器中显示 Codex Weekly, Cursor Monthly 和 Grok Weekly 的剩余百分比.
+配合 LiteMonitor 或 TrafficMonitor, 还可以在监控器中显示 Codex Weekly, Cursor Monthly 和 Grok Weekly 的剩余百分比, 以及第一张 DeepSeek 卡片的 CNY 余额.
 
 本文介绍功能, 安装和使用方法. 开发维护说明见 [AGENTS.md](AGENTS.md).
 
@@ -100,7 +100,7 @@ Codex, Cursor 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓�
 
 在 APIs 页点击右上角的添加按钮, 选择 provider 并填写对应信息, 再点击卡片右上角的保存按钮. API 监控会按刷新间隔自动更新, 也可以手动刷新. 隐藏 APIs 页后会停止 API 监控采集.
 
-- DeepSeek: 填写 Base URL 和 API key, 默认 Base URL 为 `https://api.deepseek.com`. 卡片显示 CNY 余额.
+- DeepSeek: 填写 Base URL 和 API key, 默认 Base URL 为 `https://api.deepseek.com`. 卡片显示 CNY 余额, 第一张 DeepSeek 卡片也会显示在 LiteMonitor 和 TrafficMonitor 中.
 - OpenRouter: 填写 Base URL 和 Management Key, 默认 Base URL 为 `https://openrouter.ai`. 卡片显示剩余与已用 credits, 普通 API key 不适用.
 - Vercel: 填写 Base URL 和 AI Gateway API key, 默认 Base URL 为 `https://ai-gateway.vercel.sh`. 卡片显示团队剩余 credits 和累计已用量, 普通 Vercel 账号 token 不适用.
 - NanoGPT: 填写 Base URL 和 API key, 默认 Base URL 为 `https://nano-gpt.com`. 卡片优先显示 USD 余额, 并在接口可用时显示最近 30 个 UTC 日的已用金额; 用量查询失败不会影响余额显示.
@@ -112,11 +112,11 @@ Codex, Cursor 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓�
 
 CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监控器, 使用 `Browse` 手动选择目录或 `Auto detect` 自动定位, 然后点击 `Setup` 安装插件. 安装完成后重启对应监控器或重新加载插件.
 
-两个插件都显示 `Codex`, `Cursor` 和 `Grok` 三项, 分别对应 Codex Weekly, Cursor Monthly 和 Grok Weekly. 插件仅显示剩余百分比, 不显示重置时间, Token Cost 或 APIs 页的余额.
+两个插件都显示 `Codex`, `Cursor`, `Grok` 和 `DeepSeek` 四项, 分别对应 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额. 插件不显示重置时间, Token Cost 或其他 API provider 的余额. 有多张 DeepSeek 卡片时, 只使用 APIs 页中最靠前的一张.
 
-隐藏 Codex, Cursor 或 Grok 页面后, 对应插件项会显示 `N/A`. 同时隐藏这三个页面后, 应用会停止向插件提供数据.
+隐藏 Codex, Cursor, Grok 或 APIs 页面后, 对应插件项会显示 `N/A`. 四个数据页全部隐藏后, 应用会停止向插件提供数据.
 
-如果修改了 CodexTray 的 HTTP 端口, 请重新执行 `Setup`, 让插件配置同步到新端口.
+升级 CodexTray 或修改 HTTP 端口后, 请重新执行 `Setup`, 让插件文件和端口配置同步到监控器.
 
 ## 数据与隐私
 
@@ -151,7 +151,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 ### 为什么 LiteMonitor 或 TrafficMonitor 没有更新
 
-请确认 CodexTray 正在运行, 且 Settings 中 Codex, Cursor 或 Grok 至少一个页面可见. 在托盘菜单中点击 `Refresh Now`, 再检查监控器路径并重新执行 `Setup`. 如果修改过 HTTP 端口, 必须重新安装插件配置.
+请确认 CodexTray 正在运行, 且 Settings 中 Codex, Cursor, Grok 或 APIs 至少一个页面可见. 在托盘菜单中点击 `Refresh Now`, 再检查监控器路径并重新执行 `Setup`. 升级后或修改过 HTTP 端口时, 必须重新安装插件.
 
 ### 为什么找不到 LiteMonitor 或 TrafficMonitor
 

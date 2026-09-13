@@ -101,6 +101,33 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
+    /// Converts collected API results into the first DeepSeek plugin snapshot.
+    /// </summary>
+    public static DeepSeekPluginUsage BuildDeepSeekPluginUsage(IReadOnlyList<ApiUsageResult> results)
+    {
+        foreach (ApiUsageResult result in results)
+        {
+            if (!string.Equals(result.Provider, ApiMonitorSettings.DeepSeekProvider, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (result.Available)
+            {
+                return new DeepSeekPluginUsage(
+                    new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
+                    result.BalanceDisplay);
+            }
+
+            break;
+        }
+
+        return new DeepSeekPluginUsage(
+            new UsageLimit { Name = "deepseek", UsedPercent = 100, RemainingPercent = 0 },
+            CodexTrayDefaults.UnavailableDisplay);
+    }
+
+    /// <summary>
     /// Queries one supported API monitor.
     /// </summary>
     private async Task<ApiUsageResult> CollectOneAsync(ApiMonitorSettings monitor, CancellationToken cancellationToken)

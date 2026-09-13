@@ -62,6 +62,7 @@ internal static class Program
         await RunAsync("formats compact token units", TestTokenUnitFormattingAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
         await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
+        await RunAsync("maps the first DeepSeek card to plugin usage", TestDeepSeekPluginUsageAsync);
         await RunAsync("parses Grok billing responses", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
         await RunAsync("ignores OpenCode OAuth for Grok", TestGrokIgnoresOpenCodeOAuthAsync);
@@ -1057,6 +1058,9 @@ internal static class Program
                 string.Empty,
                 string.Empty,
                 now)));
+        usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
+            new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
+            "¥110.00"));
         using LightweightHttpServer server = new(usageCache, 0);
         server.Start();
 
@@ -1075,26 +1079,31 @@ internal static class Program
         AssertEqual("80%", display.GetProperty("weekly").GetString(), "HTTP plugin Codex display");
         AssertEqual("75%", display.GetProperty("cursor_monthly").GetString(), "HTTP plugin Cursor display");
         AssertEqual("95%", display.GetProperty("grok_weekly").GetString(), "HTTP plugin Grok display");
+        AssertEqual("¥110.00", display.GetProperty("deepseek").GetString(), "HTTP plugin DeepSeek display");
         AssertEqual(75, limits.GetProperty("cursor_monthly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Cursor monthly remaining percent");
         AssertEqual(95, limits.GetProperty("grok_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Grok remaining percent");
+        AssertEqual(100, limits.GetProperty("deepseek").GetProperty("remaining_percent").GetInt32(), "HTTP plugin DeepSeek remaining percent");
         string[] displayNames = [.. display.EnumerateObject().Select(property => property.Name)];
         string[] limitNames = [.. limits.EnumerateObject().Select(property => property.Name)];
         AssertTrue(Array.IndexOf(displayNames, "cursor_monthly") < Array.IndexOf(displayNames, "grok_weekly"), "HTTP plugin Cursor display should precede Grok");
+        AssertTrue(Array.IndexOf(displayNames, "grok_weekly") < Array.IndexOf(displayNames, "deepseek"), "HTTP plugin Grok display should precede DeepSeek");
         AssertTrue(Array.IndexOf(limitNames, "cursor_monthly") < Array.IndexOf(limitNames, "grok_weekly"), "HTTP plugin Cursor limit should precede Grok");
+        AssertTrue(Array.IndexOf(limitNames, "grok_weekly") < Array.IndexOf(limitNames, "deepseek"), "HTTP plugin Grok limit should precede DeepSeek");
         AssertTrue(!display.TryGetProperty("codex_5h", out JsonElement legacySession), "legacy session plugin field should be removed");
         AssertTrue(!display.TryGetProperty("codex_7d", out JsonElement legacyWeekly), "legacy weekly plugin field should be removed");
 
         string usageText = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageTextEndpointPath}");
         string[] usageLines = usageText.Split(Environment.NewLine);
-        AssertEqual(3, usageLines.Length, "text endpoint line count");
+        AssertEqual(4, usageLines.Length, "text endpoint line count");
         AssertEqual("80%", usageLines[0], "text endpoint Codex display");
         AssertEqual("75%", usageLines[1], "text endpoint Cursor display");
         AssertEqual("95%", usageLines[2], "text endpoint Grok display");
+        AssertEqual("¥110.00", usageLines[3], "text endpoint DeepSeek display");
         await server.StopAsync();
     }
 
     /// <summary>
-    /// Tests independent merging and clearing of Codex, Cursor, and Grok plugin values.
+    /// Tests independent merging and clearing of Codex, Cursor, Grok, and DeepSeek plugin values.
     /// </summary>
     private static Task TestUsageCacheSourcesAsync()
     {
@@ -1119,19 +1128,25 @@ internal static class Program
         usageCache.UpdateCursor(new CursorPluginUsage(
             new UsageLimit { Name = "monthly", RemainingPercent = 70 },
             "70%"));
+        usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
+            new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
+            "¥110.00"));
 
         UsageResponse merged = usageCache.Get() ?? throw new InvalidOperationException("merged usage should be available");
         AssertEqual(true, usageCache.GetCodex()?.Available, "Codex snapshot should stay available");
         AssertEqual("80%", merged.Display.Weekly, "merged Codex display");
         AssertEqual("70%", merged.Display.CursorMonthly, "merged Cursor monthly display");
         AssertEqual("60%", merged.Display.GrokWeekly, "merged Grok display");
-        AssertEqual("Codex: 80% | Cursor: 70% | Grok: 60%", merged.Display.Summary, "merged plugin summary order");
+        AssertEqual("¥110.00", merged.Display.DeepSeek, "merged DeepSeek display");
+        AssertEqual(100, merged.Limits.DeepSeek.RemainingPercent, "merged DeepSeek remaining percent");
+        AssertEqual("Codex: 80% | Cursor: 70% | Grok: 60% | DeepSeek: ¥110.00", merged.Display.Summary, "merged plugin summary order");
 
         usageCache.ClearCodex();
         AssertTrue(usageCache.GetCodex() == null, "cleared Codex snapshot should be empty");
         UsageResponse grokAndCursor = usageCache.Get() ?? throw new InvalidOperationException("Grok and Cursor usage should be available");
         AssertEqual("N/A", grokAndCursor.Display.Weekly, "cleared Codex display");
         AssertEqual("60%", grokAndCursor.Display.GrokWeekly, "preserved Grok display");
+        AssertEqual("¥110.00", grokAndCursor.Display.DeepSeek, "preserved DeepSeek display");
 
         usageCache.ClearGrok();
         UsageResponse cursorOnly = usageCache.Get() ?? throw new InvalidOperationException("Cursor-only usage should be available");
@@ -1139,6 +1154,11 @@ internal static class Program
         AssertEqual("70%", cursorOnly.Display.CursorMonthly, "preserved Cursor display");
 
         usageCache.ClearCursor();
+        UsageResponse deepSeekOnly = usageCache.Get() ?? throw new InvalidOperationException("DeepSeek-only usage should be available");
+        AssertEqual("N/A", deepSeekOnly.Display.CursorMonthly, "cleared Cursor display");
+        AssertEqual("¥110.00", deepSeekOnly.Display.DeepSeek, "preserved DeepSeek display after other sources clear");
+
+        usageCache.ClearDeepSeek();
         AssertTrue(usageCache.Get() == null, "cleared plugin usage should be empty");
         return Task.CompletedTask;
     }
@@ -1289,11 +1309,16 @@ internal static class Program
         AssertTrue(content.Contains("\"short_label\": \"Codex\"", StringComparison.Ordinal), "plugin content should include Codex item");
         AssertTrue(content.Contains("\"short_label\": \"Cursor\"", StringComparison.Ordinal), "plugin content should include Cursor item");
         AssertTrue(content.Contains("\"short_label\": \"Grok\"", StringComparison.Ordinal), "plugin content should include Grok item");
+        AssertTrue(content.Contains("\"short_label\": \"DeepSeek\"", StringComparison.Ordinal), "plugin content should include DeepSeek item");
         AssertTrue(content.Contains("\"format_val\": \"{{cursor_display}}\"", StringComparison.Ordinal), "plugin content should include Cursor value");
         AssertTrue(content.Contains("\"format_val\": \"{{grok_display}}\"", StringComparison.Ordinal), "plugin content should include Grok value");
+        AssertTrue(content.Contains("\"format_val\": \"{{deepseek_display}}\"", StringComparison.Ordinal), "plugin content should include DeepSeek value");
         AssertTrue(
             content.IndexOf("\"short_label\": \"Cursor\"", StringComparison.Ordinal) < content.IndexOf("\"short_label\": \"Grok\"", StringComparison.Ordinal),
             "plugin Cursor item should precede Grok");
+        AssertTrue(
+            content.IndexOf("\"short_label\": \"Grok\"", StringComparison.Ordinal) < content.IndexOf("\"short_label\": \"DeepSeek\"", StringComparison.Ordinal),
+            "plugin Grok item should precede DeepSeek");
         AssertTrue(content.Contains($"http://{CodexTrayDefaults.Host}:17998{CodexTrayDefaults.UsageEndpointPath}", StringComparison.Ordinal), "plugin content should include bridge URL");
         return Task.CompletedTask;
     }
@@ -1659,6 +1684,37 @@ internal static class Program
         AssertEqual("$95.50", results[6].BalanceDisplay, "Vercel remaining credits");
         AssertEqual("$4.50", results[6].UsedDisplay, "Vercel used credits");
         AssertEqual("$95.50", results[7].BalanceDisplay, "Vercel root base URL credits");
+    }
+
+    /// <summary>
+    /// Tests that plugin usage uses the first DeepSeek card and ignores other API providers.
+    /// </summary>
+    private static Task TestDeepSeekPluginUsageAsync()
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        DeepSeekPluginUsage mixed = ApiUsageCollector.BuildDeepSeekPluginUsage(
+        [
+            new ApiUsageResult("openrouter", true, "$74.75", "$25.75", string.Empty, now, Provider: ApiMonitorSettings.OpenRouterProvider),
+            new ApiUsageResult("deepseek", true, "¥110.00", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
+            new ApiUsageResult("deepseek-2", true, "¥9.00", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
+        ]);
+        AssertEqual("¥110.00", mixed.Display, "first DeepSeek card should be used");
+        AssertEqual(100, mixed.Limit.RemainingPercent, "available DeepSeek remaining percent");
+
+        DeepSeekPluginUsage unavailableFirst = ApiUsageCollector.BuildDeepSeekPluginUsage(
+        [
+            new ApiUsageResult("deepseek", false, "N/A", "N/A", "Enter an API key", now, Provider: ApiMonitorSettings.DeepSeekProvider),
+            new ApiUsageResult("deepseek-2", true, "¥9.00", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
+        ]);
+        AssertEqual(CodexTrayDefaults.UnavailableDisplay, unavailableFirst.Display, "unavailable first DeepSeek card should not fall through");
+        AssertEqual(0, unavailableFirst.Limit.RemainingPercent, "unavailable DeepSeek remaining percent");
+
+        DeepSeekPluginUsage noDeepSeek = ApiUsageCollector.BuildDeepSeekPluginUsage(
+        [
+            new ApiUsageResult("openrouter", true, "$74.75", "$25.75", string.Empty, now, Provider: ApiMonitorSettings.OpenRouterProvider),
+        ]);
+        AssertEqual(CodexTrayDefaults.UnavailableDisplay, noDeepSeek.Display, "missing DeepSeek card should be unavailable");
+        return Task.CompletedTask;
     }
 
     /// <summary>

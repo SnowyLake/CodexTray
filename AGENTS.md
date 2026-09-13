@@ -26,7 +26,7 @@
 
 `CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 与应用内对话框使用 WPF. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
 
-`CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务和插件安装. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Cursor, Grok 和 API 监控分别采集, 其中 Codex Weekly, Cursor Monthly 和 Grok Weekly 进入插件响应; Token Cost 和 API 监控结果仅显示在主面板.
+`CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务和插件安装. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Cursor, Grok 和 API 监控分别采集, 其中 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应; Token Cost 和其他 API provider 结果仅显示在主面板.
 
 ## 架构与数据流
 
@@ -36,16 +36,16 @@
 2. `CodexTray.App/App.cs` 创建 WPF application host, `TrayController` 管理托盘, 设置, 定时刷新, 插件安装和本地服务.
 3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
 4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Cursor/Grok/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
-5. `AppSettings.VisiblePages` 控制 Codex, Cursor, Grok 与 APIs 页的可见性和后台采集. 同时隐藏 Codex, Cursor 和 Grok 时停止本地 HTTP 服务, 全部隐藏时停止定时刷新.
+5. `AppSettings.VisiblePages` 控制 Codex, Cursor, Grok 与 APIs 页的可见性和后台采集. 无可见数据页时停止本地 HTTP 服务和定时刷新.
 6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
 
 ### 额度与插件链路
 
-1. `CodexUsageCollector` 读取 `~/.codex/auth.json` 中的 OAuth 凭据, 从 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口采集 Session, Weekly 和 Reset Credits. 凭据缺失或无效时返回不可用状态. `CursorUsageCollector` 将 dashboard 中的 Monthly 额度转换为插件数据. `GrokUsageCollector` 将 dashboard 中的 Weekly 额度转换为插件数据.
-2. `TrayController` 将 Codex, Cursor 与 Grok 的最新结果分别写入 `UsageCache`, 由缓存合并为插件响应. 隐藏任一页面时会清除对应缓存数据.
+1. `CodexUsageCollector` 读取 `~/.codex/auth.json` 中的 OAuth 凭据, 从 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口采集 Session, Weekly 和 Reset Credits. 凭据缺失或无效时返回不可用状态. `CursorUsageCollector` 将 dashboard 中的 Monthly 额度转换为插件数据. `GrokUsageCollector` 将 dashboard 中的 Weekly 额度转换为插件数据. `ApiUsageCollector.BuildDeepSeekPluginUsage` 将 APIs 页中第一张 DeepSeek 卡片的 CNY 余额转换为插件数据.
+2. `TrayController` 将 Codex, Cursor, Grok 与 DeepSeek 的最新结果分别写入 `UsageCache`, 由缓存合并为插件响应. 隐藏任一页面时会清除对应缓存数据.
 3. `LightweightHttpServer` 默认监听 `127.0.0.1:17890`, 暴露以下接口:
-   - `/codex-tray`: LiteMonitor 使用的 JSON 响应.
-   - `/codex-tray.txt`: TrafficMonitor 使用的三行文本, 依次为 Codex Weekly, Cursor Monthly 和 Grok Weekly.
+   - `/codex-tray`: LiteMonitor 使用的 JSON 响应. DeepSeek 显示 `display.deepseek` 与 `limits.deepseek`; `remaining_percent` 在余额可用时为 100, 否则为 0, 供 LiteMonitor 着色.
+   - `/codex-tray.txt`: TrafficMonitor 使用的四行文本, 依次为 Codex Weekly, Cursor Monthly, Grok Weekly 和 DeepSeek CNY 余额.
    - `/health`: 返回本地服务健康状态.
 4. `LiteMonitorPluginInstaller` 和 `TrafficMonitorPluginInstaller` 从发布目录读取模板, 写入当前端口后安装到监控器目录.
 
@@ -54,7 +54,7 @@
 1. `AppSettings.ApiMonitors` 保存 API 监控卡片的顺序和 provider 配置. 支持的 provider 及新建卡片下拉顺序为 DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI, 由 `ApiMonitorViewModel.ProviderOptions` 固定. `TrayPopupViewModel` 负责增删, 排序和持久化卡片. `AppSettings.Normalize` 会移除旧版 Cursor 卡片.
 2. `ApiUsageCollector` 并行刷新所有卡片. DeepSeek 使用 `/user/balance`, OpenRouter 使用 `/api/v1/credits`, Vercel 使用 `/v1/credits`, NanoGPT 使用 `/api/check-balance` 和 `/api/v1/usage`, NewAPI 使用 `/api/user/self` 并发送 `New-Api-User` header.
 3. 请求发送到各卡片配置的 Base URL. OpenRouter 使用 Management Key, 不使用普通 API key 的 `/key` limit 作为账户余额. Vercel 使用 AI Gateway API key, 不使用普通 Vercel 账号 token. NewAPI 还需要 User ID. NanoGPT 用量按最近 30 个 UTC 日查询, 用量失败不影响余额显示.
-4. `TrayController` 将结果交给 `TrayPopupViewModel` 更新单卡片状态与 APIs 页汇总状态. 这些结果不写入 `UsageCache`.
+4. `TrayController` 将结果交给 `TrayPopupViewModel` 更新单卡片状态与 APIs 页汇总状态, 并将第一张 DeepSeek 卡片写入 `UsageCache`. 其他 API provider 不进入插件 HTTP 响应. 有多张 DeepSeek 卡片时只使用最靠前的一张, 该卡片不可用时显示 `N/A`, 不回退到后续 DeepSeek 卡片.
 
 ### Cursor 页面链路
 
@@ -84,7 +84,7 @@
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
 - 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.
 - 主面板尺寸固定为 360 x 620.
-- Codex, Cursor, Grok 与 APIs 页面默认全部可见. 无可见数据页时不运行定时刷新.
+- Codex, Cursor, Grok 与 APIs 页面默认全部可见. 无可见数据页时不运行定时刷新和本地 HTTP 服务.
 - Codex, Cursor 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Lifetime`. `24H` 从当前时刻精确向前滚动 24 小时. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
 - 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). Token 数量使用 K, M, B.
 - Codex 额度大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示, 只有一个有效页面时隐藏页点. Resets 使用全宽小卡片.
@@ -128,7 +128,7 @@
 - 修改 Cursor quota, usage-events, OAuth, 数据库读写或插件 Monthly 映射时, 同步检查 `CursorUsageCollector`, `UsageCache`, `TrayController`, `TrayPopupViewModel`, `TrayPopupWindow.xaml`, `Microsoft.Data.Sqlite` 依赖, 对应测试和 README 的用户说明.
 - 修改 `VisiblePages` 或刷新调度时, 同步检查页面导航, 定时器, 插件本地 HTTP 服务启停, 缓存清理和各采集器调用条件.
 - 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
-- 本地服务必须保持仅监听 `127.0.0.1`. API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.
+- 本地服务必须保持仅监听 `127.0.0.1`. 除第一张 DeepSeek 卡片的 CNY 余额外, 其他 API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.
 - `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. `Scripts/Restart-App.ps1` 只重启当前发布输出中的程序, 不执行发布.
 
 ## 构建与输出
