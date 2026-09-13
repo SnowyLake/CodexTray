@@ -213,7 +213,7 @@ public sealed class TokenCostCollector
                 continue;
             }
 
-            ModelPricing modelPricing = new(input, cachedInput, output);
+            ModelPricing modelPricing = new(input, cachedInput, output, LoadPricingPeriods(value));
             pricing[property.Name] = modelPricing;
             if (value.TryGetProperty("aliases", out JsonElement aliases) && aliases.ValueKind == JsonValueKind.Array)
             {
@@ -376,7 +376,7 @@ public sealed class TokenCostCollector
         }
 
         bool costIsPartial = eventCostIsPartial || GetBoolean(value, "costIsPartial");
-        decimal? localCost = counts.HasUsage ? CalculateCost(pricing, model, counts) : null;
+        decimal? localCost = counts.HasUsage ? CalculateCost(pricing, model, counts, timestamp) : null;
         decimal? cost = !counts.HasUsage
             ? reportedCost
             : reportedCost.HasValue && !costIsPartial ? reportedCost : localCost ?? reportedCost;
@@ -493,7 +493,7 @@ public sealed class TokenCostCollector
                     continue;
                 }
 
-                decimal? costUsd = CalculateCost(pricing, model, increment);
+                decimal? costUsd = CalculateCost(pricing, model, increment, timestamp);
                 events.Add(new CachedUsageEvent(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens));
                 accumulator.Add(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens);
             }
@@ -509,16 +509,120 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Calculates API-equivalent cost for one model usage event.
     /// </summary>
-    private static decimal? CalculateCost(Dictionary<string, ModelPricing> pricing, string model, TokenCounts counts)
+    private static decimal? CalculateCost(Dictionary<string, ModelPricing> pricing, string model, TokenCounts counts, DateTimeOffset timestamp)
     {
         if (!TryFindPricing(pricing, model, out ModelPricing modelPricing))
         {
             return null;
         }
 
+        decimal input = modelPricing.Input;
+        decimal cachedInput = modelPricing.CachedInput;
+        decimal output = modelPricing.Output;
+        foreach (PricingPeriod period in modelPricing.Periods)
+        {
+            if (!PeriodMatches(period, timestamp))
+            {
+                continue;
+            }
+
+            input = period.Input;
+            cachedInput = period.CachedInput;
+            output = period.Output;
+            break;
+        }
+
         long cached = Math.Min(counts.CachedInput, counts.Input);
         long freshInput = counts.Input - cached;
-        return (freshInput * modelPricing.Input + cached * modelPricing.CachedInput + counts.Output * modelPricing.Output) / 1_000_000m;
+        return (freshInput * input + cached * cachedInput + counts.Output * output) / 1_000_000m;
+    }
+
+    /// <summary>
+    /// Reads optional timed rate periods from a pricing entry.
+    /// </summary>
+    private static PricingPeriod[] LoadPricingPeriods(JsonElement value)
+    {
+        if (!value.TryGetProperty("periods", out JsonElement periods) || periods.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        List<PricingPeriod> result = [];
+        foreach (JsonElement period in periods.EnumerateArray())
+        {
+            if (period.ValueKind != JsonValueKind.Object ||
+                !TryGetDecimalProperty(period, "input", out decimal input) ||
+                !TryGetDecimalProperty(period, "cachedInput", out decimal cachedInput) ||
+                !TryGetDecimalProperty(period, "output", out decimal output) ||
+                !TryGetOptionalClock(period, "startUtc", TimeSpan.Zero, out TimeSpan startUtc) ||
+                !TryGetOptionalClock(period, "endUtc", TimeSpan.FromHours(24), out TimeSpan endUtc))
+            {
+                continue;
+            }
+
+            DayOfWeek[]? daysUtc = null;
+            if (period.TryGetProperty("daysUtc", out JsonElement days) && days.ValueKind != JsonValueKind.Null)
+            {
+                if (days.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                List<DayOfWeek> parsed = [];
+                bool validDays = true;
+                foreach (JsonElement day in days.EnumerateArray())
+                {
+                    if (day.ValueKind != JsonValueKind.Number || !day.TryGetInt32(out int number) || number is < 0 or > 6)
+                    {
+                        validDays = false;
+                        break;
+                    }
+
+                    parsed.Add((DayOfWeek)number);
+                }
+
+                if (!validDays || parsed.Count == 0)
+                {
+                    continue;
+                }
+
+                daysUtc = [.. parsed];
+            }
+
+            result.Add(new PricingPeriod(input, cachedInput, output, daysUtc, startUtc, endUtc));
+        }
+
+        return [.. result];
+    }
+
+    /// <summary>
+    /// Reads an optional UTC clock time, using the fallback when the field is omitted.
+    /// </summary>
+    private static bool TryGetOptionalClock(JsonElement period, string name, TimeSpan fallback, out TimeSpan time)
+    {
+        time = fallback;
+        if (!period.TryGetProperty(name, out JsonElement value) || value.ValueKind == JsonValueKind.Null)
+        {
+            return true;
+        }
+
+        return value.ValueKind == JsonValueKind.String &&
+            TimeSpan.TryParse(value.GetString(), CultureInfo.InvariantCulture, out time);
+    }
+
+    /// <summary>
+    /// Returns whether a usage timestamp falls inside one configured UTC pricing window.
+    /// </summary>
+    private static bool PeriodMatches(PricingPeriod period, DateTimeOffset timestamp)
+    {
+        DateTime utc = timestamp.UtcDateTime;
+        if (period.DaysUtc is { Length: > 0 } days && Array.IndexOf(days, utc.DayOfWeek) < 0)
+        {
+            return false;
+        }
+
+        TimeSpan time = utc.TimeOfDay;
+        return time >= period.StartUtc && time < period.EndUtc;
     }
 
     /// <summary>
@@ -1003,7 +1107,9 @@ public sealed class TokenCostCollector
         public required List<CachedUsageEvent> Events { get; init; }
     }
 
-    private readonly record struct ModelPricing(decimal Input, decimal CachedInput, decimal Output);
+    private readonly record struct ModelPricing(decimal Input, decimal CachedInput, decimal Output, PricingPeriod[] Periods);
+
+    private readonly record struct PricingPeriod(decimal Input, decimal CachedInput, decimal Output, DayOfWeek[]? DaysUtc, TimeSpan StartUtc, TimeSpan EndUtc);
 
     private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp, string Model);
 

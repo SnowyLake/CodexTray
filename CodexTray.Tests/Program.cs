@@ -84,6 +84,7 @@ internal static class Program
         await RunAsync("prefers Codex last_token_usage over cumulative totals", TestCodexLastTokenUsageAsync);
         await RunAsync("deduplicates archived Codex rollouts by thread id", TestCodexArchivedRolloutDedupAsync);
         await RunAsync("applies model alias pricing", TestModelAliasPricingAsync);
+        await RunAsync("applies DeepSeek peak and off-peak pricing", TestDeepSeekPeakPricingAsync);
         await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
         await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
         await RunAsync("ignores OpenCode token cost for Codex", TestOpenCodeTokenCostIgnoredAsync);
@@ -2099,6 +2100,11 @@ internal static class Program
         AssertEqual(1.75m, pricing.GetProperty("input").GetDecimal(), "gpt-5.3-codex input price");
         AssertEqual(0.175m, pricing.GetProperty("cachedInput").GetDecimal(), "gpt-5.3-codex cached input price");
         AssertEqual(14.0m, pricing.GetProperty("output").GetDecimal(), "gpt-5.3-codex output price");
+        JsonElement lunaPricing = document.RootElement.GetProperty("gpt-5.6-luna");
+        AssertEqual(0.2m, lunaPricing.GetProperty("input").GetDecimal(), "gpt-5.6-luna input price");
+        AssertEqual(0.02m, lunaPricing.GetProperty("cachedInput").GetDecimal(), "gpt-5.6-luna cached input price");
+        AssertEqual(1.2m, lunaPricing.GetProperty("output").GetDecimal(), "gpt-5.6-luna output price");
+        AssertEqual("codex-auto-review", string.Join('|', lunaPricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "gpt-5.6-luna aliases");
         JsonElement astraPricing = document.RootElement.GetProperty("gpt-6-astra");
         AssertEqual(10.0m, astraPricing.GetProperty("input").GetDecimal(), "gpt-6-astra input price");
         AssertEqual(1.0m, astraPricing.GetProperty("cachedInput").GetDecimal(), "gpt-6-astra cached input price");
@@ -2114,13 +2120,22 @@ internal static class Program
         AssertEqual(6.0m, grok46Pricing.GetProperty("output").GetDecimal(), "grok-4.6 output price");
         AssertEqual("grok-4.6-latest|grok-4.6-build", string.Join('|', grok46Pricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.6 aliases");
         JsonElement deepSeekFlashPricing = document.RootElement.GetProperty("deepseek-v4-flash");
-        AssertEqual(0.14m, deepSeekFlashPricing.GetProperty("input").GetDecimal(), "deepseek-v4-flash input price");
-        AssertEqual(0.0028m, deepSeekFlashPricing.GetProperty("cachedInput").GetDecimal(), "deepseek-v4-flash cached input price");
-        AssertEqual(0.28m, deepSeekFlashPricing.GetProperty("output").GetDecimal(), "deepseek-v4-flash output price");
+        AssertEqual(0.15m, deepSeekFlashPricing.GetProperty("input").GetDecimal(), "deepseek-v4-flash off-peak input price");
+        AssertEqual(0.003m, deepSeekFlashPricing.GetProperty("cachedInput").GetDecimal(), "deepseek-v4-flash off-peak cached input price");
+        AssertEqual(0.6m, deepSeekFlashPricing.GetProperty("output").GetDecimal(), "deepseek-v4-flash off-peak output price");
+        JsonElement[] flashPeriods = [.. deepSeekFlashPricing.GetProperty("periods").EnumerateArray()];
+        AssertEqual(2, flashPeriods.Length, "deepseek-v4-flash period count");
+        AssertPricingPeriod(flashPeriods[0], 0.3m, 0.006m, 1.2m, "1,2,3,4,5", "01:00", "04:00", "deepseek-v4-flash morning peak");
+        AssertPricingPeriod(flashPeriods[1], 0.3m, 0.006m, 1.2m, "1,2,3,4,5", "06:00", "10:00", "deepseek-v4-flash afternoon peak");
+        AssertEqual("deepseek-flash", string.Join('|', deepSeekFlashPricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "deepseek-v4-flash aliases");
         JsonElement deepSeekPricing = document.RootElement.GetProperty("deepseek-v4-pro");
-        AssertEqual(0.435m, deepSeekPricing.GetProperty("input").GetDecimal(), "deepseek-v4-pro input price");
-        AssertEqual(0.003625m, deepSeekPricing.GetProperty("cachedInput").GetDecimal(), "deepseek-v4-pro cached input price");
-        AssertEqual(0.87m, deepSeekPricing.GetProperty("output").GetDecimal(), "deepseek-v4-pro output price");
+        AssertEqual(0.66m, deepSeekPricing.GetProperty("input").GetDecimal(), "deepseek-v4-pro off-peak input price");
+        AssertEqual(0.022m, deepSeekPricing.GetProperty("cachedInput").GetDecimal(), "deepseek-v4-pro off-peak cached input price");
+        AssertEqual(1.98m, deepSeekPricing.GetProperty("output").GetDecimal(), "deepseek-v4-pro off-peak output price");
+        JsonElement[] proPeriods = [.. deepSeekPricing.GetProperty("periods").EnumerateArray()];
+        AssertEqual(2, proPeriods.Length, "deepseek-v4-pro period count");
+        AssertPricingPeriod(proPeriods[0], 1.32m, 0.044m, 3.96m, "1,2,3,4,5", "01:00", "04:00", "deepseek-v4-pro morning peak");
+        AssertPricingPeriod(proPeriods[1], 1.32m, 0.044m, 3.96m, "1,2,3,4,5", "06:00", "10:00", "deepseek-v4-pro afternoon peak");
         return Task.CompletedTask;
     }
 
@@ -3339,12 +3354,13 @@ internal static class Program
         string pricingPath,
         DateTimeOffset now,
         string fileName,
-        string[] lines)
+        string[] lines,
+        string model = "gpt-test")
     {
         string collectRoot = Path.Combine(root, Path.GetFileNameWithoutExtension(fileName));
         string sessions = Path.Combine(collectRoot, "sessions", "2026", "07", "11");
         Directory.CreateDirectory(sessions);
-        File.WriteAllLines(Path.Combine(sessions, fileName), ["{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}", .. lines]);
+        File.WriteAllLines(Path.Combine(sessions, fileName), [$"{{\"type\":\"turn_context\",\"payload\":{{\"model\":\"{model}\"}}}}", .. lines]);
         return new TokenCostCollector(pricingPath).CollectCodex(collectRoot, now).Today;
     }
 
@@ -3407,6 +3423,134 @@ internal static class Program
             .Today;
         AssertEqual(1_050L, summary.TotalTokens, "alias pricing total tokens");
         AssertEqual(0.00213m, summary.CostUsd, "alias pricing cost");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies configured pricing periods select rates by UTC weekday hours, including an all-day period.
+    /// </summary>
+    private static Task TestDeepSeekPeakPricingAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        object[] flashPeriods =
+        [
+            new { input = 0.3m, cachedInput = 0.006m, output = 1.2m, daysUtc = new[] { 1, 2, 3, 4, 5 }, startUtc = "01:00", endUtc = "04:00" },
+            new { input = 0.3m, cachedInput = 0.006m, output = 1.2m, daysUtc = new[] { 1, 2, 3, 4, 5 }, startUtc = "06:00", endUtc = "10:00" },
+        ];
+        File.WriteAllText(pricingPath, JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["deepseek-v4-flash"] = new
+            {
+                input = 0.15m,
+                cachedInput = 0.003m,
+                output = 0.6m,
+                periods = flashPeriods,
+                aliases = new[] { "deepseek-flash" },
+            },
+            ["gpt-test"] = new { input = 2m, cachedInput = 0.2m, output = 10m },
+            ["incomplete-peak"] = new
+            {
+                input = 0.15m,
+                cachedInput = 0.003m,
+                output = 0.6m,
+                periods = new object[] { new { input = 0.3m } },
+            },
+            ["all-day-period"] = new
+            {
+                input = 0.15m,
+                cachedInput = 0.003m,
+                output = 0.6m,
+                periods = new object[] { new { input = 0.3m, cachedInput = 0.006m, output = 1.2m } },
+            },
+        }));
+        DateTimeOffset weekdayNow = new(2026, 8, 12, 20, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset weekendNow = new(2026, 8, 15, 20, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset weekdayPeak = new(2026, 8, 12, 9, 0, 0, TimeSpan.FromHours(8));
+
+        TokenCostSummary morningPeak = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            weekdayNow,
+            "peak-morning.jsonl",
+            [CreateCodexTokenCount("2026-08-12T09:00:00+08:00", last: (1_000_000, 0, 0))],
+            "deepseek-flash");
+        AssertEqual(0.3m, morningPeak.CostUsd, "weekday 01:00 UTC uses peak price");
+
+        TokenCostSummary noonOffPeak = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            weekdayNow,
+            "off-noon.jsonl",
+            [CreateCodexTokenCount("2026-08-12T12:00:00+08:00", last: (1_000_000, 0, 0))],
+            "deepseek-v4-flash");
+        AssertEqual(0.15m, noonOffPeak.CostUsd, "weekday 04:00 UTC uses off-peak price");
+
+        TokenCostSummary afternoonPeak = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            weekdayNow,
+            "peak-afternoon.jsonl",
+            [CreateCodexTokenCount("2026-08-12T14:00:00+08:00", last: (1_000_000, 500_000, 100_000))],
+            "deepseek-v4-flash");
+        AssertEqual(0.273m, afternoonPeak.CostUsd, "weekday 06:00 UTC uses peak input, cache, and output");
+
+        TokenCostSummary eveningOffPeak = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            weekdayNow,
+            "off-evening.jsonl",
+            [CreateCodexTokenCount("2026-08-12T18:00:00+08:00", last: (1_000_000, 0, 0))],
+            "deepseek-v4-flash");
+        AssertEqual(0.15m, eveningOffPeak.CostUsd, "weekday 10:00 UTC uses off-peak price");
+
+        TokenCostSummary weekendOffPeak = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            weekendNow,
+            "off-weekend.jsonl",
+            [CreateCodexTokenCount("2026-08-15T09:00:00+08:00", last: (1_000_000, 0, 0))],
+            "deepseek-v4-flash");
+        AssertEqual(0.15m, weekendOffPeak.CostUsd, "Saturday peak clock hours stay off-peak");
+
+        TokenCostSummary flatModel = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            weekdayNow,
+            "flat-model.jsonl",
+            [CreateCodexTokenCount("2026-08-12T09:00:00+08:00", last: (1_000_000, 0, 0))]);
+        AssertEqual(2m, flatModel.CostUsd, "models without peak keep a flat rate in peak hours");
+
+        TokenCostSummary incompletePeak = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            weekdayNow,
+            "incomplete-peak.jsonl",
+            [CreateCodexTokenCount("2026-08-12T09:00:00+08:00", last: (1_000_000, 0, 0))],
+            "incomplete-peak");
+        AssertEqual(0.15m, incompletePeak.CostUsd, "incomplete period keeps the default rate");
+
+        TokenCostSummary allDayPeriod = CollectCodexSession(
+            temp.Path,
+            pricingPath,
+            weekendNow,
+            "all-day-period.jsonl",
+            [CreateCodexTokenCount("2026-08-15T09:00:00+08:00", last: (1_000_000, 0, 0))],
+            "all-day-period");
+        AssertEqual(0.3m, allDayPeriod.CostUsd, "a single period without a window applies all day");
+
+        string grokSession = Path.Combine(temp.Path, "grok", "sessions", "workspace", "peak");
+        Directory.CreateDirectory(grokSession);
+        File.WriteAllLines(Path.Combine(grokSession, "updates.jsonl"),
+        [
+            CreateGrokTokenUpdate("prompt-fallback-peak", weekdayPeak, 1_000_000, 0, 0)
+                .Replace("grok-4.5-build", "deepseek-flash", StringComparison.Ordinal),
+            CreateGrokTokenUpdate("prompt-ticks-peak", weekdayPeak.AddMinutes(1), 1_000_000, 0, 0, 50_000_000)
+                .Replace("grok-4.5-build", "deepseek-v4-flash", StringComparison.Ordinal),
+        ]);
+        TokenCostStatistics grok = new TokenCostCollector(pricingPath).CollectGrok(Path.Combine(temp.Path, "grok"), weekdayNow);
+        AssertEqual(0.3m, grok.Models.Single(model => model.Model == "deepseek-flash").Today.CostUsd, "Grok fallback uses peak price");
+        AssertEqual(0.005m, grok.Models.Single(model => model.Model == "deepseek-v4-flash").Today.CostUsd, "Grok complete ticks ignore local peak price");
         return Task.CompletedTask;
     }
 
@@ -3742,6 +3886,27 @@ internal static class Program
         {
             throw new InvalidOperationException(message);
         }
+    }
+
+    /// <summary>
+    /// Asserts one published pricing period's rates and UTC window.
+    /// </summary>
+    private static void AssertPricingPeriod(
+        JsonElement period,
+        decimal input,
+        decimal cachedInput,
+        decimal output,
+        string daysUtc,
+        string startUtc,
+        string endUtc,
+        string name)
+    {
+        AssertEqual(input, period.GetProperty("input").GetDecimal(), $"{name} input");
+        AssertEqual(cachedInput, period.GetProperty("cachedInput").GetDecimal(), $"{name} cached input");
+        AssertEqual(output, period.GetProperty("output").GetDecimal(), $"{name} output");
+        AssertEqual(daysUtc, string.Join(',', period.GetProperty("daysUtc").EnumerateArray().Select(day => day.GetInt32())), $"{name} days");
+        AssertEqual(startUtc, period.GetProperty("startUtc").GetString(), $"{name} start");
+        AssertEqual(endUtc, period.GetProperty("endUtc").GetString(), $"{name} end");
     }
 
     /// <summary>

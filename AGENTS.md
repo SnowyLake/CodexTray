@@ -73,6 +73,7 @@
 ### 本地 Token Cost
 
 - `TokenCostCollector.CollectCodex` 读取 `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`, 使用 `Resources/model-pricing.json` 计算 API 等价成本与缓存命中率. 不读取 OpenCode.
+- `model-pricing.json` 每个模型使用默认一口价 `input`/`cachedInput`/`output`, 可选 `aliases` 与 `periods`. 默认三价覆盖全天. `periods` 按数组顺序命中第一段: 每段可写 `daysUtc` (0=周日到 6=周六), `startUtc`, `endUtc` (UTC `HH:mm`, 含起不含止). 省略星期或起止时间则该段默认全星期或全天. 未命中任何时段时回退默认三价. 分时只影响本地回算, 不拆分 UI, 也不覆盖 Grok 完整自报 `costUsdTicks` 或 Cursor 账单.
 - `CollectGrok` 读取 `~/.grok/sessions/**/updates.jsonl` 和 `~/.grok/archived_sessions/**/updates.jsonl`, 汇总 `turn_completed` 事件中的用量. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在输出中, 不重复相加.
 - Grok 费用优先采用完整的 `costUsdTicks`, 保留其中已计入的工具调用等费用. 自报费用缺失或 `costIsPartial` 为真时, 使用本地模型的输入, 缓存输入和输出价格回算. 只有费用而没有 token 的记录仍保留自报费用; 本地价格不可用时保留已有自报费用. 两者都不可用时, 仍统计 token, 成本按 `$0.00` 计入.
 - Grok 费用规则参考 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs). 修改解析或计费时, 以当前代码和测试确认边界行为.
