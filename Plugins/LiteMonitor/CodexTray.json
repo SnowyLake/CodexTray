@@ -2,7 +2,7 @@
   "id": "CodexTray",
   "meta": {
     "name": "CodexTray",
-    "version": "4.0.0",
+    "version": "5.0.0",
     "author": "SnowyLake",
     "description": "显示 Codex, Cursor 和 Grok 的剩余额度百分比"
   },
