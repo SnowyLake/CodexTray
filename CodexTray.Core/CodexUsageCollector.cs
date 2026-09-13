@@ -5,12 +5,10 @@ using System.Text.Json;
 
 namespace CodexTray.Core;
 
-public sealed class CodexTrayCollector
+public sealed class CodexUsageCollector
 {
     private const int k_SessionWindowSeconds = 18000;
     private const int k_WeeklyWindowSeconds = 604800;
-    private const string k_PluginSessionDisplayLabel = "Codex Session";
-    private const string k_PluginWeeklyDisplayLabel = "Codex Weekly";
     private const string k_ResetCreditsEndpoint = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
 
     private static readonly HttpClient s_HttpClient = new()
@@ -24,56 +22,33 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Creates a collector that reads Codex OAuth quota data.
     /// </summary>
-    public CodexTrayCollector(Func<DateTimeOffset>? nowProvider = null, HttpClient? httpClient = null)
+    public CodexUsageCollector(Func<DateTimeOffset>? nowProvider = null, HttpClient? httpClient = null)
     {
         m_NowProvider = nowProvider ?? (() => DateTimeOffset.Now);
         m_HttpClient = httpClient ?? s_HttpClient;
     }
 
     /// <summary>
-    /// Collects the latest Codex usage response from the default Codex directory.
-    /// </summary>
-    public UsageResponse Collect(bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false)
-    {
-        return CollectAsync(showResetTimeInPlugins, useAbsoluteResetTime).GetAwaiter().GetResult();
-    }
-
-    /// <summary>
     /// Collects the latest Codex usage response asynchronously from the default Codex directory.
     /// </summary>
-    public Task<UsageResponse> CollectAsync(bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
+    public Task<UsageResponse> CollectAsync(bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
     {
-        return CollectAsync(GetDefaultCodexDirectory(), showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
-    }
-
-    /// <summary>
-    /// Collects the latest Codex usage response from a Codex directory.
-    /// </summary>
-    public UsageResponse Collect(string codexDirectory, bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false)
-    {
-        return CollectAsync(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime).GetAwaiter().GetResult();
+        string codexDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+        return CollectAsync(codexDirectory, useAbsoluteResetTime, cancellationToken);
     }
 
     /// <summary>
     /// Collects the latest Codex usage response asynchronously from a Codex directory.
     /// </summary>
-    public Task<UsageResponse> CollectAsync(string codexDirectory, bool showResetTimeInPlugins = true, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
+    public Task<UsageResponse> CollectAsync(string codexDirectory, bool useAbsoluteResetTime = false, CancellationToken cancellationToken = default)
     {
-        return CollectOfficialUsageAsync(codexDirectory, showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
-    }
-
-    /// <summary>
-    /// Gets the default Codex home directory.
-    /// </summary>
-    public static string GetDefaultCodexDirectory()
-    {
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+        return CollectOfficialUsageAsync(codexDirectory, useAbsoluteResetTime, cancellationToken);
     }
 
     /// <summary>
     /// Collects Codex usage from the official ChatGPT quota endpoint.
     /// </summary>
-    private async Task<UsageResponse> CollectOfficialUsageAsync(string codexDirectory, bool showResetTimeInPlugins, bool useAbsoluteResetTime, CancellationToken cancellationToken)
+    private async Task<UsageResponse> CollectOfficialUsageAsync(string codexDirectory, bool useAbsoluteResetTime, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset now = m_NowProvider();
@@ -108,7 +83,7 @@ public sealed class CodexTrayCollector
             }
 
             using JsonDocument document = JsonDocument.Parse(body);
-            UsageResponse usage = BuildOfficialResponse(codexDirectory, authPath, document.RootElement, now, showResetTimeInPlugins, useAbsoluteResetTime);
+            UsageResponse usage = BuildOfficialResponse(codexDirectory, authPath, document.RootElement, now, useAbsoluteResetTime);
             if (usage.Available)
             {
                 usage.ResetCredits = await CollectResetCreditsAsync(credentials, now, cancellationToken).ConfigureAwait(false);
@@ -129,7 +104,7 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Builds a usage response from the official quota endpoint JSON.
     /// </summary>
-    private UsageResponse BuildOfficialResponse(string codexDirectory, string authPath, JsonElement root, DateTimeOffset now, bool showResetTimeInPlugins, bool useAbsoluteResetTime)
+    private UsageResponse BuildOfficialResponse(string codexDirectory, string authPath, JsonElement root, DateTimeOffset now, bool useAbsoluteResetTime)
     {
         JsonElement rateLimit = GetObjectProperty(root, "rate_limit");
         JsonElement primary = GetObjectProperty(rateLimit, "primary_window");
@@ -138,18 +113,18 @@ public sealed class CodexTrayCollector
         UsageLimit weekly = BuildOfficialLimitFromRateLimit("weekly", rateLimit, k_WeeklyWindowSeconds, now);
 
         session.ResetLabel = useAbsoluteResetTime
-            ? FormatSessionResetClock(session.ResetsAt, now)
+            ? FormatResetClock(session.ResetsAt, now)
             : FormatSessionResetLabel(session.ResetsAt, now);
         weekly.ResetLabel = useAbsoluteResetTime
-            ? FormatWeeklyResetDate(weekly.ResetsAt, now)
-            : FormatWeeklyResetLabel(weekly.ResetsAt, now);
+            ? UsageLimit.FormatResetDate(weekly.ResetsAt, now)
+            : UsageLimit.FormatResetLabel(weekly.ResetsAt, now);
 
         if (primary.ValueKind != JsonValueKind.Object && secondary.ValueKind != JsonValueKind.Object)
         {
             return CreateEmptyResponse(codexDirectory, now, "Codex usage API did not return rate_limit windows");
         }
 
-        UsageDisplay display = BuildDisplay(session, weekly, showResetTimeInPlugins);
+        UsageDisplay display = BuildDisplay(weekly);
         string planType = GetStringProperty(root, "plan_type", "unknown");
         return new UsageResponse
         {
@@ -245,31 +220,27 @@ public sealed class CodexTrayCollector
     /// <summary>
     /// Builds all display strings for monitor plugins.
     /// </summary>
-    private static UsageDisplay BuildDisplay(UsageLimit session, UsageLimit weekly, bool showResetTimeInPlugins)
+    private static UsageDisplay BuildDisplay(UsageLimit weekly)
     {
-        string sessionDisplay = FormatDisplayValue(session, showResetTimeInPlugins);
-        string weeklyDisplay = FormatDisplayValue(weekly, showResetTimeInPlugins);
+        string weeklyDisplay = FormatDisplayValue(weekly);
         return new UsageDisplay
         {
-            Session = sessionDisplay,
             Weekly = weeklyDisplay,
-            Summary = $"{k_PluginSessionDisplayLabel}: {sessionDisplay} | {k_PluginWeeklyDisplayLabel}: {weeklyDisplay}",
+            Summary = $"Codex: {weeklyDisplay}",
         };
     }
 
     /// <summary>
-    /// Formats a plugin display value, optionally appending the reset time suffix.
+    /// Formats a percentage-only plugin display value.
     /// </summary>
-    private static string FormatDisplayValue(UsageLimit limit, bool showResetTimeInPlugins)
+    private static string FormatDisplayValue(UsageLimit limit)
     {
         if (limit.WindowMinutes <= 0)
         {
             return CodexTrayDefaults.UnavailableDisplay;
         }
 
-        return showResetTimeInPlugins
-            ? $"{limit.RemainingPercent}% {limit.ResetLabel}"
-            : $"{limit.RemainingPercent}%";
+        return $"{limit.RemainingPercent}%";
     }
 
     /// <summary>
@@ -387,60 +358,9 @@ public sealed class CodexTrayCollector
             return "unknown";
         }
 
-        TimeSpan remaining = GetRemainingTime(epochSeconds, now);
+        TimeSpan remaining = UsageLimit.GetRemainingTime(epochSeconds, now);
         long hours = (long)Math.Floor(remaining.TotalHours);
         return string.Create(CultureInfo.InvariantCulture, $"{hours}h{remaining.Minutes:D2}m");
-    }
-
-    /// <summary>
-    /// Formats the weekly reset as a countdown label.
-    /// </summary>
-    public static string FormatWeeklyResetLabel(long epochSeconds, DateTimeOffset now)
-    {
-        if (epochSeconds <= 0)
-        {
-            return "unknown";
-        }
-
-        TimeSpan remaining = GetRemainingTime(epochSeconds, now);
-        long days = (long)Math.Floor(remaining.TotalDays);
-        return string.Create(CultureInfo.InvariantCulture, $"{days}d{remaining.Hours:D2}h");
-    }
-
-    /// <summary>
-    /// Formats the session reset as an absolute local clock label.
-    /// </summary>
-    private static string FormatSessionResetClock(long epochSeconds, DateTimeOffset now)
-    {
-        if (epochSeconds <= 0)
-        {
-            return "unknown";
-        }
-
-        return DateTimeOffset.FromUnixTimeSeconds(epochSeconds).ToOffset(now.Offset).ToString("HH:mm", CultureInfo.InvariantCulture);
-    }
-
-    /// <summary>
-    /// Formats the weekly reset as an absolute local month-day label.
-    /// </summary>
-    public static string FormatWeeklyResetDate(long epochSeconds, DateTimeOffset now)
-    {
-        if (epochSeconds <= 0)
-        {
-            return "unknown";
-        }
-
-        return DateTimeOffset.FromUnixTimeSeconds(epochSeconds).ToOffset(now.Offset).ToString("MM-dd", CultureInfo.InvariantCulture);
-    }
-
-    /// <summary>
-    /// Gets the non-negative remaining time until a reset epoch.
-    /// </summary>
-    private static TimeSpan GetRemainingTime(long epochSeconds, DateTimeOffset now)
-    {
-        DateTimeOffset resetAt = DateTimeOffset.FromUnixTimeSeconds(epochSeconds).ToOffset(now.Offset);
-        TimeSpan remaining = resetAt - now;
-        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
     /// <summary>

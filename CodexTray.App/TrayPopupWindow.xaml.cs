@@ -116,7 +116,7 @@ internal sealed partial class TrayPopupWindow : Window
     protected override void OnDeactivated(EventArgs args)
     {
         base.OnDeactivated(args);
-        if (DataContext is TrayPopupViewModel { IsModalOpen: true } || HasOpenComboBox(this))
+        if (DataContext is TrayPopupViewModel { IsModalOpen: true } || HasOpenComboBox(this) || HasOpenContextMenu(this))
         {
             return;
         }
@@ -154,6 +154,18 @@ internal sealed partial class TrayPopupWindow : Window
         {
             contextMenu.PlacementTarget = button;
             contextMenu.IsOpen = true;
+            args.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Switches a two-page quota card with the mouse wheel.
+    /// </summary>
+    private void QuotaCard_PreviewMouseWheel(object sender, Input.MouseWheelEventArgs args)
+    {
+        if (sender is FrameworkElement { DataContext: TrayPopupViewModel.QuotaPagerViewModel pager } && pager.HasMultiplePages && args.Delta != 0)
+        {
+            pager.SelectQuota(args.Delta < 0 ? pager.SecondQuota : pager.FirstQuota);
             args.Handled = true;
         }
     }
@@ -235,6 +247,28 @@ internal sealed partial class TrayPopupWindow : Window
         for (int index = 0; index < childCount; index++)
         {
             if (HasOpenComboBox(VisualTreeHelper.GetChild(parent, index)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when a context menu in the popup is currently open.
+    /// </summary>
+    private static bool HasOpenContextMenu(DependencyObject parent)
+    {
+        if (parent is FrameworkElement { ContextMenu.IsOpen: true })
+        {
+            return true;
+        }
+
+        int childCount = VisualTreeHelper.GetChildrenCount(parent);
+        for (int index = 0; index < childCount; index++)
+        {
+            if (HasOpenContextMenu(VisualTreeHelper.GetChild(parent, index)))
             {
                 return true;
             }

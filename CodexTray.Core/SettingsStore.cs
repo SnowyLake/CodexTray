@@ -10,7 +10,8 @@ public enum PageItem
     Codex = 1 << 0,
     Cursor = 1 << 1,
     Apis = 1 << 2,
-    All = Codex | Cursor | Apis,
+    Grok = 1 << 3,
+    All = Codex | Cursor | Grok | Apis,
 }
 
 public sealed class ApiMonitorSettings
@@ -23,13 +24,9 @@ public sealed class ApiMonitorSettings
 
     public const string NanoGptProvider = "NanoGPT";
 
-    public const string GrokProvider = "Grok";
+    public const string VercelProvider = "Vercel";
 
     public const string CursorProvider = "Cursor";
-
-    public const string GrokBuildOAuthSource = "Grok Build";
-
-    public const string OpenCodeOAuthSource = "OpenCode";
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -43,8 +40,6 @@ public sealed class ApiMonitorSettings
 
     public string UserId { get; set; } = string.Empty;
 
-    public string GrokOAuthSource { get; set; } = GrokBuildOAuthSource;
-
     /// <summary>
     /// Normalizes one persisted API monitor configuration.
     /// </summary>
@@ -56,16 +51,13 @@ public sealed class ApiMonitorSettings
             string value when string.Equals(value, NewApiProvider, StringComparison.OrdinalIgnoreCase) => NewApiProvider,
             string value when string.Equals(value, OpenRouterProvider, StringComparison.OrdinalIgnoreCase) => OpenRouterProvider,
             string value when string.Equals(value, NanoGptProvider, StringComparison.OrdinalIgnoreCase) => NanoGptProvider,
-            string value when string.Equals(value, GrokProvider, StringComparison.OrdinalIgnoreCase) => GrokProvider,
+            string value when string.Equals(value, VercelProvider, StringComparison.OrdinalIgnoreCase) => VercelProvider,
             string value when string.Equals(value, CursorProvider, StringComparison.OrdinalIgnoreCase) => CursorProvider,
             _ => DeepSeekProvider,
         };
         Name = string.IsNullOrWhiteSpace(Name) ? Provider : Name.Trim();
-        GrokOAuthSource = string.Equals(GrokOAuthSource?.Trim(), OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
-            ? OpenCodeOAuthSource
-            : GrokBuildOAuthSource;
 
-        if (Provider is GrokProvider or CursorProvider)
+        if (Provider == CursorProvider)
         {
             BaseUrl = string.Empty;
             ApiKey = string.Empty;
@@ -82,15 +74,17 @@ public sealed class ApiMonitorSettings
 
 public sealed class AppSettings
 {
+    private const string k_LegacyGrokProvider = "Grok";
+
+    public const int CurrentSettingsSchemaVersion = 1;
+
     public const string ThemeModeSystem = "System";
 
     public const string ThemeModeLight = "Light";
 
     public const string ThemeModeDark = "Dark";
 
-    public const string TokenUnitEnglish = "English unit";
-
-    public const string TokenUnitChinese = "Chinese unit";
+    public int SettingsSchemaVersion { get; set; } = CurrentSettingsSchemaVersion;
 
     public string LiteMonitorDir { get; set; } = string.Empty;
 
@@ -106,29 +100,21 @@ public sealed class AppSettings
 
     public string ThemeMode { get; set; } = ThemeModeSystem;
 
-    public string TokenUnit { get; set; } = TokenUnitEnglish;
-
     public bool MicaEnabled { get; set; } = true;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? BackdropMode { get; set; }
 
-    public bool ShowResetTimeInPlugins { get; set; } = CodexTrayDefaults.ShowResetTimeInPlugins;
-
     public bool UseAbsoluteResetTime { get; set; } = CodexTrayDefaults.UseAbsoluteResetTime;
-
-    public bool HideInvalidProgressBars { get; set; } = CodexTrayDefaults.HideInvalidProgressBars;
 
     public List<ApiMonitorSettings> ApiMonitors { get; set; } = [];
 
     /// <summary>
-    /// Formats a token count using the selected compact unit family.
+    /// Formats a token count using compact English units.
     /// </summary>
-    public static string FormatTokenCount(long tokens, string tokenUnit)
+    public static string FormatTokenCount(long tokens)
     {
-        (decimal divisor, string suffix) = tokenUnit == TokenUnitChinese
-            ? tokens >= 100_000_000 ? (100_000_000m, "亿") : (10_000m, "万")
-            : tokens >= 1_000_000_000 ? (1_000_000_000m, "B")
+        (decimal divisor, string suffix) = tokens >= 1_000_000_000 ? (1_000_000_000m, "B")
             : tokens >= 1_000_000 ? (1_000_000m, "M")
             : (1_000m, "K");
         return $"{tokens / divisor:0.00}{suffix}";
@@ -153,16 +139,25 @@ public sealed class AppSettings
         LiteMonitorDir = (LiteMonitorDir ?? string.Empty).Trim();
         TrafficMonitorDir = (TrafficMonitorDir ?? string.Empty).Trim();
         ThemeMode = NormalizeThemeMode(ThemeMode);
-        TokenUnit = NormalizeTokenUnit(TokenUnit);
         if (!string.IsNullOrWhiteSpace(BackdropMode))
         {
             MicaEnabled = string.Equals(BackdropMode.Trim(), "Mica", StringComparison.OrdinalIgnoreCase);
         }
 
         BackdropMode = null;
+        SettingsSchemaVersion = CurrentSettingsSchemaVersion;
         VisiblePages &= PageItem.All;
         ApiMonitors ??= [];
-        ApiMonitors.RemoveAll(monitor => monitor == null || string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase));
+        bool hadLegacyGrokMonitor = ApiMonitors.Any(monitor =>
+            monitor != null && string.Equals(monitor.Provider?.Trim(), k_LegacyGrokProvider, StringComparison.OrdinalIgnoreCase));
+        ApiMonitors.RemoveAll(monitor => monitor == null ||
+            string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(monitor.Provider?.Trim(), k_LegacyGrokProvider, StringComparison.OrdinalIgnoreCase));
+        if (hadLegacyGrokMonitor)
+        {
+            VisiblePages |= PageItem.Grok;
+        }
+
         HashSet<string> monitorIds = new(StringComparer.Ordinal);
         foreach (ApiMonitorSettings monitor in ApiMonitors)
         {
@@ -180,7 +175,7 @@ public sealed class AppSettings
     /// <summary>
     /// Normalizes a theme mode string to a supported value.
     /// </summary>
-    private static string NormalizeThemeMode(string? themeMode)
+    public static string NormalizeThemeMode(string? themeMode)
     {
         return themeMode?.Trim().ToLowerInvariant() switch
         {
@@ -188,19 +183,6 @@ public sealed class AppSettings
             "dark" => ThemeModeDark,
             _ => ThemeModeSystem,
         };
-    }
-
-    /// <summary>
-    /// Normalizes a token unit string to a supported value.
-    /// </summary>
-    private static string NormalizeTokenUnit(string? tokenUnit)
-    {
-        string normalized = tokenUnit?.Trim() ?? string.Empty;
-        return string.Equals(normalized, TokenUnitChinese, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(normalized, "万/亿", StringComparison.Ordinal)
-            || string.Equals(normalized, "K/W/E", StringComparison.OrdinalIgnoreCase)
-            ? TokenUnitChinese
-            : TokenUnitEnglish;
     }
 }
 
@@ -250,8 +232,23 @@ public sealed class SettingsStore
         try
         {
             string json = File.ReadAllText(SettingsPath);
-            AppSettings settings = (JsonSerializer.Deserialize<AppSettings>(json, s_JsonOptions) ?? new AppSettings()).Normalize();
-            Save(settings);
+            using JsonDocument document = JsonDocument.Parse(json);
+            bool migrateLegacyAllPages = !document.RootElement.TryGetProperty(nameof(AppSettings.SettingsSchemaVersion), out JsonElement schemaVersion) ||
+                !schemaVersion.TryGetInt32(out int version) ||
+                version < AppSettings.CurrentSettingsSchemaVersion;
+            AppSettings settings = JsonSerializer.Deserialize<AppSettings>(json, s_JsonOptions) ?? new AppSettings();
+            if (migrateLegacyAllPages && settings.VisiblePages == (PageItem.Codex | PageItem.Cursor | PageItem.Apis))
+            {
+                settings.VisiblePages |= PageItem.Grok;
+            }
+
+            settings.Normalize();
+            string normalized = JsonSerializer.Serialize(settings, s_JsonOptions);
+            if (!string.Equals(json, normalized, StringComparison.Ordinal))
+            {
+                AtomicFile.WriteAllText(SettingsPath, normalized);
+            }
+
             return settings;
         }
         catch (JsonException)

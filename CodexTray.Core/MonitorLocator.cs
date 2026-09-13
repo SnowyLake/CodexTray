@@ -46,13 +46,38 @@ internal static class MonitorLocator
             yield return savedDirectory;
         }
 
-        foreach (string directory in EnumerateSearchRoots(cancellationToken))
+        foreach (string directory in EnumeratePreferredSearchRoots(cancellationToken).Concat(EnumerateSearchRoots(cancellationToken)))
         {
             cancellationToken.ThrowIfCancellationRequested();
             foreach (string match in FindExecutable(directory, executableName, cancellationToken))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 yield return Path.GetDirectoryName(match) ?? string.Empty;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Enumerates common install locations before walking drive roots.
+    /// </summary>
+    private static IEnumerable<string> EnumeratePreferredSearchRoots(CancellationToken cancellationToken)
+    {
+        string[] folders =
+        [
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
+        ];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string folder in folders)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!string.IsNullOrWhiteSpace(folder) && seen.Add(folder) && Directory.Exists(folder))
+            {
+                yield return folder;
             }
         }
     }
@@ -97,6 +122,7 @@ internal static class MonitorLocator
             RecurseSubdirectories = true,
             IgnoreInaccessible = true,
             MatchCasing = MatchCasing.CaseInsensitive,
+            AttributesToSkip = FileAttributes.ReparsePoint,
         };
 
         IEnumerator<string> files;
@@ -112,7 +138,7 @@ internal static class MonitorLocator
                 ShouldRecursePredicate = (ref FileSystemEntry entry) =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    return true;
+                    return !IsSkippedSearchDirectory(entry.FileName);
                 },
             };
             files = enumerable.Take(3).GetEnumerator();
@@ -154,5 +180,16 @@ internal static class MonitorLocator
                 yield return file;
             }
         }
+    }
+
+    /// <summary>
+    /// Returns true when a directory should not be searched for monitor executables.
+    /// </summary>
+    private static bool IsSkippedSearchDirectory(ReadOnlySpan<char> name)
+    {
+        return name.Equals("Windows", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("WinSxS", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("$Recycle.Bin", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("System Volume Information", StringComparison.OrdinalIgnoreCase);
     }
 }

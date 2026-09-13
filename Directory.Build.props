@@ -1,6 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
-    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildThisFileDirectory)Builds\**;..\Builds\**</DefaultItemExcludes>
-  </PropertyGroup>
-</Project>

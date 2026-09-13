@@ -5,6 +5,7 @@
     <ProjectReference Include="..\CodexTray.Core\CodexTray.Core.csproj" />
     <Content Include="..\Plugins\LiteMonitor\CodexTray.json" Link="Plugins\LiteMonitor\CodexTray.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\Plugins\TrafficMonitor\CodexTray.ini" Link="Plugins\TrafficMonitor\CodexTray.ini" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\Resources\model-pricing.json" Link="Resources\model-pricing.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>

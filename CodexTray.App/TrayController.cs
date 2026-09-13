@@ -18,7 +18,8 @@ internal sealed class TrayController : IDisposable
     private readonly EventWaitHandle m_ShowPanelEvent;
     private readonly Dispatcher m_Dispatcher;
     private readonly SettingsStore m_SettingsStore;
-    private readonly CodexTrayCollector m_Collector;
+    private readonly CodexUsageCollector m_CodexUsageCollector;
+    private readonly GrokUsageCollector m_GrokUsageCollector;
     private readonly ApiUsageCollector m_ApiUsageCollector;
     private readonly CursorUsageCollector m_CursorUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
@@ -37,12 +38,13 @@ internal sealed class TrayController : IDisposable
     private Task m_SignalListenerTask = Task.CompletedTask;
     private Task m_ServiceTransitionTask = Task.CompletedTask;
     private int m_IsExiting;
+    private bool m_RefreshAgain;
     private bool m_StartupDetectingLiteMonitor;
     private bool m_StartupDetectingTrafficMonitor;
 
     private bool IsExiting => Volatile.Read(ref m_IsExiting) != 0;
 
-    private bool IsPluginServiceRequired => (m_Settings.VisiblePages & (PageItem.Codex | PageItem.Cursor)) != 0;
+    private bool IsPluginServiceRequired => (m_Settings.VisiblePages & (PageItem.Codex | PageItem.Grok | PageItem.Cursor)) != 0;
 
     /// <summary>
     /// Creates the tray controller and starts background work.
@@ -53,7 +55,8 @@ internal sealed class TrayController : IDisposable
         m_ShowPanelEvent = showPanelEvent;
         m_Dispatcher = dispatcher;
         m_SettingsStore = new SettingsStore();
-        m_Collector = new CodexTrayCollector();
+        m_CodexUsageCollector = new CodexUsageCollector();
+        m_GrokUsageCollector = new GrokUsageCollector();
         m_ApiUsageCollector = new ApiUsageCollector();
         m_CursorUsageCollector = new CursorUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
@@ -453,6 +456,7 @@ internal sealed class TrayController : IDisposable
 
         int previousPort = m_Settings.Port;
         bool codexWasEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
+        bool grokWasEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
         bool cursorWasEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
         bool serviceWasRequired = IsPluginServiceRequired;
         m_PopupViewModel?.ApplySettings();
@@ -461,10 +465,16 @@ internal sealed class TrayController : IDisposable
         m_SettingsStore.Save(m_Settings);
         ConfigureRefreshTimer();
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
+        bool grokIsEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
         bool cursorIsEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
         if (codexWasEnabled && !codexIsEnabled)
         {
             m_UsageCache.ClearCodex();
+        }
+
+        if (grokWasEnabled && !grokIsEnabled)
+        {
+            m_UsageCache.ClearGrok();
         }
 
         if (cursorWasEnabled && !cursorIsEnabled)
@@ -560,7 +570,7 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        UsageResponse? response = m_UsageCache.Get();
+        UsageResponse? response = m_UsageCache.GetCodex();
         m_PopupViewModel.UpdateStatus(m_Server?.IsRunning == true, m_Server?.Port ?? m_Settings.Port, response, m_Server?.LastError);
     }
 
@@ -578,11 +588,43 @@ internal sealed class TrayController : IDisposable
 
             if (!m_RefreshTask.IsCompleted)
             {
+                m_RefreshAgain = true;
                 return m_RefreshTask;
             }
 
-            m_RefreshTask = RefreshUsageAsync(m_LifetimeCancellation.Token);
+            m_RefreshAgain = false;
+            m_RefreshTask = RefreshUntilIdleAsync(m_LifetimeCancellation.Token);
             return m_RefreshTask;
+        }
+    }
+
+    /// <summary>
+    /// Runs refresh operations until no overlapping request remains.
+    /// </summary>
+    private async Task RefreshUntilIdleAsync(CancellationToken cancellationToken)
+    {
+        do
+        {
+            await RefreshUsageAsync(cancellationToken).ConfigureAwait(true);
+        }
+        while (ShouldRefreshAgain());
+    }
+
+    /// <summary>
+    /// Returns true when a refresh was requested while another collection was still running.
+    /// </summary>
+    private bool ShouldRefreshAgain()
+    {
+        lock (m_TaskLock)
+        {
+            if (IsExiting || !m_RefreshAgain)
+            {
+                m_RefreshAgain = false;
+                return false;
+            }
+
+            m_RefreshAgain = false;
+            return true;
         }
     }
 
@@ -605,25 +647,22 @@ internal sealed class TrayController : IDisposable
         try
         {
             bool useAbsoluteResetTime = m_Settings.UseAbsoluteResetTime;
-            bool showResetTimeInPlugins = m_Settings.ShowResetTimeInPlugins;
             Task<UsageResponse>? codexUsageTask = null;
             Task<TokenCostStatistics?>? tokenCostTask = null;
+            Task<GrokUsageDashboard>? grokDashboardTask = null;
+            Task<TokenCostStatistics?>? grokTokenCostTask = null;
             Task<CursorUsageDashboard>? cursorDashboardTask = null;
             Task<IReadOnlyList<ApiUsageResult>>? apiUsageTask = null;
             if ((visiblePages & PageItem.Codex) != 0)
             {
-                codexUsageTask = m_Collector.CollectAsync(showResetTimeInPlugins, useAbsoluteResetTime, cancellationToken);
-                tokenCostTask = Task.Run<TokenCostStatistics?>(() =>
-                {
-                    try
-                    {
-                        return m_TokenCostCollector.Collect(cancellationToken: cancellationToken);
-                    }
-                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
-                    {
-                        return null;
-                    }
-                }, cancellationToken);
+                codexUsageTask = m_CodexUsageCollector.CollectAsync(useAbsoluteResetTime, cancellationToken);
+                tokenCostTask = Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectCodex(cancellationToken: cancellationToken)), cancellationToken);
+            }
+
+            if ((visiblePages & PageItem.Grok) != 0)
+            {
+                grokDashboardTask = m_GrokUsageCollector.CollectDashboardAsync(cancellationToken);
+                grokTokenCostTask = Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectGrok(cancellationToken: cancellationToken)), cancellationToken);
             }
 
             if ((visiblePages & PageItem.Cursor) != 0)
@@ -634,10 +673,13 @@ internal sealed class TrayController : IDisposable
             if ((visiblePages & PageItem.Apis) != 0)
             {
                 ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
-                apiUsageTask = m_ApiUsageCollector.CollectAsync(apiMonitors, useAbsoluteResetTime, cancellationToken);
+                apiUsageTask = m_ApiUsageCollector.CollectAsync(apiMonitors, cancellationToken);
             }
 
-            Task[] children = new Task?[] { codexUsageTask, tokenCostTask, cursorDashboardTask, apiUsageTask }.Where(task => task != null).Cast<Task>().ToArray();
+            Task[] children = new Task?[] { codexUsageTask, tokenCostTask, grokDashboardTask, grokTokenCostTask, cursorDashboardTask, apiUsageTask }
+                .Where(task => task != null)
+                .Cast<Task>()
+                .ToArray();
             await Task.WhenAll(children).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             if (IsExiting)
@@ -645,26 +687,58 @@ internal sealed class TrayController : IDisposable
                 return;
             }
 
+            PageItem currentPages = m_Settings.VisiblePages;
             if (codexUsageTask != null && tokenCostTask != null)
             {
-                UsageResponse response = codexUsageTask.Result;
-                m_UsageCache.UpdateCodex(response);
-                RefreshPopupStatus();
-                m_PopupViewModel?.UpdateTokenCost(tokenCostTask.Result);
+                if ((currentPages & PageItem.Codex) != 0)
+                {
+                    m_UsageCache.UpdateCodex(codexUsageTask.Result);
+                    if (tokenCostTask.Result != null)
+                    {
+                        m_PopupViewModel?.UpdateTokenCost(tokenCostTask.Result);
+                    }
+                }
+                else
+                {
+                    m_UsageCache.ClearCodex();
+                }
+            }
+
+            if (grokDashboardTask != null && grokTokenCostTask != null)
+            {
+                if ((currentPages & PageItem.Grok) != 0)
+                {
+                    GrokUsageDashboard dashboard = grokDashboardTask.Result;
+                    m_UsageCache.UpdateGrok(GrokUsageCollector.BuildPluginUsage(dashboard));
+                    m_PopupViewModel?.UpdateGrokDashboard(dashboard, grokTokenCostTask.Result);
+                }
+                else
+                {
+                    m_UsageCache.ClearGrok();
+                }
             }
 
             if (cursorDashboardTask != null)
             {
-                CursorUsageDashboard dashboard = cursorDashboardTask.Result;
-                m_UsageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(dashboard, showResetTimeInPlugins, useAbsoluteResetTime));
-                RefreshPopupStatus();
-                m_PopupViewModel?.UpdateCursorDashboard(dashboard);
+                if ((currentPages & PageItem.Cursor) != 0)
+                {
+                    CursorUsageDashboard dashboard = cursorDashboardTask.Result;
+                    m_UsageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(dashboard));
+                    m_PopupViewModel?.UpdateCursorDashboard(dashboard);
+                }
+                else
+                {
+                    m_UsageCache.ClearCursor();
+                }
             }
 
-            if (apiUsageTask != null)
+            if (apiUsageTask != null && (currentPages & PageItem.Apis) != 0)
             {
                 m_PopupViewModel?.UpdateApiUsage(apiUsageTask.Result);
             }
+
+            RefreshPopupStatus();
+            ReconcileDeadPluginService();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -683,6 +757,32 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
+    /// Restarts the plugin HTTP server after an accept-loop failure.
+    /// </summary>
+    private void ReconcileDeadPluginService()
+    {
+        if (IsPluginServiceRequired && m_Server is { IsRunning: false, LastError: not null })
+        {
+            QueueServiceReconcile();
+        }
+    }
+
+    /// <summary>
+    /// Collects token cost without failing sibling quota updates.
+    /// </summary>
+    private static TokenCostStatistics? CollectTokenCostSafely(Func<TokenCostStatistics?> collect)
+    {
+        try
+        {
+            return collect();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or OverflowException or KeyNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Copies an API monitor before an asynchronous refresh.
     /// </summary>
     private static ApiMonitorSettings CloneApiMonitor(ApiMonitorSettings monitor)
@@ -695,7 +795,6 @@ internal sealed class TrayController : IDisposable
             BaseUrl = monitor.BaseUrl,
             ApiKey = monitor.ApiKey,
             UserId = monitor.UserId,
-            GrokOAuthSource = monitor.GrokOAuthSource,
         };
     }
 
@@ -785,7 +884,7 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private static bool TryValidateLiteMonitorDirectory(string directory, out string message)
     {
-        string normalized = NormalizePluginDirectory(directory);
+        string normalized = TrayPopupViewModel.PluginPathOrEmpty(directory);
         if (normalized.Length == 0)
         {
             message = "LiteMonitor folder is not configured. Use Browse or Auto Detect first.";
@@ -800,17 +899,6 @@ internal sealed class TrayController : IDisposable
 
         message = string.Empty;
         return true;
-    }
-
-    /// <summary>
-    /// Returns the plugin directory, treating the None sentinel as unset.
-    /// </summary>
-    private static string NormalizePluginDirectory(string directory)
-    {
-        string trimmed = (directory ?? string.Empty).Trim();
-        return string.Equals(trimmed, CodexTrayDefaults.PluginPathNone, StringComparison.OrdinalIgnoreCase)
-            ? string.Empty
-            : trimmed;
     }
 
     /// <summary>
@@ -834,7 +922,7 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private static bool TryValidateTrafficMonitorDirectory(string directory, out string message)
     {
-        string normalized = NormalizePluginDirectory(directory);
+        string normalized = TrayPopupViewModel.PluginPathOrEmpty(directory);
         if (normalized.Length == 0)
         {
             message = "TrafficMonitor folder is not configured. Use Browse or Auto Detect first.";

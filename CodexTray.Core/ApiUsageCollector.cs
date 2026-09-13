@@ -34,7 +34,6 @@ public sealed class ApiUsageCollector
     };
 
     private readonly HttpClient m_HttpClient;
-    private readonly GrokUsageCollector m_GrokUsageCollector;
 
     /// <summary>
     /// Creates an API usage collector with the shared HTTP client.
@@ -50,7 +49,6 @@ public sealed class ApiUsageCollector
     public ApiUsageCollector(HttpClient httpClient)
     {
         m_HttpClient = httpClient;
-        m_GrokUsageCollector = new GrokUsageCollector(httpClient);
     }
 
     /// <summary>
@@ -94,27 +92,21 @@ public sealed class ApiUsageCollector
     /// </summary>
     public async Task<IReadOnlyList<ApiUsageResult>> CollectAsync(
         IEnumerable<ApiMonitorSettings> monitors,
-        bool useAbsoluteResetTime = false,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Task<ApiUsageResult>[] queries = monitors.Select(async monitor =>
-            (await CollectOneAsync(monitor, useAbsoluteResetTime, cancellationToken).ConfigureAwait(false)) with { Provider = monitor.Provider }).ToArray();
+            (await CollectOneAsync(monitor, cancellationToken).ConfigureAwait(false)) with { Provider = monitor.Provider }).ToArray();
         return await Task.WhenAll(queries).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Queries one supported API monitor.
     /// </summary>
-    private async Task<ApiUsageResult> CollectOneAsync(ApiMonitorSettings monitor, bool useAbsoluteResetTime, CancellationToken cancellationToken)
+    private async Task<ApiUsageResult> CollectOneAsync(ApiMonitorSettings monitor, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset now = DateTimeOffset.Now;
-        if (monitor.Provider == ApiMonitorSettings.GrokProvider)
-        {
-            return await CollectGrokAsync(monitor, now, useAbsoluteResetTime, cancellationToken).ConfigureAwait(false);
-        }
-
         if (monitor.ApiKey.Length == 0)
         {
             return Unavailable(monitor.Id, "Enter an API key", now);
@@ -129,6 +121,7 @@ public sealed class ApiUsageCollector
         {
             ApiMonitorSettings.NewApiProvider => "/api/user/self",
             ApiMonitorSettings.OpenRouterProvider => "/api/v1/credits",
+            ApiMonitorSettings.VercelProvider => "/v1/credits",
             _ => "/user/balance",
         };
         if (!TryBuildUri(monitor.BaseUrl, endpointPath, out Uri? uri, monitor.Provider == ApiMonitorSettings.OpenRouterProvider))
@@ -163,6 +156,7 @@ public sealed class ApiUsageCollector
             {
                 ApiMonitorSettings.NewApiProvider => ParseNewApi(monitor.Id, document.RootElement, now),
                 ApiMonitorSettings.OpenRouterProvider => ParseOpenRouter(monitor.Id, document.RootElement, now),
+                ApiMonitorSettings.VercelProvider => ParseVercel(monitor.Id, document.RootElement, now),
                 _ => ParseDeepSeek(monitor.Id, document.RootElement, now),
             };
         }
@@ -246,37 +240,6 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
-    /// Queries Grok Build billing with the selected locally stored OAuth session.
-    /// </summary>
-    private async Task<ApiUsageResult> CollectGrokAsync(ApiMonitorSettings monitor, DateTimeOffset now, bool useAbsoluteResetTime, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        try
-        {
-            GrokUsageSnapshot snapshot = await m_GrokUsageCollector
-                .CollectAsync(monitor.GrokOAuthSource, cancellationToken)
-                .ConfigureAwait(false);
-            return new ApiUsageResult(
-                monitor.Id,
-                true,
-                FormatRemainingPercent(snapshot.UsedPercent),
-                useAbsoluteResetTime
-                    ? CodexTrayCollector.FormatWeeklyResetDate(snapshot.ResetsAt, now)
-                    : CodexTrayCollector.FormatWeeklyResetLabel(snapshot.ResetsAt, now),
-                string.Empty,
-                now);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
-        {
-            return Unavailable(monitor.Id, exception is TaskCanceledException ? "Request timed out" : exception.Message, now);
-        }
-    }
-
-    /// <summary>
     /// Parses a DeepSeek balance response.
     /// </summary>
     private static ApiUsageResult ParseDeepSeek(string monitorId, JsonElement root, DateTimeOffset now)
@@ -309,15 +272,6 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
-    /// Formats a remaining allowance percentage for compact card display.
-    /// </summary>
-    private static string FormatRemainingPercent(double usedPercent)
-    {
-        int remainingPercent = (int)Math.Round(Math.Clamp(100 - usedPercent, 0, 100), MidpointRounding.AwayFromZero);
-        return $"{remainingPercent.ToString(CultureInfo.InvariantCulture)}%";
-    }
-
-    /// <summary>
     /// Parses a NewAPI account quota response using its 500000 units per USD convention.
     /// </summary>
     private static ApiUsageResult ParseNewApi(string monitorId, JsonElement root, DateTimeOffset now)
@@ -339,6 +293,20 @@ public sealed class ApiUsageCollector
             $"${usedQuota / 500000m:0.00}",
             string.Empty,
             now);
+    }
+
+    /// <summary>
+    /// Parses Vercel AI Gateway credit totals.
+    /// </summary>
+    private static ApiUsageResult ParseVercel(string monitorId, JsonElement root, DateTimeOffset now)
+    {
+        if (!TryGetDecimal(root, "balance", out decimal balance) ||
+            !TryGetDecimal(root, "total_used", out decimal totalUsed))
+        {
+            return Unavailable(monitorId, "Credit data is missing", now);
+        }
+
+        return new ApiUsageResult(monitorId, true, $"${balance:0.00}", $"${totalUsed:0.00}", string.Empty, now);
     }
 
     /// <summary>

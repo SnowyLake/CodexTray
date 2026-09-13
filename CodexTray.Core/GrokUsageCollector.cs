@@ -7,10 +7,18 @@ using System.Text.Json.Nodes;
 
 namespace CodexTray.Core;
 
-public sealed record GrokUsageSnapshot(double UsedPercent, long ResetsAt);
+public sealed record GrokProductUsage(string Product, double UsedPercent);
+
+public sealed record GrokUsageSnapshot(double UsedPercent, long ResetsAt, string SubscriptionTier = "")
+{
+    public IReadOnlyList<GrokProductUsage> ProductUsage { get; init; } = [];
+}
+
+public sealed record GrokUsageDashboard(GrokUsageSnapshot? Usage, string Error, DateTimeOffset UpdatedAt);
 
 public sealed class GrokUsageCollector
 {
+    private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
     private const string k_BillingEndpoint = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private const string k_DefaultClientId = "b1a00492-073a-47ea-816f-4c329264a828";
@@ -18,9 +26,25 @@ public sealed class GrokUsageCollector
     private const long k_MaximumUnixTimestamp = 2_100_000_000;
     private static readonly TimeSpan s_RefreshBuffer = TimeSpan.FromMinutes(5);
     private static readonly SemaphoreSlim s_GrokBuildAuthLock = new(1, 1);
-    private static readonly SemaphoreSlim s_OpenCodeAuthLock = new(1, 1);
+    private static readonly HttpClient s_HttpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(10),
+    };
 
     private readonly HttpClient m_HttpClient;
+    private string? m_SubscriptionLogPath;
+    private long m_SubscriptionLogLength;
+    private DateTime m_SubscriptionLogWriteUtc;
+    private string m_CachedLogSubscriptionTier = string.Empty;
+    private bool m_SubscriptionLogScanned;
+
+    /// <summary>
+    /// Creates a collector using the shared HTTP client.
+    /// </summary>
+    public GrokUsageCollector()
+        : this(s_HttpClient)
+    {
+    }
 
     /// <summary>
     /// Creates a collector using the supplied HTTP client.
@@ -31,20 +55,149 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Collects Grok billing usage with the selected local OAuth source.
+    /// Collects Grok billing usage with the local Grok Build OAuth session.
     /// </summary>
-    public async Task<GrokUsageSnapshot> CollectAsync(string oauthSource, CancellationToken cancellationToken = default)
+    public async Task<GrokUsageSnapshot> CollectAsync(CancellationToken cancellationToken = default)
     {
-        string accessToken = await ResolveAccessTokenAsync(oauthSource, forceRefresh: false, cancellationToken).ConfigureAwait(false);
+        (string accessToken, string userId) = await ResolveGrokBuildAccessTokenAsync(forceRefresh: false, cancellationToken).ConfigureAwait(false);
+        GrokUsageSnapshot usage;
         try
         {
-            return await FetchBillingAsync(accessToken, cancellationToken).ConfigureAwait(false);
+            usage = await FetchBillingAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidOperationException exception) when (IsAuthFailure(exception))
         {
-            accessToken = await ResolveAccessTokenAsync(oauthSource, forceRefresh: true, cancellationToken).ConfigureAwait(false);
-            return await FetchBillingAsync(accessToken, cancellationToken).ConfigureAwait(false);
+            (accessToken, userId) = await ResolveGrokBuildAccessTokenAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
+            usage = await FetchBillingAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
         }
+
+        return TryLoadLocalSubscriptionTier(accessToken, out string subscriptionTier)
+            ? usage with { SubscriptionTier = subscriptionTier }
+            : usage;
+    }
+
+    /// <summary>
+    /// Collects a display-ready Grok dashboard without failing sibling refreshes.
+    /// </summary>
+    public async Task<GrokUsageDashboard> CollectDashboardAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            GrokUsageSnapshot usage = await CollectAsync(cancellationToken).ConfigureAwait(false);
+            return new GrokUsageDashboard(usage, string.Empty, DateTimeOffset.Now);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or IOException or UnauthorizedAccessException or FormatException or OverflowException)
+        {
+            string error = exception is TaskCanceledException ? "Request timed out" : exception.Message;
+            return new GrokUsageDashboard(null, error, DateTimeOffset.Now);
+        }
+    }
+
+    /// <summary>
+    /// Builds the Grok Weekly value exposed to monitor plugins.
+    /// </summary>
+    public static GrokPluginUsage BuildPluginUsage(GrokUsageDashboard dashboard)
+    {
+        GrokUsageSnapshot? usage = dashboard.Usage;
+        if (usage == null)
+        {
+            return new GrokPluginUsage(
+                new UsageLimit { Name = "weekly", UsedPercent = 100, RemainingPercent = 0 },
+                CodexTrayDefaults.UnavailableDisplay);
+        }
+
+        int usedPercent = (int)Math.Round(Math.Clamp(usage.UsedPercent, 0, 100), MidpointRounding.AwayFromZero);
+        int remainingPercent = 100 - usedPercent;
+        return new GrokPluginUsage(
+            new UsageLimit
+            {
+                Name = "weekly",
+                UsedPercent = usedPercent,
+                RemainingPercent = remainingPercent,
+                WindowMinutes = 10080,
+                ResetsAt = usage.ResetsAt,
+            },
+            $"{remainingPercent}%");
+    }
+
+    /// <summary>
+    /// Parses the JSON credits response used by the official Grok Build client.
+    /// </summary>
+    public static GrokUsageSnapshot ParseCreditsResponse(string responseBody)
+    {
+        using JsonDocument document = JsonDocument.Parse(responseBody);
+        if (document.RootElement.ValueKind != JsonValueKind.Object ||
+            !document.RootElement.TryGetProperty("config", out JsonElement config) ||
+            config.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Could not parse Grok billing usage.");
+        }
+
+        bool hasCurrentPeriod = config.TryGetProperty("currentPeriod", out JsonElement currentPeriod) &&
+            currentPeriod.ValueKind == JsonValueKind.Object;
+        double usedPercent = 0;
+        if (config.TryGetProperty("creditUsagePercent", out JsonElement usedPercentElement))
+        {
+            if (usedPercentElement.ValueKind != JsonValueKind.Number || !usedPercentElement.TryGetDouble(out usedPercent) || !double.IsFinite(usedPercent))
+            {
+                throw new InvalidOperationException("Could not parse Grok billing usage.");
+            }
+        }
+        else if (!hasCurrentPeriod)
+        {
+            throw new InvalidOperationException("Could not parse Grok billing usage.");
+        }
+
+        string resetText = hasCurrentPeriod && currentPeriod.TryGetProperty("end", out JsonElement periodEnd) && periodEnd.ValueKind == JsonValueKind.String
+            ? periodEnd.GetString() ?? string.Empty
+            : config.TryGetProperty("billingPeriodEnd", out JsonElement billingPeriodEnd) && billingPeriodEnd.ValueKind == JsonValueKind.String
+                ? billingPeriodEnd.GetString() ?? string.Empty
+                : string.Empty;
+        if (!DateTimeOffset.TryParse(resetText, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out DateTimeOffset resetsAt))
+        {
+            throw new InvalidOperationException("Could not parse Grok billing usage.");
+        }
+
+        List<GrokProductUsage> productUsage = [];
+        if (config.TryGetProperty("productUsage", out JsonElement productUsageElement) && productUsageElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement item in productUsageElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object ||
+                    !item.TryGetProperty("product", out JsonElement productElement) ||
+                    productElement.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(productElement.GetString()))
+                {
+                    continue;
+                }
+
+                double productUsedPercent = 0;
+                if (item.TryGetProperty("usagePercent", out JsonElement productPercentElement) &&
+                    (productPercentElement.ValueKind != JsonValueKind.Number ||
+                     !productPercentElement.TryGetDouble(out productUsedPercent) ||
+                     !double.IsFinite(productUsedPercent)))
+                {
+                    continue;
+                }
+
+                productUsage.Add(new GrokProductUsage(productElement.GetString()!.Trim(), Math.Clamp(productUsedPercent, 0, 100)));
+            }
+        }
+
+        string subscriptionTier = GetSubscriptionTierProperty(document.RootElement);
+        if (subscriptionTier.Length == 0)
+        {
+            subscriptionTier = GetSubscriptionTierProperty(config);
+        }
+
+        return new GrokUsageSnapshot(Math.Clamp(usedPercent, 0, 100), resetsAt.ToUnixTimeSeconds(), subscriptionTier)
+        {
+            ProductUsage = productUsage,
+        };
     }
 
     /// <summary>
@@ -72,7 +225,6 @@ public sealed class GrokUsageCollector
         bool hasUsagePeriod = scan.VarintFields.Any(field =>
             PathStartsWith(field.Path, 1, 6) ||
             (PathEquals(field.Path, 1, 8, 1) && (field.Value == 1 || field.Value == 2)));
-
         if (resetField == null || (percentField == null && !hasUsagePeriod))
         {
             throw new InvalidOperationException("Could not parse Grok billing usage.");
@@ -82,19 +234,9 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Resolves a usable access token, refreshing and persisting credentials when needed.
-    /// </summary>
-    private async Task<string> ResolveAccessTokenAsync(string oauthSource, bool forceRefresh, CancellationToken cancellationToken)
-    {
-        return oauthSource == ApiMonitorSettings.OpenCodeOAuthSource
-            ? await ResolveOpenCodeAccessTokenAsync(forceRefresh, cancellationToken).ConfigureAwait(false)
-            : await ResolveGrokBuildAccessTokenAsync(forceRefresh, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
     /// Loads Grok Build credentials and refreshes them when expired or forced.
     /// </summary>
-    private async Task<string> ResolveGrokBuildAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
+    private async Task<(string AccessToken, string UserId)> ResolveGrokBuildAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         await s_GrokBuildAuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -106,7 +248,7 @@ public sealed class GrokUsageCollector
 
             if (!forceRefresh && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken))
             {
-                return credential.AccessToken;
+                return (credential.AccessToken, credential.UserId);
             }
 
             if (string.IsNullOrWhiteSpace(credential.RefreshToken))
@@ -119,47 +261,11 @@ public sealed class GrokUsageCollector
             OAuthTokenRefresh refresh = await RefreshOAuthTokenAsync(credential.RefreshToken, credential.ClientId, cancellationToken)
                 .ConfigureAwait(false);
             SaveGrokBuildCredential(credential, refresh);
-            return refresh.AccessToken;
+            return (refresh.AccessToken, credential.UserId);
         }
         finally
         {
             s_GrokBuildAuthLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// Loads OpenCode credentials and refreshes them when expired or forced.
-    /// </summary>
-    private async Task<string> ResolveOpenCodeAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
-    {
-        await s_OpenCodeAuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (!TryLoadOpenCodeCredential(out OpenCodeCredential credential, out string error))
-            {
-                throw new InvalidOperationException(error);
-            }
-
-            if (!forceRefresh && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken))
-            {
-                return credential.AccessToken;
-            }
-
-            if (string.IsNullOrWhiteSpace(credential.RefreshToken))
-            {
-                throw new InvalidOperationException(forceRefresh
-                    ? "OpenCode xAI OAuth token expired or unauthorized and no refresh token is available. Reconnect xAI in OpenCode."
-                    : "OpenCode xAI OAuth token expired. Use Grok in OpenCode to refresh it.");
-            }
-
-            OAuthTokenRefresh refresh = await RefreshOAuthTokenAsync(credential.RefreshToken, k_DefaultClientId, cancellationToken)
-                .ConfigureAwait(false);
-            SaveOpenCodeCredential(credential, refresh);
-            return refresh.AccessToken;
-        }
-        finally
-        {
-            s_OpenCodeAuthLock.Release();
         }
     }
 
@@ -174,7 +280,7 @@ public sealed class GrokUsageCollector
             clientId,
             refreshToken,
             "Grok",
-            "Run the selected OAuth source login again.",
+            "Run grok login again.",
             cancellationToken).ConfigureAwait(false);
         DateTimeOffset expiresAt = response.ExpiresInSeconds is double seconds
             ? DateTimeOffset.UtcNow.AddSeconds(seconds)
@@ -186,9 +292,71 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Sends the Grok billing gRPC-web request for one access token.
+    /// Fetches Grok credits through the official JSON endpoint with a gRPC-web fallback.
     /// </summary>
-    private async Task<GrokUsageSnapshot> FetchBillingAsync(string accessToken, CancellationToken cancellationToken)
+    private async Task<GrokUsageSnapshot> FetchBillingAsync(string accessToken, string userId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await FetchCreditsAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (JsonException)
+        {
+        }
+        catch (FormatException)
+        {
+        }
+        catch (OverflowException)
+        {
+        }
+        catch (InvalidOperationException exception) when (!IsAuthFailure(exception))
+        {
+        }
+
+        return await FetchGrpcWebBillingAsync(accessToken, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sends the Grok credits JSON request for one access token.
+    /// </summary>
+    private async Task<GrokUsageSnapshot> FetchCreditsAsync(string accessToken, string userId, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, k_CreditsEndpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.TryAddWithoutValidation("X-XAI-Token-Auth", "xai-grok-cli");
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            request.Headers.TryAddWithoutValidation("x-userid", userId);
+        }
+
+        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.UserAgent.ParseAdd("CodexTray");
+
+        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        string responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("Grok Build OAuth token expired or unauthorized. Run grok login again.");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Grok credits request failed: HTTP {(int)response.StatusCode}");
+        }
+
+        return ParseCreditsResponse(responseBody);
+    }
+
+    /// <summary>
+    /// Sends the Grok billing gRPC-web fallback request for one access token.
+    /// </summary>
+    private async Task<GrokUsageSnapshot> FetchGrpcWebBillingAsync(string accessToken, CancellationToken cancellationToken)
     {
         using HttpRequestMessage request = new(HttpMethod.Post, k_BillingEndpoint);
         using ByteArrayContent content = new([0, 0, 0, 0, 0]);
@@ -206,7 +374,7 @@ public sealed class GrokUsageCollector
         byte[] responseBody = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            throw new InvalidOperationException("Grok OAuth token expired or unauthorized. Refresh the selected OAuth source.");
+            throw new InvalidOperationException("Grok Build OAuth token expired or unauthorized. Run grok login again.");
         }
 
         if (!response.IsSuccessStatusCode)
@@ -334,7 +502,11 @@ public sealed class GrokUsageCollector
             }
         }
 
-        return new GrokBuildCredential(authPath, entryKey, accessToken, refreshToken, expiresAt, clientId);
+        string userId = entry.TryGetProperty("user_id", out JsonElement userIdElement) &&
+            userIdElement.ValueKind == JsonValueKind.String
+                ? userIdElement.GetString() ?? string.Empty
+                : string.Empty;
+        return new GrokBuildCredential(authPath, entryKey, accessToken, refreshToken, expiresAt, clientId, userId);
     }
 
     /// <summary>
@@ -363,83 +535,6 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Loads the OpenCode xAI OAuth credential from the first available auth.json.
-    /// </summary>
-    private static bool TryLoadOpenCodeCredential(out OpenCodeCredential credential, out string error)
-    {
-        credential = default!;
-        error = string.Empty;
-        foreach (string authPath in GetOpenCodeAuthPaths())
-        {
-            if (!File.Exists(authPath))
-            {
-                continue;
-            }
-
-            try
-            {
-                using JsonDocument document = JsonDocument.Parse(File.ReadAllText(authPath));
-                if (document.RootElement.ValueKind != JsonValueKind.Object ||
-                    !document.RootElement.TryGetProperty("xai", out JsonElement xai) ||
-                    xai.ValueKind != JsonValueKind.Object ||
-                    !xai.TryGetProperty("type", out JsonElement type) ||
-                    !string.Equals(type.GetString(), "oauth", StringComparison.OrdinalIgnoreCase) ||
-                    !xai.TryGetProperty("access", out JsonElement access) ||
-                    string.IsNullOrWhiteSpace(access.GetString()))
-                {
-                    continue;
-                }
-
-                string? refreshToken = null;
-                if (xai.TryGetProperty("refresh", out JsonElement refresh) &&
-                    refresh.ValueKind == JsonValueKind.String &&
-                    !string.IsNullOrWhiteSpace(refresh.GetString()))
-                {
-                    refreshToken = refresh.GetString();
-                }
-
-                DateTimeOffset? expiresAt = null;
-                if (xai.TryGetProperty("expires", out JsonElement expires) &&
-                    expires.TryGetInt64(out long expiryMilliseconds))
-                {
-                    expiresAt = DateTimeOffset.FromUnixTimeMilliseconds(expiryMilliseconds);
-                }
-
-                credential = new OpenCodeCredential(authPath, access.GetString()!, refreshToken, expiresAt);
-                return true;
-            }
-            catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException)
-            {
-                continue;
-            }
-        }
-
-        error = "OpenCode xAI OAuth credentials were not found. Connect xAI Grok OAuth in OpenCode first.";
-        return false;
-    }
-
-    /// <summary>
-    /// Writes refreshed OpenCode xAI tokens back into auth.json without dropping other providers.
-    /// </summary>
-    private static void SaveOpenCodeCredential(OpenCodeCredential credential, OAuthTokenRefresh refresh)
-    {
-        string text = File.ReadAllText(credential.AuthPath);
-        JsonNode root = JsonNode.Parse(text) ?? throw new InvalidOperationException("OpenCode OAuth file has an invalid format.");
-        if (root is not JsonObject rootObject)
-        {
-            throw new InvalidOperationException("OpenCode OAuth file has an invalid format.");
-        }
-
-        JsonObject xaiObject = rootObject["xai"] as JsonObject ?? new JsonObject();
-        xaiObject["type"] = "oauth";
-        xaiObject["access"] = refresh.AccessToken;
-        xaiObject["refresh"] = refresh.RefreshToken;
-        xaiObject["expires"] = refresh.ExpiresAt.ToUnixTimeMilliseconds();
-        rootObject["xai"] = xaiObject;
-        AtomicFile.WriteAllText(credential.AuthPath, rootObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-    }
-
-    /// <summary>
     /// Returns the Grok Build authentication file path.
     /// </summary>
     private static string GetGrokBuildAuthPath()
@@ -450,24 +545,127 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Returns the OpenCode authentication file locations supported on Windows.
+    /// Loads the most recent subscription tier cached by Grok Build, then checks the active auth entry.
     /// </summary>
-    private static IEnumerable<string> GetOpenCodeAuthPaths()
+    private bool TryLoadLocalSubscriptionTier(string accessToken, out string subscriptionTier)
     {
-        List<string> paths = [];
-        string? xdgDataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-        if (!string.IsNullOrWhiteSpace(xdgDataHome))
+        subscriptionTier = string.Empty;
+        string authPath = GetGrokBuildAuthPath();
+        string grokHome = Path.GetDirectoryName(authPath)!;
+        string logPath = Path.Combine(grokHome, "logs", "unified.jsonl");
+        if (File.Exists(logPath))
         {
-            paths.Add(Path.Combine(xdgDataHome, "opencode", "auth.json"));
+            try
+            {
+                FileInfo logInfo = new(logPath);
+                if (m_SubscriptionLogScanned &&
+                    string.Equals(m_SubscriptionLogPath, logPath, StringComparison.OrdinalIgnoreCase) &&
+                    logInfo.Length == m_SubscriptionLogLength &&
+                    logInfo.LastWriteTimeUtc == m_SubscriptionLogWriteUtc)
+                {
+                    if (m_CachedLogSubscriptionTier.Length > 0)
+                    {
+                        subscriptionTier = m_CachedLogSubscriptionTier;
+                        return true;
+                    }
+                }
+                else
+                {
+                    using FileStream stream = new(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using StreamReader reader = new(stream);
+                    string foundTier = string.Empty;
+                    while (reader.ReadLine() is string line)
+                    {
+                        if (!line.Contains("\"billing: fetched credits config\"", StringComparison.Ordinal) ||
+                            !line.Contains("\"subscriptionTier\"", StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        try
+                        {
+                            using JsonDocument document = JsonDocument.Parse(line);
+                            JsonElement context = document.RootElement.TryGetProperty("ctx", out JsonElement value) ? value : default;
+                            string candidate = GetSubscriptionTierProperty(context);
+                            if (LooksLikeSubscriptionTier(candidate))
+                            {
+                                foundTier = candidate.Trim();
+                            }
+                        }
+                        catch (JsonException)
+                        {
+                            // Ignore one partially written or legacy Grok Build log line.
+                        }
+                    }
+
+                    m_SubscriptionLogPath = logPath;
+                    m_SubscriptionLogLength = logInfo.Length;
+                    m_SubscriptionLogWriteUtc = logInfo.LastWriteTimeUtc;
+                    m_CachedLogSubscriptionTier = foundTier;
+                    m_SubscriptionLogScanned = true;
+                    if (foundTier.Length > 0)
+                    {
+                        subscriptionTier = foundTier;
+                        return true;
+                    }
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Fall through to the active Grok Build auth entry.
+            }
         }
 
-        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        paths.Add(Path.Combine(localAppData, "opencode", "auth.json"));
-        paths.Add(Path.Combine(appData, "opencode", "auth.json"));
-        paths.Add(Path.Combine(userProfile, ".local", "share", "opencode", "auth.json"));
-        return paths.Distinct(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(authPath));
+            foreach (JsonProperty entry in document.RootElement.EnumerateObject())
+            {
+                if (entry.Value.ValueKind != JsonValueKind.Object ||
+                    !entry.Value.TryGetProperty("key", out JsonElement key) ||
+                    key.ValueKind != JsonValueKind.String ||
+                    !string.Equals(key.GetString(), accessToken, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                string candidate = GetSubscriptionTierProperty(entry.Value);
+                if (LooksLikeSubscriptionTier(candidate))
+                {
+                    subscriptionTier = candidate.Trim();
+                    return true;
+                }
+
+                return false;
+            }
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Reads either supported subscription tier property spelling from one JSON object.
+    /// </summary>
+    private static string GetSubscriptionTierProperty(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            return string.Empty;
+        }
+
+        foreach (string name in new[] { "subscriptionTier", "subscription_tier" })
+        {
+            if (value.TryGetProperty(name, out JsonElement property) && property.ValueKind == JsonValueKind.String)
+            {
+                return property.GetString() ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
     }
 
     /// <summary>
@@ -504,7 +702,7 @@ public sealed class GrokUsageCollector
             status != 0)
         {
             throw new InvalidOperationException(status == 16
-                ? "Grok OAuth token expired or unauthorized. Refresh the selected OAuth source."
+                ? "Grok Build OAuth token expired or unauthorized. Run grok login again."
                 : $"Grok billing request failed with gRPC status {status}.");
         }
     }
@@ -578,7 +776,7 @@ public sealed class GrokUsageCollector
             }
 
             throw new InvalidOperationException(status == 16
-                ? "Grok OAuth token expired or unauthorized. Refresh the selected OAuth source."
+                ? "Grok Build OAuth token expired or unauthorized. Run grok login again."
                 : $"Grok billing request failed with gRPC status {status}.");
         }
     }
@@ -712,6 +910,19 @@ public sealed class GrokUsageCollector
         return path.Count >= expected.Length && path.Take(expected.Length).SequenceEqual(expected);
     }
 
+    /// <summary>
+    /// Identifies subscription tier strings while allowing future xAI tier names to pass through.
+    /// </summary>
+    private static bool LooksLikeSubscriptionTier(string value)
+    {
+        string normalized = value.Trim().Replace('_', ' ');
+        return string.Equals(normalized, "Free", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("Premium", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("SuperGrok", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("Business", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("Enterprise", StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class ProtobufScan
     {
         public List<Fixed32Field> Fixed32Fields { get; } = [];
@@ -733,11 +944,7 @@ public sealed class GrokUsageCollector
         string AccessToken,
         string? RefreshToken,
         DateTimeOffset? ExpiresAt,
-        string ClientId);
+        string ClientId,
+        string UserId);
 
-    private sealed record OpenCodeCredential(
-        string AuthPath,
-        string AccessToken,
-        string? RefreshToken,
-        DateTimeOffset? ExpiresAt);
 }

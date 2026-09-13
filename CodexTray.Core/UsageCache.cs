@@ -3,6 +3,7 @@ namespace CodexTray.Core;
 public sealed class UsageCache
 {
     private volatile UsageResponse? m_CodexResponse;
+    private volatile GrokPluginUsage? m_GrokUsage;
     private volatile CursorPluginUsage? m_CursorUsage;
 
     /// <summary>
@@ -11,6 +12,14 @@ public sealed class UsageCache
     public void UpdateCodex(UsageResponse response)
     {
         m_CodexResponse = response;
+    }
+
+    /// <summary>
+    /// Stores the latest collected Grok usage response.
+    /// </summary>
+    public void UpdateGrok(GrokPluginUsage usage)
+    {
+        m_GrokUsage = usage;
     }
 
     /// <summary>
@@ -30,6 +39,14 @@ public sealed class UsageCache
     }
 
     /// <summary>
+    /// Clears the cached Grok usage response.
+    /// </summary>
+    public void ClearGrok()
+    {
+        m_GrokUsage = null;
+    }
+
+    /// <summary>
     /// Clears the cached Cursor usage response.
     /// </summary>
     public void ClearCursor()
@@ -38,13 +55,22 @@ public sealed class UsageCache
     }
 
     /// <summary>
-    /// Gets a merged plugin response from the latest Codex and Cursor values.
+    /// Gets the latest Codex plugin snapshot without synthesizing a missing Codex failure.
+    /// </summary>
+    public UsageResponse? GetCodex()
+    {
+        return m_CodexResponse;
+    }
+
+    /// <summary>
+    /// Gets a merged plugin response from the latest Codex, Cursor, and Grok values.
     /// </summary>
     public UsageResponse? Get()
     {
         UsageResponse? codex = m_CodexResponse;
+        GrokPluginUsage? grok = m_GrokUsage;
         CursorPluginUsage? cursor = m_CursorUsage;
-        if (codex == null && cursor == null)
+        if (codex == null && grok == null && cursor == null)
         {
             return null;
         }
@@ -61,6 +87,13 @@ public sealed class UsageCache
             UsedPercent = 100,
             RemainingPercent = 0,
         };
+        UsageLimit grokWeekly = grok?.Weekly ?? new UsageLimit
+        {
+            Name = "weekly",
+            UsedPercent = 100,
+            RemainingPercent = 0,
+        };
+        string grokDisplay = grok?.Display ?? CodexTrayDefaults.UnavailableDisplay;
         string cursorDisplay = cursor?.Display ?? CodexTrayDefaults.UnavailableDisplay;
         return new UsageResponse
         {
@@ -76,14 +109,15 @@ public sealed class UsageCache
                 Session = codex.Limits.Session,
                 Weekly = codex.Limits.Weekly,
                 CursorMonthly = cursorMonthly,
+                GrokWeekly = grokWeekly,
             },
             ResetCredits = codex.ResetCredits,
             Display = new UsageDisplay
             {
-                Session = codex.Display.Session,
                 Weekly = codex.Display.Weekly,
                 CursorMonthly = cursorDisplay,
-                Summary = $"{codex.Display.Summary} | Cursor Monthly: {cursorDisplay}",
+                GrokWeekly = grokDisplay,
+                Summary = $"Codex: {codex.Display.Weekly} | Cursor: {cursorDisplay} | Grok: {grokDisplay}",
             },
         };
     }

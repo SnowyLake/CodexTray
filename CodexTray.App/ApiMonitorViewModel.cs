@@ -11,7 +11,6 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     private static readonly Media.Brush s_RedBrush = new Media.SolidColorBrush(Media.Color.FromRgb(224, 91, 77));
 
     private string m_Provider;
-    private string m_GrokOAuthSource;
 
     public event EventHandler? EditingSaved;
 
@@ -20,16 +19,10 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     public string[] ProviderOptions { get; } =
     [
         ApiMonitorSettings.DeepSeekProvider,
-        ApiMonitorSettings.GrokProvider,
+        ApiMonitorSettings.OpenRouterProvider,
+        ApiMonitorSettings.VercelProvider,
         ApiMonitorSettings.NanoGptProvider,
         ApiMonitorSettings.NewApiProvider,
-        ApiMonitorSettings.OpenRouterProvider,
-    ];
-
-    public string[] GrokOAuthSourceOptions { get; } =
-    [
-        ApiMonitorSettings.GrokBuildOAuthSource,
-        ApiMonitorSettings.OpenCodeOAuthSource,
     ];
 
     [ObservableProperty]
@@ -46,7 +39,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
                 ApiMonitorSettings.NewApiProvider => ApiMonitorSettings.NewApiProvider,
                 ApiMonitorSettings.OpenRouterProvider => ApiMonitorSettings.OpenRouterProvider,
                 ApiMonitorSettings.NanoGptProvider => ApiMonitorSettings.NanoGptProvider,
-                ApiMonitorSettings.GrokProvider => ApiMonitorSettings.GrokProvider,
+                ApiMonitorSettings.VercelProvider => ApiMonitorSettings.VercelProvider,
                 _ => ApiMonitorSettings.DeepSeekProvider,
             };
             string previousProvider = m_Provider;
@@ -72,8 +65,6 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             StatusDotBrush = s_RedBrush;
 
             OnPropertyChanged(nameof(IsNewApi));
-            OnPropertyChanged(nameof(IsGrok));
-            OnPropertyChanged(nameof(IsLocalSessionAuth));
             OnPropertyChanged(nameof(HasSecondaryDisplay));
             OnPropertyChanged(nameof(PrimaryDisplayLabel));
             OnPropertyChanged(nameof(SecondaryDisplayLabel));
@@ -90,31 +81,15 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     [ObservableProperty]
     public partial string UserId { get; set; }
 
-    public string GrokOAuthSource
-    {
-        get => m_GrokOAuthSource;
-        set
-        {
-            string normalized = string.Equals(value, ApiMonitorSettings.OpenCodeOAuthSource, StringComparison.OrdinalIgnoreCase)
-                ? ApiMonitorSettings.OpenCodeOAuthSource
-                : ApiMonitorSettings.GrokBuildOAuthSource;
-            SetProperty(ref m_GrokOAuthSource, normalized);
-        }
-    }
-
     public bool IsNewApi => m_Provider == ApiMonitorSettings.NewApiProvider;
 
-    public bool IsGrok => m_Provider == ApiMonitorSettings.GrokProvider;
-
-    public bool IsLocalSessionAuth => IsGrok;
-
-    public bool HasSecondaryDisplay => IsNewApi || IsGrok ||
-        (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.NanoGptProvider &&
+    public bool HasSecondaryDisplay => IsNewApi ||
+        (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.NanoGptProvider or ApiMonitorSettings.VercelProvider &&
          !string.IsNullOrEmpty(UsedDisplay) && UsedDisplay != "N/A");
 
     public string PrimaryDisplayLabel => "Balance:";
 
-    public string SecondaryDisplayLabel => IsGrok ? "Resets:" : m_Provider == ApiMonitorSettings.NanoGptProvider ? "Used(30d):" : "Used:";
+    public string SecondaryDisplayLabel => m_Provider == ApiMonitorSettings.NanoGptProvider ? "Used(30d):" : "Used:";
 
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? m_Provider : Name.Trim();
 
@@ -154,7 +129,6 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         BaseUrl = settings.BaseUrl;
         ApiKey = settings.ApiKey;
         UserId = settings.UserId;
-        m_GrokOAuthSource = settings.GrokOAuthSource;
         IsEditing = isEditing;
         IsPending = isPending;
     }
@@ -172,7 +146,6 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             BaseUrl = BaseUrl,
             ApiKey = ApiKey,
             UserId = UserId,
-            GrokOAuthSource = GrokOAuthSource,
         }.Normalize();
     }
 
@@ -186,6 +159,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             ApiMonitorSettings.DeepSeekProvider => "https://api.deepseek.com",
             ApiMonitorSettings.OpenRouterProvider => "https://openrouter.ai",
             ApiMonitorSettings.NanoGptProvider => "https://nano-gpt.com",
+            ApiMonitorSettings.VercelProvider => "https://ai-gateway.vercel.sh",
             _ => string.Empty,
         };
     }
@@ -195,7 +169,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     /// </summary>
     private static bool IsDefaultBaseUrl(string baseUrl)
     {
-        return baseUrl is "https://api.deepseek.com" or "https://openrouter.ai" or "https://nano-gpt.com";
+        return baseUrl is "https://api.deepseek.com" or "https://openrouter.ai" or "https://nano-gpt.com" or "https://ai-gateway.vercel.sh";
     }
 
     /// <summary>

@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
@@ -14,6 +16,8 @@ public sealed record CursorUsageSnapshot(
     double ApiUsedPercent,
     long ResetsAt);
 
+public sealed record CursorGrokBotUsageSnapshot(double UsedPercent, long ResetsAt);
+
 public sealed record CursorUsageDashboard(
     CursorUsageSnapshot? Usage,
     TokenCostStatistics? TokenCost,
@@ -22,7 +26,9 @@ public sealed record CursorUsageDashboard(
     DateTimeOffset UpdatedAt,
     CursorUsageEventsDiagnostics? TokenCostDiagnostics = null,
     bool InitialCredentialRefreshUsed = false,
-    bool ForcedCredentialRefreshUsed = false);
+    bool ForcedCredentialRefreshUsed = false,
+    CursorGrokBotUsageSnapshot? GrokBotUsage = null,
+    string GrokBotUsageError = "");
 
 public sealed record CursorUsageEventsDiagnostics(
     int EventCount,
@@ -38,6 +44,7 @@ public sealed record CursorUsageEventsDiagnostics(
 public sealed class CursorUsageCollector
 {
     private const string k_UsageEndpoint = "https://cursor.com/api/usage-summary";
+    private const string k_GrokBotUsageEndpoint = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus";
     private const string k_UsageEventsEndpoint = "https://cursor.com/api/dashboard/get-filtered-usage-events";
     private const string k_TokenEndpoint = "https://api2.cursor.sh/oauth/token";
     private const string k_ClientId = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB";
@@ -55,6 +62,13 @@ public sealed class CursorUsageCollector
     private static readonly SemaphoreSlim s_AuthLock = new(1, 1);
 
     private readonly HttpClient m_HttpClient;
+    private List<CursorUsageEvent>? m_CachedUsageEvents;
+    private int m_CachedUsageEventTotal = -1;
+    private int m_CachedFirstPageCount;
+    private int m_CachedPageCount;
+    private int m_CachedZeroTokenMissingCostEventCount;
+    private DateTimeOffset m_CachedFirstEventTimestamp;
+    private DateTimeOffset m_CachedFirstPageLastTimestamp;
 
     /// <summary>
     /// Creates a collector using the shared HTTP client.
@@ -91,7 +105,7 @@ public sealed class CursorUsageCollector
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or OverflowException)
         {
             string error = FormatError(exception);
-            return new CursorUsageDashboard(null, null, error, error, refreshedAt);
+            return new CursorUsageDashboard(null, null, error, error, refreshedAt, GrokBotUsageError: error);
         }
 
         CursorCredential credential = initialCredential.Credential;
@@ -104,6 +118,15 @@ public sealed class CursorUsageCollector
             cancellationToken).ConfigureAwait(false);
         credential = usageResult.Credential;
         refreshUsed = usageResult.RefreshUsed;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        CursorEndpointResult<CursorGrokBotUsageSnapshot> grokBotUsageResult = await CollectEndpointAsync(
+            current => FetchGrokBotUsageAsync(current, refreshedAt, cancellationToken),
+            credential,
+            refreshUsed,
+            cancellationToken).ConfigureAwait(false);
+        credential = grokBotUsageResult.Credential;
+        refreshUsed = grokBotUsageResult.RefreshUsed;
 
         cancellationToken.ThrowIfCancellationRequested();
         CursorEndpointResult<CursorUsageEventsCollection> tokenCostResult = await CollectEndpointAsync(
@@ -120,25 +143,9 @@ public sealed class CursorUsageCollector
             refreshedAt,
             tokenCostResult.Value?.Diagnostics,
             initialCredential.RefreshUsed,
-            usageResult.RefreshUsed || tokenCostResult.RefreshUsed);
-    }
-
-    /// <summary>
-    /// Collects Cursor plan usage from the local IDE OAuth session.
-    /// </summary>
-    public async Task<CursorUsageSnapshot> CollectAsync(CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        CursorCredential credential = (await ResolveInitialCredentialAsync(cancellationToken).ConfigureAwait(false)).Credential;
-        try
-        {
-            return await FetchUsageAsync(credential, DateTimeOffset.Now, cancellationToken).ConfigureAwait(false);
-        }
-        catch (CursorRequestException exception) when (exception.IsAuthenticationFailure)
-        {
-            credential = await RefreshCredentialAsync(credential, cancellationToken).ConfigureAwait(false);
-            return await FetchUsageAsync(credential, DateTimeOffset.Now, cancellationToken).ConfigureAwait(false);
-        }
+            usageResult.RefreshUsed || grokBotUsageResult.RefreshUsed || tokenCostResult.RefreshUsed,
+            grokBotUsageResult.Value,
+            grokBotUsageResult.Error);
     }
 
     /// <summary>
@@ -170,9 +177,28 @@ public sealed class CursorUsageCollector
     }
 
     /// <summary>
+    /// Parses Cursor Grok Bot weekly usage and reset data.
+    /// </summary>
+    public static CursorGrokBotUsageSnapshot ParseGrokBotUsage(string json, DateTimeOffset now)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object ||
+            !TryGetPlanPercent(root, "usagePercent", out double usedPercent) ||
+            !root.TryGetProperty("nextResetTimestampUtc", out JsonElement resetElement) ||
+            !TryGetTimestamp(resetElement, out DateTimeOffset resetsAt) ||
+            resetsAt <= now)
+        {
+            throw new InvalidOperationException("Cursor Grok Bot response did not include valid weekly usage.");
+        }
+
+        return new CursorGrokBotUsageSnapshot(usedPercent, resetsAt.ToUnixTimeSeconds());
+    }
+
+    /// <summary>
     /// Builds the Cursor Monthly value exposed to monitor plugins.
     /// </summary>
-    public static CursorPluginUsage BuildPluginUsage(CursorUsageDashboard dashboard, bool showResetTime, bool useAbsoluteResetTime)
+    public static CursorPluginUsage BuildPluginUsage(CursorUsageDashboard dashboard)
     {
         CursorUsageSnapshot? usage = dashboard.Usage;
         if (usage == null)
@@ -184,21 +210,14 @@ public sealed class CursorUsageCollector
 
         int usedPercent = (int)Math.Round(Math.Clamp(usage.MonthlyUsedPercent, 0, 100), MidpointRounding.AwayFromZero);
         int remainingPercent = 100 - usedPercent;
-        string resetLabel = useAbsoluteResetTime
-            ? CodexTrayCollector.FormatWeeklyResetDate(usage.ResetsAt, dashboard.UpdatedAt)
-            : CodexTrayCollector.FormatWeeklyResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
         UsageLimit monthly = new()
         {
             Name = "monthly",
             UsedPercent = usedPercent,
             RemainingPercent = remainingPercent,
             ResetsAt = usage.ResetsAt,
-            ResetLabel = resetLabel,
         };
-        string display = showResetTime
-            ? $"{remainingPercent}% {resetLabel}"
-            : $"{remainingPercent}%";
-        return new CursorPluginUsage(monthly, display);
+        return new CursorPluginUsage(monthly, $"{remainingPercent}%");
     }
 
     /// <summary>
@@ -222,6 +241,22 @@ public sealed class CursorUsageCollector
             return new CursorCredentialResult(
                 await RefreshCredentialAsync(credential, cancellationToken).ConfigureAwait(false),
                 true);
+        }
+        finally
+        {
+            s_AuthLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Refreshes one already loaded Cursor credential without rereading the local database.
+    /// </summary>
+    private async Task<CursorCredential> RefreshCredentialUnderLockAsync(CursorCredential credential, CancellationToken cancellationToken)
+    {
+        await s_AuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await RefreshCredentialAsync(credential, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -276,7 +311,7 @@ public sealed class CursorUsageCollector
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                refreshed = await RefreshCredentialAsync(credential, cancellationToken).ConfigureAwait(false);
+                refreshed = await RefreshCredentialUnderLockAsync(credential, cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
                 return new CursorEndpointResult<T>(await collect(refreshed).ConfigureAwait(false), string.Empty, refreshed, true);
             }
@@ -315,6 +350,25 @@ public sealed class CursorUsageCollector
     }
 
     /// <summary>
+    /// Sends the Cursor Grok Bot weekly usage request for one credential.
+    /// </summary>
+    private async Task<CursorGrokBotUsageSnapshot> FetchGrokBotUsageAsync(CursorCredential credential, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, k_GrokBotUsageEndpoint)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.AccessToken);
+        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.TryAddWithoutValidation("connect-protocol-version", "1");
+
+        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response, "Cursor Grok Bot usage request failed");
+        return ParseGrokBotUsage(body, now);
+    }
+
+    /// <summary>
     /// Fetches every Cursor usage-event page and aggregates complete token-cost periods.
     /// </summary>
     private async Task<CursorUsageEventsCollection> FetchUsageEventsAsync(CursorCredential credential, DateTimeOffset refreshedAt, CancellationToken cancellationToken)
@@ -324,9 +378,31 @@ public sealed class CursorUsageCollector
         int displayedCount = 0;
         int zeroTokenMissingCostEventCount = 0;
         List<CursorUsageEvent> events = [];
+        CursorUsageEventsPage? firstPage = null;
         for (int page = 1; ; page++)
         {
             CursorUsageEventsPage response = await FetchUsageEventsPageAsync(credential, page, refreshedAt, cancellationToken).ConfigureAwait(false);
+            if (page == 1)
+            {
+                firstPage = response;
+                if (TryGetCachedUsageEvents(response, out List<CursorUsageEvent>? cachedEvents, out int cachedPageCount, out int cachedTokenEventCount, out int cachedZeroTokenMissingCostEventCount))
+                {
+                    stopwatch.Stop();
+                    return new CursorUsageEventsCollection(
+                        AggregateUsageEvents(cachedEvents, refreshedAt),
+                        new CursorUsageEventsDiagnostics(
+                            response.TotalCount,
+                            cachedPageCount,
+                            cachedTokenEventCount,
+                            cachedZeroTokenMissingCostEventCount,
+                            cachedEvents.Count(usageEvent => usageEvent.HasInputTokens),
+                            cachedEvents.Count(usageEvent => usageEvent.HasOutputTokens),
+                            cachedEvents.Count(usageEvent => usageEvent.HasCacheReadTokens),
+                            cachedEvents.Count(usageEvent => usageEvent.HasCacheWriteTokens),
+                            stopwatch.Elapsed));
+                }
+            }
+
             if (expectedCount < 0)
             {
                 expectedCount = response.TotalCount;
@@ -347,6 +423,7 @@ public sealed class CursorUsageCollector
             if (displayedCount == expectedCount)
             {
                 stopwatch.Stop();
+                StoreCachedUsageEvents(firstPage ?? response, events, page, zeroTokenMissingCostEventCount);
                 return new CursorUsageEventsCollection(
                     AggregateUsageEvents(events, refreshedAt),
                     new CursorUsageEventsDiagnostics(
@@ -366,6 +443,60 @@ public sealed class CursorUsageCollector
                 throw new InvalidOperationException("Cursor usage events ended before the reported total.");
             }
         }
+    }
+
+    /// <summary>
+    /// Returns cached usage events when page 1 still matches the previous lifetime snapshot.
+    /// ponytail: page-1 fingerprint reuse; upgrade to watermarked startDate if Cursor documents append-only events.
+    /// </summary>
+    private bool TryGetCachedUsageEvents(
+        CursorUsageEventsPage firstPage,
+        [NotNullWhen(true)] out List<CursorUsageEvent>? events,
+        out int pageCount,
+        out int tokenEventCount,
+        out int zeroTokenMissingCostEventCount)
+    {
+        events = null;
+        pageCount = 0;
+        tokenEventCount = 0;
+        zeroTokenMissingCostEventCount = 0;
+        if (m_CachedUsageEvents == null ||
+            firstPage.TotalCount != m_CachedUsageEventTotal ||
+            firstPage.DisplayCount != m_CachedFirstPageCount)
+        {
+            return false;
+        }
+
+        DateTimeOffset firstTimestamp = firstPage.Events.Count > 0 ? firstPage.Events[0].Timestamp : default;
+        DateTimeOffset lastTimestamp = firstPage.Events.Count > 0 ? firstPage.Events[^1].Timestamp : default;
+        if (firstTimestamp != m_CachedFirstEventTimestamp || lastTimestamp != m_CachedFirstPageLastTimestamp)
+        {
+            return false;
+        }
+
+        events = m_CachedUsageEvents;
+        pageCount = m_CachedPageCount;
+        tokenEventCount = m_CachedUsageEvents.Count;
+        zeroTokenMissingCostEventCount = m_CachedZeroTokenMissingCostEventCount;
+        return true;
+    }
+
+    /// <summary>
+    /// Stores one complete usage-events snapshot keyed by the first page fingerprint.
+    /// </summary>
+    private void StoreCachedUsageEvents(
+        CursorUsageEventsPage firstPage,
+        List<CursorUsageEvent> events,
+        int pageCount,
+        int zeroTokenMissingCostEventCount)
+    {
+        m_CachedUsageEvents = events;
+        m_CachedUsageEventTotal = firstPage.TotalCount;
+        m_CachedFirstPageCount = firstPage.DisplayCount;
+        m_CachedFirstEventTimestamp = firstPage.Events.Count > 0 ? firstPage.Events[0].Timestamp : default;
+        m_CachedFirstPageLastTimestamp = firstPage.Events.Count > 0 ? firstPage.Events[^1].Timestamp : default;
+        m_CachedPageCount = pageCount;
+        m_CachedZeroTokenMissingCostEventCount = zeroTokenMissingCostEventCount;
     }
 
     /// <summary>
@@ -478,6 +609,7 @@ public sealed class CursorUsageCollector
                 });
             }
 
+            string model = GetStringProperty(display, "model", "unknown").Trim();
             result.Add(new CursorUsageEvent(
                 timestamp,
                 inputTokens,
@@ -488,7 +620,8 @@ public sealed class CursorUsageCollector
                 hasInputTokens,
                 hasOutputTokens,
                 hasCacheReadTokens,
-                hasCacheWriteTokens));
+                hasCacheWriteTokens,
+                string.IsNullOrWhiteSpace(model) ? "unknown" : model));
         }
 
         return new CursorUsageEventsPage(totalCount, displays.GetArrayLength(), result, zeroTokenMissingCostEventCount);
@@ -504,7 +637,8 @@ public sealed class CursorUsageCollector
         foreach (CursorUsageEvent usageEvent in events)
         {
             long tokens = checked(usageEvent.InputTokens + usageEvent.OutputTokens + usageEvent.CacheReadTokens + usageEvent.CacheWriteTokens);
-            accumulator.Add(usageEvent.Timestamp, tokens, usageEvent.TotalCents / 100m);
+            long cacheableInputTokens = checked(usageEvent.InputTokens + usageEvent.CacheWriteTokens + usageEvent.CacheReadTokens);
+            accumulator.Add(usageEvent.Timestamp, tokens, usageEvent.TotalCents / 100m, usageEvent.Model, usageEvent.CacheReadTokens, cacheableInputTokens);
         }
 
         return accumulator.ToStatistics();
@@ -573,7 +707,7 @@ public sealed class CursorUsageCollector
             {
                 accessToken = ReadItemValue(connection, k_AccessTokenKey);
                 refreshToken = ReadItemValue(connection, k_RefreshTokenKey);
-            });
+            }, readWrite: false);
 
             if (string.IsNullOrWhiteSpace(accessToken))
             {
@@ -613,7 +747,7 @@ public sealed class CursorUsageCollector
     /// <summary>
     /// Opens the Cursor state database with busy timeout and limited retries.
     /// </summary>
-    private static void WithSqlite(string dbPath, Action<SqliteConnection> action)
+    private static void WithSqlite(string dbPath, Action<SqliteConnection> action, bool readWrite = true)
     {
         SqliteException? lastBusy = null;
         for (int attempt = 1; attempt <= k_SqliteRetryCount; attempt++)
@@ -623,7 +757,7 @@ public sealed class CursorUsageCollector
                 using SqliteConnection connection = new(new SqliteConnectionStringBuilder
                 {
                     DataSource = dbPath,
-                    Mode = SqliteOpenMode.ReadWrite,
+                    Mode = readWrite ? SqliteOpenMode.ReadWrite : SqliteOpenMode.ReadOnly,
                     Pooling = false,
                 }.ToString());
                 connection.Open();
@@ -916,7 +1050,8 @@ public sealed class CursorUsageCollector
         bool HasInputTokens,
         bool HasOutputTokens,
         bool HasCacheReadTokens,
-        bool HasCacheWriteTokens);
+        bool HasCacheWriteTokens,
+        string Model);
 
     private sealed record CursorUsageEventsCollection(TokenCostStatistics Statistics, CursorUsageEventsDiagnostics Diagnostics);
 
