@@ -44,7 +44,7 @@ internal sealed class TrayController : IDisposable
 
     private bool IsExiting => Volatile.Read(ref m_IsExiting) != 0;
 
-    private bool IsPluginServiceRequired => (m_Settings.VisiblePages & (PageItem.Codex | PageItem.Grok | PageItem.Cursor)) != 0;
+    private bool IsPluginServiceRequired => m_Settings.VisiblePages != PageItem.None;
 
     /// <summary>
     /// Creates the tray controller and starts background work.
@@ -458,6 +458,7 @@ internal sealed class TrayController : IDisposable
         bool codexWasEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokWasEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
         bool cursorWasEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
+        bool apisWasEnabled = (m_Settings.VisiblePages & PageItem.Apis) != 0;
         bool serviceWasRequired = IsPluginServiceRequired;
         m_PopupViewModel?.ApplySettings();
 
@@ -467,6 +468,7 @@ internal sealed class TrayController : IDisposable
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokIsEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
         bool cursorIsEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
+        bool apisIsEnabled = (m_Settings.VisiblePages & PageItem.Apis) != 0;
         if (codexWasEnabled && !codexIsEnabled)
         {
             m_UsageCache.ClearCodex();
@@ -480,6 +482,11 @@ internal sealed class TrayController : IDisposable
         if (cursorWasEnabled && !cursorIsEnabled)
         {
             m_UsageCache.ClearCursor();
+        }
+
+        if (apisWasEnabled && !apisIsEnabled)
+        {
+            m_UsageCache.ClearDeepSeek();
         }
 
         bool serviceIsRequired = IsPluginServiceRequired;
@@ -732,9 +739,18 @@ internal sealed class TrayController : IDisposable
                 }
             }
 
-            if (apiUsageTask != null && (currentPages & PageItem.Apis) != 0)
+            if (apiUsageTask != null)
             {
-                m_PopupViewModel?.UpdateApiUsage(apiUsageTask.Result);
+                if ((currentPages & PageItem.Apis) != 0)
+                {
+                    IReadOnlyList<ApiUsageResult> results = apiUsageTask.Result;
+                    m_PopupViewModel?.UpdateApiUsage(results);
+                    m_UsageCache.UpdateDeepSeek(ApiUsageCollector.BuildDeepSeekPluginUsage(results));
+                }
+                else
+                {
+                    m_UsageCache.ClearDeepSeek();
+                }
             }
 
             RefreshPopupStatus();

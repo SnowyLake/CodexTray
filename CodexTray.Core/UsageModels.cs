@@ -49,6 +49,9 @@ public sealed class UsageLimits
 
     [JsonPropertyName("grok_weekly")]
     public UsageLimit GrokWeekly { get; set; } = new() { Name = "weekly", RemainingPercent = 0 };
+
+    [JsonPropertyName("deepseek")]
+    public UsageLimit DeepSeek { get; set; } = new() { Name = "deepseek", RemainingPercent = 0 };
 }
 
 public sealed class UsageLimit
@@ -142,6 +145,9 @@ public sealed class UsageDisplay
     [JsonPropertyName("grok_weekly")]
     public string GrokWeekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
+    [JsonPropertyName("deepseek")]
+    public string DeepSeek { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+
     [JsonPropertyName("summary")]
     public string Summary { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 }
@@ -149,3 +155,5 @@ public sealed class UsageDisplay
 public sealed record GrokPluginUsage(UsageLimit Weekly, string Display);
 
 public sealed record CursorPluginUsage(UsageLimit Monthly, string Display);
+
+public sealed record DeepSeekPluginUsage(UsageLimit Limit, string Display);

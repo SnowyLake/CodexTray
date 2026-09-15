@@ -27,6 +27,7 @@ struct UsageValues
     std::wstring codex;
     std::wstring cursor;
     std::wstring grok;
+    std::wstring deepseek;
 };
 
 struct OptionsDialogState
@@ -468,7 +469,7 @@ bool FetchUrl(const std::wstring& url, std::string& body)
     return !body.empty();
 }
 
-/// Fetches Codex, Cursor, then Grok display values from the local three-line bridge service.
+/// Fetches Codex, Cursor, Grok, then DeepSeek display values from the local four-line bridge service.
 bool FetchUsageValues(UsageValues& values)
 {
     std::string body;
@@ -490,10 +491,17 @@ bool FetchUsageValues(UsageValues& values)
         return false;
     }
 
+    size_t thirdSeparator = text.find(L'\n', secondSeparator + 1);
+    if (thirdSeparator == std::wstring::npos)
+    {
+        return false;
+    }
+
     values.codex = TrimString(text.substr(0, firstSeparator));
     values.cursor = TrimString(text.substr(firstSeparator + 1, secondSeparator - firstSeparator - 1));
-    values.grok = TrimString(text.substr(secondSeparator + 1));
-    return !values.codex.empty() && !values.cursor.empty() && !values.grok.empty();
+    values.grok = TrimString(text.substr(secondSeparator + 1, thirdSeparator - secondSeparator - 1));
+    values.deepseek = TrimString(text.substr(thirdSeparator + 1));
+    return !values.codex.empty() && !values.cursor.empty() && !values.grok.empty() && !values.deepseek.empty();
 }
 
 class UsageItem final : public IPluginItem
@@ -557,6 +565,7 @@ public:
         : m_CodexItem(L"Codex", L"CodexTrayCodex", L"Codex", L"100%"),
           m_CursorItem(L"Cursor", L"CodexTrayCursor", L"Cursor", L"100%"),
           m_GrokItem(L"Grok", L"CodexTrayGrok", L"Grok", L"100%"),
+          m_DeepSeekItem(L"DeepSeek", L"CodexTrayDeepSeek", L"DeepSeek", L"¥9999"),
           m_Tooltip(L"CodexTray waiting for data")
     {
     }
@@ -572,6 +581,8 @@ public:
             return &m_CursorItem;
         case 2:
             return &m_GrokItem;
+        case 3:
+            return &m_DeepSeekItem;
         default:
             return nullptr;
         }
@@ -586,6 +597,7 @@ public:
             m_CodexItem.SetValue({});
             m_CursorItem.SetValue({});
             m_GrokItem.SetValue({});
+            m_DeepSeekItem.SetValue({});
             m_Tooltip = L"CodexTray bridge unavailable";
             return;
         }
@@ -593,7 +605,8 @@ public:
         m_CodexItem.SetValue(values.codex);
         m_CursorItem.SetValue(values.cursor);
         m_GrokItem.SetValue(values.grok);
-        m_Tooltip = L"Codex: " + values.codex + L"\nCursor: " + values.cursor + L"\nGrok: " + values.grok;
+        m_DeepSeekItem.SetValue(values.deepseek);
+        m_Tooltip = L"Codex: " + values.codex + L"\nCursor: " + values.cursor + L"\nGrok: " + values.grok + L"\nDeepSeek: " + values.deepseek;
     }
 
     /// Shows plugin options for editing the backend URL.
@@ -629,13 +642,13 @@ public:
         case TMI_NAME:
             return L"CodexTray";
         case TMI_DESCRIPTION:
-            return L"Displays Codex, Cursor, and Grok quota from CodexTray.";
+            return L"Displays Codex, Cursor, and Grok quota and DeepSeek balance from CodexTray.";
         case TMI_AUTHOR:
             return L"SnowyLake";
         case TMI_COPYRIGHT:
             return L"MIT";
         case TMI_VERSION:
-            return L"5.0.0";
+            return L"5.1.0";
         case TMI_URL:
             return L"";
         default:
@@ -653,6 +666,7 @@ private:
     UsageItem m_CodexItem;
     UsageItem m_CursorItem;
     UsageItem m_GrokItem;
+    UsageItem m_DeepSeekItem;
     std::wstring m_Tooltip;
 };
 
