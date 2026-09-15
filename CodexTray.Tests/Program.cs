@@ -1060,7 +1060,7 @@ internal static class Program
                 now)));
         usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
             new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
-            "¥110.00"));
+            "¥110"));
         using LightweightHttpServer server = new(usageCache, 0);
         server.Start();
 
@@ -1079,7 +1079,7 @@ internal static class Program
         AssertEqual("80%", display.GetProperty("weekly").GetString(), "HTTP plugin Codex display");
         AssertEqual("75%", display.GetProperty("cursor_monthly").GetString(), "HTTP plugin Cursor display");
         AssertEqual("95%", display.GetProperty("grok_weekly").GetString(), "HTTP plugin Grok display");
-        AssertEqual("¥110.00", display.GetProperty("deepseek").GetString(), "HTTP plugin DeepSeek display");
+        AssertEqual("¥110", display.GetProperty("deepseek").GetString(), "HTTP plugin DeepSeek display");
         AssertEqual(75, limits.GetProperty("cursor_monthly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Cursor monthly remaining percent");
         AssertEqual(95, limits.GetProperty("grok_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Grok remaining percent");
         AssertEqual(100, limits.GetProperty("deepseek").GetProperty("remaining_percent").GetInt32(), "HTTP plugin DeepSeek remaining percent");
@@ -1098,7 +1098,7 @@ internal static class Program
         AssertEqual("80%", usageLines[0], "text endpoint Codex display");
         AssertEqual("75%", usageLines[1], "text endpoint Cursor display");
         AssertEqual("95%", usageLines[2], "text endpoint Grok display");
-        AssertEqual("¥110.00", usageLines[3], "text endpoint DeepSeek display");
+        AssertEqual("¥110", usageLines[3], "text endpoint DeepSeek display");
         await server.StopAsync();
     }
 
@@ -1130,23 +1130,23 @@ internal static class Program
             "70%"));
         usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
             new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
-            "¥110.00"));
+            "¥110"));
 
         UsageResponse merged = usageCache.Get() ?? throw new InvalidOperationException("merged usage should be available");
         AssertEqual(true, usageCache.GetCodex()?.Available, "Codex snapshot should stay available");
         AssertEqual("80%", merged.Display.Weekly, "merged Codex display");
         AssertEqual("70%", merged.Display.CursorMonthly, "merged Cursor monthly display");
         AssertEqual("60%", merged.Display.GrokWeekly, "merged Grok display");
-        AssertEqual("¥110.00", merged.Display.DeepSeek, "merged DeepSeek display");
+        AssertEqual("¥110", merged.Display.DeepSeek, "merged DeepSeek display");
         AssertEqual(100, merged.Limits.DeepSeek.RemainingPercent, "merged DeepSeek remaining percent");
-        AssertEqual("Codex: 80% | Cursor: 70% | Grok: 60% | DeepSeek: ¥110.00", merged.Display.Summary, "merged plugin summary order");
+        AssertEqual("Codex: 80% | Cursor: 70% | Grok: 60% | DeepSeek: ¥110", merged.Display.Summary, "merged plugin summary order");
 
         usageCache.ClearCodex();
         AssertTrue(usageCache.GetCodex() == null, "cleared Codex snapshot should be empty");
         UsageResponse grokAndCursor = usageCache.Get() ?? throw new InvalidOperationException("Grok and Cursor usage should be available");
         AssertEqual("N/A", grokAndCursor.Display.Weekly, "cleared Codex display");
         AssertEqual("60%", grokAndCursor.Display.GrokWeekly, "preserved Grok display");
-        AssertEqual("¥110.00", grokAndCursor.Display.DeepSeek, "preserved DeepSeek display");
+        AssertEqual("¥110", grokAndCursor.Display.DeepSeek, "preserved DeepSeek display");
 
         usageCache.ClearGrok();
         UsageResponse cursorOnly = usageCache.Get() ?? throw new InvalidOperationException("Cursor-only usage should be available");
@@ -1156,7 +1156,7 @@ internal static class Program
         usageCache.ClearCursor();
         UsageResponse deepSeekOnly = usageCache.Get() ?? throw new InvalidOperationException("DeepSeek-only usage should be available");
         AssertEqual("N/A", deepSeekOnly.Display.CursorMonthly, "cleared Cursor display");
-        AssertEqual("¥110.00", deepSeekOnly.Display.DeepSeek, "preserved DeepSeek display after other sources clear");
+        AssertEqual("¥110", deepSeekOnly.Display.DeepSeek, "preserved DeepSeek display after other sources clear");
 
         usageCache.ClearDeepSeek();
         AssertTrue(usageCache.Get() == null, "cleared plugin usage should be empty");
@@ -1687,7 +1687,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests that plugin usage uses the first DeepSeek card and ignores other API providers.
+    /// Tests that plugin usage uses the first DeepSeek card and rounds CNY balance to a whole yuan.
     /// </summary>
     private static Task TestDeepSeekPluginUsageAsync()
     {
@@ -1698,8 +1698,26 @@ internal static class Program
             new ApiUsageResult("deepseek", true, "¥110.00", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
             new ApiUsageResult("deepseek-2", true, "¥9.00", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
         ]);
-        AssertEqual("¥110.00", mixed.Display, "first DeepSeek card should be used");
+        AssertEqual("¥110", mixed.Display, "first DeepSeek card should be used");
         AssertEqual(100, mixed.Limit.RemainingPercent, "available DeepSeek remaining percent");
+
+        DeepSeekPluginUsage roundedDown = ApiUsageCollector.BuildDeepSeekPluginUsage(
+        [
+            new ApiUsageResult("deepseek", true, "¥276.21", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
+        ]);
+        AssertEqual("¥276", roundedDown.Display, "DeepSeek plugin balance should round 0.21 down");
+
+        DeepSeekPluginUsage roundedUp = ApiUsageCollector.BuildDeepSeekPluginUsage(
+        [
+            new ApiUsageResult("deepseek", true, "¥110.50", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
+        ]);
+        AssertEqual("¥111", roundedUp.Display, "DeepSeek plugin balance should round 0.50 away from zero");
+
+        DeepSeekPluginUsage halfDown = ApiUsageCollector.BuildDeepSeekPluginUsage(
+        [
+            new ApiUsageResult("deepseek", true, "¥0.49", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
+        ]);
+        AssertEqual("¥0", halfDown.Display, "DeepSeek plugin balance should round 0.49 down to zero");
 
         DeepSeekPluginUsage unavailableFirst = ApiUsageCollector.BuildDeepSeekPluginUsage(
         [

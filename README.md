@@ -112,7 +112,7 @@ Codex, Cursor 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓�
 
 CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监控器, 使用 `Browse` 手动选择目录或 `Auto detect` 自动定位, 然后点击 `Setup` 安装插件. 安装完成后重启对应监控器或重新加载插件.
 
-两个插件都显示 `Codex`, `Cursor`, `Grok` 和 `DeepSeek` 四项, 分别对应 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额. 插件不显示重置时间, Token Cost 或其他 API provider 的余额. 有多张 DeepSeek 卡片时, 只使用 APIs 页中最靠前的一张.
+两个插件都显示 `Codex`, `Cursor`, `Grok` 和 `DeepSeek` 四项, 分别对应 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额. 插件中的 DeepSeek 余额按四舍五入显示为整数, 不带小数. 插件不显示重置时间, Token Cost 或其他 API provider 的余额. 有多张 DeepSeek 卡片时, 只使用 APIs 页中最靠前的一张.
 
 隐藏 Codex, Cursor, Grok 或 APIs 页面后, 对应插件项会显示 `N/A`. 四个数据页全部隐藏后, 应用会停止向插件提供数据.
 

@@ -101,7 +101,7 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
-    /// Converts collected API results into the first DeepSeek plugin snapshot.
+    /// Converts the first DeepSeek card's CNY balance into a rounded whole-yuan plugin snapshot.
     /// </summary>
     public static DeepSeekPluginUsage BuildDeepSeekPluginUsage(IReadOnlyList<ApiUsageResult> results)
     {
@@ -116,7 +116,7 @@ public sealed class ApiUsageCollector
             {
                 return new DeepSeekPluginUsage(
                     new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
-                    result.BalanceDisplay);
+                    FormatDeepSeekPluginDisplay(result.BalanceDisplay));
             }
 
             break;
@@ -125,6 +125,20 @@ public sealed class ApiUsageCollector
         return new DeepSeekPluginUsage(
             new UsageLimit { Name = "deepseek", UsedPercent = 100, RemainingPercent = 0 },
             CodexTrayDefaults.UnavailableDisplay);
+    }
+
+    /// <summary>
+    /// Rounds a DeepSeek CNY card balance to a whole-yuan plugin display.
+    /// </summary>
+    private static string FormatDeepSeekPluginDisplay(string balanceDisplay)
+    {
+        if (balanceDisplay.StartsWith("¥", StringComparison.Ordinal) &&
+            decimal.TryParse(balanceDisplay.AsSpan(1), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value))
+        {
+            return $"¥{decimal.Round(value, 0, MidpointRounding.AwayFromZero):0}";
+        }
+
+        return CodexTrayDefaults.UnavailableDisplay;
     }
 
     /// <summary>

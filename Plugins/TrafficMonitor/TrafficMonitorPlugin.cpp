@@ -565,7 +565,7 @@ public:
         : m_CodexItem(L"Codex", L"CodexTrayCodex", L"Codex", L"100%"),
           m_CursorItem(L"Cursor", L"CodexTrayCursor", L"Cursor", L"100%"),
           m_GrokItem(L"Grok", L"CodexTrayGrok", L"Grok", L"100%"),
-          m_DeepSeekItem(L"DeepSeek", L"CodexTrayDeepSeek", L"DeepSeek", L"¥999.99"),
+          m_DeepSeekItem(L"DeepSeek", L"CodexTrayDeepSeek", L"DeepSeek", L"¥9999"),
           m_Tooltip(L"CodexTray waiting for data")
     {
     }

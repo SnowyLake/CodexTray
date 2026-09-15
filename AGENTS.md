@@ -41,11 +41,11 @@
 
 ### 额度与插件链路
 
-1. `CodexUsageCollector` 读取 `~/.codex/auth.json` 中的 OAuth 凭据, 从 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口采集 Session, Weekly 和 Reset Credits. 凭据缺失或无效时返回不可用状态. `CursorUsageCollector` 将 dashboard 中的 Monthly 额度转换为插件数据. `GrokUsageCollector` 将 dashboard 中的 Weekly 额度转换为插件数据. `ApiUsageCollector.BuildDeepSeekPluginUsage` 将 APIs 页中第一张 DeepSeek 卡片的 CNY 余额转换为插件数据.
+1. `CodexUsageCollector` 读取 `~/.codex/auth.json` 中的 OAuth 凭据, 从 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口采集 Session, Weekly 和 Reset Credits. 凭据缺失或无效时返回不可用状态. `CursorUsageCollector` 将 dashboard 中的 Monthly 额度转换为插件数据. `GrokUsageCollector` 将 dashboard 中的 Weekly 额度转换为插件数据. `ApiUsageCollector.BuildDeepSeekPluginUsage` 将 APIs 页中第一张 DeepSeek 卡片的 CNY 余额四舍五入为整元后转换为插件数据, 卡片本身仍显示两位小数.
 2. `TrayController` 将 Codex, Cursor, Grok 与 DeepSeek 的最新结果分别写入 `UsageCache`, 由缓存合并为插件响应. 隐藏任一页面时会清除对应缓存数据.
 3. `LightweightHttpServer` 默认监听 `127.0.0.1:17890`, 暴露以下接口:
-   - `/codex-tray`: LiteMonitor 使用的 JSON 响应. DeepSeek 显示 `display.deepseek` 与 `limits.deepseek`; `remaining_percent` 在余额可用时为 100, 否则为 0, 供 LiteMonitor 着色.
-   - `/codex-tray.txt`: TrafficMonitor 使用的四行文本, 依次为 Codex Weekly, Cursor Monthly, Grok Weekly 和 DeepSeek CNY 余额.
+   - `/codex-tray`: LiteMonitor 使用的 JSON 响应. DeepSeek 显示 `display.deepseek` 与 `limits.deepseek`; 余额格式为整元 `¥N`; `remaining_percent` 在余额可用时为 100, 否则为 0, 供 LiteMonitor 着色.
+   - `/codex-tray.txt`: TrafficMonitor 使用的四行文本, 依次为 Codex Weekly, Cursor Monthly, Grok Weekly 和 DeepSeek 整元 CNY 余额.
    - `/health`: 返回本地服务健康状态.
 4. `LiteMonitorPluginInstaller` 和 `TrafficMonitorPluginInstaller` 从发布目录读取模板, 写入当前端口后安装到监控器目录.
 
