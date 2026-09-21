@@ -2193,6 +2193,11 @@ internal static class Program
         AssertEqual(0.5m, grok46Pricing.GetProperty("cachedInput").GetDecimal(), "grok-4.6 cached input price");
         AssertEqual(6.0m, grok46Pricing.GetProperty("output").GetDecimal(), "grok-4.6 output price");
         AssertEqual("grok-4.6-latest|grok-4.6-build", string.Join('|', grok46Pricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.6 aliases");
+        JsonElement grok47Pricing = document.RootElement.GetProperty("grok-4.7");
+        AssertEqual(2.0m, grok47Pricing.GetProperty("input").GetDecimal(), "grok-4.7 input price");
+        AssertEqual(0.5m, grok47Pricing.GetProperty("cachedInput").GetDecimal(), "grok-4.7 cached input price");
+        AssertEqual(6.0m, grok47Pricing.GetProperty("output").GetDecimal(), "grok-4.7 output price");
+        AssertEqual("grok-4.7-latest|grok-4.7-build", string.Join('|', grok47Pricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.7 aliases");
         JsonElement deepSeekFlashPricing = document.RootElement.GetProperty("deepseek-v4-flash");
         AssertEqual(0.15m, deepSeekFlashPricing.GetProperty("input").GetDecimal(), "deepseek-v4-flash off-peak input price");
         AssertEqual(0.003m, deepSeekFlashPricing.GetProperty("cachedInput").GetDecimal(), "deepseek-v4-flash off-peak cached input price");
