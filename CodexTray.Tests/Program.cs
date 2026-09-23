@@ -90,6 +90,7 @@ internal static class Program
         await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
         await RunAsync("ignores OpenCode token cost for Codex", TestOpenCodeTokenCostIgnoredAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
+        s_Failures += await AppUpdateTests.RunAllAsync();
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
     }
@@ -109,6 +110,7 @@ internal static class Program
                     ApiMonitors = [new ApiMonitorSettings()],
                 };
                 TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
+                AssertEqual("Check for updates", viewModel.UpdateActionText, "update action");
                 AssertEqual("Weekly", viewModel.CodexWeeklyQuota.Title, "Codex weekly quota title");
                 AssertEqual("Session", viewModel.CodexSessionQuota.Title, "Codex session quota title");
                 AssertEqual("Weekly", viewModel.GrokWeeklyQuota.Title, "Grok weekly quota title");

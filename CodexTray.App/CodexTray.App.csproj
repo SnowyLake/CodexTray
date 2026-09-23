@@ -22,7 +22,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>CodexTray</AssemblyName>
     <RootNamespace>CodexTray.App</RootNamespace>
-    <Version>5.1.1</Version>
+    <Version>5.5.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>..\Resources\icon.ico</ApplicationIcon>
     <Nullable>enable</Nullable>

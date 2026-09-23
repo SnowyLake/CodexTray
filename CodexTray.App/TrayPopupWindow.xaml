@@ -1857,10 +1857,19 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding AppVersion, StringFormat=CodexTray · Version {0}}"
+                            <TextBlock Text="{Binding AppVersion, StringFormat=Version {0}}"
                                        Style="{StaticResource SettingsRowTitleStyle}" />
                             <Button Grid.Column="1"
+                                    Margin="4,0,0,0"
+                                    Command="{Binding RunUpdateCommand}"
+                                    Content="&#xE117;"
+                                    ToolTip="{Binding UpdateActionText}"
+                                    ToolTipService.ShowOnDisabled="True"
+                                    Style="{StaticResource IconButtonStyle}" />
+                            <Button Grid.Column="2"
+                                    Margin="4,0,0,0"
                                     Command="{Binding ShowAboutCommand}"
                                     Content="&#xE72A;"
                                     ToolTip="Open About"

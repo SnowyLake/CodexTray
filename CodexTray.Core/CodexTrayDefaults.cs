@@ -28,6 +28,38 @@ public static class CodexTrayDefaults
     public const string UsageTextEndpointPath = "/codex-tray.txt";
     public const string HealthEndpointPath = "/health";
     public const string UnavailableDisplay = "N/A";
+    public const string RuntimeIdentifier = "win-x64";
+    public const string GitHubOwner = "SnowyLake";
+    public const string GitHubRepository = "CodexTray";
+    public const string RepositoryUrl = "https://github.com/SnowyLake/CodexTray";
+    public const string GitHubLatestReleaseUrl = "https://api.github.com/repos/SnowyLake/CodexTray/releases/latest";
+    public const long MaximumReleasePackageBytes = 100L * 1024 * 1024;
+    public const int UpdateCheckTimeoutSeconds = 20;
+    public const int UpdateDownloadTimeoutSeconds = 120;
+    public const int UpdateProcessWaitTimeoutSeconds = 600;
+    public const string SingleInstanceMutexName = AppName + "Mutex";
+    public const int UpdateFileCopyAttempts = 10;
+    public const int UpdateFileCopyRetryDelayMilliseconds = 250;
+    public const int UpdateWorkRetentionHours = 1;
+
+    public static IReadOnlyList<string> ReleasePackageRelativePaths { get; } =
+    [
+        $"{AppName}.exe",
+        Path.Combine(ResourcesDirectoryName, "icon.ico"),
+        Path.Combine(ResourcesDirectoryName, "icon.png"),
+        Path.Combine(ResourcesDirectoryName, ModelPricingFileName),
+        Path.Combine(PluginsDirectoryName, LiteMonitorPluginSubdirectory, PluginFileName),
+        Path.Combine(PluginsDirectoryName, TrafficMonitorPluginSubdirectory, TrafficMonitorPluginConfigFileName),
+        Path.Combine(PluginsDirectoryName, TrafficMonitorPluginSubdirectory, TrafficMonitorPluginFileName),
+    ];
+
+    /// <summary>
+    /// Builds the GitHub release asset name for a stable version.
+    /// </summary>
+    public static string BuildReleasePackageName(Version version)
+    {
+        return $"{AppName}-v{version.ToString(3)}-{RuntimeIdentifier}.zip";
+    }
 
     /// <summary>
     /// Builds the JSON bridge URL for a port.
