@@ -22,59 +22,46 @@ internal sealed partial class TrayPopupViewModel
     /// Checks GitHub for a newer stable release and asks before installing it.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanRunUpdate))]
-    private async Task RunUpdateAsync(CancellationToken cancellationToken)
+    private Task RunUpdateAsync(CancellationToken cancellationToken)
     {
-        IsUpdateBusy = true;
-        UpdateActionText = "Checking...";
-        try
-        {
-            await CheckForUpdateAsync(cancellationToken).ConfigureAwait(true);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (AppUpdateException exception)
-        {
-            ShowUpdateDialog("Update", exception.Message, "OK");
-        }
-        catch (Exception)
-        {
-            ShowUpdateDialog("Update", "Could not reach GitHub. Check the network and try again.", "OK");
-        }
-        finally
-        {
-            IsUpdateBusy = false;
-            UpdateActionText = "Check for updates";
-        }
+        return RunBusyAsync("Checking...", "Update", CheckForUpdateAsync, cancellationToken);
     }
 
     /// <summary>
     /// Downloads the release chosen in the update dialog and restarts into the updater.
     /// </summary>
     [RelayCommand]
-    private async Task InstallUpdateAsync(CancellationToken cancellationToken)
+    private Task InstallUpdateAsync(CancellationToken cancellationToken)
     {
         if (m_AvailableRelease == null || IsUpdateBusy)
         {
-            return;
+            return Task.CompletedTask;
         }
 
+        return RunBusyAsync("Downloading...", "Update failed", ApplyAvailableUpdateAsync, cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs one update operation and shows a dialog when it fails.
+    /// </summary>
+    private async Task RunBusyAsync(string busyText, string failureTitle, Func<CancellationToken, Task> action, CancellationToken cancellationToken)
+    {
         IsUpdateBusy = true;
-        UpdateActionText = "Downloading...";
+        UpdateActionText = busyText;
         try
         {
-            await ApplyAvailableUpdateAsync(cancellationToken).ConfigureAwait(true);
+            await action(cancellationToken).ConfigureAwait(true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
         catch (AppUpdateException exception)
         {
-            ShowUpdateDialog("Update failed", exception.Message, "OK");
+            ShowUpdateDialog(failureTitle, exception.Message, "OK");
         }
         catch (Exception)
         {
-            ShowUpdateDialog("Update failed", "Could not reach GitHub. Check the network and try again.", "OK");
+            ShowUpdateDialog(failureTitle, "Could not reach GitHub. Check the network and try again.", "OK");
         }
         finally
         {

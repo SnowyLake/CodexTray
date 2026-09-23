@@ -223,32 +223,15 @@ public static class AppUpdateInstaller
             Directory.CreateDirectory(parent);
         }
 
-        Exception? lastError = null;
-        for (int attempt = 1; attempt <= CodexTrayDefaults.UpdateFileCopyAttempts; attempt++)
+        Retry(destinationPath, () =>
         {
-            try
+            if (File.Exists(destinationPath))
             {
-                if (File.Exists(destinationPath))
-                {
-                    File.SetAttributes(destinationPath, FileAttributes.Normal);
-                }
-
-                File.Copy(sourcePath, destinationPath, overwrite: true);
-                return;
+                File.SetAttributes(destinationPath, FileAttributes.Normal);
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                lastError = exception;
-                if (attempt == CodexTrayDefaults.UpdateFileCopyAttempts)
-                {
-                    break;
-                }
 
-                Thread.Sleep(CodexTrayDefaults.UpdateFileCopyRetryDelayMilliseconds);
-            }
-        }
-
-        throw new IOException($"Could not copy {Path.GetFileName(destinationPath)}.", lastError);
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+        });
     }
 
     /// <summary>
@@ -256,18 +239,29 @@ public static class AppUpdateInstaller
     /// </summary>
     private static void DeleteFile(string path)
     {
+        Retry(path, () =>
+        {
+            if (!File.Exists(path))
+            {
+                return;
+            }
+
+            File.SetAttributes(path, FileAttributes.Normal);
+            File.Delete(path);
+        });
+    }
+
+    /// <summary>
+    /// Repeats a file operation while the target is still locked.
+    /// </summary>
+    private static void Retry(string path, Action action)
+    {
         Exception? lastError = null;
         for (int attempt = 1; attempt <= CodexTrayDefaults.UpdateFileCopyAttempts; attempt++)
         {
             try
             {
-                if (!File.Exists(path))
-                {
-                    return;
-                }
-
-                File.SetAttributes(path, FileAttributes.Normal);
-                File.Delete(path);
+                action();
                 return;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -282,6 +276,6 @@ public static class AppUpdateInstaller
             }
         }
 
-        throw new IOException($"Could not delete {Path.GetFileName(path)}.", lastError);
+        throw new IOException($"Could not update {Path.GetFileName(path)}.", lastError);
     }
 }

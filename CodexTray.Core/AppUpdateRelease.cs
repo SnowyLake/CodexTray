@@ -37,7 +37,6 @@ public sealed record AppUpdateRelease(
 /// </summary>
 public sealed record AppUpdateCheckResult(
     AppUpdateAvailability Availability,
-    Version CurrentVersion,
     AppUpdateRelease LatestRelease);
 
 /// <summary>
@@ -266,13 +265,13 @@ public static class AppUpdateReleaseParser
         }
 
         string hex = digest[prefix.Length..];
-        foreach (char character in hex)
+        try
         {
-            bool digit = character is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
-            if (!digit)
-            {
-                return false;
-            }
+            _ = Convert.FromHexString(hex);
+        }
+        catch (FormatException)
+        {
+            return false;
         }
 
         sha256 = hex.ToLowerInvariant();

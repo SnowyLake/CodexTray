@@ -7,8 +7,6 @@ namespace CodexTray.Core;
 /// </summary>
 public sealed class GitHubAppUpdateClient
 {
-    public const string UserAgentProduct = "CodexTray";
-
     private static readonly HttpClient s_HttpClient = new()
     {
         Timeout = Timeout.InfiniteTimeSpan,
@@ -37,7 +35,7 @@ public sealed class GitHubAppUpdateClient
     /// </summary>
     public async Task<AppUpdateRelease> GetLatestReleaseAsync(CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, CodexTrayDefaults.GitHubLatestReleaseUrl);
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, new Uri(CodexTrayDefaults.GitHubLatestReleaseUrl));
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
         using HttpResponseMessage response = await m_HttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
@@ -103,16 +101,8 @@ public sealed class GitHubAppUpdateClient
     private static HttpRequestMessage CreateRequest(HttpMethod method, Uri uri)
     {
         HttpRequestMessage request = new(method, uri);
-        request.Headers.TryAddWithoutValidation("User-Agent", UserAgentProduct);
+        request.Headers.TryAddWithoutValidation("User-Agent", CodexTrayDefaults.AppName);
         return request;
-    }
-
-    /// <summary>
-    /// Creates a GitHub request with the required user agent.
-    /// </summary>
-    private static HttpRequestMessage CreateRequest(HttpMethod method, string uri)
-    {
-        return CreateRequest(method, new Uri(uri, UriKind.Absolute));
     }
 
     /// <summary>
@@ -176,25 +166,11 @@ public sealed class AppUpdateSession
     public async Task<AppUpdateCheckResult> CheckAsync(Version currentVersion, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(currentVersion);
-        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(CodexTrayDefaults.UpdateCheckTimeoutSeconds));
-        try
-        {
-            AppUpdateRelease latest = await m_Client.GetLatestReleaseAsync(timeout.Token).ConfigureAwait(false);
-            return new AppUpdateCheckResult(AppUpdateVersion.Compare(currentVersion, latest.Version), currentVersion, latest);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (OperationCanceledException exception)
-        {
-            throw new AppUpdateException("Could not reach GitHub. Check the network and try again.", innerException: exception);
-        }
-        catch (HttpRequestException exception)
-        {
-            throw new AppUpdateException("Could not reach GitHub. Check the network and try again.", innerException: exception);
-        }
+        AppUpdateRelease latest = await CallAsync(
+            CodexTrayDefaults.UpdateCheckTimeoutSeconds,
+            cancellationToken,
+            token => m_Client.GetLatestReleaseAsync(token)).ConfigureAwait(false);
+        return new AppUpdateCheckResult(AppUpdateVersion.Compare(currentVersion, latest.Version), latest);
     }
 
     /// <summary>
@@ -207,29 +183,48 @@ public sealed class AppUpdateSession
         string workDirectory = AppUpdateWork.CreateDirectory();
         try
         {
-            using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(CodexTrayDefaults.UpdateDownloadTimeoutSeconds));
-            string zipPath = Path.Combine(workDirectory, release.PackageName);
-            await m_Client.DownloadPackageAsync(release, zipPath, timeout.Token).ConfigureAwait(false);
-            AppUpdatePackage.Verify(zipPath, release);
-            string extractedDirectory = Path.Combine(workDirectory, "package");
-            AppUpdatePackage.Extract(zipPath, extractedDirectory);
-            return AppUpdateWork.PrepareHandoff(extractedDirectory, workDirectory, currentExecutablePath);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            AppUpdateWork.DeleteQuietly(workDirectory);
-            throw;
-        }
-        catch (OperationCanceledException exception)
-        {
-            AppUpdateWork.DeleteQuietly(workDirectory);
-            throw new AppUpdateException("Could not reach GitHub. Check the network and try again.", innerException: exception);
+            return await CallAsync(
+                CodexTrayDefaults.UpdateDownloadTimeoutSeconds,
+                cancellationToken,
+                async token =>
+                {
+                    string zipPath = Path.Combine(workDirectory, release.PackageName);
+                    await m_Client.DownloadPackageAsync(release, zipPath, token).ConfigureAwait(false);
+                    AppUpdatePackage.Verify(zipPath, release);
+                    string extractedDirectory = Path.Combine(workDirectory, "package");
+                    AppUpdatePackage.Extract(zipPath, extractedDirectory);
+                    return AppUpdateWork.PrepareHandoff(extractedDirectory, workDirectory, currentExecutablePath);
+                }).ConfigureAwait(false);
         }
         catch
         {
             AppUpdateWork.DeleteQuietly(workDirectory);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Runs a GitHub call with a timeout and maps network failures to an update error.
+    /// </summary>
+    private static async Task<T> CallAsync<T>(int timeoutSeconds, CancellationToken cancellationToken, Func<CancellationToken, Task<T>> action)
+    {
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        try
+        {
+            return await action(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException exception)
+        {
+            throw new AppUpdateException("Could not reach GitHub. Check the network and try again.", innerException: exception);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new AppUpdateException("Could not reach GitHub. Check the network and try again.", innerException: exception);
         }
     }
 }
