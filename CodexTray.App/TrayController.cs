@@ -435,6 +435,7 @@ internal sealed class TrayController : IDisposable
         m_PopupViewModel.InAppDialogRequested += PresentInAppDialog;
         m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
         m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
+        m_PopupViewModel.UpdateApplyRequested += (_, handoff) => m_Dispatcher.BeginInvoke(new Action(() => StartUpdateAndExit(handoff)));
         ApplyStartupDetectingState();
         m_TrayPopupWindow = new TrayPopupWindow(m_PopupViewModel);
         m_TrayPopupWindow.Closed += (_, _) =>
@@ -835,6 +836,29 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
+    /// Starts the temporary updater and then exits this process.
+    /// </summary>
+    private void StartUpdateAndExit(AppUpdateHandoff handoff)
+    {
+        if (IsExiting)
+        {
+            return;
+        }
+
+        try
+        {
+            AppUpdateProcess.Start(handoff, Environment.ProcessId);
+        }
+        catch (Exception exception)
+        {
+            PresentInAppDialog(new InAppDialogRequest("Update failed", exception.Message, "OK"));
+            return;
+        }
+
+        _ = ExitApplicationAsync();
+    }
+
+    /// <summary>
     /// Cancels owned work, drains it, and exits the tray application.
     /// </summary>
     private async Task ExitApplicationAsync()
@@ -853,6 +877,8 @@ internal sealed class TrayController : IDisposable
             m_LifetimeCancellation.Cancel();
             popupViewModel?.AutoDetectLiteMonitorCommand.Cancel();
             popupViewModel?.AutoDetectTrafficMonitorCommand.Cancel();
+            popupViewModel?.RunUpdateCommand.Cancel();
+            popupViewModel?.InstallUpdateCommand.Cancel();
 
             Task[] ownedTasks =
             [
@@ -862,6 +888,8 @@ internal sealed class TrayController : IDisposable
                 m_ServiceTransitionTask,
                 popupViewModel?.AutoDetectLiteMonitorCommand.ExecutionTask ?? Task.CompletedTask,
                 popupViewModel?.AutoDetectTrafficMonitorCommand.ExecutionTask ?? Task.CompletedTask,
+                popupViewModel?.RunUpdateCommand.ExecutionTask ?? Task.CompletedTask,
+                popupViewModel?.InstallUpdateCommand.ExecutionTask ?? Task.CompletedTask,
             ];
             try
             {

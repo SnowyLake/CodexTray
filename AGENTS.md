@@ -26,18 +26,27 @@
 
 `CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 与应用内对话框使用 WPF. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
 
-`CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务和插件安装. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Cursor, Grok 和 API 监控分别采集, 其中 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应; Token Cost 和其他 API provider 结果仅显示在主面板.
+`CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务, 插件安装和应用内更新. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Cursor, Grok 和 API 监控分别采集, 其中 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应; Token Cost 和其他 API provider 结果仅显示在主面板.
 
 ## 架构与数据流
 
 ### 应用生命周期
 
-1. `CodexTray.App/Program.cs` 使用 mutex 保证单实例. 后续进程通过 `TrayShowPanel` event 通知已有实例打开面板后退出.
+1. `CodexTray.App/Program.cs` 使用 mutex 保证单实例. 后续进程通过 `TrayShowPanel` event 通知已有实例打开面板后退出. `--apply-update` 是更新进程, 不获取 mutex, 也不打开面板.
 2. `CodexTray.App/App.cs` 创建 WPF application host, `TrayController` 管理托盘, 设置, 定时刷新, 插件安装和本地服务.
 3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
 4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Cursor/Grok/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
 5. `AppSettings.VisiblePages` 控制 Codex, Cursor, Grok 与 APIs 页的可见性和后台采集. 无可见数据页时停止本地 HTTP 服务和定时刷新.
 6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
+
+### 应用内更新
+
+1. Settings 页版本号右侧, `Open About` 左侧的 `Check for updates` 手动请求 `CodexTrayDefaults.GitHubLatestReleaseUrl`. 不自动检查, 不自动下载, 不使用 GitHub token. 请求必须带 `User-Agent: CodexTray`, 检查超时 20 秒. 发现新版本时用内部对话框询问是否安装, 确认后才下载. 已是最新或检查失败时, 用同一对话框显示结果.
+2. 只接受 tag `vX.Y.Z` 和资产名 `CodexTray-vX.Y.Z-win-x64.zip`. 下载 URL 必须是 `https://github.com` 上对应的 release asset. 用资产 `digest` 的 SHA-256 和 `size` 校验, 包大于 100 MB 时拒绝. 下载超时 120 秒.
+3. 解压时拒绝绝对路径, 盘符和 `..`. 包内必须同时有 `CodexTray.exe`, `Resources` 下的图标和 `model-pricing.json`, 以及 LiteMonitor 与 TrafficMonitor 插件文件.
+4. 校验通过后, 把新包中的 `CodexTray.exe` 复制到临时目录, 用 `--apply-update --wait-pid --parent-started-utc --source --target --restart` 启动. 主进程再走现有退出流程. 更新进程用 PID 和启动时间确认旧进程, 等待它退出, 最长 10 分钟. 覆盖和还原期间持有 `CodexTrayMutex`, 并在启动新进程之前释放.
+5. 覆盖前把安装目录备份到临时目录. 先复制资源和插件, 最后复制 exe. 单个文件最多重试 10 次, 间隔 250 毫秒. 根目录已有的 `settings.json` 不覆盖, 安装目录里的其他用户文件保留. 复制失败时从备份还原; 还原成功才重新启动旧版本.
+6. 安装目录不可写, 或当前进程不是 `CodexTray.exe` 时, 不退出程序. 根目录存在 `CodexTray.dll` 时视为开发编译, 检查和安装都拒绝, 也不退出程序. `Plugins/TrafficMonitor/CodexTray.dll` 不算. 超过 1 小时的更新临时目录会在下一次准备更新时删除.
 
 ### 额度与插件链路
 
@@ -95,13 +104,13 @@
 
 ### 演进边界
 
-- 当前交付物仍是后台托盘应用. 未来桌面客户端预计与托盘共同存在, 新客户端应复用 `CodexTray.Core` 中不依赖 UI 的采集, 设置, 缓存, HTTP 服务和插件能力.
+- 当前交付物仍是后台托盘应用. 未来桌面客户端预计与托盘共同存在, 新客户端应复用 `CodexTray.Core` 中不依赖 UI 的采集, 设置, 缓存, HTTP 服务, 应用内更新和插件能力.
 - `CodexTray.App` 保持 WPF 与托盘编排职责. 不在真实桌面客户端入口和进程模型确定前预先引入通用 Host, DI container, 单实现 interface 或跨进程抽象.
 - 可共享的长时任务必须支持 `CancellationToken`. 服务拥有者必须等待任务退出, 并在释放 `LightweightHttpServer` 前调用和等待 `StopAsync()`.
 
 ## 目录结构
 
-- `CodexTray.Core`: Codex 官方额度采集, Cursor 额度与账单采集, API 余额与用量采集, Token Cost 统计, 缓存, HTTP 服务, 设置存储, 监控器定位与插件安装, Windows 自启动.
+- `CodexTray.Core`: Codex 官方额度采集, Cursor 额度与账单采集, API 余额与用量采集, Token Cost 统计, 缓存, HTTP 服务, 设置存储, 应用内更新, 监控器定位与插件安装, Windows 自启动.
 - `CodexTray.App`: WPF 托盘应用, Codex/Cursor/Grok/APIs/Settings/About 页面, 基于 `CommunityToolkit.Mvvm` 的 ViewModel 与命令, 以及自定义数值输入控件.
 - `CodexTray.Tests`: 自包含 C# 测试运行器.
 - `Plugins/LiteMonitor`: LiteMonitor JSON 模板 `CodexTray.json`.
@@ -130,6 +139,7 @@
 - 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
 - 本地服务必须保持仅监听 `127.0.0.1`. 除第一张 DeepSeek 卡片的 CNY 余额外, 其他 API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.
 - `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. `Scripts/Restart-App.ps1` 只重启当前发布输出中的程序, 不执行发布.
+- 修改应用内更新的包名, 校验, 保留文件, `--apply-update` 参数或更新对话框时, 同步检查 `AppUpdateRelease`, `AppUpdatePackage`, `AppUpdateInstaller`, `GitHubAppUpdateClient`, `Program.cs`, Settings 页版本行, 对应测试和 README.
 
 ## 构建与输出
 

@@ -36,6 +36,7 @@
 - 自动刷新并显示刷新状态, 也可以随时手动刷新.
 - 支持浅色, 深色和跟随系统的主题, 可隐藏不使用的页面, 设置随 Windows 启动.
 - 自动检测 LiteMonitor 与 TrafficMonitor 目录, 一键安装插件.
+- 在 Settings 页检查 GitHub 上的新版本, 确认后完成升级.
 
 ## 安装
 
@@ -58,7 +59,7 @@
 - Cursor 页: 查看 Monthly, Grok Bot Weekly, First party, APIs 额度和实际账单 Token Cost.
 - Grok 页: 查看订阅类型, Weekly 额度, 重置时间, 各产品使用占比和 Token Cost.
 - APIs 页: 添加和查看 DeepSeek, OpenRouter, Vercel AI Gateway, NanoGPT 或 NewAPI 监控卡片.
-- Settings 页: 调整刷新间隔, 主题, 重置时间格式, 自启动和插件设置. 在 `Visible pages` 中隐藏页面后, 对应的后台采集也会停止.
+- Settings 页: 调整刷新间隔, 主题, 重置时间格式, 自启动和插件设置. 在 `Visible pages` 中隐藏页面后, 对应的后台采集也会停止. 版本号右侧的 `Check for updates` 会检查 GitHub Release. 发现新版本时, 弹窗询问是否安装.
 - About 页: 查看当前版本, 项目主页和许可证信息.
 
 再次运行 `CodexTray.exe` 不会启动第二个实例, 而是通知已有实例打开主面板.
@@ -156,6 +157,10 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 ### 为什么找不到 LiteMonitor 或 TrafficMonitor
 
 自动检测会搜索本机磁盘中的 `LiteMonitor.exe` 或 `TrafficMonitor.exe`. 也可以使用 `Browse` 直接选择包含对应可执行文件的目录.
+
+### 为什么软件内更新失败
+
+Settings 页的 `Check for updates` 需要能访问 GitHub. 安装目录必须可写, 并且其中已经有完整的发布文件. 从源代码编译运行时, `CodexTray.exe` 旁边会有 `CodexTray.dll`, 这时不能在软件内更新, 请改用发布目录或解压后的安装包. 弹窗中选择 `Install` 后, 程序会退出并替换文件; 更新过程中本地插件接口会短暂中断. 替换失败时会恢复更新前的文件并重新启动.
 
 ### 为什么托盘图标没有直接显示在任务栏
 

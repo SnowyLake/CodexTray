@@ -78,7 +78,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
     private const string k_AboutPageName = "About";
-    private const string k_RepositoryUrl = "https://github.com/SnowyLake/CodexTray";
     private const double k_TokenCostChartMaximumBarHeight = 58;
     private const double k_TokenCostChartWidth = 310;
     private const double k_TokenCostChartHorizontalMargin = 10;
@@ -470,7 +469,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         CodexTokenCost = new TokenCostDashboardViewModel();
         GrokTokenCost = new TokenCostDashboardViewModel();
         CursorTokenCost = new TokenCostDashboardViewModel();
-        OpenRepositoryCommand = new RelayCommand(() => OpenUrl(k_RepositoryUrl));
+        OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
         SaveSettingsCommand = new RelayCommand(() => SaveSettingsRequested?.Invoke(this, EventArgs.Empty), CanSaveSettings);
         InstallLiteMonitorPluginCommand = new RelayCommand(() => InstallLiteMonitorPluginRequested?.Invoke(this, EventArgs.Empty));

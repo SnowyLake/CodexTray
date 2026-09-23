@@ -5,20 +5,25 @@ namespace CodexTray.App;
 
 internal static class Program
 {
-    private const string k_MutexName = CodexTrayDefaults.AppName + "Mutex";
+    private const string k_MutexName = CodexTrayDefaults.SingleInstanceMutexName;
     private const string k_ShowPanelEventName = CodexTrayDefaults.AppName + "ShowPanel";
 
     /// <summary>
-    /// Starts the tray application or signals an existing instance.
+    /// Starts the tray application, applies an update, or signals an existing instance.
     /// </summary>
     [STAThread]
-    private static void Main()
+    private static int Main(string[] args)
     {
+        if (AppUpdateArguments.IsApplyRequest(args))
+        {
+            return AppUpdateApplyHost.Run(args);
+        }
+
         using Mutex mutex = new(false, k_MutexName, out bool createdNew);
         if (!createdNew)
         {
             SignalExistingInstance();
-            return;
+            return 0;
         }
 
         using EventWaitHandle showPanelEvent = new(false, EventResetMode.AutoReset, k_ShowPanelEventName);
@@ -27,6 +32,7 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.SystemAware);
         App app = new(showPanelEvent);
         app.Run();
+        return 0;
     }
 
     /// <summary>
