@@ -33,7 +33,7 @@
 - 查看 Cursor Monthly, Grok Bot Weekly, First party 和 APIs 额度, 以及 Grok Weekly 额度与各产品使用占比.
 - 按时段查看 token 总量, 费用, 缓存命中率, 模型占比和用量趋势.
 - 在 APIs 页添加多个余额监控卡片, 自定义名称, 调整顺序或删除.
-- 自动刷新并显示刷新状态, 也可以随时手动刷新.
+- 自动刷新并显示刷新状态, 也可以随时手动刷新. Codex, Cursor, Grok 和 APIs 完成采集后各自立即更新, Codex 与 Grok 的额度和本地 Token Cost 也分别更新, 不必等待其他来源.
 - 支持浅色, 深色和跟随系统的主题, 可隐藏不使用的页面, 设置随 Windows 启动.
 - 自动检测 LiteMonitor 与 TrafficMonitor 目录, 一键安装插件.
 - 在 Settings 页检查 GitHub 上的新版本, 确认后完成升级.

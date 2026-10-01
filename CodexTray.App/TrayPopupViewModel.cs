@@ -108,6 +108,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private bool m_MicaEnabled;
     private bool m_IsInAppDialogOpen;
     private bool m_IsNativeModalOpen;
+    private GrokUsageDashboard m_GrokDashboard = new(null, string.Empty, DateTimeOffset.Now);
+    private bool m_GrokTokenCostAvailable;
     private ApiUsageRefreshStatus? m_ApiUsageStatus;
     private int m_ApiUsageErrorCount;
     private int m_ApiUsageMonitorCount;
@@ -753,8 +755,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     public void UpdateGrokDashboard(GrokUsageDashboard dashboard, TokenCostStatistics? tokenCost = null)
     {
-        bool usageAvailable = dashboard.Usage != null;
-        bool tokenCostAvailable = tokenCost != null;
+        m_GrokDashboard = dashboard;
         if (dashboard.Usage is GrokUsageSnapshot usage)
         {
             GrokPlanDisplay = FormatGrokPlan(usage.SubscriptionTier);
@@ -773,6 +774,34 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             GrokWeeklyQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
         }
 
+        if (tokenCost != null)
+        {
+            UpdateGrokTokenCost(tokenCost);
+        }
+        else
+        {
+            UpdateGrokStatus();
+        }
+    }
+
+    /// <summary>
+    /// Updates local Grok costs independently of the billing collection.
+    /// </summary>
+    public void UpdateGrokTokenCost(TokenCostStatistics? statistics)
+    {
+        m_GrokTokenCostAvailable = statistics != null;
+        GrokTokenCost.Update(statistics);
+        UpdateGrokStatus();
+    }
+
+    /// <summary>
+    /// Combines the independently published Grok billing and local-cost availability.
+    /// </summary>
+    private void UpdateGrokStatus()
+    {
+        GrokUsageDashboard dashboard = m_GrokDashboard;
+        bool usageAvailable = dashboard.Usage != null;
+        bool tokenCostAvailable = m_GrokTokenCostAvailable;
         GrokStatusDotBrush = usageAvailable && tokenCostAvailable
             ? s_GreenBrush
             : usageAvailable || tokenCostAvailable
@@ -786,10 +815,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     ? "Token Cost updated, Usage N/A"
                     : "Update error";
         GrokStatusTooltip = FormatGrokStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
-        if (tokenCost != null)
-        {
-            GrokTokenCost.Update(tokenCost);
-        }
     }
 
     /// <summary>

@@ -611,6 +611,8 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private async Task RefreshUntilIdleAsync(CancellationToken cancellationToken)
     {
+        // Register the owner task before a synchronously completed source can open the panel and request another refresh.
+        await Task.Yield();
         do
         {
             await RefreshUsageAsync(cancellationToken).ConfigureAwait(true);
@@ -637,7 +639,7 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Collects fresh usage data and publishes it after every child completes.
+    /// Collects sources concurrently and publishes each result as soon as it completes.
     /// </summary>
     private async Task RefreshUsageAsync(CancellationToken cancellationToken)
     {
@@ -655,107 +657,45 @@ internal sealed class TrayController : IDisposable
         try
         {
             bool useAbsoluteResetTime = m_Settings.UseAbsoluteResetTime;
-            Task<UsageResponse>? codexUsageTask = null;
-            Task<TokenCostStatistics?>? tokenCostTask = null;
-            Task<GrokUsageDashboard>? grokDashboardTask = null;
-            Task<TokenCostStatistics?>? grokTokenCostTask = null;
-            Task<CursorUsageDashboard>? cursorDashboardTask = null;
-            Task<IReadOnlyList<ApiUsageResult>>? apiUsageTask = null;
+            List<Task> children = [];
             if ((visiblePages & PageItem.Codex) != 0)
             {
-                codexUsageTask = m_CodexUsageCollector.CollectAsync(useAbsoluteResetTime, cancellationToken);
-                tokenCostTask = Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectCodex(cancellationToken: cancellationToken)), cancellationToken);
+                children.Add(PublishAsync(PageItem.Codex, m_CodexUsageCollector.CollectAsync(useAbsoluteResetTime, cancellationToken), result => m_UsageCache.UpdateCodex(result)));
+                children.Add(PublishAsync(PageItem.Codex, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectCodex(cancellationToken: cancellationToken)), cancellationToken),
+                    result => m_PopupViewModel?.UpdateTokenCost(result)));
             }
 
             if ((visiblePages & PageItem.Grok) != 0)
             {
-                grokDashboardTask = m_GrokUsageCollector.CollectDashboardAsync(cancellationToken);
-                grokTokenCostTask = Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectGrok(cancellationToken: cancellationToken)), cancellationToken);
+                children.Add(PublishAsync(PageItem.Grok, m_GrokUsageCollector.CollectDashboardAsync(cancellationToken), dashboard =>
+                {
+                    m_UsageCache.UpdateGrok(GrokUsageCollector.BuildPluginUsage(dashboard));
+                    m_PopupViewModel?.UpdateGrokDashboard(dashboard);
+                }));
+                children.Add(PublishAsync(PageItem.Grok, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectGrok(cancellationToken: cancellationToken)), cancellationToken),
+                    result => m_PopupViewModel?.UpdateGrokTokenCost(result)));
             }
 
             if ((visiblePages & PageItem.Cursor) != 0)
             {
-                cursorDashboardTask = m_CursorUsageCollector.CollectDashboardAsync(cancellationToken: cancellationToken);
+                children.Add(PublishAsync(PageItem.Cursor, m_CursorUsageCollector.CollectDashboardAsync(cancellationToken: cancellationToken), dashboard =>
+                {
+                    m_UsageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(dashboard));
+                    m_PopupViewModel?.UpdateCursorDashboard(dashboard);
+                }));
             }
 
             if ((visiblePages & PageItem.Apis) != 0)
             {
                 ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
-                apiUsageTask = m_ApiUsageCollector.CollectAsync(apiMonitors, cancellationToken);
-            }
-
-            Task[] children = new Task?[] { codexUsageTask, tokenCostTask, grokDashboardTask, grokTokenCostTask, cursorDashboardTask, apiUsageTask }
-                .Where(task => task != null)
-                .Cast<Task>()
-                .ToArray();
-            await Task.WhenAll(children).ConfigureAwait(true);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (IsExiting)
-            {
-                return;
-            }
-
-            PageItem currentPages = m_Settings.VisiblePages;
-            if (codexUsageTask != null && tokenCostTask != null)
-            {
-                if ((currentPages & PageItem.Codex) != 0)
+                children.Add(PublishAsync(PageItem.Apis, m_ApiUsageCollector.CollectAsync(apiMonitors, cancellationToken), results =>
                 {
-                    m_UsageCache.UpdateCodex(codexUsageTask.Result);
-                    if (tokenCostTask.Result != null)
-                    {
-                        m_PopupViewModel?.UpdateTokenCost(tokenCostTask.Result);
-                    }
-                }
-                else
-                {
-                    m_UsageCache.ClearCodex();
-                }
-            }
-
-            if (grokDashboardTask != null && grokTokenCostTask != null)
-            {
-                if ((currentPages & PageItem.Grok) != 0)
-                {
-                    GrokUsageDashboard dashboard = grokDashboardTask.Result;
-                    m_UsageCache.UpdateGrok(GrokUsageCollector.BuildPluginUsage(dashboard));
-                    m_PopupViewModel?.UpdateGrokDashboard(dashboard, grokTokenCostTask.Result);
-                }
-                else
-                {
-                    m_UsageCache.ClearGrok();
-                }
-            }
-
-            if (cursorDashboardTask != null)
-            {
-                if ((currentPages & PageItem.Cursor) != 0)
-                {
-                    CursorUsageDashboard dashboard = cursorDashboardTask.Result;
-                    m_UsageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(dashboard));
-                    m_PopupViewModel?.UpdateCursorDashboard(dashboard);
-                }
-                else
-                {
-                    m_UsageCache.ClearCursor();
-                }
-            }
-
-            if (apiUsageTask != null)
-            {
-                if ((currentPages & PageItem.Apis) != 0)
-                {
-                    IReadOnlyList<ApiUsageResult> results = apiUsageTask.Result;
                     m_PopupViewModel?.UpdateApiUsage(results);
                     m_UsageCache.UpdateDeepSeek(ApiUsageCollector.BuildDeepSeekPluginUsage(results));
-                }
-                else
-                {
-                    m_UsageCache.ClearDeepSeek();
-                }
+                }));
             }
 
-            RefreshPopupStatus();
-            ReconcileDeadPluginService();
+            await Task.WhenAll(children).ConfigureAwait(true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -769,6 +709,43 @@ internal sealed class TrayController : IDisposable
             if (!IsExiting && m_PopupViewModel != null)
             {
                 m_PopupViewModel.IsRefreshing = false;
+            }
+        }
+
+        Task PublishAsync<T>(PageItem page, Task<T> collect, Action<T> publish)
+        {
+            return PublishRefreshResultAsync(collect, result =>
+            {
+                publish(result);
+                RefreshPopupStatus();
+                ReconcileDeadPluginService();
+            }, () => !IsExiting && (m_Settings.VisiblePages & page) != 0,
+                exception => ReportBackgroundFailure($"{page} refresh failed", exception), cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Observes one collection independently and guards publication against hidden pages and shutdown.
+    /// </summary>
+    internal static async Task PublishRefreshResultAsync<T>(Task<T> collect, Action<T> publish, Func<bool> canPublish, Action<Exception> reportFailure, CancellationToken cancellationToken)
+    {
+        try
+        {
+            T result = await collect.ConfigureAwait(true);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (canPublish())
+            {
+                publish(result);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            if (!cancellationToken.IsCancellationRequested && canPublish())
+            {
+                reportFailure(exception);
             }
         }
     }

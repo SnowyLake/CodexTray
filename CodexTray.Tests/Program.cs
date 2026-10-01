@@ -74,6 +74,7 @@ internal static class Program
         await RunAsync("shares one Cursor dashboard OAuth refresh", TestCursorDashboardRefreshBudgetAsync);
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
+        await RunAsync("publishes completed refresh sources independently", TestIndependentRefreshAsync);
         await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
@@ -2655,6 +2656,62 @@ internal static class Program
         AssertEqual(1, partial.ErrorCount, "partial API refresh error count");
         AssertEqual(ApiUsageRefreshStatus.Unavailable, ApiUsageCollector.Summarize([unavailable]).Status, "all failed API refreshes should be unavailable");
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies prompt publication, isolated failure, visibility and cancellation guards, and independent Grok costs.
+    /// </summary>
+    private static async Task TestIndependentRefreshAsync()
+    {
+        TaskCompletionSource<int> slow = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<int> fast = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        List<int> published = [];
+        List<Exception> failures = [];
+        Task slowPublication = TrayController.PublishRefreshResultAsync(slow.Task, published.Add, () => true, failures.Add, CancellationToken.None);
+        Task fastPublication = TrayController.PublishRefreshResultAsync(fast.Task, published.Add, () => true, failures.Add, CancellationToken.None);
+        fast.SetResult(2);
+        await fastPublication.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertEqual("2", string.Join(',', published), "fast source must publish before the slow source completes");
+        AssertTrue(!slowPublication.IsCompleted, "slow source remains owned and pending");
+        slow.SetException(new IOException("test collection failed"));
+        await slowPublication.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertEqual(1, failures.Count, "source failure should be observed independently");
+        await TrayController.PublishRefreshResultAsync(Task.FromResult(3), published.Add, () => false, failures.Add, CancellationToken.None);
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        await TrayController.PublishRefreshResultAsync(Task.FromResult(4), published.Add, () => true, failures.Add, cancellation.Token);
+        AssertEqual("2", string.Join(',', published), "hidden or cancelled results must not publish");
+
+        bool visible = true;
+        TaskCompletionSource<int> hidden = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task hiddenPublication = TrayController.PublishRefreshResultAsync(hidden.Task, published.Add, () => visible, failures.Add, CancellationToken.None);
+        visible = false;
+        hidden.SetResult(5);
+        await hiddenPublication.WaitAsync(TimeSpan.FromSeconds(5));
+        using CancellationTokenSource pendingCancellation = new();
+        TaskCompletionSource<int> cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task cancelledPublication = TrayController.PublishRefreshResultAsync(cancelled.Task, published.Add, () => true, failures.Add, pendingCancellation.Token);
+        pendingCancellation.Cancel();
+        cancelled.SetResult(6);
+        await cancelledPublication.WaitAsync(TimeSpan.FromSeconds(5));
+        TaskCompletionSource<int> lateFailure = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task lateFailurePublication = TrayController.PublishRefreshResultAsync(lateFailure.Task, published.Add, () => true, failures.Add, pendingCancellation.Token);
+        lateFailure.SetException(new IOException("late collection failure"));
+        await lateFailurePublication.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertEqual("2", string.Join(',', published), "visibility and cancellation must be checked after collection completes");
+        AssertEqual(1, failures.Count, "late failures must be observed without notifying after cancellation");
+        AssertTrue(lateFailure.Task.Exception != null && lateFailurePublication.IsCompletedSuccessfully, "late collection fault must remain observed by its owner");
+
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        TokenCostStatistics statistics = new() { LastTwentyFourHours = new TokenCostSummary { TotalTokens = 3000 } };
+        viewModel.UpdateGrokTokenCost(statistics);
+        AssertEqual("3.00K", viewModel.GrokTokenCost.SelectedTokenDisplay, "cost can arrive before billing");
+        DateTimeOffset now = DateTimeOffset.Now;
+        viewModel.UpdateGrokDashboard(new GrokUsageDashboard(new GrokUsageSnapshot(42, now.ToUnixTimeSeconds() + 100), string.Empty, now));
+        AssertEqual("3.00K", viewModel.GrokTokenCost.SelectedTokenDisplay, "billing must preserve separately published costs");
+        AssertEqual(System.Windows.Media.Color.FromRgb(26, 188, 137), ((System.Windows.Media.SolidColorBrush)viewModel.GrokStatusDotBrush).Color, "both independent results are available");
+        viewModel.UpdateGrokTokenCost(null);
+        AssertEqual(System.Windows.Media.Color.FromRgb(226, 176, 54), ((System.Windows.Media.SolidColorBrush)viewModel.GrokStatusDotBrush).Color, "cost failure must preserve billing availability");
     }
 
     /// <summary>

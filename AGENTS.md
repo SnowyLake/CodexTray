@@ -37,7 +37,7 @@
 3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
 4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Cursor/Grok/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
 5. `AppSettings.VisiblePages` 控制 Codex, Cursor, Grok 与 APIs 页的可见性和后台采集. 无可见数据页时停止本地 HTTP 服务和定时刷新.
-6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
+6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 各来源独立发布结果, Codex/Grok 的额度与本地 Token Cost 分开发布; 每次发布前复核退出状态和页面可见性, 单来源失败不阻止其他来源. 刷新所有发布任务仍统一等待, 保持请求合并与退出排空. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
 
 ### 应用内更新
 
