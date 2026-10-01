@@ -160,12 +160,12 @@ public sealed class CursorUsageCollector
             !TryGetPlanPercent(plan, "autoPercentUsed", out double autoUsedPercent) ||
             !TryGetPlanPercent(plan, "apiPercentUsed", out double apiUsedPercent))
         {
-            throw new InvalidOperationException("Cursor usage-summary did not include plan usage percents.");
+            throw new CursorDataException("Cursor usage-summary did not include plan usage percents.");
         }
 
         if (!TryGetBillingCycleEnd(root, out DateTimeOffset resetsAt) || resetsAt <= now)
         {
-            throw new InvalidOperationException("Cursor usage-summary did not include a valid billing cycle end.");
+            throw new CursorDataException("Cursor usage-summary did not include a valid billing cycle end.");
         }
 
         return new CursorUsageSnapshot(
@@ -189,7 +189,7 @@ public sealed class CursorUsageCollector
             !TryGetTimestamp(resetElement, out DateTimeOffset resetsAt) ||
             resetsAt <= now)
         {
-            throw new InvalidOperationException("Cursor Grok Bot response did not include valid weekly usage.");
+            throw new CursorDataException("Cursor Grok Bot response did not include valid weekly usage.");
         }
 
         return new CursorGrokBotUsageSnapshot(usedPercent, resetsAt.ToUnixTimeSeconds());
@@ -230,7 +230,7 @@ public sealed class CursorUsageCollector
         {
             if (!TryLoadCredential(out CursorCredential credential, out string error))
             {
-                throw new InvalidOperationException(error);
+                throw new CursorDataException(error);
             }
 
             if (!NeedsRefresh(credential.AccessToken))
@@ -271,7 +271,7 @@ public sealed class CursorUsageCollector
     {
         if (string.IsNullOrWhiteSpace(credential.RefreshToken))
         {
-            throw new InvalidOperationException("Cursor OAuth token expired or unauthorized and no refresh token is available. Sign in to Cursor again.");
+            throw new CursorDataException("Cursor OAuth token expired or unauthorized and no refresh token is available. Sign in to Cursor again.");
         }
 
         OAuthTokenResponse refresh = await OAuthTokenHelpers.RefreshAsync(
@@ -285,7 +285,7 @@ public sealed class CursorUsageCollector
         SaveCredential(credential.DbPath, refresh);
         if (!OAuthTokenHelpers.TryGetJwtSubject(refresh.AccessToken, out string userId))
         {
-            throw new InvalidOperationException("Cursor OAuth access token did not include a user id.");
+            throw new CursorDataException("Cursor OAuth access token did not include a user id.");
         }
 
         return new CursorCredential(credential.DbPath, refresh.AccessToken, refresh.RefreshToken, userId);
@@ -343,7 +343,7 @@ public sealed class CursorUsageCollector
         AddSessionHeaders(request, credential);
         request.Headers.UserAgent.ParseAdd("CodexTray");
 
-        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         EnsureSuccess(response, "Cursor usage request failed");
         return ParseUsageSummary(body, now);
@@ -362,7 +362,7 @@ public sealed class CursorUsageCollector
         request.Headers.Accept.ParseAdd("application/json");
         request.Headers.TryAddWithoutValidation("connect-protocol-version", "1");
 
-        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         EnsureSuccess(response, "Cursor Grok Bot usage request failed");
         return ParseGrokBotUsage(body, now);
@@ -409,12 +409,12 @@ public sealed class CursorUsageCollector
             }
             else if (response.TotalCount != expectedCount)
             {
-                throw new InvalidOperationException("Cursor usage events changed while paging.");
+                throw new CursorDataException("Cursor usage events changed while paging.");
             }
 
             if (response.DisplayCount > expectedCount - displayedCount)
             {
-                throw new InvalidOperationException("Cursor usage events exceeded the reported total.");
+                throw new CursorDataException("Cursor usage events exceeded the reported total.");
             }
 
             events.AddRange(response.Events);
@@ -440,7 +440,7 @@ public sealed class CursorUsageCollector
 
             if (response.DisplayCount == 0)
             {
-                throw new InvalidOperationException("Cursor usage events ended before the reported total.");
+                throw new CursorDataException("Cursor usage events ended before the reported total.");
             }
         }
     }
@@ -518,7 +518,7 @@ public sealed class CursorUsageCollector
         AddSessionHeaders(request, credential);
         request.Headers.TryAddWithoutValidation("Origin", "https://cursor.com");
 
-        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         EnsureSuccess(response, "Cursor usage-events request failed");
         return ParseUsageEventsPage(body);
@@ -533,17 +533,17 @@ public sealed class CursorUsageCollector
         JsonElement root = document.RootElement;
         if (!root.TryGetProperty("totalUsageEventsCount", out JsonElement totalElement))
         {
-            throw new InvalidOperationException("Cursor usage events schema is missing totalUsageEventsCount.");
+            throw new CursorDataException("Cursor usage events schema is missing totalUsageEventsCount.");
         }
 
         if (!TryGetNonNegativeInt32(totalElement, out int totalCount))
         {
-            throw new InvalidOperationException("Cursor usage events schema has an invalid totalUsageEventsCount.");
+            throw new CursorDataException("Cursor usage events schema has an invalid totalUsageEventsCount.");
         }
 
         if (!root.TryGetProperty("usageEventsDisplay", out JsonElement displays) || displays.ValueKind != JsonValueKind.Array)
         {
-            throw new InvalidOperationException("Cursor usage events schema is missing usageEventsDisplay.");
+            throw new CursorDataException("Cursor usage events schema is missing usageEventsDisplay.");
         }
 
         int zeroTokenMissingCostEventCount = 0;
@@ -557,32 +557,32 @@ public sealed class CursorUsageCollector
 
             if (tokenUsage.ValueKind != JsonValueKind.Object)
             {
-                throw new InvalidOperationException("Cursor usage event tokenUsage is not an object.");
+                throw new CursorDataException("Cursor usage event tokenUsage is not an object.");
             }
 
             if (!TryGetEventTimestamp(display, out DateTimeOffset timestamp))
             {
-                throw new InvalidOperationException("Cursor usage event has an invalid timestamp.");
+                throw new CursorDataException("Cursor usage event has an invalid timestamp.");
             }
 
             if (!TryGetTokenCount(tokenUsage, "inputTokens", out long inputTokens, out bool hasInputTokens))
             {
-                throw new InvalidOperationException("Cursor usage event has an invalid inputTokens value.");
+                throw new CursorDataException("Cursor usage event has an invalid inputTokens value.");
             }
 
             if (!TryGetTokenCount(tokenUsage, "outputTokens", out long outputTokens, out bool hasOutputTokens))
             {
-                throw new InvalidOperationException("Cursor usage event has an invalid outputTokens value.");
+                throw new CursorDataException("Cursor usage event has an invalid outputTokens value.");
             }
 
             if (!TryGetTokenCount(tokenUsage, "cacheReadTokens", out long cacheReadTokens, out bool hasCacheReadTokens))
             {
-                throw new InvalidOperationException("Cursor usage event has an invalid cacheReadTokens value.");
+                throw new CursorDataException("Cursor usage event has an invalid cacheReadTokens value.");
             }
 
             if (!TryGetTokenCount(tokenUsage, "cacheWriteTokens", out long cacheWriteTokens, out bool hasCacheWriteTokens))
             {
-                throw new InvalidOperationException("Cursor usage event has an invalid cacheWriteTokens value.");
+                throw new CursorDataException("Cursor usage event has an invalid cacheWriteTokens value.");
             }
 
             TotalCentsValidation totalCentsValidation = ValidateTotalCents(tokenUsage, out decimal totalCents);
@@ -598,7 +598,7 @@ public sealed class CursorUsageCollector
                     continue;
                 }
 
-                throw new InvalidOperationException(totalCentsValidation switch
+                throw new CursorDataException(totalCentsValidation switch
                 {
                     TotalCentsValidation.Missing => "Cursor usage event totalCents is missing.",
                     TotalCentsValidation.Null => "Cursor usage event totalCents is null.",
@@ -681,8 +681,8 @@ public sealed class CursorUsageCollector
             JsonException => "Cursor response JSON decode failed.",
             HttpRequestException => "Cursor network request failed.",
             OverflowException => "Cursor response numeric overflow.",
-            InvalidOperationException operationException => operationException.Message,
-            _ => "Cursor collection failed.",
+            CursorDataException operationException => operationException.Message,
+            _ => UsageDiagnostics.Error(exception),
         };
     }
 
@@ -1065,6 +1065,8 @@ public sealed class CursorUsageCollector
         NonFinite,
         OutOfRange,
     }
+
+    private sealed class CursorDataException(string message) : InvalidOperationException(message);
 
     private sealed class CursorRequestException : InvalidOperationException
     {

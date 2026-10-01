@@ -53,6 +53,10 @@ internal static class Program
         await RunAsync("supports idempotent stop and restart", TestHttpServerStopRestartAsync);
         await RunAsync("propagates collector cancellation", TestCollectorCancellationAsync);
         await RunAsync("distinguishes API cancellation from timeout", TestApiUsageCancellationAsync);
+        await RunAsync("bounds transient retries and respects Retry-After", RetryTests.HttpRetriesAsync);
+        await RunAsync("merges retry targets and preserves independent API snapshots", RetryTests.TargetsAndSnapshotsAsync);
+        await RunAsync("redacts response content and copied diagnostics", RetryTests.DiagnosticsAsync);
+        await RunAsync("avoids Grok fallback after terminal rate limits", RetryTests.GrokRateLimitAsync);
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
         await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);

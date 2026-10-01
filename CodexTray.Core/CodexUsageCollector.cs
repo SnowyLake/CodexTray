@@ -70,7 +70,7 @@ public sealed class CodexUsageCollector
 
         try
         {
-            using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
             {
                 return CreateEmptyResponse(codexDirectory, now, $"Codex OAuth token expired or unauthorized: HTTP {(int)response.StatusCode}");
@@ -79,7 +79,7 @@ public sealed class CodexUsageCollector
             string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return CreateEmptyResponse(codexDirectory, now, $"Codex usage API failed: HTTP {(int)response.StatusCode}");
+                return CreateEmptyResponse(codexDirectory, now, UsageDiagnostics.HttpError(response.StatusCode));
             }
 
             using JsonDocument document = JsonDocument.Parse(body);
@@ -97,7 +97,7 @@ public sealed class CodexUsageCollector
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
         {
-            return CreateEmptyResponse(codexDirectory, now, $"Codex usage API unavailable: {exception.Message}");
+            return CreateEmptyResponse(codexDirectory, now, UsageDiagnostics.Error(exception));
         }
     }
 
@@ -162,10 +162,10 @@ public sealed class CodexUsageCollector
 
         try
         {
-            using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return new ResetCredits { Error = $"Reset credits API failed: HTTP {(int)response.StatusCode}" };
+                return new ResetCredits { Error = UsageDiagnostics.HttpError(response.StatusCode) };
             }
 
             using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
@@ -177,7 +177,7 @@ public sealed class CodexUsageCollector
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
         {
-            return new ResetCredits { Error = exception is TaskCanceledException ? "Request timed out" : "Reset credits could not be read" };
+            return new ResetCredits { Error = UsageDiagnostics.Error(exception) };
         }
     }
 
@@ -309,7 +309,7 @@ public sealed class CodexUsageCollector
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {
-            return CodexCredentials.Unavailable($"Codex auth.json could not be read: {exception.Message}");
+            return CodexCredentials.Unavailable("Codex auth.json could not be read");
         }
     }
 

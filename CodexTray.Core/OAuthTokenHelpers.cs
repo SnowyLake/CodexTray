@@ -34,7 +34,7 @@ internal static class OAuthTokenHelpers
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"{providerLabel} OAuth refresh failed: HTTP {(int)response.StatusCode}. {reauthenticationHint}");
+            throw new UsageHttpException(response.StatusCode);
         }
 
         using JsonDocument document = JsonDocument.Parse(body);

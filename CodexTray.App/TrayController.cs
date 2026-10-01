@@ -38,7 +38,8 @@ internal sealed class TrayController : IDisposable
     private Task m_SignalListenerTask = Task.CompletedTask;
     private Task m_ServiceTransitionTask = Task.CompletedTask;
     private int m_IsExiting;
-    private bool m_RefreshAgain;
+    private readonly RefreshRequests m_RefreshRequests = new();
+    private ApiUsageSnapshots m_ApiSnapshots = new();
     private bool m_StartupDetectingLiteMonitor;
     private bool m_StartupDetectingTrafficMonitor;
 
@@ -469,9 +470,13 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        m_PopupViewModel = new TrayPopupViewModel(m_Settings, RequestRefreshAsync);
+        m_PopupViewModel = new TrayPopupViewModel(m_Settings, RequestRefreshAsync, (page, id) => RequestRefreshAsync(page, id));
         m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
-        m_PopupViewModel.ApiMonitorsChanged += (_, _) => TryPersistSettings();
+        m_PopupViewModel.ApiMonitorsChanged += (_, _) =>
+        {
+            TryPersistSettings();
+            PublishApiResults([], []);
+        };
         m_PopupViewModel.RestoreSettingsBackupRequested += (_, _) => PresentInAppDialog(new InAppDialogRequest(
             "Restore settings", "Restore the last good configuration? The current file will be preserved as a separate copy.", "Restore", "Cancel", RestoreSettingsBackup));
         m_PopupViewModel.InAppDialogRequested += PresentInAppDialog;
@@ -521,6 +526,7 @@ internal sealed class TrayController : IDisposable
         try
         {
             m_Settings = m_SettingsStore.RestoreBackup();
+            m_ApiSnapshots = new();
             m_PopupViewModel?.LoadRecoveredSettings(m_Settings);
             SyncSettingsRecoveryStatus();
             m_UsageCache.ClearCodex();
@@ -704,7 +710,12 @@ internal sealed class TrayController : IDisposable
     /// <summary>
     /// Returns the active refresh task or starts one refresh operation.
     /// </summary>
-    private Task RequestRefreshAsync()
+    private Task RequestRefreshAsync() => RequestRefreshAsync(PageItem.All);
+
+    /// <summary>
+    /// Queues selected sources or one API card behind the current refresh owner.
+    /// </summary>
+    private Task RequestRefreshAsync(PageItem pages, string? apiId = null)
     {
         lock (m_TaskLock)
         {
@@ -713,13 +724,12 @@ internal sealed class TrayController : IDisposable
                 return Task.CompletedTask;
             }
 
+            m_RefreshRequests.Add(pages, apiId);
             if (!m_RefreshTask.IsCompleted)
             {
-                m_RefreshAgain = true;
                 return m_RefreshTask;
             }
 
-            m_RefreshAgain = false;
             m_RefreshTask = RefreshUntilIdleAsync(m_LifetimeCancellation.Token);
             return m_RefreshTask;
         }
@@ -732,38 +742,30 @@ internal sealed class TrayController : IDisposable
     {
         // Register the owner task before a synchronously completed source can open the panel and request another refresh.
         await Task.Yield();
-        do
+        while (true)
         {
-            await RefreshUsageAsync(cancellationToken).ConfigureAwait(true);
-        }
-        while (ShouldRefreshAgain());
-    }
-
-    /// <summary>
-    /// Returns true when a refresh was requested while another collection was still running.
-    /// </summary>
-    private bool ShouldRefreshAgain()
-    {
-        lock (m_TaskLock)
-        {
-            if (IsExiting || !m_RefreshAgain)
+            RefreshRequest? request;
+            lock (m_TaskLock)
             {
-                m_RefreshAgain = false;
-                return false;
+                request = m_RefreshRequests.Take();
+                if (IsExiting || request == null)
+                {
+                    m_RefreshTask = Task.CompletedTask;
+                    return;
+                }
             }
 
-            m_RefreshAgain = false;
-            return true;
+            await RefreshUsageAsync(request, cancellationToken).ConfigureAwait(true);
         }
     }
 
     /// <summary>
     /// Collects sources concurrently and publishes each result as soon as it completes.
     /// </summary>
-    private async Task RefreshUsageAsync(CancellationToken cancellationToken)
+    private async Task RefreshUsageAsync(RefreshRequest request, CancellationToken cancellationToken)
     {
         AppSettings settingsAtStart = m_Settings;
-        PageItem visiblePages = m_Settings.VisiblePages;
+        PageItem visiblePages = m_Settings.VisiblePages & request.Pages;
         if (visiblePages == PageItem.None || IsExiting)
         {
             return;
@@ -807,12 +809,10 @@ internal sealed class TrayController : IDisposable
 
             if ((visiblePages & PageItem.Apis) != 0)
             {
-                ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Select(CloneApiMonitor).ToArray();
-                children.Add(PublishAsync(PageItem.Apis, m_ApiUsageCollector.CollectAsync(apiMonitors, cancellationToken), results =>
-                {
-                    m_PopupViewModel?.UpdateApiUsage(results);
-                    m_UsageCache.UpdateDeepSeek(ApiUsageCollector.BuildDeepSeekPluginUsage(results));
-                }));
+                ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Where(card => request.AllApiCards || request.ApiIds.Contains(card.Id)).Select(CloneApiMonitor).ToArray();
+                children.Add(PublishAsync(PageItem.Apis, m_ApiUsageCollector.CollectAsync(apiMonitors, cancellationToken), results => PublishApiResults(apiMonitors, results),
+                    failure: _ => PublishApiResults(apiMonitors, apiMonitors.Select(card =>
+                        new ApiUsageResult(card.Id, false, "N/A", "N/A", "Collection failed; retry this card", DateTimeOffset.Now, Provider: card.Provider)).ToArray())));
             }
 
             await Task.WhenAll(children).ConfigureAwait(true);
@@ -832,7 +832,7 @@ internal sealed class TrayController : IDisposable
             }
         }
 
-        Task PublishAsync<T>(PageItem page, Task<T> collect, Action<T> publish, bool localCosts = false)
+        Task PublishAsync<T>(PageItem page, Task<T> collect, Action<T> publish, bool localCosts = false, Action<Exception>? failure = null)
         {
             return PublishRefreshResultAsync(collect, result =>
             {
@@ -842,6 +842,13 @@ internal sealed class TrayController : IDisposable
             }, () => !IsExiting && ReferenceEquals(settingsAtStart, m_Settings) && (m_Settings.VisiblePages & page) != 0,
                 exception =>
                 {
+                    if (failure != null)
+                    {
+                        failure(exception);
+                        RefreshPopupStatus();
+                        return;
+                    }
+
                     string error = "Collection failed; retry this source";
                     DateTimeOffset now = DateTimeOffset.Now;
                     if (localCosts)
@@ -882,6 +889,24 @@ internal sealed class TrayController : IDisposable
                     RefreshPopupStatus();
                 }, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Updates selected cards and recomputes the first DeepSeek plugin value in the current order.
+    /// </summary>
+    private void PublishApiResults(IReadOnlyList<ApiMonitorSettings> queried, IReadOnlyList<ApiUsageResult> results)
+    {
+        IReadOnlyList<ApiUsageResult> merged = m_ApiSnapshots.Merge(m_Settings.ApiMonitors, queried, results);
+        m_PopupViewModel?.UpdateApiUsage(merged);
+        if ((m_Settings.VisiblePages & PageItem.Apis) != 0)
+        {
+            m_UsageCache.UpdateDeepSeek(ApiUsageCollector.BuildDeepSeekPluginUsage(merged));
+        }
+        else
+        {
+            m_UsageCache.ClearDeepSeek();
+        }
+        RefreshPopupStatus();
     }
 
     /// <summary>
@@ -964,7 +989,7 @@ internal sealed class TrayController : IDisposable
 
         try
         {
-            PresentInAppDialog(new InAppDialogRequest(title, exception.Message, "OK"));
+            PresentInAppDialog(new InAppDialogRequest(title, UsageDiagnostics.Error(exception), "OK"));
         }
         catch (Exception)
         {

@@ -38,6 +38,9 @@
 4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Cursor/Grok/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
 5. `AppSettings.VisiblePages` 控制 Codex, Cursor, Grok 与 APIs 页的可见性和后台采集. 无可见数据页时停止本地 HTTP 服务和定时刷新.
 6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 各来源独立发布结果, Codex/Grok 的额度与本地 Token Cost 分开发布; 每次发布前复核退出状态和页面可见性, 单来源失败不阻止其他来源. 刷新所有发布任务仍统一等待, 保持请求合并与退出排空. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
+7. `RefreshRequests` 合并待执行的来源位掩码和 API 卡片 ID; 全部 APIs 请求覆盖单卡请求. 当前 owner 排空后才开始下一批, 防止同一采集器并发执行. 页面刷新仅请求该来源, 卡片保存与重试仅请求该卡片. `ApiUsageSnapshots` 合并单卡结果, 按实时配置顺序重建第一页 DeepSeek 插件映射, 配置已修改或卡片已删除时丢弃迟到结果. 隐藏 APIs 时不得重新发布 DeepSeek 缓存.
+8. `UsageHttp` 仅用于只读额度与用量查询 (包括只读 POST), 不用于 OAuth token POST. 网络错误, 非调用方取消的超时, HTTP 429 与 5xx 最多尝试 3 次, 默认等待 500/1000 毫秒; `Retry-After` 支持秒数与日期, 累计等待预算 10 秒, 超出预算直接结束而不缩短服务要求的等待. 每次重新构造请求与内容, 中间响应先释放, 等待可取消. 401/403, 其他 4xx 与解析错误不自动重试, 复用 Cursor/Grok 原有最多一次强制 OAuth 续期. Grok JSON 端点仅因格式不兼容或 HTTP 404/405 转向 gRPC, 网络/超时/429/5xx 不通过 fallback 绕过重试限制.
+9. `UsageDiagnostics` 使用固定 HTTP/异常描述和错误类别; 不回显服务器 reason phrase, JSON message 或任意 exception.Message. Cursor/Grok 自有解析异常保留固定字段描述, 复制诊断只含应用版本, 固定来源/provider 名称, 成功时间与错误类别, 不含 URL, 账号, 卡片 ID/名称, 请求头或响应原文.
 
 ### 应用内更新
 

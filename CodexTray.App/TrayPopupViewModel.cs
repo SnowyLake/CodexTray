@@ -189,6 +189,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public IAsyncRelayCommand RefreshCommand { get; }
 
+    public IAsyncRelayCommand<PageItem> RetrySourceCommand { get; }
+
+    public IAsyncRelayCommand<ApiMonitorViewModel> RetryApiMonitorCommand { get; }
+
+    public IRelayCommand<object> CopyDiagnosticsCommand { get; }
+
     public IRelayCommand SaveSettingsCommand { get; }
 
     public IRelayCommand InstallLiteMonitorPluginCommand { get; }
@@ -487,7 +493,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Creates a view model for the WPF tray popup.
     /// </summary>
-    public TrayPopupViewModel(AppSettings settings, Func<Task> refreshAsync)
+    public TrayPopupViewModel(AppSettings settings, Func<Task> refreshAsync, Func<PageItem, string?, Task>? retryAsync = null)
     {
         m_Settings = settings;
         CodexQuotaPager = new QuotaPagerViewModel(CodexSessionQuota, CodexWeeklyQuota);
@@ -497,6 +503,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         CursorTokenCost = new TokenCostDashboardViewModel(showSpeed: false, "Cursor billed totalCents");
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
+        retryAsync ??= (_, _) => RefreshCommand.CanExecute(null) ? RefreshCommand.ExecuteAsync(null) : Task.CompletedTask;
+        RetrySourceCommand = new AsyncRelayCommand<PageItem>(page => retryAsync(page, null), AsyncRelayCommandOptions.AllowConcurrentExecutions);
+        RetryApiMonitorCommand = new AsyncRelayCommand<ApiMonitorViewModel>(card => card == null ? Task.CompletedTask : retryAsync(PageItem.Apis, card.Id),
+            card => card != null && !card.IsPending, AsyncRelayCommandOptions.AllowConcurrentExecutions);
+        CopyDiagnosticsCommand = new RelayCommand<object>(CopyDiagnostics);
         SaveSettingsCommand = new RelayCommand(() => SaveSettingsRequested?.Invoke(this, EventArgs.Empty), CanSaveSettings);
         RestoreSettingsBackupCommand = new RelayCommand(() => RestoreSettingsBackupRequested?.Invoke(this, EventArgs.Empty), () => HasSettingsBackup);
         InstallLiteMonitorPluginCommand = new RelayCommand(() => InstallLiteMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
@@ -1131,7 +1142,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         SaveApiMonitors();
         if (!wasPending)
         {
-            RequestRefresh();
+            RetrySourceCommand.Execute(PageItem.Apis);
         }
     }
 
@@ -1197,17 +1208,86 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private void HandleApiMonitorSaved(object? sender, EventArgs args)
     {
         SaveApiMonitors();
-        RequestRefresh();
+        if (sender is ApiMonitorViewModel card)
+        {
+            RetryApiMonitorCommand.Execute(card);
+        }
     }
 
     /// <summary>
-    /// Starts a refresh when the asynchronous command is available.
+    /// Copies fixed metadata and error categories without request details or credential-bearing content.
     /// </summary>
-    private void RequestRefresh()
+    private void CopyDiagnostics(object? target)
     {
-        if (RefreshCommand.CanExecute(null))
+        try
         {
-            RefreshCommand.Execute(null);
+            System.Windows.Clipboard.SetText(BuildDiagnostics(target));
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            InAppDialogRequested?.Invoke(new("Clipboard unavailable", "Close the application currently using the clipboard and try again.", "OK"));
+        }
+    }
+
+    /// <summary>
+    /// Builds redacted diagnostic text for a source or one API card.
+    /// </summary>
+    internal string BuildDiagnostics(object? target)
+    {
+        List<string> lines = [$"CodexTray {AppVersion}"];
+        if (target is ApiMonitorViewModel card)
+        {
+            AddApi(card);
+        }
+        else if (target is PageItem page)
+        {
+            switch (page)
+            {
+                case PageItem.Codex:
+                    Add("Codex usage", CodexUsageState);
+                    Add("Codex resets", CodexResetState);
+                    Add("Codex local cost", CodexTokenCost.Freshness);
+                    break;
+                case PageItem.Cursor:
+                    Add("Cursor usage", CursorUsageState);
+                    Add("Cursor Grok Bot", CursorGrokBotState);
+                    Add("Cursor billed cost", CursorTokenCost.Freshness);
+                    break;
+                case PageItem.Grok:
+                    Add("Grok usage", GrokUsageState);
+                    Add("Grok local cost", GrokTokenCost.Freshness);
+                    break;
+                case PageItem.Apis:
+                    foreach (ApiMonitorViewModel api in ApiMonitors.Where(api => !api.IsPending))
+                    {
+                        AddApi(api);
+                    }
+                    break;
+            }
+        }
+
+        return string.Join(Environment.NewLine, lines);
+
+        /// <summary>
+        /// Appends only a known provider label and supported card regions.
+        /// </summary>
+        void AddApi(ApiMonitorViewModel api)
+        {
+            string provider = api.ProviderOptions.Contains(api.Provider) ? api.Provider : "Unknown API";
+            Add(provider + " balance", api.BalanceState);
+            if (api.HasSecondaryDisplay)
+            {
+                Add(provider + " usage", api.UsedState);
+            }
+        }
+
+        /// <summary>
+        /// Appends a safe category and timestamp without copying the underlying failure text.
+        /// </summary>
+        void Add(string source, RefreshState state)
+        {
+            string category = state.LastSuccess == null && state.Error.Length == 0 ? "Not collected" : UsageDiagnostics.Category(state.Error);
+            lines.Add($"{source}: {category}; last success: {state.LastSuccess?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) ?? "Never"}");
         }
     }
 
