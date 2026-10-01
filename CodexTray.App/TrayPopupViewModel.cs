@@ -466,9 +466,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_Settings = settings;
         CodexQuotaPager = new QuotaPagerViewModel(CodexSessionQuota, CodexWeeklyQuota);
         CursorQuotaPager = new QuotaPagerViewModel(CursorMonthlyQuota, CursorGrokBotQuota);
-        CodexTokenCost = new TokenCostDashboardViewModel();
-        GrokTokenCost = new TokenCostDashboardViewModel();
-        CursorTokenCost = new TokenCostDashboardViewModel();
+        CodexTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
+        GrokTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
+        CursorTokenCost = new TokenCostDashboardViewModel(showSpeed: false);
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
         SaveSettingsCommand = new RelayCommand(() => SaveSettingsRequested?.Invoke(this, EventArgs.Empty), CanSaveSettings);
@@ -1607,6 +1607,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     internal sealed partial class TokenCostDashboardViewModel : ObservableObject
     {
+        private readonly bool m_ShowSpeed;
         private TokenCostStatistics? m_Statistics;
         private TokenCostChartPeriod m_ChartPeriod;
 
@@ -1631,6 +1632,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         public partial string SelectedCostDisplay { get; private set; } = "N/A";
 
         public Media.Brush AccentBrush { get; } = s_GreenBrush;
+
+        /// <summary>
+        /// Creates a token-cost dashboard with provider-specific speed visibility.
+        /// </summary>
+        public TokenCostDashboardViewModel(bool showSpeed)
+        {
+            m_ShowSpeed = showSpeed;
+        }
 
         /// <summary>
         /// Updates all token-cost views from one statistics snapshot.
@@ -1718,7 +1727,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         /// <summary>
-        /// Updates the selected token total, cost, cache hit rate, and per-model donut segments with paired response speed.
+        /// Updates the selected token total, cost, cache hit rate, and per-model donut segments with optional response speed.
         /// </summary>
         private void UpdateDonut()
         {
@@ -1779,12 +1788,18 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 string shareText = $"{Math.Round(share * 100):0}%";
                 string tokensText = AppSettings.FormatTokenCount(model.Tokens);
                 string costText = model.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-                string speedText = model.TimedDurationMilliseconds > 0
-                    ? (m_Statistics.IsSpeedEstimated ? "~" : string.Empty)
-                        + (model.TimedOutputTokens * 1000m / model.TimedDurationMilliseconds).ToString("0.0", CultureInfo.InvariantCulture) + " tok/s"
-                    : "N/A";
+                string speedLine = string.Empty;
+                if (m_ShowSpeed)
+                {
+                    string speedText = model.TimedDurationMilliseconds > 0
+                        ? (m_Statistics.IsSpeedEstimated ? "~" : string.Empty)
+                            + (model.TimedOutputTokens * 1000m / model.TimedDurationMilliseconds).ToString("0.0", CultureInfo.InvariantCulture) + " tok/s"
+                        : "N/A";
+                    speedLine = $"{Environment.NewLine}Speed: {speedText}";
+                }
+
                 string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}"
-                    + $"{Environment.NewLine}Speed: {speedText}{Environment.NewLine}Share: {shareText}";
+                    + speedLine + $"{Environment.NewLine}Share: {shareText}";
                 segments.Add(new TokenCostDonutSegment(
                     model.Label,
                     shareText,

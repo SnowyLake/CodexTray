@@ -2827,6 +2827,15 @@ internal static class Program
         AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CursorTokenCost.Rows.Select(row => row.Display.Cost)), "Cursor token cost row values");
         AssertEqual(30, viewModel.CursorTokenCost.ChartDays.Count, "Cursor token cost chart day count");
         AssertEqual(daily[^1].Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), viewModel.CursorTokenCost.ChartDays[29].Tooltip[..10], "Cursor token cost chart tooltip date");
+        AssertEqual(
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
+            viewModel.CursorTokenCost.DonutSegments[0].Tooltip,
+            "Cursor donut model tooltip omits speed");
+        viewModel.CursorTokenCost.SelectPeriodCommand.Execute(viewModel.CursorTokenCost.Rows[1]);
+        AssertEqual(
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
+            viewModel.CursorTokenCost.DonutSegments[0].Tooltip,
+            "Cursor donut model tooltip keeps speed hidden after period selection");
 
         TokenCostStatistics grokStatistics = new()
         {
