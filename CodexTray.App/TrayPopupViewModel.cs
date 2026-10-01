@@ -101,7 +101,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private static readonly Media.Brush s_PlanBadgeInactiveBrush = CreateFrozenBrush(107, 122, 117);
     private static readonly TokenCostDisplay s_UnavailableTokenCostDisplay = new("N/A", "N/A");
 
-    private readonly AppSettings m_Settings;
+    private AppSettings m_Settings;
     private string m_CurrentPage = k_CodexPageName;
     private string m_ThemeMode = AppSettings.ThemeModeSystem;
     private PageItem m_VisiblePages = PageItem.All;
@@ -136,6 +136,22 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private bool m_SnapshotUseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
 
     public event EventHandler? SaveSettingsRequested;
+    public event EventHandler? RestoreSettingsBackupRequested;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SettingsStatusText))]
+    public partial string SettingsLoadError { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveSettingsCommand))]
+    [NotifyPropertyChangedFor(nameof(SettingsStatusBrush))]
+    public partial bool IsSettingsWriteBlocked { get; set; }
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RestoreSettingsBackupCommand))]
+    public partial bool HasSettingsBackup { get; set; }
+
+    public IRelayCommand RestoreSettingsBackupCommand { get; }
 
     public event EventHandler? ApiMonitorsChanged;
 
@@ -207,14 +223,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SaveSettingsCommand))]
     public partial SettingsStatus SettingsStatus { get; private set; } = SettingsStatus.Clean;
 
-    public string SettingsStatusText => SettingsStatus switch
+    public string SettingsStatusText => SettingsLoadError.Length > 0 ? SettingsLoadError : SettingsStatus switch
     {
         SettingsStatus.Saved => "Changes saved",
         SettingsStatus.Unsaved => "Unsaved changes",
         _ => string.Empty,
     };
 
-    public Media.Brush SettingsStatusBrush => SettingsStatus == SettingsStatus.Unsaved ? s_YellowBrush : s_GreenBrush;
+    public Media.Brush SettingsStatusBrush => IsSettingsWriteBlocked ? s_RedBrush : SettingsStatus == SettingsStatus.Unsaved ? s_YellowBrush : s_GreenBrush;
 
     [ObservableProperty]
     public partial string ServiceStatus { get; private set; } = "Service: starting";
@@ -482,6 +498,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
         SaveSettingsCommand = new RelayCommand(() => SaveSettingsRequested?.Invoke(this, EventArgs.Empty), CanSaveSettings);
+        RestoreSettingsBackupCommand = new RelayCommand(() => RestoreSettingsBackupRequested?.Invoke(this, EventArgs.Empty), () => HasSettingsBackup);
         InstallLiteMonitorPluginCommand = new RelayCommand(() => InstallLiteMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
         InstallTrafficMonitorPluginCommand = new RelayCommand(() => InstallTrafficMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
         BrowseLiteMonitorCommand = new RelayCommand(() => BrowseMonitorFolder("Select LiteMonitor folder", LiteMonitorDir, value => LiteMonitorDir = value));
@@ -516,7 +533,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     private bool CanSaveSettings()
     {
-        return SettingsStatus == SettingsStatus.Unsaved;
+        return !IsSettingsWriteBlocked && SettingsStatus == SettingsStatus.Unsaved;
     }
 
     /// <summary>
@@ -543,6 +560,18 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         CaptureSnapshot(SettingsStatus.Clean);
+    }
+
+    /// <summary>
+    /// Replaces recovered settings and editable cards without keeping references to temporary defaults.
+    /// </summary>
+    public void LoadRecoveredSettings(AppSettings settings)
+    {
+        AutoDetectLiteMonitorCommand.Cancel();
+        AutoDetectTrafficMonitorCommand.Cancel();
+        m_Settings = settings;
+        LoadSettings(settings);
+        LoadApiMonitors(settings.ApiMonitors);
     }
 
     /// <summary>
@@ -620,8 +649,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Applies editable properties to the shared settings model.
     /// </summary>
-    public void ApplySettings()
+    public void ApplySettings(AppSettings? target = null, bool markSaved = true)
     {
+        AppSettings settings = target ?? m_Settings;
         int port = ClampOrDefault(PortText, CodexTrayDefaults.MinimumPort, CodexTrayDefaults.MaximumPort, CodexTrayDefaults.Port);
         int refreshInterval = ClampOrDefault(
             RefreshIntervalText,
@@ -641,15 +671,27 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             m_SuppressDirtyTracking = false;
         }
 
-        m_Settings.LiteMonitorDir = LiteMonitorDir;
-        m_Settings.TrafficMonitorDir = TrafficMonitorDir;
-        m_Settings.Port = port;
-        m_Settings.RefreshIntervalMinutes = refreshInterval;
-        m_Settings.StartWithWindows = StartWithWindows;
-        m_Settings.ThemeMode = ThemeMode;
-        m_Settings.VisiblePages = VisiblePages;
-        m_Settings.MicaEnabled = MicaEnabled;
-        m_Settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
+        settings.LiteMonitorDir = LiteMonitorDir;
+        settings.TrafficMonitorDir = TrafficMonitorDir;
+        settings.Port = port;
+        settings.RefreshIntervalMinutes = refreshInterval;
+        settings.StartWithWindows = StartWithWindows;
+        settings.ThemeMode = ThemeMode;
+        settings.VisiblePages = VisiblePages;
+        settings.MicaEnabled = MicaEnabled;
+        settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
+        if (markSaved)
+        {
+            CaptureSnapshot(SettingsStatus.Saved);
+        }
+    }
+
+    /// <summary>
+    /// Commits the shared configuration reference only after the candidate has been saved successfully.
+    /// </summary>
+    public void AcceptSavedSettings(AppSettings settings)
+    {
+        m_Settings = settings;
         CaptureSnapshot(SettingsStatus.Saved);
     }
 
@@ -1031,6 +1073,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     private void LoadApiMonitors(IEnumerable<ApiMonitorSettings> settings)
     {
+        foreach (ApiMonitorViewModel monitor in ApiMonitors)
+        {
+            monitor.EditingSaved -= HandleApiMonitorSaved;
+        }
+
         ApiMonitors.Clear();
         foreach (ApiMonitorSettings monitorSettings in settings)
         {
@@ -1325,6 +1372,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     public async Task DetectLiteMonitorAsync(bool showNotFound, CancellationToken cancellationToken = default)
     {
+        AppSettings settingsAtStart = m_Settings;
         if (IsDetectingLiteMonitor)
         {
             return;
@@ -1335,6 +1383,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             // Manual detect always runs a full scan instead of short-circuiting on the current path.
             string detected = await Task.Run(() => LiteMonitorLocator.AutoDetect(cancellationToken: cancellationToken), cancellationToken).ConfigureAwait(true);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(settingsAtStart, m_Settings))
+            {
+                return;
+            }
             if (string.IsNullOrWhiteSpace(detected))
             {
                 LiteMonitorDir = CodexTrayDefaults.PluginPathNone;
@@ -1362,6 +1415,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     public async Task DetectTrafficMonitorAsync(bool showNotFound, CancellationToken cancellationToken = default)
     {
+        AppSettings settingsAtStart = m_Settings;
         if (IsDetectingTrafficMonitor)
         {
             return;
@@ -1372,6 +1426,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             // Manual detect always runs a full scan instead of short-circuiting on the current path.
             string detected = await Task.Run(() => TrafficMonitorLocator.AutoDetect(cancellationToken: cancellationToken), cancellationToken).ConfigureAwait(true);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(settingsAtStart, m_Settings))
+            {
+                return;
+            }
             if (string.IsNullOrWhiteSpace(detected))
             {
                 TrafficMonitorDir = CodexTrayDefaults.PluginPathNone;

@@ -1589,6 +1589,11 @@
                               VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <!-- General -->
+                        <Button Content="Restore last good settings"
+                                Command="{Binding RestoreSettingsBackupCommand}"
+                                HorizontalAlignment="Left"
+                                Margin="0,0,0,12"
+                                ToolTip="Preserves the current file before restoring the backup." />
                         <TextBlock Text="General"
                                    Style="{StaticResource SettingsSectionHeaderStyle}" />
 

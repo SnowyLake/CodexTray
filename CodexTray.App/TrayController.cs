@@ -77,12 +77,24 @@ internal sealed class TrayController : IDisposable
         SyncStartupRegistration();
         if (!settingsExists)
         {
-            m_SettingsStore.Save(m_Settings);
+            TryPersistSettings();
             m_Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (!IsExiting)
                 {
                     ShowPanel();
+                }
+            }));
+        }
+
+        if (m_SettingsStore.IsWriteBlocked)
+        {
+            m_Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!IsExiting)
+                {
+                    m_PopupViewModel?.ShowSettings();
+                    ShowWarning(m_SettingsStore.LoadError);
                 }
             }));
         }
@@ -114,6 +126,12 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private async Task AutoDetectMissingPluginPathsAsync(CancellationToken cancellationToken)
     {
+        AppSettings settingsAtStart = m_Settings;
+        if (m_SettingsStore.IsWriteBlocked)
+        {
+            return;
+        }
+
         bool detectLite = m_Settings.LiteMonitorDir.Length == 0;
         bool detectTraffic = m_Settings.TrafficMonitorDir.Length == 0;
         if (!detectLite && !detectTraffic)
@@ -135,6 +153,11 @@ internal sealed class TrayController : IDisposable
             }, cancellationToken).ConfigureAwait(true);
 
             cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(settingsAtStart, m_Settings))
+            {
+                return;
+            }
+
             bool changed = false;
             if (detectLite && m_Settings.LiteMonitorDir.Length == 0)
             {
@@ -150,7 +173,7 @@ internal sealed class TrayController : IDisposable
 
             if (changed && !IsExiting)
             {
-                m_SettingsStore.Save(m_Settings);
+                TryPersistSettings();
                 m_PopupViewModel?.LoadSettings(m_Settings);
             }
         }
@@ -448,21 +471,83 @@ internal sealed class TrayController : IDisposable
 
         m_PopupViewModel = new TrayPopupViewModel(m_Settings, RequestRefreshAsync);
         m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
-        m_PopupViewModel.ApiMonitorsChanged += (_, _) => m_SettingsStore.Save(m_Settings);
+        m_PopupViewModel.ApiMonitorsChanged += (_, _) => TryPersistSettings();
+        m_PopupViewModel.RestoreSettingsBackupRequested += (_, _) => PresentInAppDialog(new InAppDialogRequest(
+            "Restore settings", "Restore the last good configuration? The current file will be preserved as a separate copy.", "Restore", "Cancel", RestoreSettingsBackup));
         m_PopupViewModel.InAppDialogRequested += PresentInAppDialog;
         m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
         m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
         m_PopupViewModel.UpdateApplyRequested += (_, handoff) => m_Dispatcher.BeginInvoke(new Action(() => StartUpdateAndExit(handoff)));
+        SyncSettingsRecoveryStatus();
+    }
+
+    /// <summary>
+    /// Reflects configuration protection and backup availability in the settings page.
+    /// </summary>
+    private void SyncSettingsRecoveryStatus()
+    {
+        if (m_PopupViewModel != null)
+        {
+            m_PopupViewModel.SettingsLoadError = m_SettingsStore.LoadError;
+            m_PopupViewModel.IsSettingsWriteBlocked = m_SettingsStore.IsWriteBlocked;
+            m_PopupViewModel.HasSettingsBackup = m_SettingsStore.CanRestoreBackup;
+        }
+    }
+
+    /// <summary>
+    /// Handles persistence failures centrally so automatic and card saves cannot overwrite a damaged configuration.
+    /// </summary>
+    private bool TryPersistSettings(AppSettings? settings = null)
+    {
+        try
+        {
+            m_SettingsStore.Save(settings ?? m_Settings);
+            SyncSettingsRecoveryStatus();
+            return true;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            SyncSettingsRecoveryStatus();
+            ShowWarning(m_SettingsStore.LoadError.Length > 0 ? m_SettingsStore.LoadError : "Settings could not be saved. Original file preserved.");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Restores validated settings while invalidating in-flight publications from the previous configuration.
+    /// </summary>
+    private void RestoreSettingsBackup()
+    {
+        try
+        {
+            m_Settings = m_SettingsStore.RestoreBackup();
+            m_PopupViewModel?.LoadRecoveredSettings(m_Settings);
+            SyncSettingsRecoveryStatus();
+            m_UsageCache.ClearCodex();
+            m_UsageCache.ClearCursor();
+            m_UsageCache.ClearGrok();
+            m_UsageCache.ClearDeepSeek();
+            ConfigureRefreshTimer();
+            QueueServiceReconcile();
+            StartupManager.SetEnabled(Environment.ProcessPath ?? string.Empty, m_Settings.StartWithWindows);
+            RefreshPopupStatus();
+            _ = RequestRefreshAsync();
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            SyncSettingsRecoveryStatus();
+            ShowWarning("The backup could not be restored. Check that it is valid and the application folder is writable; the original file has been preserved.");
+        }
     }
 
     /// <summary>
     /// Saves settings and applies startup registration changes.
     /// </summary>
-    private void SaveSettings()
+    private bool SaveSettings()
     {
-        if (IsExiting)
+        if (IsExiting || m_SettingsStore.IsWriteBlocked)
         {
-            return;
+            return false;
         }
 
         int previousPort = m_Settings.Port;
@@ -471,10 +556,17 @@ internal sealed class TrayController : IDisposable
         bool cursorWasEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
         bool apisWasEnabled = (m_Settings.VisiblePages & PageItem.Apis) != 0;
         bool serviceWasRequired = IsPluginServiceRequired;
-        m_PopupViewModel?.ApplySettings();
+        AppSettings candidate = m_Settings.Copy();
+        m_PopupViewModel?.ApplySettings(candidate, markSaved: false);
 
+        if (!TryPersistSettings(candidate))
+        {
+            return false;
+        }
+
+        m_Settings = candidate;
+        m_PopupViewModel?.AcceptSavedSettings(candidate);
         StartupManager.SetEnabled(Environment.ProcessPath ?? string.Empty, m_Settings.StartWithWindows);
-        m_SettingsStore.Save(m_Settings);
         ConfigureRefreshTimer();
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokIsEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
@@ -508,6 +600,7 @@ internal sealed class TrayController : IDisposable
 
         RefreshPopupStatus();
         _ = RequestRefreshAsync();
+        return true;
     }
 
     /// <summary>
@@ -531,9 +624,18 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void InstallLiteMonitorPlugin()
     {
+        if (m_SettingsStore.IsWriteBlocked)
+        {
+            ShowWarning(m_SettingsStore.LoadError);
+            return;
+        }
+
         try
         {
-            m_PopupViewModel?.ApplySettings();
+            if (!SaveSettings())
+            {
+                return;
+            }
 
             if (!TryValidateLiteMonitorDirectory(m_Settings.LiteMonitorDir, out string message))
             {
@@ -542,7 +644,6 @@ internal sealed class TrayController : IDisposable
             }
 
             string targetPath = LiteMonitorPluginInstaller.Install(m_Settings.LiteMonitorDir, m_Settings.Port);
-            m_SettingsStore.Save(m_Settings);
             RefreshPopupStatus();
             ShowInformation($"Installed LiteMonitor plugin:\n{targetPath}");
         }
@@ -557,9 +658,18 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void InstallTrafficMonitorPlugin()
     {
+        if (m_SettingsStore.IsWriteBlocked)
+        {
+            ShowWarning(m_SettingsStore.LoadError);
+            return;
+        }
+
         try
         {
-            m_PopupViewModel?.ApplySettings();
+            if (!SaveSettings())
+            {
+                return;
+            }
 
             if (!TryValidateTrafficMonitorDirectory(m_Settings.TrafficMonitorDir, out string message))
             {
@@ -568,7 +678,6 @@ internal sealed class TrayController : IDisposable
             }
 
             string targetPath = TrafficMonitorPluginInstaller.Install(m_Settings.TrafficMonitorDir, m_Settings.Port);
-            m_SettingsStore.Save(m_Settings);
             RefreshPopupStatus();
             ShowInformation($"Installed TrafficMonitor plugin:\n{targetPath}");
         }
@@ -653,6 +762,7 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private async Task RefreshUsageAsync(CancellationToken cancellationToken)
     {
+        AppSettings settingsAtStart = m_Settings;
         PageItem visiblePages = m_Settings.VisiblePages;
         if (visiblePages == PageItem.None || IsExiting)
         {
@@ -729,7 +839,7 @@ internal sealed class TrayController : IDisposable
                 publish(result);
                 RefreshPopupStatus();
                 ReconcileDeadPluginService();
-            }, () => !IsExiting && (m_Settings.VisiblePages & page) != 0,
+            }, () => !IsExiting && ReferenceEquals(settingsAtStart, m_Settings) && (m_Settings.VisiblePages & page) != 0,
                 exception =>
                 {
                     string error = "Collection failed; retry this source";

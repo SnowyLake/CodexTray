@@ -58,6 +58,7 @@ internal static class Program
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
         await RunAsync("repairs missing settings fields", TestSettingsStoreRepairsMissingFieldsAsync);
         await RunAsync("repairs null and malformed settings", TestSettingsStoreRepairsNullAndMalformedValuesAsync);
+        await RunAsync("preserves damaged settings and restores validated backups", TestSettingsRecoveryAsync);
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
         await RunAsync("formats compact token units", TestTokenUnitFormattingAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
@@ -1489,6 +1490,87 @@ internal static class Program
         File.WriteAllText(malformedStore.SettingsPath, "{");
         AppSettings fallback = malformedStore.Load();
         AssertEqual(CodexTrayDefaults.Port, fallback.Port, "malformed settings should fall back to defaults");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies damaged configuration protection, backup validation, and recovery of editable cards.
+    /// </summary>
+    private static Task TestSettingsRecoveryAsync()
+    {
+        using TempDirectory temp = new();
+        SettingsStore store = new(temp.Path);
+        AppSettings initial = new() { Port = 18000, ApiMonitors = [new() { ApiKey = "test-secret", UserId = "test-user" }] };
+        store.Save(initial);
+        store.Save(new AppSettings { Port = 18001 });
+        string backup = File.ReadAllText(store.BackupPath);
+        AssertTrue(backup.Contains("test-secret"), "backup must use the same credential representation as the main file");
+        foreach (string damaged in new[] { "{", "null", "[]", "{\"Port\":\"invalid\"}" })
+        {
+            File.WriteAllText(store.SettingsPath, damaged);
+            store.Load();
+            AssertTrue(store.IsWriteBlocked && store.LoadError.Length > 0, "damaged configuration must report an error and block saves");
+            bool blocked = false;
+            try
+            {
+                store.Save(new AppSettings());
+            }
+            catch (InvalidOperationException)
+            {
+                blocked = true;
+            }
+
+            AssertTrue(blocked, "automatic saves must not overwrite temporary defaults");
+            AssertEqual(damaged, File.ReadAllText(store.SettingsPath), "damaged bytes must remain intact");
+            AssertEqual(backup, File.ReadAllText(store.BackupPath), "valid backup must survive failed loads and saves");
+        }
+
+        AppSettings restored = store.RestoreBackup();
+        AssertEqual(18000, restored.Port, "previous valid port must be restored");
+        AssertEqual("test-secret", restored.ApiMonitors[0].ApiKey, "credentials must survive backup restoration");
+        AssertTrue(!store.IsWriteBlocked, "successful restoration must unblock writes");
+        AssertEqual("{\"Port\":\"invalid\"}", File.ReadAllText(store.PreservedSettingsPath!), "restore must preserve the damaged original");
+        string validMain = File.ReadAllText(store.SettingsPath);
+        File.WriteAllText(store.BackupPath, "{");
+        bool invalidBackup = false;
+        try
+        {
+            store.RestoreBackup();
+        }
+        catch (JsonException)
+        {
+            invalidBackup = true;
+        }
+
+        AssertTrue(invalidBackup, "invalid backup must be rejected before writing");
+        AssertEqual(validMain, File.ReadAllText(store.SettingsPath), "invalid backup must not replace the main file");
+        File.WriteAllText(store.SettingsPath, "{");
+        bool externalCorruptionBlocked = false;
+        try
+        {
+            store.Save(restored);
+        }
+        catch (InvalidOperationException)
+        {
+            externalCorruptionBlocked = true;
+        }
+
+        AssertTrue(externalCorruptionBlocked && store.IsWriteBlocked, "corruption after a successful load must also block saves");
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        viewModel.PortText = "18005";
+        viewModel.IsSettingsWriteBlocked = true;
+        AssertTrue(!viewModel.SaveSettingsCommand.CanExecute(null), "protected settings must disable UI saves");
+        viewModel.LoadRecoveredSettings(restored);
+        AssertEqual("18000", viewModel.PortText, "recovery must replace edited temporary settings");
+        AssertEqual("test-secret", viewModel.ApiMonitors[0].ApiKey, "recovery must repopulate API cards");
+        viewModel.VisiblePages = PageItem.None;
+        AppSettings candidate = restored.Copy();
+        viewModel.ApplySettings(candidate, markSaved: false);
+        AssertEqual(PageItem.All, restored.VisiblePages, "candidate creation must not mutate active page visibility before persistence");
+        AssertEqual(PageItem.None, candidate.VisiblePages, "candidate must contain requested page changes");
+        AssertEqual(SettingsStatus.Unsaved, viewModel.SettingsStatus, "unsaved candidate must not claim success");
+        candidate.ApiMonitors[0].ApiKey = "different-test-key";
+        AssertEqual("test-secret", restored.ApiMonitors[0].ApiKey, "candidate must not share mutable credential cards");
         return Task.CompletedTask;
     }
 

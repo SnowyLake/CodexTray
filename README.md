@@ -36,6 +36,7 @@
 - 自动刷新并显示刷新状态, 也可以随时手动刷新. Codex, Cursor, Grok 和 APIs 完成采集后各自立即更新, Codex 与 Grok 的额度和本地 Token Cost 也分别更新, 不必等待其他来源.
 - 将鼠标放到刷新状态或 Token Cost 区域可查看各部分最后成功时间和失败原因. 读取失败的数值与插件数据显示 N/A, 不沿用旧值. 费用旁的 `*` 表示部分费用, 悬停可查看未定价或费用不完整的模型; tooltip 同时说明费用来源.
 - 支持浅色, 深色和跟随系统的主题, 可隐藏不使用的页面, 设置随 Windows 启动.
+- 配置读取失败时显示错误并保留原文件, 保存操作会暂停. Settings 页的 `Restore last good settings` 可恢复上一份有效配置, 恢复前会另存当前文件. 没有有效备份时, 请修复原配置后重新启动.
 - 自动检测 LiteMonitor 与 TrafficMonitor 目录, 一键安装插件.
 - 在 Settings 页检查 GitHub 上的新版本, 确认后完成升级.
 
@@ -130,6 +131,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 - Cursor 和 Grok 的登录凭据会自动续期并写回各自的本地登录文件, 不会复制到 `settings.json`.
 - 插件连接仅供本机访问, 默认端口为 `17890`, 不向局域网开放. 登录凭据不会写入日志, 插件配置或插件收到的数据.
 - 应用设置保存在 `CodexTray.exe` 同级目录的 `settings.json`.
+- 有效配置备份与恢复时保留的原文件也在应用目录中, 凭据同样为明文. 请勿分享 `settings.json`, `settings.last-good.json` 或 `settings.damaged-*.json`.
 
 ## 常见问题
 

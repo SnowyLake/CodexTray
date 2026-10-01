@@ -93,6 +93,7 @@
 
 ### 设置边界
 
+- `SettingsStore.LoadError` 非空时禁止全部持久化, 自动插件定位也跳过. 读取与保存均验证 JSON object 和可反序列化字段, 运行期间文件损坏同样阻止覆盖. `settings.last-good.json` 保存上一份有效配置; 恢复先验证备份, 把当前文件复制为 `settings.damaged-<guid>.json`, 再原子替换主文件. 主配置, 备份和保留副本中的 API 凭据均使用相同明文表示, 不得分享这些文件. 恢复会替换 ViewModel 的共享配置引用并阻止旧配置的在途刷新发布.
 - 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults` (`CodexTray.Core/CodexTrayDefaults.cs`).
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
 - 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.

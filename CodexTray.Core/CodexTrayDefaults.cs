@@ -14,6 +14,8 @@ public static class CodexTrayDefaults
     public const double PopupWindowHeight = 620;
     public const string AppName = "CodexTray";
     public const string SettingsFileName = "settings.json";
+    public const string SettingsBackupFileName = "settings.last-good.json";
+    public const string SettingsDamagedFilePrefix = "settings.damaged-";
     public const string ModelPricingFileName = "model-pricing.json";
     public const string ResourcesDirectoryName = "Resources";
     public const string StartupRunValueName = "CodexTray";
