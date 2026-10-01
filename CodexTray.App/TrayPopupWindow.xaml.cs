@@ -116,7 +116,7 @@ internal sealed partial class TrayPopupWindow : Window
     protected override void OnDeactivated(EventArgs args)
     {
         base.OnDeactivated(args);
-        if (DataContext is TrayPopupViewModel { IsModalOpen: true } || HasOpenComboBox(this) || HasOpenContextMenu(this))
+        if (DataContext is TrayPopupViewModel { IsPanelPinned: true } or TrayPopupViewModel { IsModalOpen: true } || HasOpenComboBox(this) || HasOpenContextMenu(this))
         {
             return;
         }

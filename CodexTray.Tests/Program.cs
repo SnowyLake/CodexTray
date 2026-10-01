@@ -83,6 +83,7 @@ internal static class Program
         await RunAsync("invalidates session costs when pricing contents change", TestPricingReloadAsync);
         await RunAsync("exposes successful timestamps and incomplete costs", TestDataFreshnessAsync);
         await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
+        await RunAsync("formats bounded visible-source tray summaries", TestTrayTooltipAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
         await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
@@ -103,6 +104,46 @@ internal static class Program
         s_Failures += await AppUpdateTests.RunAllAsync();
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Tests visible-source tooltip selection, failures, and maximum numeric lengths without creating a tray icon.
+    /// </summary>
+    private static Task TestTrayTooltipAsync()
+    {
+        UsageResponse usage = new()
+        {
+            Available = true,
+            Error = "must-not-appear",
+            Limits = new UsageLimits
+            {
+                Weekly = new UsageLimit { RemainingPercent = 100, WindowMinutes = 10_080 },
+                CursorMonthly = new UsageLimit { RemainingPercent = 99 },
+                GrokWeekly = new UsageLimit { RemainingPercent = 0 },
+            },
+            Display = new UsageDisplay { CursorMonthly = "99%", GrokWeekly = "0%", DeepSeek = "¥123" },
+        };
+        AssertEqual("Codex W: 100%\nCursor M: 99%\nGrok W: 0%\nDeepSeek: ¥123", TrayController.BuildTrayTooltip(PageItem.All, usage), "all visible source summary");
+        AssertEqual("Cursor M: 99%", TrayController.BuildTrayTooltip(PageItem.Cursor, usage), "hidden sources are absent");
+        usage.Limits.Weekly.WindowMinutes = 0;
+        AssertEqual("Codex W: N/A", TrayController.BuildTrayTooltip(PageItem.Codex, usage), "a session-only Codex result cannot invent a weekly quota");
+        usage.Limits.Weekly.WindowMinutes = 10_080;
+        AssertEqual(CodexTrayDefaults.AppName, TrayController.BuildTrayTooltip(PageItem.None, usage), "no visible sources");
+        AssertEqual("Codex W: N/A\nCursor M: N/A\nGrok W: N/A\nDeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.All, null), "initial unavailable summary");
+        usage.Available = false;
+        usage.Display.CursorMonthly = "N/A";
+        AssertTrue(TrayController.BuildTrayTooltip(PageItem.All, usage).StartsWith("Codex W: N/A\nCursor M: N/A"), "failed sources do not show old percentages");
+        usage.Available = true;
+        usage.Limits.Weekly.RemainingPercent = 999;
+        usage.Limits.CursorMonthly.RemainingPercent = 100;
+        usage.Limits.GrokWeekly.RemainingPercent = 100;
+        usage.Display.CursorMonthly = "100%";
+        usage.Display.DeepSeek = "¥79228162514264337593543950335";
+        string bounded = TrayController.BuildTrayTooltip(PageItem.All, usage);
+        AssertTrue(bounded.Length <= 63 && bounded.EndsWith('…') && !bounded.Contains(usage.Error!), "tray text is bounded and excludes errors");
+        usage.Display.DeepSeek = "credential-secret";
+        AssertEqual("DeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.Apis, usage), "only numeric CNY balances are accepted");
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -140,6 +181,15 @@ internal static class Program
                     error: null);
                 viewModel.UpdateTokenCost(CreateTokenCostStatistics(10));
                 TrayPopupWindow window = new(viewModel);
+                AssertTrue(!viewModel.IsPanelPinned, "panel starts unpinned");
+                viewModel.TogglePanelPinnedCommand.Execute(null);
+                AssertEqual("Unpin panel", viewModel.PanelPinTooltip, "pin toggle action");
+                typeof(TrayPopupWindow).GetMethod("OnDeactivated", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [EventArgs.Empty]);
+                AssertEqual(DateTime.MinValue, window.LastDeactivatedHideUtc, "pinned panel must ignore focus loss");
+                viewModel.TogglePanelPinnedCommand.Execute(null);
+                typeof(TrayPopupWindow).GetMethod("OnDeactivated", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [EventArgs.Empty]);
+                AssertTrue(window.LastDeactivatedHideUtc != DateTime.MinValue, "unpinned panel preserves focus-loss hiding");
+                AssertTrue(!new TrayPopupViewModel(settings, () => Task.CompletedTask).IsPanelPinned, "pin state is not persisted in settings");
                 ApiMonitorViewModel credentialCard = new(new ApiMonitorSettings { ApiKey = "test-credential" });
                 CredentialInput credential = new();
                 credential.SetBinding(CredentialInput.TextProperty, new System.Windows.Data.Binding(nameof(ApiMonitorViewModel.ApiKey))

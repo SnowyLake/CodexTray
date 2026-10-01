@@ -2023,6 +2023,19 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
+                <Button x:Name="PanelPinButton" HorizontalAlignment="Left"
+                        Command="{Binding TogglePanelPinnedCommand}"
+                        ToolTip="{Binding PanelPinTooltip}" Content="&#xE718;">
+                    <Button.Style>
+                        <Style TargetType="{x:Type Button}" BasedOn="{StaticResource IconButtonStyle}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsPanelPinned}" Value="True">
+                                    <Setter Property="Foreground" Value="#1ABC89" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right">

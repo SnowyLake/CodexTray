@@ -195,6 +195,21 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public IRelayCommand<object> CopyDiagnosticsCommand { get; }
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PanelPinTooltip))]
+    public partial bool IsPanelPinned { get; private set; }
+
+    public string PanelPinTooltip => IsPanelPinned ? "Unpin panel" : "Keep panel open";
+
+    /// <summary>
+    /// Keeps the panel visible after focus moves elsewhere for the current application session.
+    /// </summary>
+    [RelayCommand]
+    private void TogglePanelPinned()
+    {
+        IsPanelPinned = !IsPanelPinned;
+    }
+
     public IRelayCommand SaveSettingsCommand { get; }
 
     public IRelayCommand InstallLiteMonitorPluginCommand { get; }

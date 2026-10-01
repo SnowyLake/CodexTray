@@ -101,6 +101,7 @@
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
 - 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.
 - 主面板尺寸固定为 360 x 620.
+- `TrayController.BuildTrayTooltip` 只格式化当前可见来源的插件缓存, 使用 `Codex W`, `Cursor M`, `Grok W` 和 `DeepSeek` 标签, 总长最多 63 字符. 额度限制在 0 到 100 的整数, DeepSeek 整元余额超过 11 字符时截短并加省略号; 不回显源错误或凭据. 各来源发布与页面可见性变化后更新托盘 Text. `TrayPopupViewModel.IsPanelPinned` 默认 false, 不写 settings, 开启后 `OnDeactivated` 不隐藏; Esc 与托盘左键仍沿用显式隐藏逻辑, 页脚图钉使用现有绿色表示选中状态.
 - Codex, Cursor, Grok 与 APIs 页面默认全部可见. 无可见数据页时不运行定时刷新和本地 HTTP 服务.
 - Codex, Cursor 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Lifetime`. `24H` 从当前时刻精确向前滚动 24 小时. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
 - 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). Token 数量使用 K, M, B.

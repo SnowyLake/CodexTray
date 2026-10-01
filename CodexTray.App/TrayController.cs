@@ -1,4 +1,5 @@
 using CodexTray.Core;
+using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -698,6 +699,12 @@ internal sealed class TrayController : IDisposable
     /// </summary>
     private void RefreshPopupStatus()
     {
+        if (IsExiting)
+        {
+            return;
+        }
+
+        m_NotifyIcon.Text = BuildTrayTooltip(m_Settings.VisiblePages, m_UsageCache.Get());
         if (m_PopupViewModel == null)
         {
             return;
@@ -705,6 +712,41 @@ internal sealed class TrayController : IDisposable
 
         UsageResponse? response = m_UsageCache.GetCodex();
         m_PopupViewModel.UpdateStatus(m_Server?.IsRunning == true, m_Server?.Port ?? m_Settings.Port, response, m_Server?.LastError);
+    }
+
+    /// <summary>
+    /// Formats only visible sources into a bounded, credential-free tray tooltip.
+    /// </summary>
+    internal static string BuildTrayTooltip(PageItem visiblePages, UsageResponse? usage)
+    {
+        List<string> lines = [];
+        if ((visiblePages & PageItem.Codex) != 0)
+        {
+            lines.Add("Codex W: " + (usage?.Available == true && usage.Limits.Weekly.WindowMinutes > 0 ? Percent(usage.Limits.Weekly) : "N/A"));
+        }
+        if ((visiblePages & PageItem.Cursor) != 0)
+        {
+            lines.Add("Cursor M: " + (usage?.Display.CursorMonthly != null && usage.Display.CursorMonthly != "N/A" ? Percent(usage.Limits.CursorMonthly) : "N/A"));
+        }
+        if ((visiblePages & PageItem.Grok) != 0)
+        {
+            lines.Add("Grok W: " + (usage?.Display.GrokWeekly != null && usage.Display.GrokWeekly != "N/A" ? Percent(usage.Limits.GrokWeekly) : "N/A"));
+        }
+        if ((visiblePages & PageItem.Apis) != 0)
+        {
+            string raw = usage?.Display.DeepSeek ?? "N/A";
+            string balance = raw.StartsWith('¥') && decimal.TryParse(raw.AsSpan(1), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal amount)
+                ? $"¥{amount:0}" : "N/A";
+            balance = balance.Length > 11 ? balance[..10] + "…" : balance;
+            lines.Add("DeepSeek: " + balance);
+        }
+
+        return lines.Count == 0 ? CodexTrayDefaults.AppName : string.Join('\n', lines);
+
+        /// <summary>
+        /// Bounds the reported percent to a short numeric display.
+        /// </summary>
+        static string Percent(UsageLimit limit) => $"{Math.Clamp(limit.RemainingPercent, 0, 100)}%";
     }
 
     /// <summary>
