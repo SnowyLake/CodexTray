@@ -128,6 +128,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 - Codex, Cursor 和 Grok 的额度使用本机已有登录信息向各自的官方服务查询.
 - Codex 和 Grok 的 Token Cost 从本机会话日志统计; Cursor 使用官方账单记录. Codex 和 Grok 页面不读取 OpenCode 会话.
 - DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
+- API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击 `Show` 可临时显示和编辑, 点击 `Hide` 或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.
 - Cursor 和 Grok 的登录凭据会自动续期并写回各自的本地登录文件, 不会复制到 `settings.json`.
 - 插件连接仅供本机访问, 默认端口为 `17890`, 不向局域网开放. 登录凭据不会写入日志, 插件配置或插件收到的数据.
 - 应用设置保存在 `CodexTray.exe` 同级目录的 `settings.json`.

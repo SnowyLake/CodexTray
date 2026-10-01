@@ -136,6 +136,32 @@ internal static class Program
                     error: null);
                 viewModel.UpdateTokenCost(CreateTokenCostStatistics(10));
                 TrayPopupWindow window = new(viewModel);
+                ApiMonitorViewModel credentialCard = new(new ApiMonitorSettings { ApiKey = "test-credential" });
+                CredentialInput credential = new();
+                credential.SetBinding(CredentialInput.TextProperty, new System.Windows.Data.Binding(nameof(ApiMonitorViewModel.ApiKey))
+                {
+                    Source = credentialCard, Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged,
+                });
+                System.Windows.Controls.PasswordBox masked = (System.Windows.Controls.PasswordBox)credential.FindName("MaskedInput");
+                System.Windows.Controls.TextBox revealed = (System.Windows.Controls.TextBox)credential.FindName("RevealedInput");
+                System.Windows.Controls.Button revealButton = (System.Windows.Controls.Button)credential.FindName("RevealButton");
+                AssertEqual(System.Windows.Visibility.Collapsed, revealed.Visibility, "credential must begin masked");
+                AssertEqual("test-credential", masked.Password, "masked field must load the saved credential");
+                masked.Password = "edited-credential";
+                AssertEqual("edited-credential", credentialCard.ApiKey, "masked editing must update the card binding");
+                revealButton.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                AssertEqual(System.Windows.Visibility.Visible, revealed.Visibility, "explicit reveal must show the editable text");
+                revealed.SetCurrentValue(System.Windows.Controls.TextBox.TextProperty, "revealed-edit");
+                AssertEqual("revealed-edit", masked.Password, "revealed editing must synchronize the masked field");
+                AssertEqual("revealed-edit", credentialCard.ApiKey, "revealed editing must update the persisted card source");
+                revealButton.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                masked.Password = "masked-again";
+                AssertEqual("masked-again", credentialCard.ApiKey, "editing after hiding must still update the source");
+                revealButton.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                credentialCard.ApiKey = "external-edit";
+                AssertEqual("external-edit", masked.Password, "card changes must synchronize the masked field");
+                credential.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.UnloadedEvent));
+                AssertEqual(System.Windows.Visibility.Collapsed, revealed.Visibility, "ending editing must clear reveal state");
                 AssertEqual(CodexTrayDefaults.PopupWindowWidth, window.Width, "fixed popup width");
                 AssertEqual(CodexTrayDefaults.PopupWindowHeight, window.Height, "fixed popup height");
                 AssertEqual(window.Width, window.MinWidth, "fixed popup minimum width");

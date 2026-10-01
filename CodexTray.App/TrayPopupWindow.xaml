@@ -1525,16 +1525,14 @@
                                                                Text="API key / access token"
                                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                FontSize="12" />
-                                                    <TextBox Text="{Binding ApiKey}"
-                                                             Style="{StaticResource SettingsTextBoxStyle}" />
+                                                    <local:CredentialInput Text="{Binding ApiKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
                                                     <StackPanel Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                         <TextBlock Margin="0,10,0,5"
                                                                    Text="User ID"
                                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                    FontSize="12" />
-                                                        <TextBox Text="{Binding UserId}"
-                                                                 Style="{StaticResource SettingsTextBoxStyle}" />
+                                                        <local:CredentialInput Text="{Binding UserId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                                     </StackPanel>
                                                 </StackPanel>
                                             </StackPanel>

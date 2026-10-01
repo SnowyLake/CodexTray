@@ -105,6 +105,7 @@
 - Cursor 额度大卡片通过页点或鼠标滚轮切换 Monthly 与 Grok Bot Weekly, 两个页点尺寸相同, 选中项使用现有绿色. First party 与 APIs 以半宽卡片并排显示.
 - Grok 上方使用 Weekly 大卡片和产品占比小卡片. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 全为零时显示 `Build`, `Chat`, `Others`; 仅一个非零产品时显示该产品, `Build`, `Others`, 若该产品本身为 `Build` 则第二项用 `Chat`; 两个及以上非零产品时保留最高两项, 其余合并到 `Others`. `Others` tooltip 仅列出其中有用量的产品, 为零时显示 `Others 0%`. 用量不可用时显示 `N/A`.
 - API provider 的 API key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.
+- API key 与 NewAPI User ID 使用 `CredentialInput` 的原生 WPF `PasswordBox` 双向编辑; 明文显示仅由当前控件的 Show/Hide 状态控制, 隐藏, 卸载或更换卡片后重置, 不持久化显示状态. 主配置与备份尚未启用 DPAPI, 不得把屏幕遮挡描述为加密存储.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
 
 ### 演进边界
