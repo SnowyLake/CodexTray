@@ -81,6 +81,8 @@ internal static class Program
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("computes cache hit percent", TestCacheHitPercentAsync);
+        await RunAsync("computes paired model output speed", TestModelOutputSpeedAsync);
+        await RunAsync("estimates Codex output speed without tool waits or replay", TestCodexOutputSpeedAsync);
         await RunAsync("collects exact Codex token cost", TestCodexTokenCostCollectorAsync);
         await RunAsync("prefers Codex last_token_usage over cumulative totals", TestCodexLastTokenUsageAsync);
         await RunAsync("deduplicates archived Codex rollouts by thread id", TestCodexArchivedRolloutDedupAsync);
@@ -2344,7 +2346,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Builds one Grok Build turn-completed usage entry with per-model counters.
+    /// Builds one Grok Build turn-completed usage entry with per-model counters and optional API timing.
     /// </summary>
     private static string CreateGrokTokenUpdate(
         string promptId,
@@ -2355,7 +2357,8 @@ internal static class Program
         long costUsdTicks = 0,
         bool costIsPartial = false,
         string sessionUpdate = "turn_completed",
-        long reasoningTokens = 0)
+        long reasoningTokens = 0,
+        long? apiDurationMilliseconds = null)
     {
         return JsonSerializer.Serialize(new
         {
@@ -2379,6 +2382,7 @@ internal static class Program
                                 outputTokens,
                                 reasoningTokens,
                                 modelCalls = 1,
+                                apiDurationMs = apiDurationMilliseconds,
                                 costUsdTicks,
                             },
                         },
@@ -2389,9 +2393,10 @@ internal static class Program
     }
 
     /// <summary>
-    /// Builds one Grok Build turn-completed usage entry without modelUsage details.
+    /// Builds one Grok Build turn-completed usage entry without modelUsage details, with optional API timing.
     /// </summary>
-    private static string CreateGrokTopLevelTokenUpdate(string promptId, DateTimeOffset timestamp, long inputTokens, long cachedReadTokens, long outputTokens, long costUsdTicks)
+    private static string CreateGrokTopLevelTokenUpdate(string promptId, DateTimeOffset timestamp, long inputTokens, long cachedReadTokens, long outputTokens, long costUsdTicks,
+                                                      long? apiDurationMilliseconds = null)
     {
         return JsonSerializer.Serialize(new
         {
@@ -2409,6 +2414,7 @@ internal static class Program
                         cachedReadTokens,
                         outputTokens,
                         costUsdTicks,
+                        apiDurationMs = apiDurationMilliseconds,
                     },
                 },
             },
@@ -2764,11 +2770,11 @@ internal static class Program
         AssertEqual("$6.00 · 40%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 24-hour cost and cache hit");
         AssertEqual("56%|44%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 24-hour donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 56%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 24-hour donut model tooltip");
         AssertEqual(
-            $"GPT-5.4{Environment.NewLine}Tokens: 0.40K{Environment.NewLine}Cost: $2.00{Environment.NewLine}Share: 44%",
+            $"GPT-5.4{Environment.NewLine}Tokens: 0.40K{Environment.NewLine}Cost: $2.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 44%",
             viewModel.CodexTokenCost.DonutSegments[1].Tooltip,
             "Codex 24-hour donut second model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
@@ -2777,7 +2783,7 @@ internal static class Program
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected today token total");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Share: 60%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 60%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex today donut model tooltip");
         AssertEqual(31, viewModel.CodexTokenCost.ChartDays.Count, "current-month Codex token cost chart day count");
@@ -2792,7 +2798,7 @@ internal static class Program
         AssertEqual("$9.00 · 45%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-week cost and cache hit");
         AssertEqual("80%|20%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-week donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Share: 80%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 80%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex current-week donut model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
@@ -2803,7 +2809,7 @@ internal static class Program
         AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
         AssertEqual("65%|35%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 7D donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 65%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 7D donut model tooltip");
         AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7D row should be selected");
@@ -2866,7 +2872,7 @@ internal static class Program
         });
         AssertEqual("a|b|c|Other", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut other model labels");
         AssertEqual(
-            $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Share: 20%",
+            $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 20%",
             viewModel.CodexTokenCost.DonutSegments[3].Tooltip,
             "Codex donut other model tooltip");
 
@@ -2883,7 +2889,7 @@ internal static class Program
             ],
         });
         AssertEqual(
-            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Cost: N/A{Environment.NewLine}Share: 100%",
+            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Cost: N/A{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 100%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "unpriced donut model tooltip");
 
@@ -3255,6 +3261,249 @@ internal static class Program
         AssertEqual(67, new TokenCostSummary { CacheReadTokens = 2, CacheableInputTokens = 3 }.GetCacheHitPercent(), "rounded cache hit");
         AssertEqual(100, new TokenCostSummary { CacheReadTokens = 995, CacheableInputTokens = 1_000 }.GetCacheHitPercent(), "near-complete cache hit");
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies duration-weighted speed, invalid timing, deduplication, period selection, and donut model grouping.
+    /// </summary>
+    private static Task TestModelOutputSpeedAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{}");
+        string active = Path.Combine(temp.Path, "sessions", "workspace", "speed-session");
+        string archived = Path.Combine(temp.Path, "archived_sessions", "workspace", "speed-session");
+        Directory.CreateDirectory(active);
+        Directory.CreateDirectory(archived);
+        DateTimeOffset now = new(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset today = now.AddHours(-3);
+        string fast = CreateGrokTokenUpdate("fast", today, 10, 0, 100, reasoningTokens: 80, apiDurationMilliseconds: 1_000);
+        List<string> lines =
+        [
+            fast,
+            CreateGrokTokenUpdate("slow", today.AddMinutes(1), 10, 0, 100, apiDurationMilliseconds: 9_000),
+            CreateGrokTokenUpdate("untimed", today.AddMinutes(2), 10, 0, 900),
+            CreateGrokTokenUpdate("yesterday", today.AddHours(-25), 10, 0, 300, apiDurationMilliseconds: 2_000),
+            CreateGrokTopLevelTokenUpdate("top-level", today, 10, 0, 25, 0, apiDurationMilliseconds: 500),
+            CreateGrokTokenUpdate("zero", today, 10, 0, 0, apiDurationMilliseconds: 1_000)
+                .Replace("grok-4.5-build", "zero-output", StringComparison.Ordinal),
+        ];
+        string[] invalidDurations = ["null", "0", "-1", "\"1000\"", "1.5", "9223372036854775808"];
+        for (int index = 0; index < invalidDurations.Length; index++)
+        {
+            lines.Add(CreateGrokTokenUpdate($"invalid-{index}", today, 10, 0, 50, apiDurationMilliseconds: 1_000)
+                .Replace("grok-4.5-build", "invalid-timing", StringComparison.Ordinal)
+                .Replace("\"apiDurationMs\":1000", $"\"apiDurationMs\":{invalidDurations[index]}", StringComparison.Ordinal));
+        }
+
+        lines.Add(CreateGrokTokenUpdate("missing-output", today, 10, 0, 50, apiDurationMilliseconds: 1_000)
+            .Replace("grok-4.5-build", "invalid-timing", StringComparison.Ordinal)
+            .Replace("\"outputTokens\":50", "\"unusedOutputTokens\":50", StringComparison.Ordinal));
+        lines.Add(JsonSerializer.Serialize(new
+        {
+            timestamp = today.ToUnixTimeSeconds(),
+            method = "_x.ai/session/update",
+            @params = new
+            {
+                update = new
+                {
+                    sessionUpdate = "turn_completed",
+                    prompt_id = "multi-model",
+                    usage = new
+                    {
+                        apiDurationMs = 99_999,
+                        modelUsage = new Dictionary<string, object>
+                        {
+                            ["model-a"] = new { inputTokens = 10, outputTokens = 100, apiDurationMs = 1_000 },
+                            ["model-b"] = new { inputTokens = 10, outputTokens = 100, apiDurationMs = 4_000 },
+                        },
+                    },
+                },
+            },
+        }));
+        File.WriteAllLines(Path.Combine(active, "updates.jsonl"), lines);
+        File.WriteAllLines(Path.Combine(archived, "updates.jsonl"), [fast]);
+        TokenCostStatistics statistics = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now);
+        TokenCostModelStatistics model = statistics.Models.Single(item => item.Model == "grok-4.5-build");
+        AssertEqual(1_130L, model.Today.TotalTokens, "untimed usage still contributes tokens without duplicating archived turns");
+        AssertEqual(200L, model.Today.TimedOutputTokens, "speed excludes untimed output and does not add reasoning twice");
+        AssertEqual(10_000L, model.Today.TimedDurationMilliseconds, "paired API duration survives turn deduplication");
+        AssertEqual(20m, model.Today.GetOutputTokensPerSecond(), "speed uses summed output over summed durations");
+        AssertEqual(20m, model.LastTwentyFourHours.GetOutputTokensPerSecond(), "24-hour speed excludes older timing");
+        foreach (TokenCostSummary summary in new[] { model.LastSevenDays, model.LastThirtyDays, model.CurrentWeek, model.CurrentMonth, model.Lifetime })
+        {
+            AssertEqual(500L, summary.TimedOutputTokens, "longer periods include historical timed output");
+            AssertEqual(12_000L, summary.TimedDurationMilliseconds, "longer periods include matching API duration");
+        }
+
+        AssertEqual(300L, statistics.LastThirtyDaysDaily[^2].Summary.TimedOutputTokens, "daily speed retains paired output");
+        TokenCostSummary invalid = statistics.Models.Single(item => item.Model == "invalid-timing").Today;
+        AssertEqual(370L, invalid.TotalTokens, "invalid timing keeps token totals");
+        AssertEqual(0m, invalid.CostUsd, "invalid timing keeps unknown-price cost behavior");
+        AssertEqual(null, invalid.GetOutputTokensPerSecond(), "invalid timing cannot produce a speed");
+        AssertEqual(0m, statistics.Models.Single(item => item.Model == "zero-output").Today.GetOutputTokensPerSecond(), "explicit zero output has valid zero speed");
+        AssertEqual(50m, statistics.Models.Single(item => item.Model == "unknown").Today.GetOutputTokensPerSecond(), "top-level usage pairs its own timing");
+        AssertEqual(100m, statistics.Models.Single(item => item.Model == "model-a").Today.GetOutputTokensPerSecond(), "model A uses its own API duration");
+        AssertEqual(25m, statistics.Models.Single(item => item.Model == "model-b").Today.GetOutputTokensPerSecond(), "model B does not inherit top-level duration");
+
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        viewModel.UpdateGrokDashboard(new GrokUsageDashboard(null, "N/A", now), statistics);
+        AssertTrue(viewModel.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "grok-4.5-build").Tooltip.Contains("Speed: 20.0 tok/s"), "Grok tooltip displays measured speed");
+        viewModel.GrokTokenCost.SelectPeriodCommand.Execute(viewModel.GrokTokenCost.Rows[1]);
+        AssertTrue(viewModel.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "grok-4.5-build").Tooltip.Contains("Speed: 41.7 tok/s"), "tooltip speed follows selected period");
+        viewModel.UpdateTokenCost(new TokenCostStatistics
+        {
+            Models =
+            [
+                new TokenCostModelStatistics { Model = "same-high", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 500, TimedOutputTokens = 100, TimedDurationMilliseconds = 1_000 } },
+                new TokenCostModelStatistics { Model = "same-low", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 400, TimedOutputTokens = 100, TimedDurationMilliseconds = 9_000 } },
+                new TokenCostModelStatistics { Model = "b", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 300 } },
+                new TokenCostModelStatistics { Model = "c", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 200 } },
+                new TokenCostModelStatistics { Model = "d", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 100, TimedOutputTokens = 100, TimedDurationMilliseconds = 1_000 } },
+                new TokenCostModelStatistics { Model = "e", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 80, TimedOutputTokens = 100, TimedDurationMilliseconds = 9_000 } },
+                new TokenCostModelStatistics { Model = "f", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 60 } },
+            ],
+        });
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments[0].Tooltip.Contains("Speed: 20.0 tok/s"), "same display label merges raw timing before calculating speed");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "Other").Tooltip.Contains("Speed: 20.0 tok/s"), "Other excludes untimed tokens from weighted speed");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "b").Tooltip.Contains("Speed: N/A"), "missing timing displays N/A");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies Codex response windows, both usage/tool orderings, replay, caches, and incomplete timing.
+    /// </summary>
+    private static Task TestCodexOutputSpeedAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{}");
+        string sessions = Path.Combine(temp.Path, "sessions");
+        string archived = Path.Combine(temp.Path, "archived_sessions");
+        Directory.CreateDirectory(sessions);
+        Directory.CreateDirectory(archived);
+        DateTimeOffset now = new(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset today = now.AddHours(-3);
+        DateTimeOffset past = today.AddHours(-25);
+        const string parentId = "11111111-1111-1111-1111-111111111111";
+        const string childId = "22222222-2222-2222-2222-222222222222";
+        string firstUsage = CreateCodexTokenCount(today.AddSeconds(15.001).ToString("O"), last: (100, 20, 100), total: (140, 20, 180));
+        string thirdUsage = CreateCodexTokenCount(today.AddSeconds(23.001).ToString("O"), last: (20, 0, 40), total: (210, 20, 300));
+        string[] parentLines =
+        [
+            CreateCodexRecord(past, "event_msg", new { type = "task_started", turn_id = "past" }),
+            CreateCodexRecord(past, "turn_context", new { turn_id = "past", model = "gpt-test" }),
+            CreateCodexRecord(past.AddSeconds(8), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(past.AddSeconds(8.001).ToString("O"), last: (40, 0, 80), total: (40, 0, 80)),
+            CreateCodexRecord(past.AddSeconds(8.002), "event_msg", new { type = "task_complete", turn_id = "past" }),
+            CreateCodexRecord(today, "event_msg", new { type = "task_started", turn_id = "first" }),
+            CreateCodexRecord(today, "turn_context", new { turn_id = "first", model = "gpt-test" }),
+            CreateCodexRecord(today.AddSeconds(1), "response_item", new { type = "message", role = "user" }),
+            CreateCodexRecord(today.AddSeconds(3), "response_item", new { type = "reasoning" }),
+            CreateCodexRecord(today.AddSeconds(5), "response_item", new { type = "custom_tool_call" }),
+            CreateCodexRecord(today.AddSeconds(15), "response_item", new { type = "custom_tool_call_output" }),
+            firstUsage,
+            firstUsage.Replace(today.AddSeconds(15.001).ToString("O"), today.AddSeconds(16).ToString("O"), StringComparison.Ordinal),
+            CreateCodexRecord(today.AddSeconds(19.001), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(today.AddSeconds(19.002).ToString("O"), last: (50, 0, 80), total: (190, 20, 260)),
+            CreateCodexRecord(today.AddSeconds(19.003), "event_msg", new { type = "task_complete", turn_id = "first" }),
+            CreateCodexRecord(today.AddSeconds(20), "event_msg", new { type = "task_started", turn_id = "second" }),
+            CreateCodexRecord(today.AddSeconds(20), "turn_context", new { turn_id = "second", model = "gpt-test" }),
+            CreateCodexRecord(today.AddSeconds(21), "event_msg", new { type = "user_message" }),
+            CreateCodexRecord(today.AddSeconds(23), "response_item", new { type = "function_call" }),
+            thirdUsage,
+            CreateCodexRecord(today.AddSeconds(33), "response_item", new { type = "function_call_output" }),
+            thirdUsage.Replace(today.AddSeconds(23.001).ToString("O"), today.AddSeconds(35).ToString("O"), StringComparison.Ordinal),
+            CreateCodexRecord(today.AddSeconds(37), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(today.AddSeconds(37.001).ToString("O"), last: (30, 0, 120), total: (240, 20, 420)),
+            CreateCodexRecord(today.AddSeconds(37.002), "event_msg", new { type = "task_complete", turn_id = "second" }),
+        ];
+        File.WriteAllLines(Path.Combine(sessions, $"rollout-{parentId}.jsonl"), parentLines);
+        File.WriteAllLines(Path.Combine(archived, $"rollout-{parentId}.jsonl"), parentLines);
+        DateTimeOffset childStart = today.AddMinutes(5);
+        string childPath = Path.Combine(sessions, $"rollout-{childId}.jsonl");
+        File.WriteAllLines(childPath,
+        [
+            CreateCodexRecord(childStart, "session_meta", new { id = childId, forked_from_id = parentId }),
+            .. parentLines,
+            CreateCodexRecord(childStart, "event_msg", new { type = "task_started", turn_id = "child" }),
+            CreateCodexRecord(childStart, "turn_context", new { turn_id = "child", model = "gpt-test" }),
+            CreateCodexRecord(childStart.AddSeconds(1), "response_item", new { type = "message", role = "developer" }),
+            CreateCodexRecord(childStart.AddSeconds(3), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(childStart.AddSeconds(3.001).ToString("O"), last: (10, 0, 20), total: (250, 20, 440)),
+            CreateCodexRecord(childStart.AddSeconds(3.002), "event_msg", new { type = "task_complete", turn_id = "child" }),
+        ]);
+        string[] invalidCases = ["legacy", "missing-context", "missing-end", "backwards", "zero", "cumulative", "mismatch", "aborted", "compacted", "malformed"];
+        foreach (string invalidCase in invalidCases)
+        {
+            List<string> lines =
+            [
+                CreateCodexRecord(today, "event_msg", new { type = "task_started", turn_id = "invalid" }),
+                CreateCodexRecord(today, "turn_context", new { turn_id = "invalid", model = "gpt-invalid" }),
+                CreateCodexRecord(today.AddSeconds(1), "response_item", new { type = "message", role = "user" }),
+                CreateCodexRecord(today.AddSeconds(5), "response_item", new { type = "message", role = "assistant" }),
+                CreateCodexTokenCount(today.AddSeconds(6).ToString("O"), last: (10, 0, 100), total: (10, 0, 100)),
+            ];
+            switch (invalidCase)
+            {
+                case "legacy": lines.RemoveAt(0); break;
+                case "missing-context":
+                    lines.RemoveAt(1);
+                    lines.Insert(0, CreateCodexRecord(today.AddSeconds(-1), "turn_context", new { turn_id = "previous", model = "gpt-invalid" }));
+                    break;
+                case "missing-end": lines.RemoveAt(3); break;
+                case "backwards": lines[3] = CreateCodexRecord(today.AddSeconds(0.5), "response_item", new { type = "message", role = "assistant" }); break;
+                case "zero": lines[3] = CreateCodexRecord(today.AddSeconds(1), "response_item", new { type = "message", role = "assistant" }); break;
+                case "cumulative": lines[4] = CreateCodexTokenCount(today.AddSeconds(6).ToString("O"), total: (10, 0, 100)); break;
+                case "mismatch": lines.Insert(3, CreateCodexRecord(today.AddSeconds(2), "turn_context", new { turn_id = "other", model = "gpt-invalid" })); break;
+                case "aborted": lines.Insert(3, CreateCodexRecord(today.AddSeconds(2), "event_msg", new { type = "turn_aborted", turn_id = "invalid" })); break;
+                case "compacted": lines.Insert(3, CreateCodexRecord(today.AddSeconds(2), "compacted", new { })); break;
+                case "malformed": lines.Insert(3, "{\"type\":\"response_item\",bad}"); break;
+            }
+
+            File.WriteAllLines(Path.Combine(sessions, invalidCase + ".jsonl"), lines);
+        }
+
+        TokenCostCollector collector = new(pricingPath);
+        TokenCostStatistics statistics = collector.CollectCodex(temp.Path, now);
+        TokenCostModelStatistics model = statistics.Models.Single(item => item.Model == "gpt-test");
+        AssertTrue(statistics.IsSpeedEstimated, "Codex marks response-window speed as estimated");
+        AssertEqual(570L, model.Today.TotalTokens, "duplicate snapshots and parent replay keep existing token deduplication");
+        AssertEqual(360L, model.Today.TimedOutputTokens, "only accepted live response outputs contribute to speed");
+        AssertEqual(16_000L, model.Today.TimedDurationMilliseconds, "tool waits are excluded before and after usage records");
+        AssertEqual(22.5m, model.Today.GetOutputTokensPerSecond(), "Codex response windows produce weighted speed");
+        AssertEqual(22.5m, model.LastTwentyFourHours.GetOutputTokensPerSecond(), "rolling speed excludes older responses");
+        AssertEqual(440L, model.Lifetime.TimedOutputTokens, "historical responses are measured once");
+        AssertEqual(24_000L, model.Lifetime.TimedDurationMilliseconds, "historical windows retain matching duration");
+        TokenCostSummary invalid = statistics.Models.Single(item => item.Model == "gpt-invalid").Today;
+        AssertEqual(1100L, invalid.TotalTokens, "unmeasurable responses keep their usage");
+        AssertEqual(null, invalid.GetOutputTokensPerSecond(), "incomplete or ambiguous response windows have no speed");
+        AssertEqual(360L, collector.CollectCodex(temp.Path, now).Today.TimedOutputTokens, "cached rollouts retain timing");
+        AssertEqual(16_000L, collector.CollectCodex(temp.Path, now).Today.TimedDurationMilliseconds, "cached rollouts retain duration");
+        AssertEqual(null, collector.CollectCodex(temp.Path, now.AddDays(1)).Today.GetOutputTokensPerSecond(), "cached timing is rebucketed for a new day");
+        File.AppendAllLines(childPath,
+        [
+            CreateCodexRecord(childStart.AddMinutes(1), "event_msg", new { type = "task_started", turn_id = "appended" }),
+            CreateCodexRecord(childStart.AddMinutes(1), "turn_context", new { turn_id = "appended", model = "gpt-test" }),
+            CreateCodexRecord(childStart.AddMinutes(1).AddSeconds(3), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(childStart.AddMinutes(1).AddSeconds(3.001).ToString("O"), last: (10, 0, 30), total: (260, 20, 470)),
+        ]);
+        AssertEqual(390L, collector.CollectCodex(temp.Path, now).Today.TimedOutputTokens, "appended usage invalidates the timing cache");
+
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        viewModel.UpdateTokenCost(statistics);
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~22.5 tok/s"), "Codex tooltip marks estimated speed");
+        viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~18.3 tok/s"), "estimated speed follows period selection");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Builds a timestamped Codex rollout record for response-window checks.
+    /// </summary>
+    private static string CreateCodexRecord(DateTimeOffset timestamp, string type, object payload)
+    {
+        return JsonSerializer.Serialize(new { timestamp = timestamp.ToString("O"), type, payload });
     }
 
     /// <summary>

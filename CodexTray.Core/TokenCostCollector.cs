@@ -14,6 +14,18 @@ public sealed class TokenCostSummary
 
     public long CacheableInputTokens { get; init; }
 
+    public long TimedOutputTokens { get; init; }
+
+    public long TimedDurationMilliseconds { get; init; }
+
+    /// <summary>
+    /// Returns average output speed from paired tokens and response durations, or null without timing.
+    /// </summary>
+    public decimal? GetOutputTokensPerSecond()
+    {
+        return TimedDurationMilliseconds > 0 && TimedOutputTokens >= 0 ? TimedOutputTokens * 1000m / TimedDurationMilliseconds : null;
+    }
+
     /// <summary>
     /// Returns cache-read tokens as a percent of cacheable input for this period.
     /// </summary>
@@ -56,6 +68,8 @@ public sealed class TokenCostModelStatistics
 
 public sealed class TokenCostStatistics
 {
+    public bool IsSpeedEstimated { get; init; }
+
     public TokenCostSummary LastTwentyFourHours { get; init; } = new();
 
     public TokenCostSummary Today { get; init; } = new();
@@ -106,7 +120,7 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Collects Codex session token usage for the supported calendar periods.
+    /// Collects Codex session usage and estimated per-response output speed for the supported periods.
     /// </summary>
     public TokenCostStatistics CollectCodex(string? codexDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
     {
@@ -134,7 +148,7 @@ public sealed class TokenCostCollector
         }
 
         PruneFileUsageCache(seenFiles);
-        return accumulator.ToStatistics();
+        return accumulator.ToStatistics(isSpeedEstimated: true);
     }
 
     /// <summary>
@@ -166,7 +180,8 @@ public sealed class TokenCostCollector
         foreach (GrokTurnUsage usage in turns.Values)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd, usage.Model, usage.Counts.CacheReadTokens, usage.Counts.CacheableInputTokens);
+            accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd, usage.Model, usage.Counts.CacheReadTokens, usage.Counts.CacheableInputTokens,
+                            usage.TimedOutputTokens, usage.TimedDurationMilliseconds);
         }
 
         return accumulator.ToStatistics();
@@ -351,7 +366,7 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Adds one model's counters from a Grok turn using reported cost before local fallback pricing.
+    /// Adds one model's counters and paired API timing from a Grok turn using reported cost before local fallback pricing.
     /// </summary>
     private static void CollectGrokTurn(
         string sessionId,
@@ -380,7 +395,15 @@ public sealed class TokenCostCollector
         decimal? cost = !counts.HasUsage
             ? reportedCost
             : reportedCost.HasValue && !costIsPartial ? reportedCost : localCost ?? reportedCost;
-        turns[$"{sessionId}\0{turnKey}\0{model}"] = new GrokTurnUsage(counts, cost, timestamp, model);
+        long timedOutputTokens = GetInt64(value, "outputTokens", -1);
+        long apiDurationMilliseconds = GetInt64(value, "apiDurationMs");
+        if (timedOutputTokens < 0 || apiDurationMilliseconds <= 0)
+        {
+            timedOutputTokens = 0;
+            apiDurationMilliseconds = 0;
+        }
+
+        turns[$"{sessionId}\0{turnKey}\0{model}"] = new GrokTurnUsage(counts, cost, timestamp, model, timedOutputTokens, apiDurationMilliseconds);
     }
 
     /// <summary>
@@ -407,7 +430,7 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Adds token deltas from one Codex session file.
+    /// Adds accepted Codex token deltas and estimated response windows while excluding tool waits and replayed usage.
     /// </summary>
     private void CollectCodexFile(
         string path,
@@ -424,6 +447,11 @@ public sealed class TokenCostCollector
         }
 
         string model = "unknown";
+        string? activeTurnId = null;
+        bool hasTurnContext = false;
+        string? responseModel = null;
+        DateTimeOffset? responseStart = null;
+        DateTimeOffset? responseEnd = null;
         TokenCounts? totalHighWater = null;
         TokenUsageSnapshot? previousSnapshot = null;
         List<CachedUsageEvent> events = [];
@@ -434,7 +462,9 @@ public sealed class TokenCostCollector
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!line.Contains("\"turn_context\"", StringComparison.Ordinal)
-                && !line.Contains("\"token_count\"", StringComparison.Ordinal))
+                && !line.Contains("\"event_msg\"", StringComparison.Ordinal)
+                && !line.Contains("\"response_item\"", StringComparison.Ordinal)
+                && !line.Contains("\"compacted\"", StringComparison.Ordinal))
             {
                 continue;
             }
@@ -445,14 +475,73 @@ public sealed class TokenCostCollector
                 JsonElement root = document.RootElement;
                 string type = GetString(root, "type");
                 JsonElement payload = GetObject(root, "payload");
+                string eventType = GetString(payload, "type");
+                bool hasTimestamp = DateTimeOffset.TryParse(GetString(root, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp);
+                if (type == "event_msg" && eventType == "task_started")
+                {
+                    string turnId = GetString(payload, "turn_id");
+                    activeTurnId = hasTimestamp && turnId.Length > 0 ? turnId : null;
+                    hasTurnContext = false;
+                    responseStart = activeTurnId != null ? timestamp : null;
+                    responseEnd = null;
+                    responseModel = null;
+                    continue;
+                }
+
+                if (type == "compacted" || type == "event_msg" && eventType is "task_complete" or "turn_aborted" or "context_compacted" or "error")
+                {
+                    activeTurnId = null;
+                    hasTurnContext = false;
+                    responseStart = responseEnd = null;
+                    responseModel = null;
+                    continue;
+                }
+
                 if (type == "turn_context")
                 {
                     string candidate = GetString(payload, "model");
                     model = candidate.Length > 0 ? NormalizeModel(candidate) : model;
+                    if (!hasTimestamp || GetString(payload, "turn_id") != activeTurnId || responseModel != null && responseModel != model)
+                    {
+                        activeTurnId = null;
+                        hasTurnContext = false;
+                        responseStart = responseEnd = null;
+                        responseModel = null;
+                    }
+                    else if (responseEnd == null)
+                    {
+                        hasTurnContext = true;
+                        responseStart = hasTimestamp ? timestamp : null;
+                    }
+
                     continue;
                 }
 
-                if (type != "event_msg" || GetString(payload, "type") != "token_count")
+                if (type == "response_item" || type == "event_msg" && eventType == "user_message")
+                {
+                    string role = GetString(payload, "role");
+                    bool isGenerated = type == "response_item" && (eventType == "reasoning" || eventType == "message" && role == "assistant" || eventType.EndsWith("_call", StringComparison.Ordinal));
+                    bool isInput = eventType is "function_call_output" or "custom_tool_call_output" or "agent_message" or "user_message"
+                        || eventType == "message" && role is "user" or "developer" or "system";
+                    if (!hasTimestamp || responseStart.HasValue && timestamp < responseStart.Value || responseEnd.HasValue && timestamp < responseEnd.Value)
+                    {
+                        responseStart = responseEnd = null;
+                        responseModel = null;
+                    }
+                    else if (activeTurnId != null && hasTurnContext && isGenerated && responseStart.HasValue)
+                    {
+                        responseEnd = timestamp;
+                        responseModel ??= model;
+                    }
+                    else if (activeTurnId != null && hasTurnContext && isInput && responseEnd == null)
+                    {
+                        responseStart = timestamp;
+                    }
+
+                    continue;
+                }
+
+                if (type != "event_msg" || eventType != "token_count")
                 {
                     continue;
                 }
@@ -486,20 +575,43 @@ public sealed class TokenCostCollector
                 }
 
                 bool shouldBill = TryResolveCodexIncrement(info, ref totalHighWater, ref previousSnapshot, out TokenCounts increment);
+                if (!isReplay && !shouldBill)
+                {
+                    continue;
+                }
+
+                long timedDurationMilliseconds = hasTimestamp && activeTurnId != null && responseStart.HasValue && responseEnd.HasValue
+                    && responseEnd.Value > responseStart.Value && responseEnd.Value <= timestamp
+                    ? (responseEnd.Value - responseStart.Value).Ticks / TimeSpan.TicksPerMillisecond
+                    : 0;
+                string? timedModel = responseModel;
+                responseStart = hasTimestamp && activeTurnId != null ? timestamp : null;
+                responseEnd = null;
+                responseModel = null;
                 if (isReplay
                     || !shouldBill
-                    || !DateTimeOffset.TryParse(GetString(root, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp))
+                    || !hasTimestamp)
                 {
                     continue;
                 }
 
                 decimal? costUsd = CalculateCost(pricing, model, increment, timestamp);
-                events.Add(new CachedUsageEvent(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens));
-                accumulator.Add(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens);
+                // ponytail: rollout boundaries estimate client-observed speed; use paired server timing if it becomes persisted.
+                bool hasTimedOutput = timedDurationMilliseconds > 0 && timedModel == model && increment.Output > 0
+                    && TryGetUsageCounts(info, "last_token_usage", out TokenCounts last) && last == increment;
+                long timedOutputTokens = hasTimedOutput ? increment.Output : 0;
+                timedDurationMilliseconds = hasTimedOutput ? timedDurationMilliseconds : 0;
+                events.Add(new CachedUsageEvent(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens,
+                                               timedOutputTokens, timedDurationMilliseconds));
+                accumulator.Add(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
             }
             catch (JsonException)
             {
                 // Codex can leave a partially written final JSONL line while a session is active.
+                activeTurnId = null;
+                hasTurnContext = false;
+                responseStart = responseEnd = null;
+                responseModel = null;
             }
         }
 
@@ -997,13 +1109,14 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Replays cached usage events into a fresh period accumulator.
+    /// Replays cached usage and paired response timing into a fresh period accumulator.
     /// </summary>
     private static void AddCachedUsage(List<CachedUsageEvent> events, TokenCostPeriodAccumulator accumulator)
     {
         foreach (CachedUsageEvent usageEvent in events)
         {
-            accumulator.Add(usageEvent.Timestamp, usageEvent.Tokens, usageEvent.CostUsd, usageEvent.Model, usageEvent.CacheReadTokens, usageEvent.CacheableInputTokens);
+            accumulator.Add(usageEvent.Timestamp, usageEvent.Tokens, usageEvent.CostUsd, usageEvent.Model, usageEvent.CacheReadTokens, usageEvent.CacheableInputTokens,
+                            usageEvent.TimedOutputTokens, usageEvent.TimedDurationMilliseconds);
         }
     }
 
@@ -1096,7 +1209,9 @@ public sealed class TokenCostCollector
         decimal? CostUsd,
         string Model,
         long CacheReadTokens,
-        long CacheableInputTokens);
+        long CacheableInputTokens,
+        long TimedOutputTokens,
+        long TimedDurationMilliseconds);
 
     private sealed class CachedFileUsage
     {
@@ -1111,7 +1226,7 @@ public sealed class TokenCostCollector
 
     private readonly record struct PricingPeriod(decimal Input, decimal CachedInput, decimal Output, DayOfWeek[]? DaysUtc, TimeSpan StartUtc, TimeSpan EndUtc);
 
-    private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp, string Model);
+    private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp, string Model, long TimedOutputTokens, long TimedDurationMilliseconds);
 
     private readonly record struct ReplayContext(string ParentId, DateTimeOffset Cutoff);
 

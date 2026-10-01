@@ -41,7 +41,7 @@ internal sealed record TokenCostChartLabel(string Text, double Left);
 
 internal sealed record TokenCostDonutSegment(string Label, string Share, Media.Brush Brush, Media.Geometry Geometry, string Tooltip);
 
-internal sealed record TokenCostModelShare(string Label, long Tokens, decimal? CostUsd);
+internal sealed record TokenCostModelShare(string Label, long Tokens, decimal? CostUsd, long TimedOutputTokens, long TimedDurationMilliseconds);
 
 internal enum TokenCostPeriod
 {
@@ -1718,7 +1718,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         /// <summary>
-        /// Updates the selected token total, cost, cache hit rate, and per-model donut segments.
+        /// Updates the selected token total, cost, cache hit rate, and per-model donut segments with paired response speed.
         /// </summary>
         private void UpdateDonut()
         {
@@ -1740,11 +1740,13 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 .Select(model =>
                 {
                     TokenCostSummary modelSummary = GetPeriodSummary(model, period);
-                    return new TokenCostModelShare(FormatModelLabel(model.Model), modelSummary.TotalTokens, modelSummary.CostUsd);
+                    return new TokenCostModelShare(FormatModelLabel(model.Model), modelSummary.TotalTokens, modelSummary.CostUsd,
+                                                   modelSummary.TimedOutputTokens, modelSummary.TimedDurationMilliseconds);
                 })
                 .Where(model => model.Tokens > 0)
                 .GroupBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
-                .Select(group => new TokenCostModelShare(group.Key, group.Sum(model => model.Tokens), SumModelCosts(group)))
+                .Select(group => new TokenCostModelShare(group.Key, group.Sum(model => model.Tokens), SumModelCosts(group),
+                                                        group.Sum(model => model.TimedOutputTokens), group.Sum(model => model.TimedDurationMilliseconds)))
                 .OrderByDescending(model => model.Tokens)
                 .ThenBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -1760,7 +1762,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             long otherTokens = remainingShares.Sum(model => model.Tokens);
             if (otherTokens > 0)
             {
-                displayedShares.Add(new TokenCostModelShare("Other", otherTokens, SumModelCosts(remainingShares)));
+                displayedShares.Add(new TokenCostModelShare("Other", otherTokens, SumModelCosts(remainingShares),
+                                                            remainingShares.Sum(model => model.TimedOutputTokens), remainingShares.Sum(model => model.TimedDurationMilliseconds)));
             }
 
             long totalTokens = displayedShares.Sum(model => model.Tokens);
@@ -1776,7 +1779,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 string shareText = $"{Math.Round(share * 100):0}%";
                 string tokensText = AppSettings.FormatTokenCount(model.Tokens);
                 string costText = model.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-                string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}{Environment.NewLine}Share: {shareText}";
+                string speedText = model.TimedDurationMilliseconds > 0
+                    ? (m_Statistics.IsSpeedEstimated ? "~" : string.Empty)
+                        + (model.TimedOutputTokens * 1000m / model.TimedDurationMilliseconds).ToString("0.0", CultureInfo.InvariantCulture) + " tok/s"
+                    : "N/A";
+                string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}"
+                    + $"{Environment.NewLine}Speed: {speedText}{Environment.NewLine}Share: {shareText}";
                 segments.Add(new TokenCostDonutSegment(
                     model.Label,
                     shareText,
