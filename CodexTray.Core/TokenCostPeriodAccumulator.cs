@@ -56,7 +56,7 @@ internal sealed class TokenCostPeriodAccumulator
         long cacheReadTokens = 0,
         long cacheableInputTokens = 0,
         long timedOutputTokens = 0,
-        long timedDurationMilliseconds = 0)
+        long timedDurationMilliseconds = 0, bool hasUnpricedUsage = false)
     {
         DateTime eventDate = timestamp.LocalDateTime.Date;
         if (eventDate > m_Today)
@@ -73,37 +73,37 @@ internal sealed class TokenCostPeriodAccumulator
         bool isLastTwentyFourHours = timestamp >= m_LastTwentyFourHoursStart && timestamp <= m_AsOf;
         if (isLastTwentyFourHours)
         {
-            m_LastTwentyFourHoursPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+            m_LastTwentyFourHoursPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
 
         if (eventDate == m_Today)
         {
-            m_TodayPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+            m_TodayPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
 
         if (eventDate >= m_LastSevenDaysStart)
         {
-            m_LastSevenDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+            m_LastSevenDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
 
         if (eventDate >= m_LastThirtyDaysStart)
         {
-            m_LastThirtyDaysDailyPeriods[(eventDate - m_LastThirtyDaysStart).Days].Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
-            m_LastThirtyDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+            m_LastThirtyDaysDailyPeriods[(eventDate - m_LastThirtyDaysStart).Days].Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
+            m_LastThirtyDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
 
         if (eventDate >= m_CurrentWeekStart)
         {
-            m_CurrentWeekPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+            m_CurrentWeekPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
 
         if (eventDate >= m_CurrentMonthStart)
         {
-            m_CurrentMonthDailyPeriods[(eventDate - m_CurrentMonthStart).Days].Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
-            m_CurrentMonthPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+            m_CurrentMonthDailyPeriods[(eventDate - m_CurrentMonthStart).Days].Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
+            m_CurrentMonthPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
 
-        m_LifetimePeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+        m_LifetimePeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         if (!string.IsNullOrWhiteSpace(model))
         {
             if (!m_ModelPeriods.TryGetValue(model, out ModelPeriodAccumulator? modelPeriods))
@@ -113,18 +113,19 @@ internal sealed class TokenCostPeriodAccumulator
             }
 
             modelPeriods.Add(isLastTwentyFourHours, eventDate, m_Today, m_LastSevenDaysStart, m_CurrentWeekStart, m_CurrentMonthStart, tokens, costUsd,
-                             cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+                             cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
     }
 
     /// <summary>
     /// Converts the accumulated periods into statistics with the timing source's estimation status.
     /// </summary>
-    public TokenCostStatistics ToStatistics(bool isSpeedEstimated = false)
+    public TokenCostStatistics ToStatistics(bool isSpeedEstimated = false, string costSource = "Provider billing")
     {
         return new TokenCostStatistics
         {
             IsSpeedEstimated = isSpeedEstimated,
+            CostSource = costSource,
             LastTwentyFourHours = m_LastTwentyFourHoursPeriod.ToSummary(),
             Today = m_TodayPeriod.ToSummary(),
             LastSevenDays = m_LastSevenDaysPeriod.ToSummary(),
@@ -200,39 +201,39 @@ internal sealed class TokenCostPeriodAccumulator
             long cacheReadTokens,
             long cacheableInputTokens,
             long timedOutputTokens,
-            long timedDurationMilliseconds)
+            long timedDurationMilliseconds, bool hasUnpricedUsage = false)
         {
             if (isLastTwentyFourHours)
             {
-                m_LastTwentyFourHoursPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+                m_LastTwentyFourHoursPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
             }
 
             if (eventDate == today)
             {
-                m_TodayPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+                m_TodayPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
             }
 
             if (eventDate >= lastSevenDaysStart)
             {
-                m_LastSevenDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+                m_LastSevenDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
             }
 
             if (eventDate >= today.AddDays(-29))
             {
-                m_LastThirtyDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+                m_LastThirtyDaysPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
             }
 
             if (eventDate >= currentWeekStart)
             {
-                m_CurrentWeekPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+                m_CurrentWeekPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
             }
 
             if (eventDate >= currentMonthStart)
             {
-                m_CurrentMonthPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+                m_CurrentMonthPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
             }
 
-            m_LifetimePeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+            m_LifetimePeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
 
         /// <summary>
@@ -276,8 +277,9 @@ internal sealed class TokenCostPeriodAccumulator
         /// <summary>
         /// Adds one usage value and its paired response timing to this period.
         /// </summary>
-        public void Add(long tokens, decimal? costUsd, long cacheReadTokens, long cacheableInputTokens, long timedOutputTokens, long timedDurationMilliseconds)
+        public void Add(long tokens, decimal? costUsd, long cacheReadTokens, long cacheableInputTokens, long timedOutputTokens, long timedDurationMilliseconds, bool hasUnpricedUsage = false)
         {
+            m_HasUnpricedUsage |= hasUnpricedUsage;
             m_TotalTokens = checked(m_TotalTokens + tokens);
             m_CacheReadTokens = checked(m_CacheReadTokens + Math.Max(0, cacheReadTokens));
             m_CacheableInputTokens = checked(m_CacheableInputTokens + Math.Max(0, cacheableInputTokens));
@@ -302,6 +304,7 @@ internal sealed class TokenCostPeriodAccumulator
             {
                 TotalTokens = m_TotalTokens,
                 CostUsd = m_RequireCompleteCosts && m_HasUnpricedUsage ? null : m_TotalCost,
+                HasUnpricedUsage = m_HasUnpricedUsage,
                 CacheReadTokens = m_CacheReadTokens,
                 CacheableInputTokens = m_CacheableInputTokens,
                 TimedOutputTokens = m_TimedOutputTokens,

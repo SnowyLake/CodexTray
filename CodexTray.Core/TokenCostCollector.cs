@@ -10,6 +10,8 @@ public sealed class TokenCostSummary
 
     public decimal? CostUsd { get; init; }
 
+    public bool HasUnpricedUsage { get; init; }
+
     public long CacheReadTokens { get; init; }
 
     public long CacheableInputTokens { get; init; }
@@ -68,6 +70,8 @@ public sealed class TokenCostModelStatistics
 
 public sealed class TokenCostStatistics
 {
+    public string CostSource { get; init; } = "Provider billing";
+
     public bool IsSpeedEstimated { get; init; }
 
     public TokenCostSummary LastTwentyFourHours { get; init; } = new();
@@ -100,8 +104,9 @@ public sealed class TokenCostCollector
     private readonly string m_PricingPath;
     private readonly Dictionary<string, CachedFileUsage> m_FileUsageCache = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, ModelPricing>? m_CachedPricing;
-    private long m_CachedPricingLength;
-    private DateTime m_CachedPricingWriteUtc;
+    private Dictionary<string, ModelPricing>? m_CodexPricing;
+    private readonly Lock m_PricingLock = new();
+    private string? m_CachedPricingJson;
 
     /// <summary>
     /// Creates a collector using the published model pricing resource.
@@ -129,6 +134,11 @@ public sealed class TokenCostCollector
         string root = codexDirectory ?? Path.Combine(userProfile, ".codex");
         DateTimeOffset current = now ?? DateTimeOffset.Now;
         Dictionary<string, ModelPricing> pricing = LoadPricing(cancellationToken);
+        if (!ReferenceEquals(m_CodexPricing, pricing))
+        {
+            m_FileUsageCache.Clear();
+            m_CodexPricing = pricing;
+        }
         TokenCostPeriodAccumulator accumulator = new(current);
         string[] sessionFiles = EnumerateCodexSessionFiles(root, cancellationToken).ToArray();
         Dictionary<string, string> rolloutIndex = BuildRolloutIndex(sessionFiles, cancellationToken);
@@ -148,7 +158,7 @@ public sealed class TokenCostCollector
         }
 
         PruneFileUsageCache(seenFiles);
-        return accumulator.ToStatistics(isSpeedEstimated: true);
+        return accumulator.ToStatistics(isSpeedEstimated: true, costSource: "Local pricing · API equivalent");
     }
 
     /// <summary>
@@ -166,14 +176,7 @@ public sealed class TokenCostCollector
         foreach (string path in EnumerateGrokSessionFiles(root, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                CollectGrokFile(path, pricing, turns, cancellationToken);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                // One unavailable session file must not hide usage from the remaining files.
-            }
+            CollectGrokFile(path, pricing, turns, cancellationToken);
         }
 
         TokenCostPeriodAccumulator accumulator = new(current);
@@ -181,10 +184,10 @@ public sealed class TokenCostCollector
         {
             cancellationToken.ThrowIfCancellationRequested();
             accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd, usage.Model, usage.Counts.CacheReadTokens, usage.Counts.CacheableInputTokens,
-                            usage.TimedOutputTokens, usage.TimedDurationMilliseconds);
+                            usage.TimedOutputTokens, usage.TimedDurationMilliseconds, usage.HasUnpricedUsage);
         }
 
-        return accumulator.ToStatistics();
+        return accumulator.ToStatistics(costSource: "Grok reported cost / local pricing fallback");
     }
 
     /// <summary>
@@ -207,15 +210,25 @@ public sealed class TokenCostCollector
     /// </summary>
     private Dictionary<string, ModelPricing> LoadPricing(CancellationToken cancellationToken)
     {
-        if (TryGetFileFingerprint(m_PricingPath, out long length, out DateTime lastWriteUtc) &&
-            m_CachedPricing != null &&
-            length == m_CachedPricingLength &&
-            lastWriteUtc == m_CachedPricingWriteUtc)
+        lock (m_PricingLock)
+        {
+            return ReadPricing(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Compares pricing contents so same-length edits also invalidate calculated session costs.
+    /// </summary>
+    private Dictionary<string, ModelPricing> ReadPricing(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string json = File.ReadAllText(m_PricingPath);
+        if (m_CachedPricing != null && string.Equals(json, m_CachedPricingJson, StringComparison.Ordinal))
         {
             return m_CachedPricing;
         }
 
-        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(m_PricingPath));
+        using JsonDocument document = JsonDocument.Parse(json);
         Dictionary<string, ModelPricing> pricing = new(StringComparer.OrdinalIgnoreCase);
         foreach (JsonProperty property in document.RootElement.EnumerateObject())
         {
@@ -243,8 +256,7 @@ public sealed class TokenCostCollector
         }
 
         m_CachedPricing = pricing;
-        m_CachedPricingLength = length;
-        m_CachedPricingWriteUtc = lastWriteUtc;
+        m_CachedPricingJson = json;
         return pricing;
     }
 
@@ -276,7 +288,7 @@ public sealed class TokenCostCollector
         EnumerationOptions options = new()
         {
             RecurseSubdirectories = true,
-            IgnoreInaccessible = true,
+            IgnoreInaccessible = false,
             AttributesToSkip = FileAttributes.ReparsePoint,
             MaxRecursionDepth = 16,
         };
@@ -307,7 +319,7 @@ public sealed class TokenCostCollector
     {
         if (new FileInfo(path).Length > MaxGrokSessionFileBytes)
         {
-            return;
+            throw new IOException("Grok session exceeds the supported size; costs are unavailable.");
         }
 
         string sessionId = Directory.GetParent(path)?.Name ?? "unknown";
@@ -403,7 +415,8 @@ public sealed class TokenCostCollector
             apiDurationMilliseconds = 0;
         }
 
-        turns[$"{sessionId}\0{turnKey}\0{model}"] = new GrokTurnUsage(counts, cost, timestamp, model, timedOutputTokens, apiDurationMilliseconds);
+        bool incomplete = cost == null || costIsPartial && localCost == null;
+        turns[$"{sessionId}\0{turnKey}\0{model}"] = new GrokTurnUsage(counts, cost, timestamp, model, timedOutputTokens, apiDurationMilliseconds, incomplete);
     }
 
     /// <summary>
@@ -1226,7 +1239,7 @@ public sealed class TokenCostCollector
 
     private readonly record struct PricingPeriod(decimal Input, decimal CachedInput, decimal Output, DayOfWeek[]? DaysUtc, TimeSpan StartUtc, TimeSpan EndUtc);
 
-    private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp, string Model, long TimedOutputTokens, long TimedDurationMilliseconds);
+    private readonly record struct GrokTurnUsage(TokenCounts Counts, decimal? CostUsd, DateTimeOffset Timestamp, string Model, long TimedOutputTokens, long TimedDurationMilliseconds, bool HasUnpricedUsage);
 
     private readonly record struct ReplayContext(string ParentId, DateTimeOffset Cutoff);
 

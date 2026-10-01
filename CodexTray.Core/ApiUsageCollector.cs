@@ -12,7 +12,8 @@ public sealed record ApiUsageResult(
     string Error,
     DateTimeOffset UpdatedAt,
     string BalanceTooltip = "",
-    string Provider = "");
+    string Provider = "",
+    string UsedError = "");
 
 public enum ApiUsageRefreshStatus
 {
@@ -73,6 +74,10 @@ public sealed class ApiUsageCollector
             }
 
             availableCount++;
+            if (result.UsedError.Length > 0)
+            {
+                errorCount++;
+            }
             if (latestAvailableUpdatedAt == null || result.UpdatedAt > latestAvailableUpdatedAt)
             {
                 latestAvailableUpdatedAt = result.UpdatedAt;
@@ -240,7 +245,8 @@ public sealed class ApiUsageCollector
                 return Unavailable(monitor.Id, "Balance data is missing", now);
             }
 
-            string usedDisplay = string.Empty;
+            string usedDisplay = "N/A";
+            string usedError = string.Empty;
             try
             {
                 using HttpRequestMessage usageRequest = new(HttpMethod.Get, usageUri);
@@ -257,6 +263,14 @@ public sealed class ApiUsageCollector
                     {
                         usedDisplay = $"${used:0.00}";
                     }
+                    else
+                    {
+                        usedError = "Usage data is missing";
+                    }
+                }
+                else
+                {
+                    usedError = $"Usage request failed: HTTP {(int)usageResponse.StatusCode}";
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -265,10 +279,11 @@ public sealed class ApiUsageCollector
             }
             catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException)
             {
-                usedDisplay = string.Empty;
+                usedDisplay = "N/A";
+                usedError = exception is TaskCanceledException ? "Usage request timed out" : "Usage response could not be read";
             }
 
-            return new ApiUsageResult(monitor.Id, true, $"${balance:0.00}", usedDisplay, string.Empty, now);
+            return new ApiUsageResult(monitor.Id, true, $"${balance:0.00}", usedDisplay, string.Empty, now, UsedError: usedError);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

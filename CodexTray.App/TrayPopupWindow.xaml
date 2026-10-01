@@ -715,7 +715,8 @@
                     </Grid.RowDefinitions>
 
                     <Grid x:Name="TokenCostOverview"
-                          Grid.Row="1">
+                          Grid.Row="1"
+                          ToolTip="{Binding DetailsTooltip}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="10" />
@@ -779,6 +780,7 @@
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                                    FontSize="14" />
                                         <TextBlock Text="{Binding SelectedCostDisplay}"
+                                                   ToolTip="{Binding DetailsTooltip}"
                                                    Margin="0,1,0,0"
                                                    HorizontalAlignment="Center"
                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
@@ -935,6 +937,7 @@
                                  VerticalAlignment="Center"
                                  Fill="{Binding CodexStatusDotBrush}" />
                         <TextBlock Text="{Binding CodexUpdatedAtDisplay}"
+                                   ToolTip="{Binding CodexStatusTooltip}"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    FontSize="12" />
@@ -1388,7 +1391,7 @@
                                                                  Fill="{Binding StatusDotBrush}"
                                                                  ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                                                  ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                                 ToolTip="{Binding StatusText}" />
+                                                                 ToolTip="{Binding StatusTooltip}" />
                                                         <TextBlock Grid.Column="1"
                                                                    Text="{Binding DisplayName}"
                                                                    TextTrimming="CharacterEllipsis"
@@ -1398,7 +1401,7 @@
                                                                    FontWeight="SemiBold"
                                                                    ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                                                    ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                                   ToolTip="{Binding StatusText}" />
+                                                                   ToolTip="{Binding StatusTooltip}" />
                                                     </Grid>
                                                     <StackPanel Grid.Row="0"
                                                                 Grid.Column="1"

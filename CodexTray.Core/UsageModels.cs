@@ -121,6 +121,9 @@ public sealed class UsageLimit
 
 public sealed class ResetCredits
 {
+    [JsonIgnore]
+    public string Error { get; set; } = string.Empty;
+
     [JsonPropertyName("available")]
     public bool Available { get; set; }
 

@@ -63,6 +63,7 @@ internal sealed class TrayController : IDisposable
         m_AppIcon = LoadApplicationIcon();
         bool settingsExists = m_SettingsStore.Exists();
         m_Settings = m_SettingsStore.Load();
+        EnsureViewModel();
         m_NotifyIcon = CreateNotifyIcon();
         m_RefreshTimer = new DispatcherTimer(DispatcherPriority.Background, m_Dispatcher);
         m_RefreshTimer.Tick += async (_, _) => await RequestRefreshAsync();
@@ -429,6 +430,22 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
+        EnsureViewModel();
+        ApplyStartupDetectingState();
+        m_TrayPopupWindow = new TrayPopupWindow(m_PopupViewModel!);
+        m_TrayPopupWindow.Closed += (_, _) => m_TrayPopupWindow = null;
+    }
+
+    /// <summary>
+    /// Retains collected results and success times even while the panel has never been opened.
+    /// </summary>
+    private void EnsureViewModel()
+    {
+        if (m_PopupViewModel != null)
+        {
+            return;
+        }
+
         m_PopupViewModel = new TrayPopupViewModel(m_Settings, RequestRefreshAsync);
         m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
         m_PopupViewModel.ApiMonitorsChanged += (_, _) => m_SettingsStore.Save(m_Settings);
@@ -436,13 +453,6 @@ internal sealed class TrayController : IDisposable
         m_PopupViewModel.InstallLiteMonitorPluginRequested += (_, _) => InstallLiteMonitorPlugin();
         m_PopupViewModel.InstallTrafficMonitorPluginRequested += (_, _) => InstallTrafficMonitorPlugin();
         m_PopupViewModel.UpdateApplyRequested += (_, handoff) => m_Dispatcher.BeginInvoke(new Action(() => StartUpdateAndExit(handoff)));
-        ApplyStartupDetectingState();
-        m_TrayPopupWindow = new TrayPopupWindow(m_PopupViewModel);
-        m_TrayPopupWindow.Closed += (_, _) =>
-        {
-            m_TrayPopupWindow = null;
-            m_PopupViewModel = null;
-        };
     }
 
     /// <summary>
@@ -662,7 +672,7 @@ internal sealed class TrayController : IDisposable
             {
                 children.Add(PublishAsync(PageItem.Codex, m_CodexUsageCollector.CollectAsync(useAbsoluteResetTime, cancellationToken), result => m_UsageCache.UpdateCodex(result)));
                 children.Add(PublishAsync(PageItem.Codex, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectCodex(cancellationToken: cancellationToken)), cancellationToken),
-                    result => m_PopupViewModel?.UpdateTokenCost(result)));
+                    result => m_PopupViewModel?.UpdateTokenCost(result.Statistics, result.Error), localCosts: true));
             }
 
             if ((visiblePages & PageItem.Grok) != 0)
@@ -673,7 +683,7 @@ internal sealed class TrayController : IDisposable
                     m_PopupViewModel?.UpdateGrokDashboard(dashboard);
                 }));
                 children.Add(PublishAsync(PageItem.Grok, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectGrok(cancellationToken: cancellationToken)), cancellationToken),
-                    result => m_PopupViewModel?.UpdateGrokTokenCost(result)));
+                    result => m_PopupViewModel?.UpdateGrokTokenCost(result.Statistics, result.Error), localCosts: true));
             }
 
             if ((visiblePages & PageItem.Cursor) != 0)
@@ -712,7 +722,7 @@ internal sealed class TrayController : IDisposable
             }
         }
 
-        Task PublishAsync<T>(PageItem page, Task<T> collect, Action<T> publish)
+        Task PublishAsync<T>(PageItem page, Task<T> collect, Action<T> publish, bool localCosts = false)
         {
             return PublishRefreshResultAsync(collect, result =>
             {
@@ -720,7 +730,47 @@ internal sealed class TrayController : IDisposable
                 RefreshPopupStatus();
                 ReconcileDeadPluginService();
             }, () => !IsExiting && (m_Settings.VisiblePages & page) != 0,
-                exception => ReportBackgroundFailure($"{page} refresh failed", exception), cancellationToken);
+                exception =>
+                {
+                    string error = "Collection failed; retry this source";
+                    DateTimeOffset now = DateTimeOffset.Now;
+                    if (localCosts)
+                    {
+                        if (page == PageItem.Codex)
+                        {
+                            m_PopupViewModel?.UpdateTokenCost(null, error);
+                        }
+                        else
+                        {
+                            m_PopupViewModel?.UpdateGrokTokenCost(null, error);
+                        }
+
+                        return;
+                    }
+
+                    // A failed collector must not leave an apparently current plugin value behind.
+                    switch (page)
+                    {
+                        case PageItem.Codex:
+                            m_UsageCache.UpdateCodex(new UsageResponse { Error = error, UpdatedAt = now.ToString("O") });
+                            break;
+                        case PageItem.Cursor:
+                            m_UsageCache.ClearCursor();
+                            m_PopupViewModel?.UpdateCursorDashboard(new(null, null, error, error, now, GrokBotUsageError: error));
+                            break;
+                        case PageItem.Grok:
+                            m_UsageCache.ClearGrok();
+                            m_PopupViewModel?.UpdateGrokDashboard(new(null, error, now));
+                            break;
+                        case PageItem.Apis:
+                            m_UsageCache.ClearDeepSeek();
+                            m_PopupViewModel?.UpdateApiUsage(m_Settings.ApiMonitors.Select(monitor =>
+                                new ApiUsageResult(monitor.Id, false, "N/A", "N/A", error, now, Provider: monitor.Provider)).ToArray());
+                            break;
+                    }
+
+                    RefreshPopupStatus();
+                }, cancellationToken);
         }
     }
 
@@ -764,15 +814,15 @@ internal sealed class TrayController : IDisposable
     /// <summary>
     /// Collects token cost without failing sibling quota updates.
     /// </summary>
-    private static TokenCostStatistics? CollectTokenCostSafely(Func<TokenCostStatistics?> collect)
+    private static (TokenCostStatistics? Statistics, string Error) CollectTokenCostSafely(Func<TokenCostStatistics?> collect)
     {
         try
         {
-            return collect();
+            return (collect(), string.Empty);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or OverflowException or KeyNotFoundException)
         {
-            return null;
+            return (null, exception is UnauthorizedAccessException ? "Local session or pricing file access denied" : "Local session or pricing data could not be read");
         }
     }
 

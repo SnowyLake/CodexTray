@@ -151,7 +151,7 @@ public sealed class CodexUsageCollector
     {
         if (string.IsNullOrWhiteSpace(credentials.AccountId))
         {
-            return new ResetCredits();
+            return new ResetCredits { Error = "Codex account ID is missing" };
         }
 
         using HttpRequestMessage request = new(HttpMethod.Get, k_ResetCreditsEndpoint);
@@ -165,7 +165,7 @@ public sealed class CodexUsageCollector
             using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return new ResetCredits();
+                return new ResetCredits { Error = $"Reset credits API failed: HTTP {(int)response.StatusCode}" };
             }
 
             using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
@@ -177,7 +177,7 @@ public sealed class CodexUsageCollector
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
         {
-            return new ResetCredits();
+            return new ResetCredits { Error = exception is TaskCanceledException ? "Request timed out" : "Reset credits could not be read" };
         }
     }
 

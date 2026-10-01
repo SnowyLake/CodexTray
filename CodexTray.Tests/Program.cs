@@ -75,6 +75,8 @@ internal static class Program
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("publishes completed refresh sources independently", TestIndependentRefreshAsync);
+        await RunAsync("invalidates session costs when pricing contents change", TestPricingReloadAsync);
+        await RunAsync("exposes successful timestamps and incomplete costs", TestDataFreshnessAsync);
         await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
@@ -1685,7 +1687,8 @@ internal static class Program
         AssertEqual("$3.00", results[4].UsedDisplay, "NanoGPT 30-day usage");
         AssertTrue(results[5].Available, "NanoGPT balance should remain available when usage fails");
         AssertEqual("$12.35", results[5].BalanceDisplay, "NanoGPT balance after usage failure");
-        AssertEqual(string.Empty, results[5].UsedDisplay, "NanoGPT usage failure display");
+        AssertEqual("N/A", results[5].UsedDisplay, "NanoGPT usage failure display");
+        AssertTrue(results[5].UsedError.Length > 0, "NanoGPT usage failure must carry a reason");
         AssertEqual("$95.50", results[6].BalanceDisplay, "Vercel remaining credits");
         AssertEqual("$4.50", results[6].UsedDisplay, "Vercel used credits");
         AssertEqual("$95.50", results[7].BalanceDisplay, "Vercel root base URL credits");
@@ -2715,6 +2718,94 @@ internal static class Program
     }
 
     /// <summary>
+    /// Verifies runtime repricing even when file length, write time, and session contents are unchanged.
+    /// </summary>
+    private static Task TestPricingReloadAsync()
+    {
+        using TempDirectory temp = new();
+        string pricing = Path.Combine(temp.Path, "pricing.json");
+        string sessions = Path.Combine(temp.Path, "sessions");
+        Directory.CreateDirectory(sessions);
+        DateTimeOffset now = DateTimeOffset.Now;
+        File.WriteAllText(pricing, "{\"gpt-test\":{\"input\":1,\"cachedInput\":0,\"output\":1}}");
+        DateTime writeTime = File.GetLastWriteTimeUtc(pricing);
+        File.WriteAllLines(Path.Combine(sessions, "test.jsonl"),
+        [
+            CreateCodexRecord(now.AddMinutes(-1), "turn_context", new { model = "gpt-test" }),
+            CreateCodexTokenCount(now.AddSeconds(-30).ToString("O"), last: (100, 0, 100), total: (100, 0, 100)),
+        ]);
+        TokenCostCollector collector = new(pricing);
+        AssertEqual(0.0002m, collector.CollectCodex(temp.Path, now).Today.CostUsd, "initial calculated cost");
+        File.WriteAllText(pricing, "{\"gpt-test\":{\"input\":9,\"cachedInput\":0,\"output\":9}}");
+        File.SetLastWriteTimeUtc(pricing, writeTime);
+        AssertEqual(0.0018m, collector.CollectCodex(temp.Path, now).Today.CostUsd, "unchanged sessions must use new prices");
+        File.WriteAllText(pricing, "{}");
+        TokenCostStatistics missing = collector.CollectCodex(temp.Path, now);
+        AssertTrue(missing.Today.HasUnpricedUsage, "missing price must mark partial costs");
+        AssertEqual(200L, missing.Today.TotalTokens, "unknown pricing must preserve tokens");
+        AssertEqual(0m, missing.Today.CostUsd, "known cost subtotal remains zero");
+        File.WriteAllText(pricing, "{\"gpt-test\":{\"input\":1,\"cachedInput\":0,\"output\":1}}");
+        AssertTrue(!collector.CollectCodex(temp.Path, now).Today.HasUnpricedUsage, "restored prices must clear partial status");
+        string grokSession = Path.Combine(sessions, "grok-test");
+        Directory.CreateDirectory(grokSession);
+        File.WriteAllLines(Path.Combine(grokSession, "updates.jsonl"),
+            [CreateGrokTokenUpdate("partial", now.AddSeconds(-10), 10, 0, 1, 100_000_000, costIsPartial: true)]);
+        TokenCostSummary grok = collector.CollectGrok(temp.Path, now).Today;
+        AssertEqual(0.01m, grok.CostUsd, "partial reported fee remains included without local pricing");
+        AssertTrue(grok.HasUnpricedUsage, "unpriced partial reported costs must be marked incomplete");
+        using (FileStream locked = new(Path.Combine(grokSession, "updates.jsonl"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            bool failed = false;
+            try
+            {
+                collector.CollectGrok(temp.Path, now);
+            }
+            catch (IOException)
+            {
+                failed = true;
+            }
+
+            AssertTrue(failed, "a previously readable Grok session must not silently become a successful zero-cost snapshot");
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies failed reads keep success times while clearing values and exposing missing model prices.
+    /// </summary>
+    private static Task TestDataFreshnessAsync()
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        TokenCostSummary partial = new() { TotalTokens = 10, CostUsd = 0, HasUnpricedUsage = true };
+        viewModel.UpdateTokenCost(new TokenCostStatistics
+        {
+            LastTwentyFourHours = partial,
+            Models = [new TokenCostModelStatistics { Model = "unknown-price", LastTwentyFourHours = partial }],
+        });
+        AssertTrue(viewModel.CodexTokenCost.SelectedCostDisplay.Contains('*'), "partial cost must be visibly marked");
+        AssertTrue(viewModel.CodexTokenCost.DetailsTooltip.Contains("unknown-price"), "missing model must be listed");
+        DateTimeOffset? lastSuccess = viewModel.CodexTokenCost.Freshness.LastSuccess;
+        viewModel.UpdateTokenCost(null, "pricing unavailable");
+        AssertEqual(lastSuccess, viewModel.CodexTokenCost.Freshness.LastSuccess, "failure must preserve the success timestamp");
+        AssertEqual("N/A", viewModel.CodexTokenCost.SelectedCostDisplay, "failed read must clear old values");
+        AssertTrue(viewModel.CodexTokenCost.DetailsTooltip.Contains("pricing unavailable"), "cost failure reason must be accessible");
+        ApiMonitorViewModel card = new(new ApiMonitorSettings { Id = "test", Provider = ApiMonitorSettings.DeepSeekProvider });
+        card.Update(new ApiUsageResult("test", true, "¥1.00", "", "", now));
+        card.Update(new ApiUsageResult("test", false, "N/A", "", "timeout", now.AddMinutes(1)));
+        AssertEqual(now, card.BalanceState.LastSuccess, "API failures must not advance success time");
+        AssertEqual("N/A", card.BalanceDisplay, "API failure must clear old balance");
+        AssertTrue(card.StatusTooltip.Contains("timeout"), "API failure reason must be accessible");
+        ApiUsageResult partialUsage = new("nano", true, "$1.00", "N/A", "", now, Provider: ApiMonitorSettings.NanoGptProvider, UsedError: "Usage timed out");
+        ApiMonitorViewModel nano = new(new ApiMonitorSettings { Id = "nano", Provider = ApiMonitorSettings.NanoGptProvider });
+        nano.Update(partialUsage);
+        AssertTrue(nano.HasSecondaryDisplay && nano.UsedDisplay == "N/A", "failed NanoGPT usage must remain visible as unavailable");
+        AssertEqual(ApiUsageRefreshStatus.PartiallyAvailable, ApiUsageCollector.Summarize([partialUsage]).Status, "usage failure must mark API summary partial");
+        AssertEqual(System.Windows.Media.Color.FromRgb(226, 176, 54), ((System.Windows.Media.SolidColorBrush)nano.StatusDotBrush).Color, "partial API card must use yellow status");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Tests that the refresh command tracks its task and prevents concurrent execution.
     /// </summary>
     private static async Task TestRefreshCommandAsync()
@@ -3117,7 +3208,7 @@ internal static class Program
         ApiUsageResult result = new(viewModel.Id, false, "N/A", "N/A", "Waiting for refresh", DateTimeOffset.UtcNow, "USD balance");
         viewModel.Update(result);
         AssertEqual(
-            "BalanceTooltip|HasBalanceTooltip",
+            "BalanceTooltip|HasBalanceTooltip|StatusTooltip",
             string.Join('|', changedProperties.Order()),
             "balance tooltip notifications");
         changedProperties.Clear();
@@ -3167,8 +3258,8 @@ internal static class Program
         AssertTrue(viewModel.HasSecondaryDisplay, "NanoGPT successful usage display");
         AssertEqual("$12.35", viewModel.BalanceDisplay, "current NanoGPT result should update balance");
         changedProperties.Clear();
-        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$12.35", string.Empty, string.Empty, DateTimeOffset.UtcNow));
-        AssertTrue(!viewModel.HasSecondaryDisplay, "NanoGPT failed usage should hide secondary display");
+        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$12.35", "N/A", string.Empty, DateTimeOffset.UtcNow, UsedError: "Usage failed"));
+        AssertTrue(viewModel.HasSecondaryDisplay, "NanoGPT failed usage should retain the unavailable secondary display");
         AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.HasSecondaryDisplay)), "NanoGPT secondary visibility notification");
         viewModel.Provider = ApiMonitorSettings.VercelProvider;
         AssertEqual("https://ai-gateway.vercel.sh", viewModel.BaseUrl, "Vercel default base URL");

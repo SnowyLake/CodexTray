@@ -110,6 +110,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private bool m_IsNativeModalOpen;
     private GrokUsageDashboard m_GrokDashboard = new(null, string.Empty, DateTimeOffset.Now);
     private bool m_GrokTokenCostAvailable;
+    public RefreshState CodexUsageState { get; } = new();
+    public RefreshState CodexResetState { get; } = new();
+    public RefreshState GrokUsageState { get; } = new();
+    public RefreshState CursorUsageState { get; } = new();
+    public RefreshState CursorGrokBotState { get; } = new();
+
+    [ObservableProperty]
+    public partial string CodexStatusTooltip { get; private set; } = string.Empty;
     private ApiUsageRefreshStatus? m_ApiUsageStatus;
     private int m_ApiUsageErrorCount;
     private int m_ApiUsageMonitorCount;
@@ -468,9 +476,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_Settings = settings;
         CodexQuotaPager = new QuotaPagerViewModel(CodexSessionQuota, CodexWeeklyQuota);
         CursorQuotaPager = new QuotaPagerViewModel(CursorMonthlyQuota, CursorGrokBotQuota);
-        CodexTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
-        GrokTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
-        CursorTokenCost = new TokenCostDashboardViewModel(showSpeed: false);
+        CodexTokenCost = new TokenCostDashboardViewModel(showSpeed: true, "Local pricing · API equivalent");
+        GrokTokenCost = new TokenCostDashboardViewModel(showSpeed: true, "Grok reported cost / local pricing fallback");
+        CursorTokenCost = new TokenCostDashboardViewModel(showSpeed: false, "Cursor billed totalCents");
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
         SaveSettingsCommand = new RelayCommand(() => SaveSettingsRequested?.Invoke(this, EventArgs.Empty), CanSaveSettings);
@@ -677,6 +685,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             ? $"Service: {(isRunning ? "Running" : "Stopped")} on {CodexTrayDefaults.Host}:{port}"
             : $"Service: Error on {CodexTrayDefaults.Host}:{port} - {error}";
 
+        DateTimeOffset timestamp = DateTimeOffset.TryParse(response?.UpdatedAt, out DateTimeOffset parsed) ? parsed : DateTimeOffset.Now;
+        CodexUsageState.Update(response?.Available == true, timestamp, response?.Error);
+        CodexResetState.Update(response?.ResetCredits.Available == true, timestamp, response?.ResetCredits.Error);
+        CodexStatusTooltip = $"Usage: {CodexUsageState.Tooltip}\nResets: {CodexResetState.Tooltip}";
+
         if (response == null)
         {
             CodexPlanDisplay = "UNKNOWN";
@@ -745,9 +758,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Updates token and cost displays or marks them unavailable after a failed read.
     /// </summary>
-    public void UpdateTokenCost(TokenCostStatistics? statistics)
+    public void UpdateTokenCost(TokenCostStatistics? statistics, string? error = null)
     {
-        CodexTokenCost.Update(statistics);
+        CodexTokenCost.Update(statistics, error);
     }
 
     /// <summary>
@@ -756,6 +769,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public void UpdateGrokDashboard(GrokUsageDashboard dashboard, TokenCostStatistics? tokenCost = null)
     {
         m_GrokDashboard = dashboard;
+        GrokUsageState.Update(dashboard.Usage != null, dashboard.UpdatedAt, dashboard.Error);
         if (dashboard.Usage is GrokUsageSnapshot usage)
         {
             GrokPlanDisplay = FormatGrokPlan(usage.SubscriptionTier);
@@ -787,10 +801,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Updates local Grok costs independently of the billing collection.
     /// </summary>
-    public void UpdateGrokTokenCost(TokenCostStatistics? statistics)
+    public void UpdateGrokTokenCost(TokenCostStatistics? statistics, string? error = null)
     {
         m_GrokTokenCostAvailable = statistics != null;
-        GrokTokenCost.Update(statistics);
+        GrokTokenCost.Update(statistics, error);
         UpdateGrokStatus();
     }
 
@@ -814,7 +828,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 : tokenCostAvailable
                     ? "Token Cost updated, Usage N/A"
                     : "Update error";
-        GrokStatusTooltip = FormatGrokStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
+        GrokStatusTooltip = $"Usage: {GrokUsageState.Tooltip}\nToken Cost: {GrokTokenCost.Freshness.Tooltip}";
     }
 
     /// <summary>
@@ -826,6 +840,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         bool usageAvailable = usage != null;
         bool grokBotUsageAvailable = dashboard.GrokBotUsage != null;
         bool tokenCostAvailable = dashboard.TokenCost != null;
+        CursorUsageState.Update(usageAvailable, dashboard.UpdatedAt, dashboard.UsageError);
+        CursorGrokBotState.Update(grokBotUsageAvailable, dashboard.UpdatedAt, dashboard.GrokBotUsageError);
         if (usage != null)
         {
             CursorPlanDisplay = FormatCursorPlan(usage.PlanType);
@@ -870,8 +886,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             : anyAvailable
                 ? "Partial update"
                 : "Update error";
-        CursorStatusTooltip = FormatCursorStatusTooltip(dashboard, usageAvailable, grokBotUsageAvailable, tokenCostAvailable);
-        CursorTokenCost.Update(dashboard.TokenCost);
+        CursorTokenCost.Update(dashboard.TokenCost, dashboard.TokenCostError, dashboard.UpdatedAt);
+        CursorStatusTooltip = $"Usage: {CursorUsageState.Tooltip}\nGrok Bot: {CursorGrokBotState.Tooltip}\nToken Cost: {CursorTokenCost.Freshness.Tooltip}";
     }
 
     /// <summary>
@@ -1633,6 +1649,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     internal sealed partial class TokenCostDashboardViewModel : ObservableObject
     {
         private readonly bool m_ShowSpeed;
+        private readonly string m_CostSource;
+        public RefreshState Freshness { get; } = new();
+
+        [ObservableProperty]
+        public partial string DetailsTooltip { get; private set; } = string.Empty;
         private TokenCostStatistics? m_Statistics;
         private TokenCostChartPeriod m_ChartPeriod;
 
@@ -1661,16 +1682,18 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// <summary>
         /// Creates a token-cost dashboard with provider-specific speed visibility.
         /// </summary>
-        public TokenCostDashboardViewModel(bool showSpeed)
+        public TokenCostDashboardViewModel(bool showSpeed, string costSource = "Provider billing")
         {
             m_ShowSpeed = showSpeed;
+            m_CostSource = costSource;
         }
 
         /// <summary>
         /// Updates all token-cost views from one statistics snapshot.
         /// </summary>
-        public void Update(TokenCostStatistics? statistics)
+        public void Update(TokenCostStatistics? statistics, string? error = null, DateTimeOffset? timestamp = null)
         {
+            Freshness.Update(statistics != null, timestamp ?? DateTimeOffset.Now, error);
             m_Statistics = statistics;
             Refresh();
         }
@@ -1759,6 +1782,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             TokenCostPeriod period = Rows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.LastTwentyFourHours;
             if (m_Statistics == null)
             {
+                DetailsTooltip = $"{m_CostSource}\n{Freshness.Tooltip}";
                 SelectedTokenDisplay = "N/A";
                 SelectedCostDisplay = "N/A";
                 DonutSegments = [];
@@ -1768,7 +1792,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             TokenCostSummary summary = GetPeriodSummary(m_Statistics, period);
             SelectedTokenDisplay = AppSettings.FormatTokenCount(summary.TotalTokens);
             string cost = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-            SelectedCostDisplay = string.Create(CultureInfo.InvariantCulture, $"{cost} · {summary.GetCacheHitPercent()}%");
+            SelectedCostDisplay = string.Create(CultureInfo.InvariantCulture, $"{cost}{(summary.HasUnpricedUsage ? "*" : string.Empty)} · {summary.GetCacheHitPercent()}%");
+            string[] unpriced = m_Statistics.Models.Where(model => GetPeriodSummary(model, period).HasUnpricedUsage).Select(model => model.Model).ToArray();
+            DetailsTooltip = $"{m_CostSource}\n{Freshness.Tooltip}" + (summary.HasUnpricedUsage ? $"\nPartial cost · Unpriced/incomplete: {string.Join(", ", unpriced)}" : string.Empty);
 
             List<TokenCostModelShare> modelShares = m_Statistics.Models
                 .Select(model =>
@@ -1824,6 +1850,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 }
 
                 string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}"
+                    + (summary.HasUnpricedUsage ? "\nPartial cost · See overview for incomplete models" : string.Empty)
                     + speedLine + $"{Environment.NewLine}Share: {shareText}";
                 segments.Add(new TokenCostDonutSegment(
                     model.Label,
@@ -2079,7 +2106,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     : maximumTokens <= 0 || day.Summary.TotalTokens <= 0
                         ? 0
                         : Math.Max(2, (double)day.Summary.TotalTokens / maximumTokens * k_TokenCostChartMaximumBarHeight);
-                string costText = day.Summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
+                string costText = (day.Summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A") + (day.Summary.HasUnpricedUsage ? "* · Partial cost" : string.Empty);
                 string tokensText = AppSettings.FormatTokenCount(day.Summary.TotalTokens);
                 string tooltip = $"{day.Date:yyyy-MM-dd}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}";
                 string label = index == 0 || index == dailySummaries.Count - 1 || (index + 1) % 10 == 0
@@ -2096,7 +2123,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// </summary>
         private TokenCostDisplay FormatTokenCost(TokenCostSummary summary)
         {
-            string cost = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
+            string cost = (summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A") + (summary.HasUnpricedUsage ? "*" : string.Empty);
             return new TokenCostDisplay(cost, AppSettings.FormatTokenCount(summary.TotalTokens));
         }
     }
