@@ -9,6 +9,12 @@ internal sealed partial class TrayPopupViewModel
     private readonly AppUpdateSession m_UpdateSession = new();
     private AppUpdateRelease? m_AvailableRelease;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateActionIcon))]
+    public partial bool HasAvailableUpdate { get; private set; }
+
+    public string UpdateActionIcon => HasAvailableUpdate ? "\uE896" : "\uE117";
+
     public event EventHandler<AppUpdateHandoff>? UpdateApplyRequested;
 
     [ObservableProperty]
@@ -19,12 +25,28 @@ internal sealed partial class TrayPopupViewModel
     public partial string UpdateActionText { get; private set; } = "Check for updates";
 
     /// <summary>
-    /// Checks GitHub for a newer stable release and asks before installing it.
+    /// Offers the known release or checks GitHub before asking to install.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanRunUpdate))]
     private Task RunUpdateAsync(CancellationToken cancellationToken)
     {
-        return RunBusyAsync("Checking...", "Update", CheckForUpdateAsync, cancellationToken);
+        if (HasAvailableUpdate)
+        {
+            ConfirmAvailableUpdate();
+            return Task.CompletedTask;
+        }
+
+        return RunBusyAsync("Checking...", "Update", token => CheckForUpdateAsync(token), cancellationToken);
+    }
+
+    /// <summary>
+    /// Checks silently without overlapping a manual operation or changing a pending confirmation.
+    /// </summary>
+    public Task CheckForUpdateInBackgroundAsync(CancellationToken cancellationToken)
+    {
+        return IsUpdateBusy || IsInAppDialogOpen || cancellationToken.IsCancellationRequested
+            ? Task.CompletedTask
+            : RunBusyAsync("Checking...", "Update", token => CheckForUpdateAsync(token, silent: true), cancellationToken, silent: true);
     }
 
     /// <summary>
@@ -44,7 +66,7 @@ internal sealed partial class TrayPopupViewModel
     /// <summary>
     /// Runs one update operation and shows a dialog when it fails.
     /// </summary>
-    private async Task RunBusyAsync(string busyText, string failureTitle, Func<CancellationToken, Task> action, CancellationToken cancellationToken)
+    private async Task RunBusyAsync(string busyText, string failureTitle, Func<CancellationToken, Task> action, CancellationToken cancellationToken, bool silent = false)
     {
         IsUpdateBusy = true;
         UpdateActionText = busyText;
@@ -57,16 +79,22 @@ internal sealed partial class TrayPopupViewModel
         }
         catch (AppUpdateException exception)
         {
-            ShowUpdateDialog(failureTitle, exception.Message, "OK");
+            if (!silent)
+            {
+                ShowUpdateDialog(failureTitle, exception.Message, "OK");
+            }
         }
         catch (Exception)
         {
-            ShowUpdateDialog(failureTitle, "Could not reach GitHub. Check the network and try again.", "OK");
+            if (!silent)
+            {
+                ShowUpdateDialog(failureTitle, "Could not reach GitHub. Check the network and try again.", "OK");
+            }
         }
         finally
         {
             IsUpdateBusy = false;
-            UpdateActionText = "Check for updates";
+            UpdateActionText = HasAvailableUpdate ? "Install update" : "Check for updates";
         }
     }
 
@@ -81,36 +109,68 @@ internal sealed partial class TrayPopupViewModel
     /// <summary>
     /// Compares this build with the latest stable GitHub release.
     /// </summary>
-    private async Task CheckForUpdateAsync(CancellationToken cancellationToken)
+    private async Task CheckForUpdateAsync(CancellationToken cancellationToken, bool silent = false)
     {
         if (!AppUpdateVersion.TryParseAssemblyVersion(AppVersion, out Version? currentVersion) || currentVersion == null)
         {
-            ShowUpdateDialog("Update", "This build does not have a release version, so it cannot check for updates.", "OK");
+            if (!silent)
+            {
+                ShowUpdateDialog("Update", "This build does not have a release version, so it cannot check for updates.", "OK");
+            }
             return;
         }
 
         string? currentExecutable = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(currentExecutable) || !AppUpdateWork.IsPublishedInstall(currentExecutable))
         {
-            ShowUpdateDialog("Update", "Updates are unavailable from a development build.", "OK");
+            if (!silent)
+            {
+                ShowUpdateDialog("Update", "Updates are unavailable from a development build.", "OK");
+            }
             return;
         }
 
         AppUpdateCheckResult result = await m_UpdateSession.CheckAsync(currentVersion, cancellationToken).ConfigureAwait(true);
-        if (result.Availability == AppUpdateAvailability.UpdateAvailable)
+        cancellationToken.ThrowIfCancellationRequested();
+        SetAvailableUpdate(result);
+        if (silent)
         {
-            m_AvailableRelease = result.LatestRelease;
-            ShowUpdateDialog(
-                "Update available",
-                $"Version {result.LatestRelease.Version.ToString(3)} is available. Install it now?",
-                "Install",
-                "Cancel",
-                () => InstallUpdateCommand.Execute(null));
             return;
         }
 
-        m_AvailableRelease = null;
+        if (HasAvailableUpdate)
+        {
+            ConfirmAvailableUpdate();
+            return;
+        }
+
         ShowUpdateDialog("Up to date", "You are on the latest version.", "OK");
+    }
+
+    /// <summary>
+    /// Publishes the latest successful check to all update indicators.
+    /// </summary>
+    internal void SetAvailableUpdate(AppUpdateCheckResult result)
+    {
+        m_AvailableRelease = result.Availability == AppUpdateAvailability.UpdateAvailable ? result.LatestRelease : null;
+        HasAvailableUpdate = m_AvailableRelease != null;
+        UpdateActionText = HasAvailableUpdate ? "Install update" : "Check for updates";
+    }
+
+    /// <summary>
+    /// Asks for confirmation before downloading the known release.
+    /// </summary>
+    private void ConfirmAvailableUpdate()
+    {
+        if (m_AvailableRelease != null)
+        {
+            ShowUpdateDialog(
+                "Update available",
+                $"Version {m_AvailableRelease.Version.ToString(3)} is available. Install it now?",
+                "Install",
+                "Cancel",
+                () => InstallUpdateCommand.Execute(null));
+        }
     }
 
     /// <summary>

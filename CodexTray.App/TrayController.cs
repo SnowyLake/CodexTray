@@ -36,6 +36,7 @@ internal sealed class TrayController : IDisposable
     private TrayPopupViewModel? m_PopupViewModel;
     private Task m_RefreshTask = Task.CompletedTask;
     private Task m_StartupAutoDetectTask = Task.CompletedTask;
+    private Task m_UpdateCheckTask = Task.CompletedTask;
     private Task m_SignalListenerTask = Task.CompletedTask;
     private Task m_ServiceTransitionTask = Task.CompletedTask;
     private int m_IsExiting;
@@ -102,6 +103,25 @@ internal sealed class TrayController : IDisposable
         }
 
         m_StartupAutoDetectTask = AutoDetectMissingPluginPathsAsync(m_LifetimeCancellation.Token);
+        m_UpdateCheckTask = CheckUpdatesPeriodicallyAsync(m_LifetimeCancellation.Token);
+    }
+
+    /// <summary>
+    /// Checks at startup and periodically regardless of visible data pages until shutdown.
+    /// </summary>
+    private async Task CheckUpdatesPeriodicallyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await m_PopupViewModel!.CheckForUpdateInBackgroundAsync(cancellationToken).ConfigureAwait(true);
+                await Task.Delay(TimeSpan.FromHours(CodexTrayDefaults.UpdateCheckIntervalHours), cancellationToken).ConfigureAwait(true);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     /// <summary>
@@ -1088,6 +1108,7 @@ internal sealed class TrayController : IDisposable
             [
                 m_RefreshTask,
                 m_StartupAutoDetectTask,
+                m_UpdateCheckTask,
                 m_SignalListenerTask,
                 m_ServiceTransitionTask,
                 popupViewModel?.AutoDetectLiteMonitorCommand.ExecutionTask ?? Task.CompletedTask,

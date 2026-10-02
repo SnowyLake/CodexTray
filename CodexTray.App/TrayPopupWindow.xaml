@@ -1887,12 +1887,17 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding AppVersion, StringFormat=Version {0}}"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding AppVersion, StringFormat=Version {0}}"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <TextBlock Text="New" Margin="8,0,0,0" VerticalAlignment="Center"
+                                           FontWeight="SemiBold" Foreground="{Binding AccentBrush}"
+                                           Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            </StackPanel>
                             <Button Grid.Column="1"
                                     Margin="4,0,0,0"
                                     Command="{Binding RunUpdateCommand}"
-                                    Content="&#xE117;"
+                                    Content="{Binding UpdateActionIcon}"
                                     ToolTip="{Binding UpdateActionText}"
                                     ToolTipService.ShowOnDisabled="True"
                                     Style="{StaticResource IconButtonStyle}" />
@@ -2072,10 +2077,16 @@
                             ToolTip="APIs"
                             Visibility="{Binding ShowApisPage, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource ApiTabButtonStyle}" />
-                    <Button Command="{Binding ShowSettingsCommand}"
-                            Content="&#xE713;"
-                            ToolTip="Settings"
-                            Style="{StaticResource SettingsTabButtonStyle}" />
+                    <Grid>
+                        <Button Command="{Binding ShowSettingsCommand}"
+                                Content="&#xE713;"
+                                ToolTip="Settings"
+                                Style="{StaticResource SettingsTabButtonStyle}" />
+                        <Ellipse Width="6" Height="6" Margin="0,4,4,0"
+                                 HorizontalAlignment="Right" VerticalAlignment="Top"
+                                 Fill="{Binding AccentBrush}" IsHitTestVisible="False"
+                                 Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </Grid>
                 </StackPanel>
             </Grid>
 

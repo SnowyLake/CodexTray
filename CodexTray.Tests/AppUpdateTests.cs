@@ -1,4 +1,5 @@
 using CodexTray.Core;
+using CodexTray.App;
 using System.Globalization;
 using System.IO.Compression;
 using System.Net;
@@ -24,7 +25,41 @@ internal static class AppUpdateTests
         failures += await RunAsync("restores the previous installation when replacement fails", TestRestoreFailedUpdateAsync);
         failures += await RunAsync("round-trips update process arguments", TestUpdateArgumentsAsync);
         failures += await RunAsync("rejects updates from a development build", TestRejectDevelopmentBuildAsync);
+        failures += await RunAsync("keeps update indicators until the available release changes", TestUpdateIndicatorsAsync);
         return failures;
+    }
+
+    /// <summary>
+    /// Checks notification state, install confirmation, cancellation, and a later up-to-date result.
+    /// </summary>
+    private static async Task TestUpdateIndicatorsAsync()
+    {
+        TrayPopupViewModel vm = new(new AppSettings(), () => Task.CompletedTask);
+        string packageName = CodexTrayDefaults.BuildReleasePackageName(new Version(99, 0, 0));
+        AppUpdateRelease release = AppUpdateReleaseParser.ParseLatest(ReleaseJson("v99.0.0", packageName,
+            $"https://github.com/SnowyLake/CodexTray/releases/download/v99.0.0/{packageName}", 128, Sha("abc")));
+        InAppDialogRequest? dialog = null;
+        vm.InAppDialogRequested += request => dialog = request;
+        AssertTrue(!vm.HasAvailableUpdate, "no initial notification");
+        vm.SetAvailableUpdate(new AppUpdateCheckResult(AppUpdateAvailability.UpdateAvailable, release));
+        AssertTrue(vm.HasAvailableUpdate && dialog == null, "discovery is silent");
+        AssertEqual("Install update", vm.UpdateActionText, "install tooltip");
+        AssertEqual("\uE896", vm.UpdateActionIcon, "install icon");
+        await vm.RunUpdateCommand.ExecuteAsync(null);
+        AssertEqual("Install", dialog?.PrimaryButtonText, "known release asks to install without another request");
+        AssertTrue(vm.HasAvailableUpdate, "opening confirmation keeps notification");
+        vm.ShowInAppDialog(dialog!);
+        bool becameBusy = false;
+        vm.PropertyChanged += (_, args) => becameBusy |= args.PropertyName == nameof(vm.IsUpdateBusy) && vm.IsUpdateBusy;
+        await vm.CheckForUpdateInBackgroundAsync(CancellationToken.None);
+        AssertTrue(!becameBusy && vm.IsInAppDialogOpen && vm.HasAvailableUpdate, "background check must not interfere with pending confirmation");
+        vm.DismissInAppDialog();
+        await vm.CheckForUpdateInBackgroundAsync(new CancellationToken(canceled: true));
+        AssertTrue(vm.HasAvailableUpdate && !vm.IsUpdateBusy, "cancelled check retains discovered release");
+        vm.SetAvailableUpdate(new AppUpdateCheckResult(AppUpdateAvailability.UpToDate, release));
+        AssertTrue(!vm.HasAvailableUpdate, "successful up-to-date check clears notification");
+        AssertEqual("Check for updates", vm.UpdateActionText, "check tooltip");
+        AssertEqual("\uE117", vm.UpdateActionIcon, "check icon");
     }
 
     /// <summary>

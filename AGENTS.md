@@ -44,7 +44,7 @@
 
 ### 应用内更新
 
-1. Settings 页版本号右侧, `Open About` 左侧的 `Check for updates` 手动请求 `CodexTrayDefaults.GitHubLatestReleaseUrl`. 不自动检查, 不自动下载, 不使用 GitHub token. 请求必须带 `User-Agent: CodexTray`, 检查超时 20 秒. 发现新版本时用内部对话框询问是否安装, 确认后才下载. 已是最新或检查失败时, 用同一对话框显示结果.
+1. 启动时及运行中每隔 6 小时静默请求 `CodexTrayDefaults.GitHubLatestReleaseUrl`, 间隔统一维护在 `CodexTrayDefaults.UpdateCheckIntervalHours`. 检查循环由 `TrayController` 持有, 独立于数据页可见性, 退出时取消并等待. 自动与手动检查及安装共用 ViewModel busy 状态避免重叠; 自动检查失败不弹窗并保留已发现的版本. 发现新版本后, Settings 导航图标显示消息点, 版本号右侧显示 `New`, `Open About` 左侧按钮切换为安装图标, 点击后确认安装; 无已知更新时按钮执行手动检查. 不自动下载, 不使用 GitHub token. 请求必须带 `User-Agent: CodexTray`, 检查超时 20 秒. 手动检查发现新版本时用内部对话框询问是否安装, 确认后才下载. 手动检查已是最新或失败时, 用同一对话框显示结果.
 2. 只接受 tag `vX.Y.Z` 和资产名 `CodexTray-vX.Y.Z-win-x64.zip`. 下载 URL 必须是 `https://github.com` 上对应的 release asset. 用资产 `digest` 的 SHA-256 和 `size` 校验, 包大于 100 MB 时拒绝. 下载超时 120 秒.
 3. 解压时拒绝绝对路径, 盘符和 `..`. 包内必须同时有 `CodexTray.exe`, `Resources` 下的图标和 `model-pricing.json`, 以及 LiteMonitor 与 TrafficMonitor 插件文件.
 4. 校验通过后, 把新包中的 `CodexTray.exe` 复制到临时目录, 用 `--apply-update --wait-pid --parent-started-utc --source --target --restart` 启动. 主进程再走现有退出流程. 更新进程用 PID 和启动时间确认旧进程, 等待它退出, 最长 10 分钟. 覆盖和还原期间持有 `CodexTrayMutex`, 并在启动新进程之前释放.

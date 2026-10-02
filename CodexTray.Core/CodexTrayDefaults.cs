@@ -37,6 +37,7 @@ public static class CodexTrayDefaults
     public const string GitHubLatestReleaseUrl = "https://api.github.com/repos/SnowyLake/CodexTray/releases/latest";
     public const long MaximumReleasePackageBytes = 100L * 1024 * 1024;
     public const int UpdateCheckTimeoutSeconds = 20;
+    public const int UpdateCheckIntervalHours = 6;
     public const int UpdateDownloadTimeoutSeconds = 120;
     public const int UpdateProcessWaitTimeoutSeconds = 600;
     public const string SingleInstanceMutexName = AppName + "Mutex";
