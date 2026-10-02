@@ -1197,7 +1197,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Moves an API monitor card by one position.
+    /// Moves an API monitor card and persists only the order without saving unfinished edits.
     /// </summary>
     private void MoveApiMonitor(ApiMonitorViewModel? monitor, int offset)
     {
@@ -1214,7 +1214,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         ApiMonitors.Move(oldIndex, newIndex);
-        SaveApiMonitors();
+        m_Settings.ApiMonitors = ApiMonitors.Join(m_Settings.ApiMonitors, card => card.Id, saved => saved.Id, (_, saved) => saved).ToList();
+        NotifyApiMonitorCountChanged();
+        ApiMonitorsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>

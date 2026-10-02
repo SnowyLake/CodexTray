@@ -63,7 +63,7 @@
 
 ### API 监控链路
 
-1. `AppSettings.ApiMonitors` 保存 API 监控卡片的顺序和 provider 配置. 支持的 provider 及新建卡片下拉顺序为 DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI, 由 `ApiMonitorViewModel.ProviderOptions` 固定. `TrayPopupViewModel` 负责增删, 排序和持久化卡片. `AppSettings.Normalize` 会移除旧版 Cursor 卡片.
+1. `AppSettings.ApiMonitors` 保存 API 监控卡片的顺序和 provider 配置. 支持的 provider 及新建卡片下拉顺序为 DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI, 由 `ApiMonitorViewModel.ProviderOptions` 固定. `TrayPopupViewModel` 负责增删, 排序和持久化卡片. 升降箭头仅位于卡片编辑页, 排序立即持久化已有卡片的顺序, 不保存未完成的字段编辑或 pending 卡片. `AppSettings.Normalize` 会移除旧版 Cursor 卡片.
 2. `ApiUsageCollector` 并行刷新所有卡片. DeepSeek 使用 `/user/balance`, OpenRouter 使用 `/api/v1/credits`, Vercel 使用 `/v1/credits`, NanoGPT 使用 `/api/check-balance` 和 `/api/v1/usage`, NewAPI 使用 `/api/user/self` 并发送 `New-Api-User` header.
 3. 请求发送到各卡片配置的 Base URL. OpenRouter 使用 Management Key, 不使用普通 API key 的 `/key` limit 作为账户余额. Vercel 使用 AI Gateway API key, 不使用普通 Vercel 账号 token. NewAPI 还需要 User ID. NanoGPT 用量按最近 30 个 UTC 日查询, 用量失败不影响余额显示.
 4. `TrayController` 将结果交给 `TrayPopupViewModel` 更新单卡片状态与 APIs 页汇总状态, 并将第一张 DeepSeek 卡片写入 `UsageCache`. 其他 API provider 不进入插件 HTTP 响应. 有多张 DeepSeek 卡片时只使用最靠前的一张, 该卡片不可用时显示 `N/A`, 不回退到后续 DeepSeek 卡片.
@@ -109,7 +109,7 @@
 - Cursor 额度大卡片通过页点或鼠标滚轮切换 Monthly 与 Grok Bot Weekly, 两个页点尺寸相同, 选中项使用现有绿色. First party 与 APIs 以半宽卡片并排显示.
 - Grok 上方使用 Weekly 大卡片和产品占比小卡片. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 全为零时显示 `Build`, `Chat`, `Others`; 仅一个非零产品时显示该产品, `Build`, `Others`, 若该产品本身为 `Build` 则第二项用 `Chat`; 两个及以上非零产品时保留最高两项, 其余合并到 `Others`. `Others` tooltip 仅列出其中有用量的产品, 为零时显示 `Others 0%`. 用量不可用时显示 `N/A`.
 - API provider 的 API key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.
-- API key 与 NewAPI User ID 使用 `CredentialInput` 的原生 WPF `PasswordBox` 双向编辑; 明文显示仅由当前控件的 Show/Hide 状态控制, 隐藏, 卸载或更换卡片后重置, 不持久化显示状态. 主配置与备份尚未启用 DPAPI, 不得把屏幕遮挡描述为加密存储.
+- API key 与 NewAPI User ID 使用 `CredentialInput` 的原生 WPF `PasswordBox` 双向编辑; 明文显示仅由当前控件右侧眼睛按钮的显示/隐藏状态控制, 图标, tooltip 与无障碍名称随状态同步, 隐藏, 卸载或更换卡片后重置, 不持久化显示状态. 主配置与备份尚未启用 DPAPI, 不得把屏幕遮挡描述为加密存储.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
 
 ### 演进边界

@@ -1414,20 +1414,6 @@
                                                                 Style="{StaticResource IconButtonStyle}" />
                                                         <Button Width="30"
                                                                 Height="30"
-                                                                Command="{Binding DataContext.MoveApiMonitorUpCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                                                                CommandParameter="{Binding}"
-                                                                Content="&#xE74A;"
-                                                                ToolTip="Move up"
-                                                                Style="{StaticResource IconButtonStyle}" />
-                                                        <Button Width="30"
-                                                                Height="30"
-                                                                Command="{Binding DataContext.MoveApiMonitorDownCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                                                                CommandParameter="{Binding}"
-                                                                Content="&#xE74B;"
-                                                                ToolTip="Move down"
-                                                                Style="{StaticResource IconButtonStyle}" />
-                                                        <Button Width="30"
-                                                                Height="30"
                                                                 Command="{Binding ToggleEditingCommand}"
                                                                 Content="&#xE713;"
                                                                 ToolTip="Settings"
@@ -1489,6 +1475,20 @@
                                                                FontWeight="SemiBold" />
                                                     <StackPanel Grid.Column="1"
                                                                 Orientation="Horizontal">
+                                                        <Button Width="30"
+                                                                Height="30"
+                                                                Command="{Binding DataContext.MoveApiMonitorUpCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="&#xE74A;"
+                                                                ToolTip="Move up"
+                                                                Style="{StaticResource IconButtonStyle}" />
+                                                        <Button Width="30"
+                                                                Height="30"
+                                                                Command="{Binding DataContext.MoveApiMonitorDownCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="&#xE74B;"
+                                                                ToolTip="Move down"
+                                                                Style="{StaticResource IconButtonStyle}" />
                                                         <Button Width="30"
                                                                 Height="30"
                                                                 Command="{Binding DataContext.RemoveApiMonitorCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"

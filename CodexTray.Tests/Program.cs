@@ -200,12 +200,15 @@ internal static class Program
                 System.Windows.Controls.PasswordBox masked = (System.Windows.Controls.PasswordBox)credential.FindName("MaskedInput");
                 System.Windows.Controls.TextBox revealed = (System.Windows.Controls.TextBox)credential.FindName("RevealedInput");
                 System.Windows.Controls.Button revealButton = (System.Windows.Controls.Button)credential.FindName("RevealButton");
+                System.Windows.Shapes.Path hiddenEyeSlash = (System.Windows.Shapes.Path)credential.FindName("HiddenEyeSlash");
                 AssertEqual(System.Windows.Visibility.Collapsed, revealed.Visibility, "credential must begin masked");
                 AssertEqual("test-credential", masked.Password, "masked field must load the saved credential");
                 masked.Password = "edited-credential";
                 AssertEqual("edited-credential", credentialCard.ApiKey, "masked editing must update the card binding");
                 revealButton.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
                 AssertEqual(System.Windows.Visibility.Visible, revealed.Visibility, "explicit reveal must show the editable text");
+                AssertEqual(System.Windows.Visibility.Visible, hiddenEyeSlash.Visibility, "revealed credential must offer the crossed eye icon");
+                AssertEqual("Hide credential", System.Windows.Automation.AutomationProperties.GetName(revealButton), "reveal action must remain accessible");
                 revealed.SetCurrentValue(System.Windows.Controls.TextBox.TextProperty, "revealed-edit");
                 AssertEqual("revealed-edit", masked.Password, "revealed editing must synchronize the masked field");
                 AssertEqual("revealed-edit", credentialCard.ApiKey, "revealed editing must update the persisted card source");
@@ -217,6 +220,8 @@ internal static class Program
                 AssertEqual("external-edit", masked.Password, "card changes must synchronize the masked field");
                 credential.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.UnloadedEvent));
                 AssertEqual(System.Windows.Visibility.Collapsed, revealed.Visibility, "ending editing must clear reveal state");
+                AssertEqual(System.Windows.Visibility.Collapsed, hiddenEyeSlash.Visibility, "hidden credential must offer the open eye icon");
+                AssertEqual("Show credential", System.Windows.Automation.AutomationProperties.GetName(revealButton), "hidden credential must expose the reveal action");
                 AssertEqual(CodexTrayDefaults.PopupWindowWidth, window.Width, "fixed popup width");
                 AssertEqual(CodexTrayDefaults.PopupWindowHeight, window.Height, "fixed popup height");
                 AssertEqual(window.Width, window.MinWidth, "fixed popup minimum width");
@@ -3397,6 +3402,15 @@ internal static class Program
         AssertEqual(first, viewModel.ApiMonitors[1], "API monitor should move down");
         AssertTrue(viewModel.MoveApiMonitorUpCommand.CanExecute(first), "moved API monitor should move up");
         AssertTrue(!viewModel.MoveApiMonitorDownCommand.CanExecute(first), "moved API monitor should not move below the last position");
+        AssertEqual(0, settings.ApiMonitors.Count, "reordering pending cards must not save them");
+        first.ToggleEditingCommand.Execute(null);
+        second.ToggleEditingCommand.Execute(null);
+        string savedName = settings.ApiMonitors.Single(card => card.Id == first.Id).Name;
+        first.ToggleEditingCommand.Execute(null);
+        first.Name = "Unfinished edit";
+        viewModel.MoveApiMonitorUpCommand.Execute(first);
+        AssertEqual(first.Id, settings.ApiMonitors[0].Id, "reordering saved cards must persist their order");
+        AssertEqual(savedName, settings.ApiMonitors[0].Name, "reordering must not persist unfinished card fields");
         return Task.CompletedTask;
     }
 

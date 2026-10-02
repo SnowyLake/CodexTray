@@ -75,6 +75,9 @@ internal partial class CredentialInput : Controls.UserControl
     {
         MaskedInput.Visibility = revealed ? Visibility.Collapsed : Visibility.Visible;
         RevealedInput.Visibility = revealed ? Visibility.Visible : Visibility.Collapsed;
-        RevealButton.Content = revealed ? "Hide" : "Show";
+        HiddenEyeSlash.Visibility = revealed ? Visibility.Visible : Visibility.Collapsed;
+        string action = revealed ? "Hide credential" : "Show credential";
+        RevealButton.ToolTip = action;
+        System.Windows.Automation.AutomationProperties.SetName(RevealButton, action);
     }
 }

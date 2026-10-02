@@ -105,7 +105,7 @@ Codex, Cursor 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓�
 
 ## API 监控
 
-在 APIs 页点击右上角的添加按钮, 选择 provider 并填写对应信息, 再点击卡片右上角的保存按钮. API 监控会按刷新间隔自动更新, 也可以手动刷新. 隐藏 APIs 页后会停止 API 监控采集.
+在 APIs 页点击右上角的添加按钮, 选择 provider 并填写对应信息, 再点击卡片右上角的保存按钮. 卡片设置页中的上下箭头可调整排列顺序, 顺序立即保存. API 监控会按刷新间隔自动更新, 也可以手动刷新. 隐藏 APIs 页后会停止 API 监控采集.
 
 - DeepSeek: 填写 Base URL 和 API key, 默认 Base URL 为 `https://api.deepseek.com`. 卡片显示 CNY 余额, 第一张 DeepSeek 卡片也会显示在 LiteMonitor 和 TrafficMonitor 中.
 - OpenRouter: 填写 Base URL 和 Management Key, 默认 Base URL 为 `https://openrouter.ai`. 卡片显示剩余与已用 credits, 普通 API key 不适用.
@@ -130,7 +130,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 - Codex, Cursor 和 Grok 的额度使用本机已有登录信息向各自的官方服务查询.
 - Codex 和 Grok 的 Token Cost 从本机会话日志统计; Cursor 使用官方账单记录. Codex 和 Grok 页面不读取 OpenCode 会话.
 - DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
-- API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击 `Show` 可临时显示和编辑, 点击 `Hide` 或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.
+- API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击输入框右侧的眼睛图标可临时显示和编辑, 再次点击或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.
 - Cursor 和 Grok 的登录凭据会自动续期并写回各自的本地登录文件, 不会复制到 `settings.json`.
 - 插件连接仅供本机访问, 默认端口为 `17890`, 不向局域网开放. 登录凭据不会写入日志, 插件配置或插件收到的数据.
 - 应用设置保存在 `CodexTray.exe` 同级目录的 `settings.json`.
