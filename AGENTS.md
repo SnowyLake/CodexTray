@@ -96,12 +96,12 @@
 
 ### 设置边界
 
-- `SettingsStore.LoadError` 非空时禁止全部持久化, 自动插件定位也跳过. 读取与保存均验证 JSON object 和可反序列化字段, 运行期间文件损坏同样阻止覆盖. `settings.last-good.json` 保存上一份有效配置; 恢复先验证备份, 把当前文件复制为 `settings.damaged-<guid>.json`, 再原子替换主文件. 主配置, 备份和保留副本中的 API 凭据均使用相同明文表示, 不得分享这些文件. 恢复会替换 ViewModel 的共享配置引用并阻止旧配置的在途刷新发布.
+- `SettingsStore.LoadError` 非空时禁止全部持久化, 自动插件定位也跳过. 读取与保存均验证 JSON object 和可反序列化字段, 运行期间文件损坏同样阻止覆盖. 主配置已成功解析时, 后续备份或规范化写入失败仍返回该有效配置, 同时报告错误并阻止持久化. `settings.last-good.json` 保存上一份有效配置; 恢复先验证备份, 把当前文件复制为 `settings.damaged-<guid>.json`, 再原子替换主文件. 主配置, 备份和保留副本中的 API 凭据均使用相同明文表示, 不得分享这些文件. 恢复会替换 ViewModel 的共享配置引用并阻止旧配置的在途刷新发布.
 - 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults` (`CodexTray.Core/CodexTrayDefaults.cs`).
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
 - 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.
 - 主面板尺寸固定为 360 x 620.
-- `TrayController.BuildTrayTooltip` 只格式化当前可见来源的插件缓存, 使用 `Codex W`, `Cursor M`, `Grok W` 和 `DeepSeek` 标签, 总长最多 63 字符. 额度限制在 0 到 100 的整数, DeepSeek 整元余额超过 11 字符时截短并加省略号; 不回显源错误或凭据. 各来源发布与页面可见性变化后更新托盘 Text. `TrayPopupViewModel.IsPanelPinned` 默认 false, 不写 settings, 开启后 `OnDeactivated` 不隐藏; Esc 与托盘左键仍沿用显式隐藏逻辑, 页脚图钉使用现有绿色表示选中状态.
+- `TrayController.BuildTrayTooltip` 只格式化当前可见来源的插件缓存, 使用 `Codex W`, `Cursor M`, `Grok W` 和 `DeepSeek` 标签, 总长最多 63 字符. 额度限制在 0 到 100 的整数, DeepSeek 整元余额超过 11 字符时截短并加省略号; 不回显源错误或凭据. 各来源发布与页面可见性变化后更新托盘 Text. `TrayPopupViewModel.IsPanelPinned` 默认 false, 不写 settings, 开启后 `OnDeactivated` 不隐藏; Esc 与托盘左键仍沿用显式隐藏逻辑, 页脚图钉使用现有绿色表示选中状态. 窗口关闭时保留 ViewModel 的采集状态, 清理应用内对话框及其确认回调, 并取消窗口的 `PropertyChanged` 订阅.
 - Codex, Cursor, Grok 与 APIs 页面默认全部可见. 无可见数据页时不运行定时刷新和本地 HTTP 服务.
 - Codex, Cursor 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Lifetime`. `24H` 从当前时刻精确向前滚动 24 小时. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
 - 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). Token 数量使用 K, M, B.
@@ -156,7 +156,7 @@
 - `bin` 和 `obj` 使用项目默认位置.
 - 不提交 `bin`, `obj`, `Builds` 或 `Plugins/TrafficMonitor/Builds` 下的生成文件.
 - App 发布为 `net10.0-windows`, `win-x64`, 单文件, framework-dependent 应用. `CodexTray.Core` 目标框架为 `net10.0`.
-- `Scripts/Publish-App.ps1` 清理已有发布输出时必须保留 `settings.json`.
+- `Scripts/Publish-App.ps1` 清理已有发布输出时必须保留 `settings.json`, `settings.last-good.json` 和 `settings.damaged-*.json`.
 - `Resources` 和插件模板作为外部文件复制到发布目录.
 - 只有 `Plugins/TrafficMonitor/Builds/x64/Release/CodexTray.dll` 已存在时, App 发布才会复制 TrafficMonitor DLL.
 - `Directory.Build.targets` 排除 `Builds/**` 下的 `.cs`, 防止发布产物被 SDK 默认编译项重新纳入编译.
@@ -176,6 +176,12 @@ dotnet build .\CodexTray.sln -m:1
 
 ```powershell
 dotnet run --project .\CodexTray.Tests\CodexTray.Tests.csproj
+```
+
+验证发布清理保留配置文件:
+
+```powershell
+.\Scripts\Test-PublishCleanup.ps1
 ```
 
 构建 TrafficMonitor 原生插件:

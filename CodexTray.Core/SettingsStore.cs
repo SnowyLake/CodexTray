@@ -239,15 +239,16 @@ public sealed class SettingsStore
     }
 
     /// <summary>
-    /// Loads persisted settings, repairs missing fields, or returns defaults.
+    /// Loads persisted settings and retains valid values when backup or normalization writes fail.
     /// </summary>
     public AppSettings Load()
     {
         LoadError = string.Empty;
+        AppSettings? settings = null;
         try
         {
             string json = File.ReadAllText(SettingsPath);
-            AppSettings settings = ParseSettings(json);
+            settings = ParseSettings(json);
             string normalized = JsonSerializer.Serialize(settings, s_JsonOptions);
             if (!File.Exists(BackupPath) || !string.Equals(json, normalized, StringComparison.Ordinal))
             {
@@ -272,7 +273,7 @@ public sealed class SettingsStore
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             LoadError = FormatLoadError(exception);
-            return new AppSettings().Normalize();
+            return settings ?? new AppSettings().Normalize();
         }
     }
 

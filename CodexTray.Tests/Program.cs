@@ -63,6 +63,7 @@ internal static class Program
         await RunAsync("repairs missing settings fields", TestSettingsStoreRepairsMissingFieldsAsync);
         await RunAsync("repairs null and malformed settings", TestSettingsStoreRepairsNullAndMalformedValuesAsync);
         await RunAsync("preserves damaged settings and restores validated backups", TestSettingsRecoveryAsync);
+        await RunAsync("retains valid settings after backup or normalization write failures", TestSettingsMaintenanceFailureAsync);
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
         await RunAsync("formats compact token units", TestTokenUnitFormattingAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
@@ -623,7 +624,20 @@ internal static class Program
                 AssertEqual(91d, codexPrimaryCard.ActualHeight, "Codex primary card height after Session update");
                 AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex Resets height after Session update");
                 AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"updated Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
+                PropertyInfo themeModeProperty = typeof(System.Windows.Window).GetProperty("ThemeMode")!;
+                object? closedThemeMode = themeModeProperty.GetValue(window);
+                bool dialogConfirmed = false;
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Confirm", "Review fixture", "OK", PrimaryAction: () => dialogConfirmed = true));
+                new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
                 window.Close();
+                AssertTrue(!viewModel.IsModalOpen, "closing a dialog window must release the tray toggle guard");
+                viewModel.ConfirmInAppDialogCommand.Execute(null);
+                AssertTrue(!dialogConfirmed, "closing a window must discard its pending confirmation action");
+                TrayPopupWindow reopenedWindow = new(viewModel);
+                viewModel.ThemeMode = viewModel.ThemeMode == AppSettings.ThemeModeDark ? AppSettings.ThemeModeLight : AppSettings.ThemeModeDark;
+                AssertEqual(closedThemeMode, themeModeProperty.GetValue(window), "closed windows must stop receiving view model theme changes");
+                AssertEqual(viewModel.ThemeMode, themeModeProperty.GetValue(reopenedWindow)?.ToString(), "reopened windows must receive view model theme changes");
+                reopenedWindow.Close();
             }
             catch (Exception exception)
             {
@@ -1651,6 +1665,40 @@ internal static class Program
         AssertEqual(SettingsStatus.Unsaved, viewModel.SettingsStatus, "unsaved candidate must not claim success");
         candidate.ApiMonitors[0].ApiKey = "different-test-key";
         AssertEqual("test-secret", restored.ApiMonitors[0].ApiKey, "candidate must not share mutable credential cards");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies valid configuration remains active when backup creation or normalization cannot write files.
+    /// </summary>
+    private static Task TestSettingsMaintenanceFailureAsync()
+    {
+        foreach (bool failBackup in new[] { true, false })
+        {
+            using TempDirectory temp = new();
+            SettingsStore store = new(temp.Path);
+            AppSettings initial = new() { Port = 18042, VisiblePages = PageItem.Codex, ApiMonitors = [new() { ApiKey = "test-key" }] };
+            store.Save(initial);
+            if (failBackup)
+            {
+                File.Delete(store.BackupPath);
+                Directory.CreateDirectory(store.BackupPath);
+            }
+            else
+            {
+                File.AppendAllText(store.SettingsPath, "\n");
+            }
+
+            string original = File.ReadAllText(store.SettingsPath);
+            using FileStream? locked = failBackup ? null : new FileStream(store.SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            AppSettings loaded = store.Load();
+            AssertEqual(initial.Port, loaded.Port, "maintenance write failures must preserve the validated port");
+            AssertEqual(initial.VisiblePages, loaded.VisiblePages, "maintenance write failures must preserve page visibility");
+            AssertEqual("test-key", loaded.ApiMonitors[0].ApiKey, "maintenance write failures must preserve API cards");
+            AssertTrue(store.IsWriteBlocked, "maintenance write failures must report an error and block persistence");
+            AssertEqual(original, File.ReadAllText(store.SettingsPath), "failed maintenance must leave the original configuration intact");
+        }
+
         return Task.CompletedTask;
     }
 
