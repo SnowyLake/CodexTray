@@ -8,6 +8,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>CodexTray.Tests</_Parameter1>
+    </AssemblyAttribute>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <!-- Pin the native SQLite bundle above the 2.1.11 version pulled by Microsoft.Data.Sqlite. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />

@@ -9,8 +9,24 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
 {
     private static readonly Media.Brush s_GreenBrush = new Media.SolidColorBrush(Media.Color.FromRgb(26, 188, 137));
     private static readonly Media.Brush s_RedBrush = new Media.SolidColorBrush(Media.Color.FromRgb(224, 91, 77));
+    private static readonly Media.Brush s_YellowBrush = new Media.SolidColorBrush(Media.Color.FromRgb(226, 176, 54));
+
+    /// <summary>
+    /// Freezes shared status brushes so independently resumed refresh tests and UI reads can safely access them.
+    /// </summary>
+    static ApiMonitorViewModel()
+    {
+        s_GreenBrush.Freeze();
+        s_RedBrush.Freeze();
+        s_YellowBrush.Freeze();
+    }
 
     private string m_Provider;
+    public RefreshState BalanceState { get; private set; } = new();
+    public RefreshState UsedState { get; private set; } = new();
+
+    [ObservableProperty]
+    public partial string StatusTooltip { get; private set; } = string.Empty;
 
     public event EventHandler? EditingSaved;
 
@@ -63,6 +79,9 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             UsedDisplay = "N/A";
             StatusText = "Waiting for refresh";
             StatusDotBrush = s_RedBrush;
+            BalanceState = new();
+            UsedState = new();
+            StatusTooltip = string.Empty;
 
             OnPropertyChanged(nameof(IsNewApi));
             OnPropertyChanged(nameof(HasSecondaryDisplay));
@@ -83,7 +102,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
 
     public bool IsNewApi => m_Provider == ApiMonitorSettings.NewApiProvider;
 
-    public bool HasSecondaryDisplay => IsNewApi ||
+    public bool HasSecondaryDisplay => IsNewApi || m_Provider == ApiMonitorSettings.NanoGptProvider ||
         (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.NanoGptProvider or ApiMonitorSettings.VercelProvider &&
          !string.IsNullOrEmpty(UsedDisplay) && UsedDisplay != "N/A");
 
@@ -185,10 +204,14 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         BalanceDisplay = result.BalanceDisplay;
         BalanceTooltip = result.BalanceTooltip;
         UsedDisplay = result.UsedDisplay;
+        BalanceState.Update(result.Available, result.UpdatedAt, result.Error);
+        bool hasUsage = !string.IsNullOrEmpty(result.UsedDisplay) && result.UsedDisplay != "N/A";
+        UsedState.Update(hasUsage, result.UpdatedAt, result.UsedError.Length > 0 ? result.UsedError : result.Error);
+        StatusTooltip = $"Balance: {BalanceState.Tooltip}" + (Provider != ApiMonitorSettings.DeepSeekProvider ? $"\nUsage: {UsedState.Tooltip}" : string.Empty);
         StatusText = result.Available
-            ? $"Updated {result.UpdatedAt:HH:mm}"
+            ? $"Updated {result.UpdatedAt:HH:mm}{(result.UsedError.Length > 0 ? " · Partial" : string.Empty)}"
             : result.Error;
-        StatusDotBrush = result.Available ? s_GreenBrush : s_RedBrush;
+        StatusDotBrush = result.Available ? result.UsedError.Length > 0 ? s_YellowBrush : s_GreenBrush : s_RedBrush;
     }
 
     /// <summary>

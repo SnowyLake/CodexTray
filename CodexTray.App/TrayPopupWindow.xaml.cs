@@ -1,4 +1,5 @@
 using CodexTray.Core;
+using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -31,7 +32,15 @@ internal sealed partial class TrayPopupWindow : Window
         InitializeComponent();
         DataContext = viewModel;
         ApplyThemeMode(viewModel.ThemeMode);
-        viewModel.PropertyChanged += (_, args) =>
+        viewModel.PropertyChanged += OnViewModelPropertyChanged;
+    }
+
+    /// <summary>
+    /// Applies theme and backdrop changes from the retained view model while this window is open.
+    /// </summary>
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (sender is TrayPopupViewModel viewModel)
         {
             switch (args.PropertyName)
             {
@@ -43,7 +52,21 @@ internal sealed partial class TrayPopupWindow : Window
                     ApplyBackdrop();
                     break;
             }
-        };
+        }
+    }
+
+    /// <summary>
+    /// Releases window subscriptions and dismisses transient dialogs before the view model is reused.
+    /// </summary>
+    protected override void OnClosed(EventArgs args)
+    {
+        if (DataContext is TrayPopupViewModel viewModel)
+        {
+            viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            viewModel.DismissInAppDialog();
+        }
+
+        base.OnClosed(args);
     }
 
     /// <summary>
@@ -116,7 +139,7 @@ internal sealed partial class TrayPopupWindow : Window
     protected override void OnDeactivated(EventArgs args)
     {
         base.OnDeactivated(args);
-        if (DataContext is TrayPopupViewModel { IsModalOpen: true } || HasOpenComboBox(this) || HasOpenContextMenu(this))
+        if (DataContext is TrayPopupViewModel { IsPanelPinned: true } or TrayPopupViewModel { IsModalOpen: true } || HasOpenComboBox(this) || HasOpenContextMenu(this))
         {
             return;
         }

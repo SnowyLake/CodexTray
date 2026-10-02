@@ -92,7 +92,7 @@ public sealed class GrokUsageCollector
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or IOException or UnauthorizedAccessException or FormatException or OverflowException)
         {
-            string error = exception is TaskCanceledException ? "Request timed out" : exception.Message;
+            string error = exception is GrokDataException ? exception.Message : UsageDiagnostics.Error(exception);
             return new GrokUsageDashboard(null, error, DateTimeOffset.Now);
         }
     }
@@ -134,7 +134,7 @@ public sealed class GrokUsageCollector
             !document.RootElement.TryGetProperty("config", out JsonElement config) ||
             config.ValueKind != JsonValueKind.Object)
         {
-            throw new InvalidOperationException("Could not parse Grok billing usage.");
+            throw new GrokDataException("Could not parse Grok billing usage.");
         }
 
         bool hasCurrentPeriod = config.TryGetProperty("currentPeriod", out JsonElement currentPeriod) &&
@@ -144,12 +144,12 @@ public sealed class GrokUsageCollector
         {
             if (usedPercentElement.ValueKind != JsonValueKind.Number || !usedPercentElement.TryGetDouble(out usedPercent) || !double.IsFinite(usedPercent))
             {
-                throw new InvalidOperationException("Could not parse Grok billing usage.");
+                throw new GrokDataException("Could not parse Grok billing usage.");
             }
         }
         else if (!hasCurrentPeriod)
         {
-            throw new InvalidOperationException("Could not parse Grok billing usage.");
+            throw new GrokDataException("Could not parse Grok billing usage.");
         }
 
         string resetText = hasCurrentPeriod && currentPeriod.TryGetProperty("end", out JsonElement periodEnd) && periodEnd.ValueKind == JsonValueKind.String
@@ -159,7 +159,7 @@ public sealed class GrokUsageCollector
                 : string.Empty;
         if (!DateTimeOffset.TryParse(resetText, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out DateTimeOffset resetsAt))
         {
-            throw new InvalidOperationException("Could not parse Grok billing usage.");
+            throw new GrokDataException("Could not parse Grok billing usage.");
         }
 
         List<GrokProductUsage> productUsage = [];
@@ -227,7 +227,7 @@ public sealed class GrokUsageCollector
             (PathEquals(field.Path, 1, 8, 1) && (field.Value == 1 || field.Value == 2)));
         if (resetField == null || (percentField == null && !hasUsagePeriod))
         {
-            throw new InvalidOperationException("Could not parse Grok billing usage.");
+            throw new GrokDataException("Could not parse Grok billing usage.");
         }
 
         return new GrokUsageSnapshot(percentField?.Value ?? 0, (long)resetField.Value);
@@ -243,7 +243,7 @@ public sealed class GrokUsageCollector
         {
             if (!TryLoadGrokBuildCredential(out GrokBuildCredential credential, out string error))
             {
-                throw new InvalidOperationException(error);
+                throw new GrokDataException(error);
             }
 
             if (!forceRefresh && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken))
@@ -253,7 +253,7 @@ public sealed class GrokUsageCollector
 
             if (string.IsNullOrWhiteSpace(credential.RefreshToken))
             {
-                throw new InvalidOperationException(forceRefresh
+                throw new GrokDataException(forceRefresh
                     ? "Grok Build OAuth token expired or unauthorized and no refresh token is available. Run grok login."
                     : "Grok Build OAuth token expired. Run grok login to refresh it.");
             }
@@ -300,12 +300,6 @@ public sealed class GrokUsageCollector
         {
             return await FetchCreditsAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
         }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (HttpRequestException)
-        {
-        }
         catch (JsonException)
         {
         }
@@ -315,7 +309,10 @@ public sealed class GrokUsageCollector
         catch (OverflowException)
         {
         }
-        catch (InvalidOperationException exception) when (!IsAuthFailure(exception))
+        catch (GrokDataException exception) when (!IsAuthFailure(exception))
+        {
+        }
+        catch (UsageHttpException exception) when (exception.Status is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
         {
         }
 
@@ -338,16 +335,16 @@ public sealed class GrokUsageCollector
         request.Headers.Accept.ParseAdd("application/json");
         request.Headers.UserAgent.ParseAdd("CodexTray");
 
-        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
         string responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            throw new InvalidOperationException("Grok Build OAuth token expired or unauthorized. Run grok login again.");
+            throw new GrokDataException("Grok Build OAuth token expired or unauthorized. Run grok login again.");
         }
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Grok credits request failed: HTTP {(int)response.StatusCode}");
+            throw new UsageHttpException(response.StatusCode);
         }
 
         return ParseCreditsResponse(responseBody);
@@ -370,16 +367,16 @@ public sealed class GrokUsageCollector
         request.Headers.Accept.ParseAdd("*/*");
         request.Headers.UserAgent.ParseAdd("CodexTray");
 
-        using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
         byte[] responseBody = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            throw new InvalidOperationException("Grok Build OAuth token expired or unauthorized. Run grok login again.");
+            throw new GrokDataException("Grok Build OAuth token expired or unauthorized. Run grok login again.");
         }
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Grok billing request failed: HTTP {(int)response.StatusCode}");
+            throw new UsageHttpException(response.StatusCode);
         }
 
         ValidateGrpcStatus(response.Headers);
@@ -515,10 +512,10 @@ public sealed class GrokUsageCollector
     private static void SaveGrokBuildCredential(GrokBuildCredential credential, OAuthTokenRefresh refresh)
     {
         string text = File.ReadAllText(credential.AuthPath);
-        JsonNode root = JsonNode.Parse(text) ?? throw new InvalidOperationException("Grok Build OAuth file has an invalid format.");
+        JsonNode root = JsonNode.Parse(text) ?? throw new GrokDataException("Grok Build OAuth file has an invalid format.");
         if (root is not JsonObject rootObject)
         {
-            throw new InvalidOperationException("Grok Build OAuth file has an invalid format.");
+            throw new GrokDataException("Grok Build OAuth file has an invalid format.");
         }
 
         JsonObject entryObject = rootObject[credential.EntryKey] as JsonObject ?? new JsonObject();
@@ -689,7 +686,7 @@ public sealed class GrokUsageCollector
     /// </summary>
     private static bool IsAuthFailure(InvalidOperationException exception)
     {
-        return exception.Message.Contains("expired or unauthorized", StringComparison.OrdinalIgnoreCase);
+        return exception is GrokDataException && exception.Message.Contains("expired or unauthorized", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -701,7 +698,7 @@ public sealed class GrokUsageCollector
             int.TryParse(values.FirstOrDefault(), CultureInfo.InvariantCulture, out int status) &&
             status != 0)
         {
-            throw new InvalidOperationException(status == 16
+            throw new GrokDataException(status == 16
                 ? "Grok Build OAuth token expired or unauthorized. Run grok login again."
                 : $"Grok billing request failed with gRPC status {status}.");
         }
@@ -754,7 +751,7 @@ public sealed class GrokUsageCollector
 
         if (payloads.Count == 0)
         {
-            throw new InvalidOperationException("Grok billing returned no protobuf payload.");
+            throw new GrokDataException("Grok billing returned no protobuf payload.");
         }
 
         return payloads;
@@ -775,7 +772,7 @@ public sealed class GrokUsageCollector
                 continue;
             }
 
-            throw new InvalidOperationException(status == 16
+            throw new GrokDataException(status == 16
                 ? "Grok Build OAuth token expired or unauthorized. Run grok login again."
                 : $"Grok billing request failed with gRPC status {status}.");
         }
@@ -947,4 +944,5 @@ public sealed class GrokUsageCollector
         string ClientId,
         string UserId);
 
+    private sealed class GrokDataException(string message) : InvalidOperationException(message);
 }

@@ -33,8 +33,12 @@
 - 查看 Cursor Monthly, Grok Bot Weekly, First party 和 APIs 额度, 以及 Grok Weekly 额度与各产品使用占比.
 - 按时段查看 token 总量, 费用, 缓存命中率, 模型占比和用量趋势.
 - 在 APIs 页添加多个余额监控卡片, 自定义名称, 调整顺序或删除.
-- 自动刷新并显示刷新状态, 也可以随时手动刷新.
+- 自动刷新并显示刷新状态, 也可以随时手动刷新. Codex, Cursor, Grok 和 APIs 完成采集后各自立即更新, Codex 与 Grok 的额度和本地 Token Cost 也分别更新, 不必等待其他来源.
+- 各页面的刷新按钮只刷新当前来源, API 卡片的重试按钮只刷新该卡片. Settings 的 Advanced 一栏提供 `Copy diagnostics`, 一次复制所有来源的应用版本, 各部分最后成功时间和错误分类, 便于排查认证, 网络, 超时, 限流或响应格式问题; 不包含卡片名称, 地址或凭据. 暂时故障会有限重试, 服务要求较长等待时请稍后手动重试.
+- 将鼠标放到刷新状态或 Token Cost 区域可查看各部分最后成功时间和失败原因. 读取失败的数值与插件数据显示 N/A, 不沿用旧值. 费用旁的 `*` 表示部分费用, 悬停可查看未定价或费用不完整的模型; tooltip 同时说明费用来源.
 - 支持浅色, 深色和跟随系统的主题, 可隐藏不使用的页面, 设置随 Windows 启动.
+- 配置读取或备份写入失败时显示错误并保留原文件, 保存操作会暂停. 已成功读取的有效配置仍会继续使用. Settings 的 Advanced 一栏提供 `Restore last good settings`, 可恢复上一份有效配置, 恢复前会另存当前文件. 没有有效备份时, 请修复原配置或目录写入权限后重新启动.
+- 托盘悬停显示可见来源的 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片余额, 不可用时显示 N/A. 面板左下角的图钉可固定显示, 再点一次恢复失焦收起; Esc 或托盘左键仍可收起, 固定状态只保留到应用退出.
 - 自动检测 LiteMonitor 与 TrafficMonitor 目录, 一键安装插件.
 - 在 Settings 页检查 GitHub 上的新版本, 确认后完成升级.
 
@@ -73,6 +77,8 @@ Codex, Cursor 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓�
 - 滚动周期: `24H`, `7D`, `30D`, `Lifetime`. `24H` 表示从当前时刻向前的 24 小时.
 - 自然周期: `Today`, `Week`, `Month`, `Lifetime`.
 
+悬停 Codex 或 Grok 圆环中的模型可查看 `Speed`, 显示所选时段内有计时记录的平均输出速度. Codex 根据本机会话的单次模型响应窗口估算, 排除输出完成后的工具执行等待, 显示 `~N.N tok/s`; `~` 表示估算值. Grok 使用会话中报告的 API 调用耗时计算, 显示 `N.N tok/s`, 部分调用未报告耗时时结果可能偏高. 两种口径都包含首 token 等待等开销, 不代表纯生成阶段的速度. Codex 或 Grok 记录缺少可靠计时数据时显示 `N/A`. Cursor 圆环 tooltip 不显示速度.
+
 三个页面的费用来源不同:
 
 | 页面 | 费用含义 |
@@ -99,7 +105,7 @@ Codex, Cursor 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓�
 
 ## API 监控
 
-在 APIs 页点击右上角的添加按钮, 选择 provider 并填写对应信息, 再点击卡片右上角的保存按钮. API 监控会按刷新间隔自动更新, 也可以手动刷新. 隐藏 APIs 页后会停止 API 监控采集.
+在 APIs 页点击右上角的添加按钮, 选择 provider 并填写对应信息, 再点击卡片右上角的保存按钮. 卡片设置页中的上下箭头可调整排列顺序, 顺序立即保存. API 监控会按刷新间隔自动更新, 也可以手动刷新. 隐藏 APIs 页后会停止 API 监控采集.
 
 - DeepSeek: 填写 Base URL 和 API key, 默认 Base URL 为 `https://api.deepseek.com`. 卡片显示 CNY 余额, 第一张 DeepSeek 卡片也会显示在 LiteMonitor 和 TrafficMonitor 中.
 - OpenRouter: 填写 Base URL 和 Management Key, 默认 Base URL 为 `https://openrouter.ai`. 卡片显示剩余与已用 credits, 普通 API key 不适用.
@@ -124,9 +130,11 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 - Codex, Cursor 和 Grok 的额度使用本机已有登录信息向各自的官方服务查询.
 - Codex 和 Grok 的 Token Cost 从本机会话日志统计; Cursor 使用官方账单记录. Codex 和 Grok 页面不读取 OpenCode 会话.
 - DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
+- API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击输入框右侧的眼睛图标可临时显示和编辑, 再次点击或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.
 - Cursor 和 Grok 的登录凭据会自动续期并写回各自的本地登录文件, 不会复制到 `settings.json`.
 - 插件连接仅供本机访问, 默认端口为 `17890`, 不向局域网开放. 登录凭据不会写入日志, 插件配置或插件收到的数据.
 - 应用设置保存在 `CodexTray.exe` 同级目录的 `settings.json`.
+- 有效配置备份与恢复时保留的原文件也在应用目录中, 凭据同样为明文. 请勿分享 `settings.json`, `settings.last-good.json` 或 `settings.damaged-*.json`.
 
 ## 常见问题
 
@@ -160,7 +168,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 ### 为什么软件内更新失败
 
-Settings 页的 `Check for updates` 需要能访问 GitHub. 安装目录必须可写, 并且其中已经有完整的发布文件. 从源代码编译运行时, `CodexTray.exe` 旁边会有 `CodexTray.dll`, 这时不能在软件内更新, 请改用发布目录或解压后的安装包. 弹窗中选择 `Install` 后, 程序会退出并替换文件; 更新过程中本地插件接口会短暂中断. 替换失败时会恢复更新前的文件并重新启动.
+软件每次启动及运行中每隔 6 小时自动检查更新, 需要能访问 GitHub. 发现新版本时, 底部 Settings 图标显示消息点, 版本号右侧显示 `New`, 检查按钮切换为安装图标. 点击安装图标并确认后才会下载安装; 自动检查失败时不会弹窗, 已发现的更新提示会保留. 没有更新提示时仍可通过 `Check for updates` 手动检查. 安装目录必须可写, 并且其中已经有完整的发布文件. 从源代码编译运行时, `CodexTray.exe` 旁边会有 `CodexTray.dll`, 这时不能在软件内更新, 请改用发布目录或解压后的安装包. 弹窗中选择 `Install` 后, 程序会退出并替换文件; 更新过程中本地插件接口会短暂中断. 替换失败时会恢复更新前的文件并重新启动.
 
 ### 为什么托盘图标没有直接显示在任务栏
 

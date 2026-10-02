@@ -12,7 +12,8 @@ public sealed record ApiUsageResult(
     string Error,
     DateTimeOffset UpdatedAt,
     string BalanceTooltip = "",
-    string Provider = "");
+    string Provider = "",
+    string UsedError = "");
 
 public enum ApiUsageRefreshStatus
 {
@@ -73,6 +74,10 @@ public sealed class ApiUsageCollector
             }
 
             availableCount++;
+            if (result.UsedError.Length > 0)
+            {
+                errorCount++;
+            }
             if (latestAvailableUpdatedAt == null || result.UpdatedAt > latestAvailableUpdatedAt)
             {
                 latestAvailableUpdatedAt = result.UpdatedAt;
@@ -185,11 +190,11 @@ public sealed class ApiUsageCollector
                 request.Headers.TryAddWithoutValidation("New-Api-User", monitor.UserId);
             }
 
-            using HttpResponseMessage response = await m_HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
             string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return Unavailable(monitor.Id, $"Request failed: {(int)response.StatusCode} {response.ReasonPhrase}", now);
+                return Unavailable(monitor.Id, UsageDiagnostics.HttpError(response.StatusCode), now);
             }
 
             using JsonDocument document = JsonDocument.Parse(body);
@@ -207,7 +212,7 @@ public sealed class ApiUsageCollector
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException)
         {
-            return Unavailable(monitor.Id, exception is TaskCanceledException ? "Request timed out" : "Invalid API response", now);
+            return Unavailable(monitor.Id, UsageDiagnostics.Error(exception), now);
         }
     }
 
@@ -227,11 +232,11 @@ public sealed class ApiUsageCollector
             using HttpRequestMessage balanceRequest = new(HttpMethod.Post, balanceUri);
             balanceRequest.Headers.TryAddWithoutValidation("X-API-Key", monitor.ApiKey);
             balanceRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            using HttpResponseMessage balanceResponse = await m_HttpClient.SendAsync(balanceRequest, cancellationToken).ConfigureAwait(false);
+            using HttpResponseMessage balanceResponse = await UsageHttp.SendAsync(m_HttpClient, balanceRequest, cancellationToken).ConfigureAwait(false);
             string balanceBody = await balanceResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!balanceResponse.IsSuccessStatusCode)
             {
-                return Unavailable(monitor.Id, $"Request failed: {(int)balanceResponse.StatusCode} {balanceResponse.ReasonPhrase}", now);
+                return Unavailable(monitor.Id, UsageDiagnostics.HttpError(balanceResponse.StatusCode), now);
             }
 
             using JsonDocument balanceDocument = JsonDocument.Parse(balanceBody);
@@ -240,13 +245,14 @@ public sealed class ApiUsageCollector
                 return Unavailable(monitor.Id, "Balance data is missing", now);
             }
 
-            string usedDisplay = string.Empty;
+            string usedDisplay = "N/A";
+            string usedError = string.Empty;
             try
             {
                 using HttpRequestMessage usageRequest = new(HttpMethod.Get, usageUri);
                 usageRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", monitor.ApiKey);
                 usageRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                using HttpResponseMessage usageResponse = await m_HttpClient.SendAsync(usageRequest, cancellationToken).ConfigureAwait(false);
+                using HttpResponseMessage usageResponse = await UsageHttp.SendAsync(m_HttpClient, usageRequest, cancellationToken).ConfigureAwait(false);
                 string usageBody = await usageResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 if (usageResponse.IsSuccessStatusCode)
                 {
@@ -257,6 +263,14 @@ public sealed class ApiUsageCollector
                     {
                         usedDisplay = $"${used:0.00}";
                     }
+                    else
+                    {
+                        usedError = "Usage data is missing";
+                    }
+                }
+                else
+                {
+                    usedError = UsageDiagnostics.HttpError(usageResponse.StatusCode);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -265,10 +279,11 @@ public sealed class ApiUsageCollector
             }
             catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException)
             {
-                usedDisplay = string.Empty;
+                usedDisplay = "N/A";
+                usedError = UsageDiagnostics.Error(exception);
             }
 
-            return new ApiUsageResult(monitor.Id, true, $"${balance:0.00}", usedDisplay, string.Empty, now);
+            return new ApiUsageResult(monitor.Id, true, $"${balance:0.00}", usedDisplay, string.Empty, now, UsedError: usedError);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -276,7 +291,7 @@ public sealed class ApiUsageCollector
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException)
         {
-            return Unavailable(monitor.Id, exception is TaskCanceledException ? "Request timed out" : "Invalid API response", now);
+            return Unavailable(monitor.Id, UsageDiagnostics.Error(exception), now);
         }
     }
 
@@ -321,10 +336,7 @@ public sealed class ApiUsageCollector
             !root.TryGetProperty("data", out JsonElement data) || data.ValueKind != JsonValueKind.Object ||
             !TryGetDecimal(data, "quota", out decimal quota) || !TryGetDecimal(data, "used_quota", out decimal usedQuota))
         {
-            string message = root.TryGetProperty("message", out JsonElement messageElement)
-                ? messageElement.GetString() ?? "Quota data is missing"
-                : "Quota data is missing";
-            return Unavailable(monitorId, message, now);
+            return Unavailable(monitorId, "Quota data is missing or request was rejected", now);
         }
 
         return new ApiUsageResult(

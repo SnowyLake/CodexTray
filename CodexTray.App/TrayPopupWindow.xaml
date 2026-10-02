@@ -715,7 +715,8 @@
                     </Grid.RowDefinitions>
 
                     <Grid x:Name="TokenCostOverview"
-                          Grid.Row="1">
+                          Grid.Row="1"
+                          ToolTip="{Binding DetailsTooltip}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="10" />
@@ -779,6 +780,7 @@
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                                    FontSize="14" />
                                         <TextBlock Text="{Binding SelectedCostDisplay}"
+                                                   ToolTip="{Binding DetailsTooltip}"
                                                    Margin="0,1,0,0"
                                                    HorizontalAlignment="Center"
                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
@@ -918,13 +920,13 @@
                                            VerticalAlignment="Center" />
                             </Border>
                         </StackPanel>
-                        <Button Grid.Column="1"
-                                VerticalAlignment="Center"
-                                Command="{Binding RefreshCommand}"
-                                ToolTip="Refresh"
-                                Style="{StaticResource IconButtonStyle}">
-                            <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
-                        </Button>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
+                                    CommandParameter="{x:Static core:PageItem.Codex}"
+                                    ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
+                                <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
+                            </Button>
+                        </StackPanel>
                     </Grid>
                     <StackPanel Orientation="Horizontal"
                                 Margin="2,6,0,0"
@@ -935,6 +937,7 @@
                                  VerticalAlignment="Center"
                                  Fill="{Binding CodexStatusDotBrush}" />
                         <TextBlock Text="{Binding CodexUpdatedAtDisplay}"
+                                   ToolTip="{Binding CodexStatusTooltip}"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    FontSize="12" />
@@ -1059,13 +1062,13 @@
                                            VerticalAlignment="Center" />
                             </Border>
                         </StackPanel>
-                        <Button Grid.Column="1"
-                                VerticalAlignment="Center"
-                                Command="{Binding RefreshCommand}"
-                                ToolTip="Refresh"
-                                Style="{StaticResource IconButtonStyle}">
-                            <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
-                        </Button>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
+                                    CommandParameter="{x:Static core:PageItem.Grok}"
+                                    ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
+                                <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
+                            </Button>
+                        </StackPanel>
                     </Grid>
                     <StackPanel Orientation="Horizontal"
                                 Margin="2,6,0,0"
@@ -1218,13 +1221,13 @@
                                            VerticalAlignment="Center" />
                             </Border>
                         </StackPanel>
-                        <Button Grid.Column="1"
-                                VerticalAlignment="Center"
-                                Command="{Binding RefreshCommand}"
-                                ToolTip="Refresh"
-                                Style="{StaticResource IconButtonStyle}">
-                            <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
-                        </Button>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
+                                    CommandParameter="{x:Static core:PageItem.Cursor}"
+                                    ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
+                                <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
+                            </Button>
+                        </StackPanel>
                     </Grid>
                     <StackPanel Orientation="Horizontal"
                                 Margin="2,6,0,0"
@@ -1324,7 +1327,8 @@
                                     ToolTip="Add API"
                                     Style="{StaticResource IconButtonStyle}" />
                             <Button VerticalAlignment="Center"
-                                    Command="{Binding RefreshCommand}"
+                                    Command="{Binding RetrySourceCommand}"
+                                    CommandParameter="{x:Static core:PageItem.Apis}"
                                     ToolTip="Refresh"
                                     Style="{StaticResource IconButtonStyle}">
                                 <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
@@ -1388,7 +1392,7 @@
                                                                  Fill="{Binding StatusDotBrush}"
                                                                  ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                                                  ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                                 ToolTip="{Binding StatusText}" />
+                                                                 ToolTip="{Binding StatusTooltip}" />
                                                         <TextBlock Grid.Column="1"
                                                                    Text="{Binding DisplayName}"
                                                                    TextTrimming="CharacterEllipsis"
@@ -1398,25 +1402,15 @@
                                                                    FontWeight="SemiBold"
                                                                    ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
                                                                    ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                                   ToolTip="{Binding StatusText}" />
+                                                                   ToolTip="{Binding StatusTooltip}" />
                                                     </Grid>
                                                     <StackPanel Grid.Row="0"
                                                                 Grid.Column="1"
                                                                 VerticalAlignment="Center"
                                                                 Orientation="Horizontal">
-                                                        <Button Width="30"
-                                                                Height="30"
-                                                                Command="{Binding DataContext.MoveApiMonitorUpCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                                                                CommandParameter="{Binding}"
-                                                                Content="&#xE74A;"
-                                                                ToolTip="Move up"
-                                                                Style="{StaticResource IconButtonStyle}" />
-                                                        <Button Width="30"
-                                                                Height="30"
-                                                                Command="{Binding DataContext.MoveApiMonitorDownCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                                                                CommandParameter="{Binding}"
-                                                                Content="&#xE74B;"
-                                                                ToolTip="Move down"
+                                                        <Button Width="30" Height="30"
+                                                                Command="{Binding DataContext.RetryApiMonitorCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                CommandParameter="{Binding}" Content="&#xE72C;" ToolTip="Retry this card"
                                                                 Style="{StaticResource IconButtonStyle}" />
                                                         <Button Width="30"
                                                                 Height="30"
@@ -1483,6 +1477,20 @@
                                                                 Orientation="Horizontal">
                                                         <Button Width="30"
                                                                 Height="30"
+                                                                Command="{Binding DataContext.MoveApiMonitorUpCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="&#xE74A;"
+                                                                ToolTip="Move up"
+                                                                Style="{StaticResource IconButtonStyle}" />
+                                                        <Button Width="30"
+                                                                Height="30"
+                                                                Command="{Binding DataContext.MoveApiMonitorDownCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="&#xE74B;"
+                                                                ToolTip="Move down"
+                                                                Style="{StaticResource IconButtonStyle}" />
+                                                        <Button Width="30"
+                                                                Height="30"
                                                                 Command="{Binding DataContext.RemoveApiMonitorCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
                                                                 CommandParameter="{Binding}"
                                                                 Content="&#xE74D;"
@@ -1522,16 +1530,14 @@
                                                                Text="API key / access token"
                                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                FontSize="12" />
-                                                    <TextBox Text="{Binding ApiKey}"
-                                                             Style="{StaticResource SettingsTextBoxStyle}" />
+                                                    <local:CredentialInput Text="{Binding ApiKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
                                                     <StackPanel Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                         <TextBlock Margin="0,10,0,5"
                                                                    Text="User ID"
                                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                    FontSize="12" />
-                                                        <TextBox Text="{Binding UserId}"
-                                                                 Style="{StaticResource SettingsTextBoxStyle}" />
+                                                        <local:CredentialInput Text="{Binding UserId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                                     </StackPanel>
                                                 </StackPanel>
                                             </StackPanel>
@@ -1827,8 +1833,7 @@
                         <TextBlock Text="Advanced"
                                    Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
 
-                        <Grid Margin="{StaticResource SettingsLastRowMargin}"
-                              ToolTip="{Binding ServiceStatus}"
+                        <Grid ToolTip="{Binding ServiceStatus}"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -1848,6 +1853,29 @@
                                                  Value="{Binding PortText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
                         </Grid>
 
+                        <Grid Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Copy diagnostics" Style="{StaticResource SettingsRowTitleStyle}" />
+                            <Button Grid.Column="1" Command="{Binding CopyDiagnosticsCommand}"
+                                    CommandParameter="{x:Static core:PageItem.All}"
+                                    Content="&#xE8C8;" ToolTip="Copy diagnostics for all sources"
+                                    Style="{StaticResource IconButtonStyle}" />
+                        </Grid>
+
+                        <Grid Margin="{StaticResource SettingsLastRowMargin}" Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Restore last good settings" Style="{StaticResource SettingsRowTitleStyle}" />
+                            <Button Grid.Column="1" Command="{Binding RestoreSettingsBackupCommand}"
+                                    Content="&#xE72C;" ToolTip="Preserves the current file before restoring the backup."
+                                    Style="{StaticResource IconButtonStyle}" />
+                        </Grid>
+
                         <!-- About -->
                         <TextBlock Text="About"
                                    Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
@@ -1859,12 +1887,17 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding AppVersion, StringFormat=Version {0}}"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding AppVersion, StringFormat=Version {0}}"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <TextBlock Text="New" Margin="8,0,0,0" VerticalAlignment="Center"
+                                           FontWeight="SemiBold" Foreground="{Binding AccentBrush}"
+                                           Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            </StackPanel>
                             <Button Grid.Column="1"
                                     Margin="4,0,0,0"
                                     Command="{Binding RunUpdateCommand}"
-                                    Content="&#xE117;"
+                                    Content="{Binding UpdateActionIcon}"
                                     ToolTip="{Binding UpdateActionText}"
                                     ToolTipService.ShowOnDisabled="True"
                                     Style="{StaticResource IconButtonStyle}" />
@@ -1992,6 +2025,19 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
+                <Button x:Name="PanelPinButton" HorizontalAlignment="Left"
+                        Command="{Binding TogglePanelPinnedCommand}"
+                        ToolTip="{Binding PanelPinTooltip}" Content="&#xE718;">
+                    <Button.Style>
+                        <Style TargetType="{x:Type Button}" BasedOn="{StaticResource IconButtonStyle}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsPanelPinned}" Value="True">
+                                    <Setter Property="Foreground" Value="#1ABC89" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right">
@@ -2031,10 +2077,16 @@
                             ToolTip="APIs"
                             Visibility="{Binding ShowApisPage, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource ApiTabButtonStyle}" />
-                    <Button Command="{Binding ShowSettingsCommand}"
-                            Content="&#xE713;"
-                            ToolTip="Settings"
-                            Style="{StaticResource SettingsTabButtonStyle}" />
+                    <Grid>
+                        <Button Command="{Binding ShowSettingsCommand}"
+                                Content="&#xE713;"
+                                ToolTip="Settings"
+                                Style="{StaticResource SettingsTabButtonStyle}" />
+                        <Ellipse Width="6" Height="6" Margin="0,4,4,0"
+                                 HorizontalAlignment="Right" VerticalAlignment="Top"
+                                 Fill="{Binding AccentBrush}" IsHitTestVisible="False"
+                                 Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </Grid>
                 </StackPanel>
             </Grid>
 
@@ -2042,7 +2094,7 @@
             <Grid Grid.RowSpan="2"
                   Panel.ZIndex="1"
                   Visibility="{Binding IsInAppDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Border Background="Transparent" />
+                <Border Margin="-24,-22,-24,-20" Background="#80000000" />
                 <Border Width="300"
                         MaxHeight="460"
                         Padding="20"

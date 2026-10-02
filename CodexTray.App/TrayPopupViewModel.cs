@@ -41,7 +41,7 @@ internal sealed record TokenCostChartLabel(string Text, double Left);
 
 internal sealed record TokenCostDonutSegment(string Label, string Share, Media.Brush Brush, Media.Geometry Geometry, string Tooltip);
 
-internal sealed record TokenCostModelShare(string Label, long Tokens, decimal? CostUsd);
+internal sealed record TokenCostModelShare(string Label, long Tokens, decimal? CostUsd, long TimedOutputTokens, long TimedDurationMilliseconds);
 
 internal enum TokenCostPeriod
 {
@@ -101,13 +101,23 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private static readonly Media.Brush s_PlanBadgeInactiveBrush = CreateFrozenBrush(107, 122, 117);
     private static readonly TokenCostDisplay s_UnavailableTokenCostDisplay = new("N/A", "N/A");
 
-    private readonly AppSettings m_Settings;
+    private AppSettings m_Settings;
     private string m_CurrentPage = k_CodexPageName;
     private string m_ThemeMode = AppSettings.ThemeModeSystem;
     private PageItem m_VisiblePages = PageItem.All;
     private bool m_MicaEnabled;
     private bool m_IsInAppDialogOpen;
     private bool m_IsNativeModalOpen;
+    private GrokUsageDashboard m_GrokDashboard = new(null, string.Empty, DateTimeOffset.Now);
+    private bool m_GrokTokenCostAvailable;
+    public RefreshState CodexUsageState { get; } = new();
+    public RefreshState CodexResetState { get; } = new();
+    public RefreshState GrokUsageState { get; } = new();
+    public RefreshState CursorUsageState { get; } = new();
+    public RefreshState CursorGrokBotState { get; } = new();
+
+    [ObservableProperty]
+    public partial string CodexStatusTooltip { get; private set; } = string.Empty;
     private ApiUsageRefreshStatus? m_ApiUsageStatus;
     private int m_ApiUsageErrorCount;
     private int m_ApiUsageMonitorCount;
@@ -126,6 +136,22 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private bool m_SnapshotUseAbsoluteResetTime = CodexTrayDefaults.UseAbsoluteResetTime;
 
     public event EventHandler? SaveSettingsRequested;
+    public event EventHandler? RestoreSettingsBackupRequested;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SettingsStatusText))]
+    public partial string SettingsLoadError { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveSettingsCommand))]
+    [NotifyPropertyChangedFor(nameof(SettingsStatusBrush))]
+    public partial bool IsSettingsWriteBlocked { get; set; }
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RestoreSettingsBackupCommand))]
+    public partial bool HasSettingsBackup { get; set; }
+
+    public IRelayCommand RestoreSettingsBackupCommand { get; }
 
     public event EventHandler? ApiMonitorsChanged;
 
@@ -163,6 +189,27 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public IAsyncRelayCommand RefreshCommand { get; }
 
+    public IAsyncRelayCommand<PageItem> RetrySourceCommand { get; }
+
+    public IAsyncRelayCommand<ApiMonitorViewModel> RetryApiMonitorCommand { get; }
+
+    public IRelayCommand<object> CopyDiagnosticsCommand { get; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PanelPinTooltip))]
+    public partial bool IsPanelPinned { get; private set; }
+
+    public string PanelPinTooltip => IsPanelPinned ? "Unpin panel" : "Keep panel open";
+
+    /// <summary>
+    /// Keeps the panel visible after focus moves elsewhere for the current application session.
+    /// </summary>
+    [RelayCommand]
+    private void TogglePanelPinned()
+    {
+        IsPanelPinned = !IsPanelPinned;
+    }
+
     public IRelayCommand SaveSettingsCommand { get; }
 
     public IRelayCommand InstallLiteMonitorPluginCommand { get; }
@@ -197,14 +244,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SaveSettingsCommand))]
     public partial SettingsStatus SettingsStatus { get; private set; } = SettingsStatus.Clean;
 
-    public string SettingsStatusText => SettingsStatus switch
+    public string SettingsStatusText => SettingsLoadError.Length > 0 ? SettingsLoadError : SettingsStatus switch
     {
         SettingsStatus.Saved => "Changes saved",
         SettingsStatus.Unsaved => "Unsaved changes",
         _ => string.Empty,
     };
 
-    public Media.Brush SettingsStatusBrush => SettingsStatus == SettingsStatus.Unsaved ? s_YellowBrush : s_GreenBrush;
+    public Media.Brush SettingsStatusBrush => IsSettingsWriteBlocked ? s_RedBrush : SettingsStatus == SettingsStatus.Unsaved ? s_YellowBrush : s_GreenBrush;
 
     [ObservableProperty]
     public partial string ServiceStatus { get; private set; } = "Service: starting";
@@ -461,17 +508,23 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Creates a view model for the WPF tray popup.
     /// </summary>
-    public TrayPopupViewModel(AppSettings settings, Func<Task> refreshAsync)
+    public TrayPopupViewModel(AppSettings settings, Func<Task> refreshAsync, Func<PageItem, string?, Task>? retryAsync = null)
     {
         m_Settings = settings;
         CodexQuotaPager = new QuotaPagerViewModel(CodexSessionQuota, CodexWeeklyQuota);
         CursorQuotaPager = new QuotaPagerViewModel(CursorMonthlyQuota, CursorGrokBotQuota);
-        CodexTokenCost = new TokenCostDashboardViewModel();
-        GrokTokenCost = new TokenCostDashboardViewModel();
-        CursorTokenCost = new TokenCostDashboardViewModel();
+        CodexTokenCost = new TokenCostDashboardViewModel(showSpeed: true, "Local pricing · API equivalent");
+        GrokTokenCost = new TokenCostDashboardViewModel(showSpeed: true, "Grok reported cost / local pricing fallback");
+        CursorTokenCost = new TokenCostDashboardViewModel(showSpeed: false, "Cursor billed totalCents");
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
+        retryAsync ??= (_, _) => RefreshCommand.CanExecute(null) ? RefreshCommand.ExecuteAsync(null) : Task.CompletedTask;
+        RetrySourceCommand = new AsyncRelayCommand<PageItem>(page => retryAsync(page, null), AsyncRelayCommandOptions.AllowConcurrentExecutions);
+        RetryApiMonitorCommand = new AsyncRelayCommand<ApiMonitorViewModel>(card => card == null ? Task.CompletedTask : retryAsync(PageItem.Apis, card.Id),
+            card => card != null && !card.IsPending, AsyncRelayCommandOptions.AllowConcurrentExecutions);
+        CopyDiagnosticsCommand = new RelayCommand<object>(CopyDiagnostics);
         SaveSettingsCommand = new RelayCommand(() => SaveSettingsRequested?.Invoke(this, EventArgs.Empty), CanSaveSettings);
+        RestoreSettingsBackupCommand = new RelayCommand(() => RestoreSettingsBackupRequested?.Invoke(this, EventArgs.Empty), () => HasSettingsBackup);
         InstallLiteMonitorPluginCommand = new RelayCommand(() => InstallLiteMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
         InstallTrafficMonitorPluginCommand = new RelayCommand(() => InstallTrafficMonitorPluginRequested?.Invoke(this, EventArgs.Empty));
         BrowseLiteMonitorCommand = new RelayCommand(() => BrowseMonitorFolder("Select LiteMonitor folder", LiteMonitorDir, value => LiteMonitorDir = value));
@@ -506,7 +559,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     private bool CanSaveSettings()
     {
-        return SettingsStatus == SettingsStatus.Unsaved;
+        return !IsSettingsWriteBlocked && SettingsStatus == SettingsStatus.Unsaved;
     }
 
     /// <summary>
@@ -533,6 +586,18 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         CaptureSnapshot(SettingsStatus.Clean);
+    }
+
+    /// <summary>
+    /// Replaces recovered settings and editable cards without keeping references to temporary defaults.
+    /// </summary>
+    public void LoadRecoveredSettings(AppSettings settings)
+    {
+        AutoDetectLiteMonitorCommand.Cancel();
+        AutoDetectTrafficMonitorCommand.Cancel();
+        m_Settings = settings;
+        LoadSettings(settings);
+        LoadApiMonitors(settings.ApiMonitors);
     }
 
     /// <summary>
@@ -610,8 +675,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Applies editable properties to the shared settings model.
     /// </summary>
-    public void ApplySettings()
+    public void ApplySettings(AppSettings? target = null, bool markSaved = true)
     {
+        AppSettings settings = target ?? m_Settings;
         int port = ClampOrDefault(PortText, CodexTrayDefaults.MinimumPort, CodexTrayDefaults.MaximumPort, CodexTrayDefaults.Port);
         int refreshInterval = ClampOrDefault(
             RefreshIntervalText,
@@ -631,15 +697,27 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             m_SuppressDirtyTracking = false;
         }
 
-        m_Settings.LiteMonitorDir = LiteMonitorDir;
-        m_Settings.TrafficMonitorDir = TrafficMonitorDir;
-        m_Settings.Port = port;
-        m_Settings.RefreshIntervalMinutes = refreshInterval;
-        m_Settings.StartWithWindows = StartWithWindows;
-        m_Settings.ThemeMode = ThemeMode;
-        m_Settings.VisiblePages = VisiblePages;
-        m_Settings.MicaEnabled = MicaEnabled;
-        m_Settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
+        settings.LiteMonitorDir = LiteMonitorDir;
+        settings.TrafficMonitorDir = TrafficMonitorDir;
+        settings.Port = port;
+        settings.RefreshIntervalMinutes = refreshInterval;
+        settings.StartWithWindows = StartWithWindows;
+        settings.ThemeMode = ThemeMode;
+        settings.VisiblePages = VisiblePages;
+        settings.MicaEnabled = MicaEnabled;
+        settings.UseAbsoluteResetTime = UseAbsoluteResetTime;
+        if (markSaved)
+        {
+            CaptureSnapshot(SettingsStatus.Saved);
+        }
+    }
+
+    /// <summary>
+    /// Commits the shared configuration reference only after the candidate has been saved successfully.
+    /// </summary>
+    public void AcceptSavedSettings(AppSettings settings)
+    {
+        m_Settings = settings;
         CaptureSnapshot(SettingsStatus.Saved);
     }
 
@@ -674,6 +752,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         ServiceStatus = error == null
             ? $"Service: {(isRunning ? "Running" : "Stopped")} on {CodexTrayDefaults.Host}:{port}"
             : $"Service: Error on {CodexTrayDefaults.Host}:{port} - {error}";
+
+        DateTimeOffset timestamp = DateTimeOffset.TryParse(response?.UpdatedAt, out DateTimeOffset parsed) ? parsed : DateTimeOffset.Now;
+        CodexUsageState.Update(response?.Available == true, timestamp, response?.Error);
+        CodexResetState.Update(response?.ResetCredits.Available == true, timestamp, response?.ResetCredits.Error);
+        CodexStatusTooltip = $"Usage: {CodexUsageState.Tooltip}\nResets: {CodexResetState.Tooltip}";
 
         if (response == null)
         {
@@ -743,9 +826,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Updates token and cost displays or marks them unavailable after a failed read.
     /// </summary>
-    public void UpdateTokenCost(TokenCostStatistics? statistics)
+    public void UpdateTokenCost(TokenCostStatistics? statistics, string? error = null)
     {
-        CodexTokenCost.Update(statistics);
+        CodexTokenCost.Update(statistics, error);
     }
 
     /// <summary>
@@ -753,8 +836,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     public void UpdateGrokDashboard(GrokUsageDashboard dashboard, TokenCostStatistics? tokenCost = null)
     {
-        bool usageAvailable = dashboard.Usage != null;
-        bool tokenCostAvailable = tokenCost != null;
+        m_GrokDashboard = dashboard;
+        GrokUsageState.Update(dashboard.Usage != null, dashboard.UpdatedAt, dashboard.Error);
         if (dashboard.Usage is GrokUsageSnapshot usage)
         {
             GrokPlanDisplay = FormatGrokPlan(usage.SubscriptionTier);
@@ -773,6 +856,34 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             GrokWeeklyQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
         }
 
+        if (tokenCost != null)
+        {
+            UpdateGrokTokenCost(tokenCost);
+        }
+        else
+        {
+            UpdateGrokStatus();
+        }
+    }
+
+    /// <summary>
+    /// Updates local Grok costs independently of the billing collection.
+    /// </summary>
+    public void UpdateGrokTokenCost(TokenCostStatistics? statistics, string? error = null)
+    {
+        m_GrokTokenCostAvailable = statistics != null;
+        GrokTokenCost.Update(statistics, error);
+        UpdateGrokStatus();
+    }
+
+    /// <summary>
+    /// Combines the independently published Grok billing and local-cost availability.
+    /// </summary>
+    private void UpdateGrokStatus()
+    {
+        GrokUsageDashboard dashboard = m_GrokDashboard;
+        bool usageAvailable = dashboard.Usage != null;
+        bool tokenCostAvailable = m_GrokTokenCostAvailable;
         GrokStatusDotBrush = usageAvailable && tokenCostAvailable
             ? s_GreenBrush
             : usageAvailable || tokenCostAvailable
@@ -785,11 +896,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 : tokenCostAvailable
                     ? "Token Cost updated, Usage N/A"
                     : "Update error";
-        GrokStatusTooltip = FormatGrokStatusTooltip(dashboard, usageAvailable, tokenCostAvailable);
-        if (tokenCost != null)
-        {
-            GrokTokenCost.Update(tokenCost);
-        }
+        GrokStatusTooltip = $"Usage: {GrokUsageState.Tooltip}\nToken Cost: {GrokTokenCost.Freshness.Tooltip}";
     }
 
     /// <summary>
@@ -801,6 +908,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         bool usageAvailable = usage != null;
         bool grokBotUsageAvailable = dashboard.GrokBotUsage != null;
         bool tokenCostAvailable = dashboard.TokenCost != null;
+        CursorUsageState.Update(usageAvailable, dashboard.UpdatedAt, dashboard.UsageError);
+        CursorGrokBotState.Update(grokBotUsageAvailable, dashboard.UpdatedAt, dashboard.GrokBotUsageError);
         if (usage != null)
         {
             CursorPlanDisplay = FormatCursorPlan(usage.PlanType);
@@ -845,8 +954,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             : anyAvailable
                 ? "Partial update"
                 : "Update error";
-        CursorStatusTooltip = FormatCursorStatusTooltip(dashboard, usageAvailable, grokBotUsageAvailable, tokenCostAvailable);
-        CursorTokenCost.Update(dashboard.TokenCost);
+        CursorTokenCost.Update(dashboard.TokenCost, dashboard.TokenCostError, dashboard.UpdatedAt);
+        CursorStatusTooltip = $"Usage: {CursorUsageState.Tooltip}\nGrok Bot: {CursorGrokBotState.Tooltip}\nToken Cost: {CursorTokenCost.Freshness.Tooltip}";
     }
 
     /// <summary>
@@ -990,6 +1099,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     private void LoadApiMonitors(IEnumerable<ApiMonitorSettings> settings)
     {
+        foreach (ApiMonitorViewModel monitor in ApiMonitors)
+        {
+            monitor.EditingSaved -= HandleApiMonitorSaved;
+        }
+
         ApiMonitors.Clear();
         foreach (ApiMonitorSettings monitorSettings in settings)
         {
@@ -1043,7 +1157,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         SaveApiMonitors();
         if (!wasPending)
         {
-            RequestRefresh();
+            RetrySourceCommand.Execute(PageItem.Apis);
         }
     }
 
@@ -1083,7 +1197,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Moves an API monitor card by one position.
+    /// Moves an API monitor card and persists only the order without saving unfinished edits.
     /// </summary>
     private void MoveApiMonitor(ApiMonitorViewModel? monitor, int offset)
     {
@@ -1100,7 +1214,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         ApiMonitors.Move(oldIndex, newIndex);
-        SaveApiMonitors();
+        m_Settings.ApiMonitors = ApiMonitors.Join(m_Settings.ApiMonitors, card => card.Id, saved => saved.Id, (_, saved) => saved).ToList();
+        NotifyApiMonitorCountChanged();
+        ApiMonitorsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -1109,17 +1225,87 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private void HandleApiMonitorSaved(object? sender, EventArgs args)
     {
         SaveApiMonitors();
-        RequestRefresh();
+        if (sender is ApiMonitorViewModel card)
+        {
+            RetryApiMonitorCommand.Execute(card);
+        }
     }
 
     /// <summary>
-    /// Starts a refresh when the asynchronous command is available.
+    /// Copies fixed metadata and error categories without request details or credential-bearing content.
     /// </summary>
-    private void RequestRefresh()
+    private void CopyDiagnostics(object? target)
     {
-        if (RefreshCommand.CanExecute(null))
+        try
         {
-            RefreshCommand.Execute(null);
+            System.Windows.Clipboard.SetText(BuildDiagnostics(target));
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            InAppDialogRequested?.Invoke(new("Clipboard unavailable", "Close the application currently using the clipboard and try again.", "OK"));
+        }
+    }
+
+    /// <summary>
+    /// Builds redacted diagnostic text for selected sources or one API card.
+    /// </summary>
+    internal string BuildDiagnostics(object? target)
+    {
+        List<string> lines = [$"CodexTray {AppVersion}"];
+        if (target is ApiMonitorViewModel card)
+        {
+            AddApi(card);
+        }
+        else if (target is PageItem page)
+        {
+            if ((page & PageItem.Codex) != 0)
+            {
+                Add("Codex usage", CodexUsageState);
+                Add("Codex resets", CodexResetState);
+                Add("Codex local cost", CodexTokenCost.Freshness);
+            }
+            if ((page & PageItem.Cursor) != 0)
+            {
+                Add("Cursor usage", CursorUsageState);
+                Add("Cursor Grok Bot", CursorGrokBotState);
+                Add("Cursor billed cost", CursorTokenCost.Freshness);
+            }
+            if ((page & PageItem.Grok) != 0)
+            {
+                Add("Grok usage", GrokUsageState);
+                Add("Grok local cost", GrokTokenCost.Freshness);
+            }
+            if ((page & PageItem.Apis) != 0)
+            {
+                foreach (ApiMonitorViewModel api in ApiMonitors.Where(api => !api.IsPending))
+                {
+                    AddApi(api);
+                }
+            }
+        }
+
+        return string.Join(Environment.NewLine, lines);
+
+        /// <summary>
+        /// Appends only a known provider label and supported card regions.
+        /// </summary>
+        void AddApi(ApiMonitorViewModel api)
+        {
+            string provider = api.ProviderOptions.Contains(api.Provider) ? api.Provider : "Unknown API";
+            Add(provider + " balance", api.BalanceState);
+            if (api.HasSecondaryDisplay)
+            {
+                Add(provider + " usage", api.UsedState);
+            }
+        }
+
+        /// <summary>
+        /// Appends a safe category and timestamp without copying the underlying failure text.
+        /// </summary>
+        void Add(string source, RefreshState state)
+        {
+            string category = state.LastSuccess == null && state.Error.Length == 0 ? "Not collected" : UsageDiagnostics.Category(state.Error);
+            lines.Add($"{source}: {category}; last success: {state.LastSuccess?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) ?? "Never"}");
         }
     }
 
@@ -1284,6 +1470,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     public async Task DetectLiteMonitorAsync(bool showNotFound, CancellationToken cancellationToken = default)
     {
+        AppSettings settingsAtStart = m_Settings;
         if (IsDetectingLiteMonitor)
         {
             return;
@@ -1294,6 +1481,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             // Manual detect always runs a full scan instead of short-circuiting on the current path.
             string detected = await Task.Run(() => LiteMonitorLocator.AutoDetect(cancellationToken: cancellationToken), cancellationToken).ConfigureAwait(true);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(settingsAtStart, m_Settings))
+            {
+                return;
+            }
             if (string.IsNullOrWhiteSpace(detected))
             {
                 LiteMonitorDir = CodexTrayDefaults.PluginPathNone;
@@ -1321,6 +1513,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     public async Task DetectTrafficMonitorAsync(bool showNotFound, CancellationToken cancellationToken = default)
     {
+        AppSettings settingsAtStart = m_Settings;
         if (IsDetectingTrafficMonitor)
         {
             return;
@@ -1331,6 +1524,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             // Manual detect always runs a full scan instead of short-circuiting on the current path.
             string detected = await Task.Run(() => TrafficMonitorLocator.AutoDetect(cancellationToken: cancellationToken), cancellationToken).ConfigureAwait(true);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(settingsAtStart, m_Settings))
+            {
+                return;
+            }
             if (string.IsNullOrWhiteSpace(detected))
             {
                 TrafficMonitorDir = CodexTrayDefaults.PluginPathNone;
@@ -1607,6 +1805,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     internal sealed partial class TokenCostDashboardViewModel : ObservableObject
     {
+        private readonly bool m_ShowSpeed;
+        private readonly string m_CostSource;
+        public RefreshState Freshness { get; } = new();
+
+        [ObservableProperty]
+        public partial string DetailsTooltip { get; private set; } = string.Empty;
         private TokenCostStatistics? m_Statistics;
         private TokenCostChartPeriod m_ChartPeriod;
 
@@ -1633,10 +1837,20 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         public Media.Brush AccentBrush { get; } = s_GreenBrush;
 
         /// <summary>
+        /// Creates a token-cost dashboard with provider-specific speed visibility.
+        /// </summary>
+        public TokenCostDashboardViewModel(bool showSpeed, string costSource = "Provider billing")
+        {
+            m_ShowSpeed = showSpeed;
+            m_CostSource = costSource;
+        }
+
+        /// <summary>
         /// Updates all token-cost views from one statistics snapshot.
         /// </summary>
-        public void Update(TokenCostStatistics? statistics)
+        public void Update(TokenCostStatistics? statistics, string? error = null, DateTimeOffset? timestamp = null)
         {
+            Freshness.Update(statistics != null, timestamp ?? DateTimeOffset.Now, error);
             m_Statistics = statistics;
             Refresh();
         }
@@ -1718,13 +1932,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         /// <summary>
-        /// Updates the selected token total, cost, cache hit rate, and per-model donut segments.
+        /// Updates the selected token total, cost, cache hit rate, and per-model donut segments with optional response speed.
         /// </summary>
         private void UpdateDonut()
         {
             TokenCostPeriod period = Rows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.LastTwentyFourHours;
             if (m_Statistics == null)
             {
+                DetailsTooltip = $"{m_CostSource}\n{Freshness.Tooltip}";
                 SelectedTokenDisplay = "N/A";
                 SelectedCostDisplay = "N/A";
                 DonutSegments = [];
@@ -1734,17 +1949,21 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             TokenCostSummary summary = GetPeriodSummary(m_Statistics, period);
             SelectedTokenDisplay = AppSettings.FormatTokenCount(summary.TotalTokens);
             string cost = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-            SelectedCostDisplay = string.Create(CultureInfo.InvariantCulture, $"{cost} · {summary.GetCacheHitPercent()}%");
+            SelectedCostDisplay = string.Create(CultureInfo.InvariantCulture, $"{cost}{(summary.HasUnpricedUsage ? "*" : string.Empty)} · {summary.GetCacheHitPercent()}%");
+            string[] unpriced = m_Statistics.Models.Where(model => GetPeriodSummary(model, period).HasUnpricedUsage).Select(model => model.Model).ToArray();
+            DetailsTooltip = $"{m_CostSource}\n{Freshness.Tooltip}" + (summary.HasUnpricedUsage ? $"\nPartial cost · Unpriced/incomplete: {string.Join(", ", unpriced)}" : string.Empty);
 
             List<TokenCostModelShare> modelShares = m_Statistics.Models
                 .Select(model =>
                 {
                     TokenCostSummary modelSummary = GetPeriodSummary(model, period);
-                    return new TokenCostModelShare(FormatModelLabel(model.Model), modelSummary.TotalTokens, modelSummary.CostUsd);
+                    return new TokenCostModelShare(FormatModelLabel(model.Model), modelSummary.TotalTokens, modelSummary.CostUsd,
+                                                   modelSummary.TimedOutputTokens, modelSummary.TimedDurationMilliseconds);
                 })
                 .Where(model => model.Tokens > 0)
                 .GroupBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
-                .Select(group => new TokenCostModelShare(group.Key, group.Sum(model => model.Tokens), SumModelCosts(group)))
+                .Select(group => new TokenCostModelShare(group.Key, group.Sum(model => model.Tokens), SumModelCosts(group),
+                                                        group.Sum(model => model.TimedOutputTokens), group.Sum(model => model.TimedDurationMilliseconds)))
                 .OrderByDescending(model => model.Tokens)
                 .ThenBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -1760,7 +1979,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             long otherTokens = remainingShares.Sum(model => model.Tokens);
             if (otherTokens > 0)
             {
-                displayedShares.Add(new TokenCostModelShare("Other", otherTokens, SumModelCosts(remainingShares)));
+                displayedShares.Add(new TokenCostModelShare("Other", otherTokens, SumModelCosts(remainingShares),
+                                                            remainingShares.Sum(model => model.TimedOutputTokens), remainingShares.Sum(model => model.TimedDurationMilliseconds)));
             }
 
             long totalTokens = displayedShares.Sum(model => model.Tokens);
@@ -1776,7 +1996,19 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 string shareText = $"{Math.Round(share * 100):0}%";
                 string tokensText = AppSettings.FormatTokenCount(model.Tokens);
                 string costText = model.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-                string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}{Environment.NewLine}Share: {shareText}";
+                string speedLine = string.Empty;
+                if (m_ShowSpeed)
+                {
+                    string speedText = model.TimedDurationMilliseconds > 0
+                        ? (m_Statistics.IsSpeedEstimated ? "~" : string.Empty)
+                            + (model.TimedOutputTokens * 1000m / model.TimedDurationMilliseconds).ToString("0.0", CultureInfo.InvariantCulture) + " tok/s"
+                        : "N/A";
+                    speedLine = $"{Environment.NewLine}Speed: {speedText}";
+                }
+
+                string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}"
+                    + (summary.HasUnpricedUsage ? "\nPartial cost · See overview for incomplete models" : string.Empty)
+                    + speedLine + $"{Environment.NewLine}Share: {shareText}";
                 segments.Add(new TokenCostDonutSegment(
                     model.Label,
                     shareText,
@@ -2031,7 +2263,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     : maximumTokens <= 0 || day.Summary.TotalTokens <= 0
                         ? 0
                         : Math.Max(2, (double)day.Summary.TotalTokens / maximumTokens * k_TokenCostChartMaximumBarHeight);
-                string costText = day.Summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
+                string costText = (day.Summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A") + (day.Summary.HasUnpricedUsage ? "* · Partial cost" : string.Empty);
                 string tokensText = AppSettings.FormatTokenCount(day.Summary.TotalTokens);
                 string tooltip = $"{day.Date:yyyy-MM-dd}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}";
                 string label = index == 0 || index == dailySummaries.Count - 1 || (index + 1) % 10 == 0
@@ -2048,7 +2280,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// </summary>
         private TokenCostDisplay FormatTokenCost(TokenCostSummary summary)
         {
-            string cost = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
+            string cost = (summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A") + (summary.HasUnpricedUsage ? "*" : string.Empty);
             return new TokenCostDisplay(cost, AppSettings.FormatTokenCount(summary.TotalTokens));
         }
     }

@@ -53,11 +53,17 @@ internal static class Program
         await RunAsync("supports idempotent stop and restart", TestHttpServerStopRestartAsync);
         await RunAsync("propagates collector cancellation", TestCollectorCancellationAsync);
         await RunAsync("distinguishes API cancellation from timeout", TestApiUsageCancellationAsync);
+        await RunAsync("bounds transient retries and respects Retry-After", RetryTests.HttpRetriesAsync);
+        await RunAsync("merges retry targets and preserves independent API snapshots", RetryTests.TargetsAndSnapshotsAsync);
+        await RunAsync("redacts response content and copied diagnostics", RetryTests.DiagnosticsAsync);
+        await RunAsync("avoids Grok fallback after terminal rate limits", RetryTests.GrokRateLimitAsync);
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
         await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
         await RunAsync("repairs missing settings fields", TestSettingsStoreRepairsMissingFieldsAsync);
         await RunAsync("repairs null and malformed settings", TestSettingsStoreRepairsNullAndMalformedValuesAsync);
+        await RunAsync("preserves damaged settings and restores validated backups", TestSettingsRecoveryAsync);
+        await RunAsync("retains valid settings after backup or normalization write failures", TestSettingsMaintenanceFailureAsync);
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
         await RunAsync("formats compact token units", TestTokenUnitFormattingAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
@@ -74,13 +80,19 @@ internal static class Program
         await RunAsync("shares one Cursor dashboard OAuth refresh", TestCursorDashboardRefreshBudgetAsync);
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
+        await RunAsync("publishes completed refresh sources independently", TestIndependentRefreshAsync);
+        await RunAsync("invalidates session costs when pricing contents change", TestPricingReloadAsync);
+        await RunAsync("exposes successful timestamps and incomplete costs", TestDataFreshnessAsync);
         await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
+        await RunAsync("formats bounded visible-source tray summaries", TestTrayTooltipAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
         await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("computes cache hit percent", TestCacheHitPercentAsync);
+        await RunAsync("computes paired model output speed", TestModelOutputSpeedAsync);
+        await RunAsync("estimates Codex output speed without tool waits or replay", TestCodexOutputSpeedAsync);
         await RunAsync("collects exact Codex token cost", TestCodexTokenCostCollectorAsync);
         await RunAsync("prefers Codex last_token_usage over cumulative totals", TestCodexLastTokenUsageAsync);
         await RunAsync("deduplicates archived Codex rollouts by thread id", TestCodexArchivedRolloutDedupAsync);
@@ -93,6 +105,46 @@ internal static class Program
         s_Failures += await AppUpdateTests.RunAllAsync();
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Tests visible-source tooltip selection, failures, and maximum numeric lengths without creating a tray icon.
+    /// </summary>
+    private static Task TestTrayTooltipAsync()
+    {
+        UsageResponse usage = new()
+        {
+            Available = true,
+            Error = "must-not-appear",
+            Limits = new UsageLimits
+            {
+                Weekly = new UsageLimit { RemainingPercent = 100, WindowMinutes = 10_080 },
+                CursorMonthly = new UsageLimit { RemainingPercent = 99 },
+                GrokWeekly = new UsageLimit { RemainingPercent = 0 },
+            },
+            Display = new UsageDisplay { CursorMonthly = "99%", GrokWeekly = "0%", DeepSeek = "¥123" },
+        };
+        AssertEqual("Codex W: 100%\nCursor M: 99%\nGrok W: 0%\nDeepSeek: ¥123", TrayController.BuildTrayTooltip(PageItem.All, usage), "all visible source summary");
+        AssertEqual("Cursor M: 99%", TrayController.BuildTrayTooltip(PageItem.Cursor, usage), "hidden sources are absent");
+        usage.Limits.Weekly.WindowMinutes = 0;
+        AssertEqual("Codex W: N/A", TrayController.BuildTrayTooltip(PageItem.Codex, usage), "a session-only Codex result cannot invent a weekly quota");
+        usage.Limits.Weekly.WindowMinutes = 10_080;
+        AssertEqual(CodexTrayDefaults.AppName, TrayController.BuildTrayTooltip(PageItem.None, usage), "no visible sources");
+        AssertEqual("Codex W: N/A\nCursor M: N/A\nGrok W: N/A\nDeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.All, null), "initial unavailable summary");
+        usage.Available = false;
+        usage.Display.CursorMonthly = "N/A";
+        AssertTrue(TrayController.BuildTrayTooltip(PageItem.All, usage).StartsWith("Codex W: N/A\nCursor M: N/A"), "failed sources do not show old percentages");
+        usage.Available = true;
+        usage.Limits.Weekly.RemainingPercent = 999;
+        usage.Limits.CursorMonthly.RemainingPercent = 100;
+        usage.Limits.GrokWeekly.RemainingPercent = 100;
+        usage.Display.CursorMonthly = "100%";
+        usage.Display.DeepSeek = "¥79228162514264337593543950335";
+        string bounded = TrayController.BuildTrayTooltip(PageItem.All, usage);
+        AssertTrue(bounded.Length <= 63 && bounded.EndsWith('…') && !bounded.Contains(usage.Error!), "tray text is bounded and excludes errors");
+        usage.Display.DeepSeek = "credential-secret";
+        AssertEqual("DeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.Apis, usage), "only numeric CNY balances are accepted");
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -130,6 +182,46 @@ internal static class Program
                     error: null);
                 viewModel.UpdateTokenCost(CreateTokenCostStatistics(10));
                 TrayPopupWindow window = new(viewModel);
+                AssertTrue(!viewModel.IsPanelPinned, "panel starts unpinned");
+                viewModel.TogglePanelPinnedCommand.Execute(null);
+                AssertEqual("Unpin panel", viewModel.PanelPinTooltip, "pin toggle action");
+                typeof(TrayPopupWindow).GetMethod("OnDeactivated", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [EventArgs.Empty]);
+                AssertEqual(DateTime.MinValue, window.LastDeactivatedHideUtc, "pinned panel must ignore focus loss");
+                viewModel.TogglePanelPinnedCommand.Execute(null);
+                typeof(TrayPopupWindow).GetMethod("OnDeactivated", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [EventArgs.Empty]);
+                AssertTrue(window.LastDeactivatedHideUtc != DateTime.MinValue, "unpinned panel preserves focus-loss hiding");
+                AssertTrue(!new TrayPopupViewModel(settings, () => Task.CompletedTask).IsPanelPinned, "pin state is not persisted in settings");
+                ApiMonitorViewModel credentialCard = new(new ApiMonitorSettings { ApiKey = "test-credential" });
+                CredentialInput credential = new();
+                credential.SetBinding(CredentialInput.TextProperty, new System.Windows.Data.Binding(nameof(ApiMonitorViewModel.ApiKey))
+                {
+                    Source = credentialCard, Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged,
+                });
+                System.Windows.Controls.PasswordBox masked = (System.Windows.Controls.PasswordBox)credential.FindName("MaskedInput");
+                System.Windows.Controls.TextBox revealed = (System.Windows.Controls.TextBox)credential.FindName("RevealedInput");
+                System.Windows.Controls.Button revealButton = (System.Windows.Controls.Button)credential.FindName("RevealButton");
+                System.Windows.Shapes.Path hiddenEyeSlash = (System.Windows.Shapes.Path)credential.FindName("HiddenEyeSlash");
+                AssertEqual(System.Windows.Visibility.Collapsed, revealed.Visibility, "credential must begin masked");
+                AssertEqual("test-credential", masked.Password, "masked field must load the saved credential");
+                masked.Password = "edited-credential";
+                AssertEqual("edited-credential", credentialCard.ApiKey, "masked editing must update the card binding");
+                revealButton.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                AssertEqual(System.Windows.Visibility.Visible, revealed.Visibility, "explicit reveal must show the editable text");
+                AssertEqual(System.Windows.Visibility.Visible, hiddenEyeSlash.Visibility, "revealed credential must offer the crossed eye icon");
+                AssertEqual("Hide credential", System.Windows.Automation.AutomationProperties.GetName(revealButton), "reveal action must remain accessible");
+                revealed.SetCurrentValue(System.Windows.Controls.TextBox.TextProperty, "revealed-edit");
+                AssertEqual("revealed-edit", masked.Password, "revealed editing must synchronize the masked field");
+                AssertEqual("revealed-edit", credentialCard.ApiKey, "revealed editing must update the persisted card source");
+                revealButton.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                masked.Password = "masked-again";
+                AssertEqual("masked-again", credentialCard.ApiKey, "editing after hiding must still update the source");
+                revealButton.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                credentialCard.ApiKey = "external-edit";
+                AssertEqual("external-edit", masked.Password, "card changes must synchronize the masked field");
+                credential.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.UnloadedEvent));
+                AssertEqual(System.Windows.Visibility.Collapsed, revealed.Visibility, "ending editing must clear reveal state");
+                AssertEqual(System.Windows.Visibility.Collapsed, hiddenEyeSlash.Visibility, "hidden credential must offer the open eye icon");
+                AssertEqual("Show credential", System.Windows.Automation.AutomationProperties.GetName(revealButton), "hidden credential must expose the reveal action");
                 AssertEqual(CodexTrayDefaults.PopupWindowWidth, window.Width, "fixed popup width");
                 AssertEqual(CodexTrayDefaults.PopupWindowHeight, window.Height, "fixed popup height");
                 AssertEqual(window.Width, window.MinWidth, "fixed popup minimum width");
@@ -537,7 +629,20 @@ internal static class Program
                 AssertEqual(91d, codexPrimaryCard.ActualHeight, "Codex primary card height after Session update");
                 AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex Resets height after Session update");
                 AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"updated Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
+                PropertyInfo themeModeProperty = typeof(System.Windows.Window).GetProperty("ThemeMode")!;
+                object? closedThemeMode = themeModeProperty.GetValue(window);
+                bool dialogConfirmed = false;
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Confirm", "Review fixture", "OK", PrimaryAction: () => dialogConfirmed = true));
+                new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
                 window.Close();
+                AssertTrue(!viewModel.IsModalOpen, "closing a dialog window must release the tray toggle guard");
+                viewModel.ConfirmInAppDialogCommand.Execute(null);
+                AssertTrue(!dialogConfirmed, "closing a window must discard its pending confirmation action");
+                TrayPopupWindow reopenedWindow = new(viewModel);
+                viewModel.ThemeMode = viewModel.ThemeMode == AppSettings.ThemeModeDark ? AppSettings.ThemeModeLight : AppSettings.ThemeModeDark;
+                AssertEqual(closedThemeMode, themeModeProperty.GetValue(window), "closed windows must stop receiving view model theme changes");
+                AssertEqual(viewModel.ThemeMode, themeModeProperty.GetValue(reopenedWindow)?.ToString(), "reopened windows must receive view model theme changes");
+                reopenedWindow.Close();
             }
             catch (Exception exception)
             {
@@ -1488,6 +1593,121 @@ internal static class Program
     }
 
     /// <summary>
+    /// Verifies damaged configuration protection, backup validation, and recovery of editable cards.
+    /// </summary>
+    private static Task TestSettingsRecoveryAsync()
+    {
+        using TempDirectory temp = new();
+        SettingsStore store = new(temp.Path);
+        AppSettings initial = new() { Port = 18000, ApiMonitors = [new() { ApiKey = "test-secret", UserId = "test-user" }] };
+        store.Save(initial);
+        store.Save(new AppSettings { Port = 18001 });
+        string backup = File.ReadAllText(store.BackupPath);
+        AssertTrue(backup.Contains("test-secret"), "backup must use the same credential representation as the main file");
+        foreach (string damaged in new[] { "{", "null", "[]", "{\"Port\":\"invalid\"}" })
+        {
+            File.WriteAllText(store.SettingsPath, damaged);
+            store.Load();
+            AssertTrue(store.IsWriteBlocked && store.LoadError.Length > 0, "damaged configuration must report an error and block saves");
+            bool blocked = false;
+            try
+            {
+                store.Save(new AppSettings());
+            }
+            catch (InvalidOperationException)
+            {
+                blocked = true;
+            }
+
+            AssertTrue(blocked, "automatic saves must not overwrite temporary defaults");
+            AssertEqual(damaged, File.ReadAllText(store.SettingsPath), "damaged bytes must remain intact");
+            AssertEqual(backup, File.ReadAllText(store.BackupPath), "valid backup must survive failed loads and saves");
+        }
+
+        AppSettings restored = store.RestoreBackup();
+        AssertEqual(18000, restored.Port, "previous valid port must be restored");
+        AssertEqual("test-secret", restored.ApiMonitors[0].ApiKey, "credentials must survive backup restoration");
+        AssertTrue(!store.IsWriteBlocked, "successful restoration must unblock writes");
+        AssertEqual("{\"Port\":\"invalid\"}", File.ReadAllText(store.PreservedSettingsPath!), "restore must preserve the damaged original");
+        string validMain = File.ReadAllText(store.SettingsPath);
+        File.WriteAllText(store.BackupPath, "{");
+        bool invalidBackup = false;
+        try
+        {
+            store.RestoreBackup();
+        }
+        catch (JsonException)
+        {
+            invalidBackup = true;
+        }
+
+        AssertTrue(invalidBackup, "invalid backup must be rejected before writing");
+        AssertEqual(validMain, File.ReadAllText(store.SettingsPath), "invalid backup must not replace the main file");
+        File.WriteAllText(store.SettingsPath, "{");
+        bool externalCorruptionBlocked = false;
+        try
+        {
+            store.Save(restored);
+        }
+        catch (InvalidOperationException)
+        {
+            externalCorruptionBlocked = true;
+        }
+
+        AssertTrue(externalCorruptionBlocked && store.IsWriteBlocked, "corruption after a successful load must also block saves");
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        viewModel.PortText = "18005";
+        viewModel.IsSettingsWriteBlocked = true;
+        AssertTrue(!viewModel.SaveSettingsCommand.CanExecute(null), "protected settings must disable UI saves");
+        viewModel.LoadRecoveredSettings(restored);
+        AssertEqual("18000", viewModel.PortText, "recovery must replace edited temporary settings");
+        AssertEqual("test-secret", viewModel.ApiMonitors[0].ApiKey, "recovery must repopulate API cards");
+        viewModel.VisiblePages = PageItem.None;
+        AppSettings candidate = restored.Copy();
+        viewModel.ApplySettings(candidate, markSaved: false);
+        AssertEqual(PageItem.All, restored.VisiblePages, "candidate creation must not mutate active page visibility before persistence");
+        AssertEqual(PageItem.None, candidate.VisiblePages, "candidate must contain requested page changes");
+        AssertEqual(SettingsStatus.Unsaved, viewModel.SettingsStatus, "unsaved candidate must not claim success");
+        candidate.ApiMonitors[0].ApiKey = "different-test-key";
+        AssertEqual("test-secret", restored.ApiMonitors[0].ApiKey, "candidate must not share mutable credential cards");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies valid configuration remains active when backup creation or normalization cannot write files.
+    /// </summary>
+    private static Task TestSettingsMaintenanceFailureAsync()
+    {
+        foreach (bool failBackup in new[] { true, false })
+        {
+            using TempDirectory temp = new();
+            SettingsStore store = new(temp.Path);
+            AppSettings initial = new() { Port = 18042, VisiblePages = PageItem.Codex, ApiMonitors = [new() { ApiKey = "test-key" }] };
+            store.Save(initial);
+            if (failBackup)
+            {
+                File.Delete(store.BackupPath);
+                Directory.CreateDirectory(store.BackupPath);
+            }
+            else
+            {
+                File.AppendAllText(store.SettingsPath, "\n");
+            }
+
+            string original = File.ReadAllText(store.SettingsPath);
+            using FileStream? locked = failBackup ? null : new FileStream(store.SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            AppSettings loaded = store.Load();
+            AssertEqual(initial.Port, loaded.Port, "maintenance write failures must preserve the validated port");
+            AssertEqual(initial.VisiblePages, loaded.VisiblePages, "maintenance write failures must preserve page visibility");
+            AssertEqual("test-key", loaded.ApiMonitors[0].ApiKey, "maintenance write failures must preserve API cards");
+            AssertTrue(store.IsWriteBlocked, "maintenance write failures must report an error and block persistence");
+            AssertEqual(original, File.ReadAllText(store.SettingsPath), "failed maintenance must leave the original configuration intact");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Tests settings value normalization.
     /// </summary>
     private static Task TestSettingsNormalizeAsync()
@@ -1682,7 +1902,8 @@ internal static class Program
         AssertEqual("$3.00", results[4].UsedDisplay, "NanoGPT 30-day usage");
         AssertTrue(results[5].Available, "NanoGPT balance should remain available when usage fails");
         AssertEqual("$12.35", results[5].BalanceDisplay, "NanoGPT balance after usage failure");
-        AssertEqual(string.Empty, results[5].UsedDisplay, "NanoGPT usage failure display");
+        AssertEqual("N/A", results[5].UsedDisplay, "NanoGPT usage failure display");
+        AssertTrue(results[5].UsedError.Length > 0, "NanoGPT usage failure must carry a reason");
         AssertEqual("$95.50", results[6].BalanceDisplay, "Vercel remaining credits");
         AssertEqual("$4.50", results[6].UsedDisplay, "Vercel used credits");
         AssertEqual("$95.50", results[7].BalanceDisplay, "Vercel root base URL credits");
@@ -2344,7 +2565,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Builds one Grok Build turn-completed usage entry with per-model counters.
+    /// Builds one Grok Build turn-completed usage entry with per-model counters and optional API timing.
     /// </summary>
     private static string CreateGrokTokenUpdate(
         string promptId,
@@ -2355,7 +2576,8 @@ internal static class Program
         long costUsdTicks = 0,
         bool costIsPartial = false,
         string sessionUpdate = "turn_completed",
-        long reasoningTokens = 0)
+        long reasoningTokens = 0,
+        long? apiDurationMilliseconds = null)
     {
         return JsonSerializer.Serialize(new
         {
@@ -2379,6 +2601,7 @@ internal static class Program
                                 outputTokens,
                                 reasoningTokens,
                                 modelCalls = 1,
+                                apiDurationMs = apiDurationMilliseconds,
                                 costUsdTicks,
                             },
                         },
@@ -2389,9 +2612,10 @@ internal static class Program
     }
 
     /// <summary>
-    /// Builds one Grok Build turn-completed usage entry without modelUsage details.
+    /// Builds one Grok Build turn-completed usage entry without modelUsage details, with optional API timing.
     /// </summary>
-    private static string CreateGrokTopLevelTokenUpdate(string promptId, DateTimeOffset timestamp, long inputTokens, long cachedReadTokens, long outputTokens, long costUsdTicks)
+    private static string CreateGrokTopLevelTokenUpdate(string promptId, DateTimeOffset timestamp, long inputTokens, long cachedReadTokens, long outputTokens, long costUsdTicks,
+                                                      long? apiDurationMilliseconds = null)
     {
         return JsonSerializer.Serialize(new
         {
@@ -2409,6 +2633,7 @@ internal static class Program
                         cachedReadTokens,
                         outputTokens,
                         costUsdTicks,
+                        apiDurationMs = apiDurationMilliseconds,
                     },
                 },
             },
@@ -2652,6 +2877,150 @@ internal static class Program
     }
 
     /// <summary>
+    /// Verifies prompt publication, isolated failure, visibility and cancellation guards, and independent Grok costs.
+    /// </summary>
+    private static async Task TestIndependentRefreshAsync()
+    {
+        TaskCompletionSource<int> slow = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<int> fast = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        List<int> published = [];
+        List<Exception> failures = [];
+        Task slowPublication = TrayController.PublishRefreshResultAsync(slow.Task, published.Add, () => true, failures.Add, CancellationToken.None);
+        Task fastPublication = TrayController.PublishRefreshResultAsync(fast.Task, published.Add, () => true, failures.Add, CancellationToken.None);
+        fast.SetResult(2);
+        await fastPublication.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertEqual("2", string.Join(',', published), "fast source must publish before the slow source completes");
+        AssertTrue(!slowPublication.IsCompleted, "slow source remains owned and pending");
+        slow.SetException(new IOException("test collection failed"));
+        await slowPublication.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertEqual(1, failures.Count, "source failure should be observed independently");
+        await TrayController.PublishRefreshResultAsync(Task.FromResult(3), published.Add, () => false, failures.Add, CancellationToken.None);
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        await TrayController.PublishRefreshResultAsync(Task.FromResult(4), published.Add, () => true, failures.Add, cancellation.Token);
+        AssertEqual("2", string.Join(',', published), "hidden or cancelled results must not publish");
+
+        bool visible = true;
+        TaskCompletionSource<int> hidden = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task hiddenPublication = TrayController.PublishRefreshResultAsync(hidden.Task, published.Add, () => visible, failures.Add, CancellationToken.None);
+        visible = false;
+        hidden.SetResult(5);
+        await hiddenPublication.WaitAsync(TimeSpan.FromSeconds(5));
+        using CancellationTokenSource pendingCancellation = new();
+        TaskCompletionSource<int> cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task cancelledPublication = TrayController.PublishRefreshResultAsync(cancelled.Task, published.Add, () => true, failures.Add, pendingCancellation.Token);
+        pendingCancellation.Cancel();
+        cancelled.SetResult(6);
+        await cancelledPublication.WaitAsync(TimeSpan.FromSeconds(5));
+        TaskCompletionSource<int> lateFailure = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task lateFailurePublication = TrayController.PublishRefreshResultAsync(lateFailure.Task, published.Add, () => true, failures.Add, pendingCancellation.Token);
+        lateFailure.SetException(new IOException("late collection failure"));
+        await lateFailurePublication.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertEqual("2", string.Join(',', published), "visibility and cancellation must be checked after collection completes");
+        AssertEqual(1, failures.Count, "late failures must be observed without notifying after cancellation");
+        AssertTrue(lateFailure.Task.Exception != null && lateFailurePublication.IsCompletedSuccessfully, "late collection fault must remain observed by its owner");
+
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        TokenCostStatistics statistics = new() { LastTwentyFourHours = new TokenCostSummary { TotalTokens = 3000 } };
+        viewModel.UpdateGrokTokenCost(statistics);
+        AssertEqual("3.00K", viewModel.GrokTokenCost.SelectedTokenDisplay, "cost can arrive before billing");
+        DateTimeOffset now = DateTimeOffset.Now;
+        viewModel.UpdateGrokDashboard(new GrokUsageDashboard(new GrokUsageSnapshot(42, now.ToUnixTimeSeconds() + 100), string.Empty, now));
+        AssertEqual("3.00K", viewModel.GrokTokenCost.SelectedTokenDisplay, "billing must preserve separately published costs");
+        AssertEqual(System.Windows.Media.Color.FromRgb(26, 188, 137), ((System.Windows.Media.SolidColorBrush)viewModel.GrokStatusDotBrush).Color, "both independent results are available");
+        viewModel.UpdateGrokTokenCost(null);
+        AssertEqual(System.Windows.Media.Color.FromRgb(226, 176, 54), ((System.Windows.Media.SolidColorBrush)viewModel.GrokStatusDotBrush).Color, "cost failure must preserve billing availability");
+    }
+
+    /// <summary>
+    /// Verifies runtime repricing even when file length, write time, and session contents are unchanged.
+    /// </summary>
+    private static Task TestPricingReloadAsync()
+    {
+        using TempDirectory temp = new();
+        string pricing = Path.Combine(temp.Path, "pricing.json");
+        string sessions = Path.Combine(temp.Path, "sessions");
+        Directory.CreateDirectory(sessions);
+        DateTimeOffset now = DateTimeOffset.Now;
+        File.WriteAllText(pricing, "{\"gpt-test\":{\"input\":1,\"cachedInput\":0,\"output\":1}}");
+        DateTime writeTime = File.GetLastWriteTimeUtc(pricing);
+        File.WriteAllLines(Path.Combine(sessions, "test.jsonl"),
+        [
+            CreateCodexRecord(now.AddMinutes(-1), "turn_context", new { model = "gpt-test" }),
+            CreateCodexTokenCount(now.AddSeconds(-30).ToString("O"), last: (100, 0, 100), total: (100, 0, 100)),
+        ]);
+        TokenCostCollector collector = new(pricing);
+        AssertEqual(0.0002m, collector.CollectCodex(temp.Path, now).Today.CostUsd, "initial calculated cost");
+        File.WriteAllText(pricing, "{\"gpt-test\":{\"input\":9,\"cachedInput\":0,\"output\":9}}");
+        File.SetLastWriteTimeUtc(pricing, writeTime);
+        AssertEqual(0.0018m, collector.CollectCodex(temp.Path, now).Today.CostUsd, "unchanged sessions must use new prices");
+        File.WriteAllText(pricing, "{}");
+        TokenCostStatistics missing = collector.CollectCodex(temp.Path, now);
+        AssertTrue(missing.Today.HasUnpricedUsage, "missing price must mark partial costs");
+        AssertEqual(200L, missing.Today.TotalTokens, "unknown pricing must preserve tokens");
+        AssertEqual(0m, missing.Today.CostUsd, "known cost subtotal remains zero");
+        File.WriteAllText(pricing, "{\"gpt-test\":{\"input\":1,\"cachedInput\":0,\"output\":1}}");
+        AssertTrue(!collector.CollectCodex(temp.Path, now).Today.HasUnpricedUsage, "restored prices must clear partial status");
+        string grokSession = Path.Combine(sessions, "grok-test");
+        Directory.CreateDirectory(grokSession);
+        File.WriteAllLines(Path.Combine(grokSession, "updates.jsonl"),
+            [CreateGrokTokenUpdate("partial", now.AddSeconds(-10), 10, 0, 1, 100_000_000, costIsPartial: true)]);
+        TokenCostSummary grok = collector.CollectGrok(temp.Path, now).Today;
+        AssertEqual(0.01m, grok.CostUsd, "partial reported fee remains included without local pricing");
+        AssertTrue(grok.HasUnpricedUsage, "unpriced partial reported costs must be marked incomplete");
+        using (FileStream locked = new(Path.Combine(grokSession, "updates.jsonl"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            bool failed = false;
+            try
+            {
+                collector.CollectGrok(temp.Path, now);
+            }
+            catch (IOException)
+            {
+                failed = true;
+            }
+
+            AssertTrue(failed, "a previously readable Grok session must not silently become a successful zero-cost snapshot");
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies failed reads keep success times while clearing values and exposing missing model prices.
+    /// </summary>
+    private static Task TestDataFreshnessAsync()
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        TokenCostSummary partial = new() { TotalTokens = 10, CostUsd = 0, HasUnpricedUsage = true };
+        viewModel.UpdateTokenCost(new TokenCostStatistics
+        {
+            LastTwentyFourHours = partial,
+            Models = [new TokenCostModelStatistics { Model = "unknown-price", LastTwentyFourHours = partial }],
+        });
+        AssertTrue(viewModel.CodexTokenCost.SelectedCostDisplay.Contains('*'), "partial cost must be visibly marked");
+        AssertTrue(viewModel.CodexTokenCost.DetailsTooltip.Contains("unknown-price"), "missing model must be listed");
+        DateTimeOffset? lastSuccess = viewModel.CodexTokenCost.Freshness.LastSuccess;
+        viewModel.UpdateTokenCost(null, "pricing unavailable");
+        AssertEqual(lastSuccess, viewModel.CodexTokenCost.Freshness.LastSuccess, "failure must preserve the success timestamp");
+        AssertEqual("N/A", viewModel.CodexTokenCost.SelectedCostDisplay, "failed read must clear old values");
+        AssertTrue(viewModel.CodexTokenCost.DetailsTooltip.Contains("pricing unavailable"), "cost failure reason must be accessible");
+        ApiMonitorViewModel card = new(new ApiMonitorSettings { Id = "test", Provider = ApiMonitorSettings.DeepSeekProvider });
+        card.Update(new ApiUsageResult("test", true, "¥1.00", "", "", now));
+        card.Update(new ApiUsageResult("test", false, "N/A", "", "timeout", now.AddMinutes(1)));
+        AssertEqual(now, card.BalanceState.LastSuccess, "API failures must not advance success time");
+        AssertEqual("N/A", card.BalanceDisplay, "API failure must clear old balance");
+        AssertTrue(card.StatusTooltip.Contains("timeout"), "API failure reason must be accessible");
+        ApiUsageResult partialUsage = new("nano", true, "$1.00", "N/A", "", now, Provider: ApiMonitorSettings.NanoGptProvider, UsedError: "Usage timed out");
+        ApiMonitorViewModel nano = new(new ApiMonitorSettings { Id = "nano", Provider = ApiMonitorSettings.NanoGptProvider });
+        nano.Update(partialUsage);
+        AssertTrue(nano.HasSecondaryDisplay && nano.UsedDisplay == "N/A", "failed NanoGPT usage must remain visible as unavailable");
+        AssertEqual(ApiUsageRefreshStatus.PartiallyAvailable, ApiUsageCollector.Summarize([partialUsage]).Status, "usage failure must mark API summary partial");
+        AssertEqual(System.Windows.Media.Color.FromRgb(226, 176, 54), ((System.Windows.Media.SolidColorBrush)nano.StatusDotBrush).Color, "partial API card must use yellow status");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Tests that the refresh command tracks its task and prevents concurrent execution.
     /// </summary>
     private static async Task TestRefreshCommandAsync()
@@ -2764,11 +3133,11 @@ internal static class Program
         AssertEqual("$6.00 · 40%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 24-hour cost and cache hit");
         AssertEqual("56%|44%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 24-hour donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 56%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 24-hour donut model tooltip");
         AssertEqual(
-            $"GPT-5.4{Environment.NewLine}Tokens: 0.40K{Environment.NewLine}Cost: $2.00{Environment.NewLine}Share: 44%",
+            $"GPT-5.4{Environment.NewLine}Tokens: 0.40K{Environment.NewLine}Cost: $2.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 44%",
             viewModel.CodexTokenCost.DonutSegments[1].Tooltip,
             "Codex 24-hour donut second model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
@@ -2777,7 +3146,7 @@ internal static class Program
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected today token total");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Share: 60%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 60%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex today donut model tooltip");
         AssertEqual(31, viewModel.CodexTokenCost.ChartDays.Count, "current-month Codex token cost chart day count");
@@ -2792,7 +3161,7 @@ internal static class Program
         AssertEqual("$9.00 · 45%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-week cost and cache hit");
         AssertEqual("80%|20%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-week donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Share: 80%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 80%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex current-week donut model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
@@ -2803,7 +3172,7 @@ internal static class Program
         AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
         AssertEqual("65%|35%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 7D donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 65%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 7D donut model tooltip");
         AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7D row should be selected");
@@ -2821,6 +3190,15 @@ internal static class Program
         AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CursorTokenCost.Rows.Select(row => row.Display.Cost)), "Cursor token cost row values");
         AssertEqual(30, viewModel.CursorTokenCost.ChartDays.Count, "Cursor token cost chart day count");
         AssertEqual(daily[^1].Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), viewModel.CursorTokenCost.ChartDays[29].Tooltip[..10], "Cursor token cost chart tooltip date");
+        AssertEqual(
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
+            viewModel.CursorTokenCost.DonutSegments[0].Tooltip,
+            "Cursor donut model tooltip omits speed");
+        viewModel.CursorTokenCost.SelectPeriodCommand.Execute(viewModel.CursorTokenCost.Rows[1]);
+        AssertEqual(
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
+            viewModel.CursorTokenCost.DonutSegments[0].Tooltip,
+            "Cursor donut model tooltip keeps speed hidden after period selection");
 
         TokenCostStatistics grokStatistics = new()
         {
@@ -2866,7 +3244,7 @@ internal static class Program
         });
         AssertEqual("a|b|c|Other", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut other model labels");
         AssertEqual(
-            $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Share: 20%",
+            $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 20%",
             viewModel.CodexTokenCost.DonutSegments[3].Tooltip,
             "Codex donut other model tooltip");
 
@@ -2883,7 +3261,7 @@ internal static class Program
             ],
         });
         AssertEqual(
-            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Cost: N/A{Environment.NewLine}Share: 100%",
+            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Cost: N/A{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 100%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "unpriced donut model tooltip");
 
@@ -3024,6 +3402,15 @@ internal static class Program
         AssertEqual(first, viewModel.ApiMonitors[1], "API monitor should move down");
         AssertTrue(viewModel.MoveApiMonitorUpCommand.CanExecute(first), "moved API monitor should move up");
         AssertTrue(!viewModel.MoveApiMonitorDownCommand.CanExecute(first), "moved API monitor should not move below the last position");
+        AssertEqual(0, settings.ApiMonitors.Count, "reordering pending cards must not save them");
+        first.ToggleEditingCommand.Execute(null);
+        second.ToggleEditingCommand.Execute(null);
+        string savedName = settings.ApiMonitors.Single(card => card.Id == first.Id).Name;
+        first.ToggleEditingCommand.Execute(null);
+        first.Name = "Unfinished edit";
+        viewModel.MoveApiMonitorUpCommand.Execute(first);
+        AssertEqual(first.Id, settings.ApiMonitors[0].Id, "reordering saved cards must persist their order");
+        AssertEqual(savedName, settings.ApiMonitors[0].Name, "reordering must not persist unfinished card fields");
         return Task.CompletedTask;
     }
 
@@ -3045,7 +3432,7 @@ internal static class Program
         ApiUsageResult result = new(viewModel.Id, false, "N/A", "N/A", "Waiting for refresh", DateTimeOffset.UtcNow, "USD balance");
         viewModel.Update(result);
         AssertEqual(
-            "BalanceTooltip|HasBalanceTooltip",
+            "BalanceTooltip|HasBalanceTooltip|StatusTooltip",
             string.Join('|', changedProperties.Order()),
             "balance tooltip notifications");
         changedProperties.Clear();
@@ -3095,8 +3482,8 @@ internal static class Program
         AssertTrue(viewModel.HasSecondaryDisplay, "NanoGPT successful usage display");
         AssertEqual("$12.35", viewModel.BalanceDisplay, "current NanoGPT result should update balance");
         changedProperties.Clear();
-        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$12.35", string.Empty, string.Empty, DateTimeOffset.UtcNow));
-        AssertTrue(!viewModel.HasSecondaryDisplay, "NanoGPT failed usage should hide secondary display");
+        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$12.35", "N/A", string.Empty, DateTimeOffset.UtcNow, UsedError: "Usage failed"));
+        AssertTrue(viewModel.HasSecondaryDisplay, "NanoGPT failed usage should retain the unavailable secondary display");
         AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.HasSecondaryDisplay)), "NanoGPT secondary visibility notification");
         viewModel.Provider = ApiMonitorSettings.VercelProvider;
         AssertEqual("https://ai-gateway.vercel.sh", viewModel.BaseUrl, "Vercel default base URL");
@@ -3255,6 +3642,249 @@ internal static class Program
         AssertEqual(67, new TokenCostSummary { CacheReadTokens = 2, CacheableInputTokens = 3 }.GetCacheHitPercent(), "rounded cache hit");
         AssertEqual(100, new TokenCostSummary { CacheReadTokens = 995, CacheableInputTokens = 1_000 }.GetCacheHitPercent(), "near-complete cache hit");
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies duration-weighted speed, invalid timing, deduplication, period selection, and donut model grouping.
+    /// </summary>
+    private static Task TestModelOutputSpeedAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{}");
+        string active = Path.Combine(temp.Path, "sessions", "workspace", "speed-session");
+        string archived = Path.Combine(temp.Path, "archived_sessions", "workspace", "speed-session");
+        Directory.CreateDirectory(active);
+        Directory.CreateDirectory(archived);
+        DateTimeOffset now = new(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset today = now.AddHours(-3);
+        string fast = CreateGrokTokenUpdate("fast", today, 10, 0, 100, reasoningTokens: 80, apiDurationMilliseconds: 1_000);
+        List<string> lines =
+        [
+            fast,
+            CreateGrokTokenUpdate("slow", today.AddMinutes(1), 10, 0, 100, apiDurationMilliseconds: 9_000),
+            CreateGrokTokenUpdate("untimed", today.AddMinutes(2), 10, 0, 900),
+            CreateGrokTokenUpdate("yesterday", today.AddHours(-25), 10, 0, 300, apiDurationMilliseconds: 2_000),
+            CreateGrokTopLevelTokenUpdate("top-level", today, 10, 0, 25, 0, apiDurationMilliseconds: 500),
+            CreateGrokTokenUpdate("zero", today, 10, 0, 0, apiDurationMilliseconds: 1_000)
+                .Replace("grok-4.5-build", "zero-output", StringComparison.Ordinal),
+        ];
+        string[] invalidDurations = ["null", "0", "-1", "\"1000\"", "1.5", "9223372036854775808"];
+        for (int index = 0; index < invalidDurations.Length; index++)
+        {
+            lines.Add(CreateGrokTokenUpdate($"invalid-{index}", today, 10, 0, 50, apiDurationMilliseconds: 1_000)
+                .Replace("grok-4.5-build", "invalid-timing", StringComparison.Ordinal)
+                .Replace("\"apiDurationMs\":1000", $"\"apiDurationMs\":{invalidDurations[index]}", StringComparison.Ordinal));
+        }
+
+        lines.Add(CreateGrokTokenUpdate("missing-output", today, 10, 0, 50, apiDurationMilliseconds: 1_000)
+            .Replace("grok-4.5-build", "invalid-timing", StringComparison.Ordinal)
+            .Replace("\"outputTokens\":50", "\"unusedOutputTokens\":50", StringComparison.Ordinal));
+        lines.Add(JsonSerializer.Serialize(new
+        {
+            timestamp = today.ToUnixTimeSeconds(),
+            method = "_x.ai/session/update",
+            @params = new
+            {
+                update = new
+                {
+                    sessionUpdate = "turn_completed",
+                    prompt_id = "multi-model",
+                    usage = new
+                    {
+                        apiDurationMs = 99_999,
+                        modelUsage = new Dictionary<string, object>
+                        {
+                            ["model-a"] = new { inputTokens = 10, outputTokens = 100, apiDurationMs = 1_000 },
+                            ["model-b"] = new { inputTokens = 10, outputTokens = 100, apiDurationMs = 4_000 },
+                        },
+                    },
+                },
+            },
+        }));
+        File.WriteAllLines(Path.Combine(active, "updates.jsonl"), lines);
+        File.WriteAllLines(Path.Combine(archived, "updates.jsonl"), [fast]);
+        TokenCostStatistics statistics = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now);
+        TokenCostModelStatistics model = statistics.Models.Single(item => item.Model == "grok-4.5-build");
+        AssertEqual(1_130L, model.Today.TotalTokens, "untimed usage still contributes tokens without duplicating archived turns");
+        AssertEqual(200L, model.Today.TimedOutputTokens, "speed excludes untimed output and does not add reasoning twice");
+        AssertEqual(10_000L, model.Today.TimedDurationMilliseconds, "paired API duration survives turn deduplication");
+        AssertEqual(20m, model.Today.GetOutputTokensPerSecond(), "speed uses summed output over summed durations");
+        AssertEqual(20m, model.LastTwentyFourHours.GetOutputTokensPerSecond(), "24-hour speed excludes older timing");
+        foreach (TokenCostSummary summary in new[] { model.LastSevenDays, model.LastThirtyDays, model.CurrentWeek, model.CurrentMonth, model.Lifetime })
+        {
+            AssertEqual(500L, summary.TimedOutputTokens, "longer periods include historical timed output");
+            AssertEqual(12_000L, summary.TimedDurationMilliseconds, "longer periods include matching API duration");
+        }
+
+        AssertEqual(300L, statistics.LastThirtyDaysDaily[^2].Summary.TimedOutputTokens, "daily speed retains paired output");
+        TokenCostSummary invalid = statistics.Models.Single(item => item.Model == "invalid-timing").Today;
+        AssertEqual(370L, invalid.TotalTokens, "invalid timing keeps token totals");
+        AssertEqual(0m, invalid.CostUsd, "invalid timing keeps unknown-price cost behavior");
+        AssertEqual(null, invalid.GetOutputTokensPerSecond(), "invalid timing cannot produce a speed");
+        AssertEqual(0m, statistics.Models.Single(item => item.Model == "zero-output").Today.GetOutputTokensPerSecond(), "explicit zero output has valid zero speed");
+        AssertEqual(50m, statistics.Models.Single(item => item.Model == "unknown").Today.GetOutputTokensPerSecond(), "top-level usage pairs its own timing");
+        AssertEqual(100m, statistics.Models.Single(item => item.Model == "model-a").Today.GetOutputTokensPerSecond(), "model A uses its own API duration");
+        AssertEqual(25m, statistics.Models.Single(item => item.Model == "model-b").Today.GetOutputTokensPerSecond(), "model B does not inherit top-level duration");
+
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        viewModel.UpdateGrokDashboard(new GrokUsageDashboard(null, "N/A", now), statistics);
+        AssertTrue(viewModel.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "grok-4.5-build").Tooltip.Contains("Speed: 20.0 tok/s"), "Grok tooltip displays measured speed");
+        viewModel.GrokTokenCost.SelectPeriodCommand.Execute(viewModel.GrokTokenCost.Rows[1]);
+        AssertTrue(viewModel.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "grok-4.5-build").Tooltip.Contains("Speed: 41.7 tok/s"), "tooltip speed follows selected period");
+        viewModel.UpdateTokenCost(new TokenCostStatistics
+        {
+            Models =
+            [
+                new TokenCostModelStatistics { Model = "same-high", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 500, TimedOutputTokens = 100, TimedDurationMilliseconds = 1_000 } },
+                new TokenCostModelStatistics { Model = "same-low", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 400, TimedOutputTokens = 100, TimedDurationMilliseconds = 9_000 } },
+                new TokenCostModelStatistics { Model = "b", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 300 } },
+                new TokenCostModelStatistics { Model = "c", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 200 } },
+                new TokenCostModelStatistics { Model = "d", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 100, TimedOutputTokens = 100, TimedDurationMilliseconds = 1_000 } },
+                new TokenCostModelStatistics { Model = "e", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 80, TimedOutputTokens = 100, TimedDurationMilliseconds = 9_000 } },
+                new TokenCostModelStatistics { Model = "f", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 60 } },
+            ],
+        });
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments[0].Tooltip.Contains("Speed: 20.0 tok/s"), "same display label merges raw timing before calculating speed");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "Other").Tooltip.Contains("Speed: 20.0 tok/s"), "Other excludes untimed tokens from weighted speed");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "b").Tooltip.Contains("Speed: N/A"), "missing timing displays N/A");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies Codex response windows, both usage/tool orderings, replay, caches, and incomplete timing.
+    /// </summary>
+    private static Task TestCodexOutputSpeedAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{}");
+        string sessions = Path.Combine(temp.Path, "sessions");
+        string archived = Path.Combine(temp.Path, "archived_sessions");
+        Directory.CreateDirectory(sessions);
+        Directory.CreateDirectory(archived);
+        DateTimeOffset now = new(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset today = now.AddHours(-3);
+        DateTimeOffset past = today.AddHours(-25);
+        const string parentId = "11111111-1111-1111-1111-111111111111";
+        const string childId = "22222222-2222-2222-2222-222222222222";
+        string firstUsage = CreateCodexTokenCount(today.AddSeconds(15.001).ToString("O"), last: (100, 20, 100), total: (140, 20, 180));
+        string thirdUsage = CreateCodexTokenCount(today.AddSeconds(23.001).ToString("O"), last: (20, 0, 40), total: (210, 20, 300));
+        string[] parentLines =
+        [
+            CreateCodexRecord(past, "event_msg", new { type = "task_started", turn_id = "past" }),
+            CreateCodexRecord(past, "turn_context", new { turn_id = "past", model = "gpt-test" }),
+            CreateCodexRecord(past.AddSeconds(8), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(past.AddSeconds(8.001).ToString("O"), last: (40, 0, 80), total: (40, 0, 80)),
+            CreateCodexRecord(past.AddSeconds(8.002), "event_msg", new { type = "task_complete", turn_id = "past" }),
+            CreateCodexRecord(today, "event_msg", new { type = "task_started", turn_id = "first" }),
+            CreateCodexRecord(today, "turn_context", new { turn_id = "first", model = "gpt-test" }),
+            CreateCodexRecord(today.AddSeconds(1), "response_item", new { type = "message", role = "user" }),
+            CreateCodexRecord(today.AddSeconds(3), "response_item", new { type = "reasoning" }),
+            CreateCodexRecord(today.AddSeconds(5), "response_item", new { type = "custom_tool_call" }),
+            CreateCodexRecord(today.AddSeconds(15), "response_item", new { type = "custom_tool_call_output" }),
+            firstUsage,
+            firstUsage.Replace(today.AddSeconds(15.001).ToString("O"), today.AddSeconds(16).ToString("O"), StringComparison.Ordinal),
+            CreateCodexRecord(today.AddSeconds(19.001), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(today.AddSeconds(19.002).ToString("O"), last: (50, 0, 80), total: (190, 20, 260)),
+            CreateCodexRecord(today.AddSeconds(19.003), "event_msg", new { type = "task_complete", turn_id = "first" }),
+            CreateCodexRecord(today.AddSeconds(20), "event_msg", new { type = "task_started", turn_id = "second" }),
+            CreateCodexRecord(today.AddSeconds(20), "turn_context", new { turn_id = "second", model = "gpt-test" }),
+            CreateCodexRecord(today.AddSeconds(21), "event_msg", new { type = "user_message" }),
+            CreateCodexRecord(today.AddSeconds(23), "response_item", new { type = "function_call" }),
+            thirdUsage,
+            CreateCodexRecord(today.AddSeconds(33), "response_item", new { type = "function_call_output" }),
+            thirdUsage.Replace(today.AddSeconds(23.001).ToString("O"), today.AddSeconds(35).ToString("O"), StringComparison.Ordinal),
+            CreateCodexRecord(today.AddSeconds(37), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(today.AddSeconds(37.001).ToString("O"), last: (30, 0, 120), total: (240, 20, 420)),
+            CreateCodexRecord(today.AddSeconds(37.002), "event_msg", new { type = "task_complete", turn_id = "second" }),
+        ];
+        File.WriteAllLines(Path.Combine(sessions, $"rollout-{parentId}.jsonl"), parentLines);
+        File.WriteAllLines(Path.Combine(archived, $"rollout-{parentId}.jsonl"), parentLines);
+        DateTimeOffset childStart = today.AddMinutes(5);
+        string childPath = Path.Combine(sessions, $"rollout-{childId}.jsonl");
+        File.WriteAllLines(childPath,
+        [
+            CreateCodexRecord(childStart, "session_meta", new { id = childId, forked_from_id = parentId }),
+            .. parentLines,
+            CreateCodexRecord(childStart, "event_msg", new { type = "task_started", turn_id = "child" }),
+            CreateCodexRecord(childStart, "turn_context", new { turn_id = "child", model = "gpt-test" }),
+            CreateCodexRecord(childStart.AddSeconds(1), "response_item", new { type = "message", role = "developer" }),
+            CreateCodexRecord(childStart.AddSeconds(3), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(childStart.AddSeconds(3.001).ToString("O"), last: (10, 0, 20), total: (250, 20, 440)),
+            CreateCodexRecord(childStart.AddSeconds(3.002), "event_msg", new { type = "task_complete", turn_id = "child" }),
+        ]);
+        string[] invalidCases = ["legacy", "missing-context", "missing-end", "backwards", "zero", "cumulative", "mismatch", "aborted", "compacted", "malformed"];
+        foreach (string invalidCase in invalidCases)
+        {
+            List<string> lines =
+            [
+                CreateCodexRecord(today, "event_msg", new { type = "task_started", turn_id = "invalid" }),
+                CreateCodexRecord(today, "turn_context", new { turn_id = "invalid", model = "gpt-invalid" }),
+                CreateCodexRecord(today.AddSeconds(1), "response_item", new { type = "message", role = "user" }),
+                CreateCodexRecord(today.AddSeconds(5), "response_item", new { type = "message", role = "assistant" }),
+                CreateCodexTokenCount(today.AddSeconds(6).ToString("O"), last: (10, 0, 100), total: (10, 0, 100)),
+            ];
+            switch (invalidCase)
+            {
+                case "legacy": lines.RemoveAt(0); break;
+                case "missing-context":
+                    lines.RemoveAt(1);
+                    lines.Insert(0, CreateCodexRecord(today.AddSeconds(-1), "turn_context", new { turn_id = "previous", model = "gpt-invalid" }));
+                    break;
+                case "missing-end": lines.RemoveAt(3); break;
+                case "backwards": lines[3] = CreateCodexRecord(today.AddSeconds(0.5), "response_item", new { type = "message", role = "assistant" }); break;
+                case "zero": lines[3] = CreateCodexRecord(today.AddSeconds(1), "response_item", new { type = "message", role = "assistant" }); break;
+                case "cumulative": lines[4] = CreateCodexTokenCount(today.AddSeconds(6).ToString("O"), total: (10, 0, 100)); break;
+                case "mismatch": lines.Insert(3, CreateCodexRecord(today.AddSeconds(2), "turn_context", new { turn_id = "other", model = "gpt-invalid" })); break;
+                case "aborted": lines.Insert(3, CreateCodexRecord(today.AddSeconds(2), "event_msg", new { type = "turn_aborted", turn_id = "invalid" })); break;
+                case "compacted": lines.Insert(3, CreateCodexRecord(today.AddSeconds(2), "compacted", new { })); break;
+                case "malformed": lines.Insert(3, "{\"type\":\"response_item\",bad}"); break;
+            }
+
+            File.WriteAllLines(Path.Combine(sessions, invalidCase + ".jsonl"), lines);
+        }
+
+        TokenCostCollector collector = new(pricingPath);
+        TokenCostStatistics statistics = collector.CollectCodex(temp.Path, now);
+        TokenCostModelStatistics model = statistics.Models.Single(item => item.Model == "gpt-test");
+        AssertTrue(statistics.IsSpeedEstimated, "Codex marks response-window speed as estimated");
+        AssertEqual(570L, model.Today.TotalTokens, "duplicate snapshots and parent replay keep existing token deduplication");
+        AssertEqual(360L, model.Today.TimedOutputTokens, "only accepted live response outputs contribute to speed");
+        AssertEqual(16_000L, model.Today.TimedDurationMilliseconds, "tool waits are excluded before and after usage records");
+        AssertEqual(22.5m, model.Today.GetOutputTokensPerSecond(), "Codex response windows produce weighted speed");
+        AssertEqual(22.5m, model.LastTwentyFourHours.GetOutputTokensPerSecond(), "rolling speed excludes older responses");
+        AssertEqual(440L, model.Lifetime.TimedOutputTokens, "historical responses are measured once");
+        AssertEqual(24_000L, model.Lifetime.TimedDurationMilliseconds, "historical windows retain matching duration");
+        TokenCostSummary invalid = statistics.Models.Single(item => item.Model == "gpt-invalid").Today;
+        AssertEqual(1100L, invalid.TotalTokens, "unmeasurable responses keep their usage");
+        AssertEqual(null, invalid.GetOutputTokensPerSecond(), "incomplete or ambiguous response windows have no speed");
+        AssertEqual(360L, collector.CollectCodex(temp.Path, now).Today.TimedOutputTokens, "cached rollouts retain timing");
+        AssertEqual(16_000L, collector.CollectCodex(temp.Path, now).Today.TimedDurationMilliseconds, "cached rollouts retain duration");
+        AssertEqual(null, collector.CollectCodex(temp.Path, now.AddDays(1)).Today.GetOutputTokensPerSecond(), "cached timing is rebucketed for a new day");
+        File.AppendAllLines(childPath,
+        [
+            CreateCodexRecord(childStart.AddMinutes(1), "event_msg", new { type = "task_started", turn_id = "appended" }),
+            CreateCodexRecord(childStart.AddMinutes(1), "turn_context", new { turn_id = "appended", model = "gpt-test" }),
+            CreateCodexRecord(childStart.AddMinutes(1).AddSeconds(3), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(childStart.AddMinutes(1).AddSeconds(3.001).ToString("O"), last: (10, 0, 30), total: (260, 20, 470)),
+        ]);
+        AssertEqual(390L, collector.CollectCodex(temp.Path, now).Today.TimedOutputTokens, "appended usage invalidates the timing cache");
+
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        viewModel.UpdateTokenCost(statistics);
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~22.5 tok/s"), "Codex tooltip marks estimated speed");
+        viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~18.3 tok/s"), "estimated speed follows period selection");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Builds a timestamped Codex rollout record for response-window checks.
+    /// </summary>
+    private static string CreateCodexRecord(DateTimeOffset timestamp, string type, object payload)
+    {
+        return JsonSerializer.Serialize(new { timestamp = timestamp.ToString("O"), type, payload });
     }
 
     /// <summary>

@@ -22,9 +22,9 @@ function Invoke-CodexTrayPublish {
     Write-Host "Output:  $OutputPath"
     if ($Clean -and (Test-Path -LiteralPath $OutputPath)) {
         Get-ChildItem -LiteralPath $OutputPath -Force |
-            Where-Object Name -ne "settings.json" |
+            Where-Object { $_.Name -notin @("settings.json", "settings.last-good.json") -and $_.Name -notlike "settings.damaged-*.json" } |
             ForEach-Object { Remove-PathWithRetry $_.FullName }
-        Write-Host "Cleaned previous publish output and preserved settings.json."
+        Write-Host "Cleaned previous publish output and preserved settings files."
     }
 
     Push-Location $RepoRoot
