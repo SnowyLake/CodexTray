@@ -921,10 +921,6 @@
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <Button Command="{Binding CopyDiagnosticsCommand}"
-                                    CommandParameter="{x:Static core:PageItem.Codex}"
-                                    Content="&#xE8C8;" ToolTip="Copy diagnostics"
-                                    Style="{StaticResource IconButtonStyle}" />
                             <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
                                     CommandParameter="{x:Static core:PageItem.Codex}"
                                     ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
@@ -1067,10 +1063,6 @@
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <Button Command="{Binding CopyDiagnosticsCommand}"
-                                    CommandParameter="{x:Static core:PageItem.Grok}"
-                                    Content="&#xE8C8;" ToolTip="Copy diagnostics"
-                                    Style="{StaticResource IconButtonStyle}" />
                             <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
                                     CommandParameter="{x:Static core:PageItem.Grok}"
                                     ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
@@ -1230,10 +1222,6 @@
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <Button Command="{Binding CopyDiagnosticsCommand}"
-                                    CommandParameter="{x:Static core:PageItem.Cursor}"
-                                    Content="&#xE8C8;" ToolTip="Copy diagnostics"
-                                    Style="{StaticResource IconButtonStyle}" />
                             <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
                                     CommandParameter="{x:Static core:PageItem.Cursor}"
                                     ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
@@ -1333,10 +1321,6 @@
                                    VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1"
                                     Orientation="Horizontal">
-                            <Button Command="{Binding CopyDiagnosticsCommand}"
-                                    CommandParameter="{x:Static core:PageItem.Apis}"
-                                    Content="&#xE8C8;" ToolTip="Copy API diagnostics"
-                                    Style="{StaticResource IconButtonStyle}" />
                             <Button VerticalAlignment="Center"
                                     Command="{Binding AddApiMonitorCommand}"
                                     Content="&#xE710;"
@@ -1424,10 +1408,6 @@
                                                                 Grid.Column="1"
                                                                 VerticalAlignment="Center"
                                                                 Orientation="Horizontal">
-                                                        <Button Width="30" Height="30"
-                                                                Command="{Binding DataContext.CopyDiagnosticsCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                                                                CommandParameter="{Binding}" Content="&#xE8C8;" ToolTip="Copy diagnostics"
-                                                                Style="{StaticResource IconButtonStyle}" />
                                                         <Button Width="30" Height="30"
                                                                 Command="{Binding DataContext.RetryApiMonitorCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
                                                                 CommandParameter="{Binding}" Content="&#xE72C;" ToolTip="Retry this card"
@@ -1612,11 +1592,6 @@
                               VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <!-- General -->
-                        <Button Content="Restore last good settings"
-                                Command="{Binding RestoreSettingsBackupCommand}"
-                                HorizontalAlignment="Left"
-                                Margin="0,0,0,12"
-                                ToolTip="Preserves the current file before restoring the backup." />
                         <TextBlock Text="General"
                                    Style="{StaticResource SettingsSectionHeaderStyle}" />
 
@@ -1858,8 +1833,7 @@
                         <TextBlock Text="Advanced"
                                    Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
 
-                        <Grid Margin="{StaticResource SettingsLastRowMargin}"
-                              ToolTip="{Binding ServiceStatus}"
+                        <Grid ToolTip="{Binding ServiceStatus}"
                               Style="{StaticResource SettingsRowGridStyle}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -1877,6 +1851,29 @@
                                                  Maximum="{x:Static core:CodexTrayDefaults.MaximumPort}"
                                                  DefaultValue="{x:Static core:CodexTrayDefaults.Port}"
                                                  Value="{Binding PortText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Grid Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Copy diagnostics" Style="{StaticResource SettingsRowTitleStyle}" />
+                            <Button Grid.Column="1" Command="{Binding CopyDiagnosticsCommand}"
+                                    CommandParameter="{x:Static core:PageItem.All}"
+                                    Content="&#xE8C8;" ToolTip="Copy diagnostics for all sources"
+                                    Style="{StaticResource IconButtonStyle}" />
+                        </Grid>
+
+                        <Grid Margin="{StaticResource SettingsLastRowMargin}" Style="{StaticResource SettingsRowGridStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Restore last good settings" Style="{StaticResource SettingsRowTitleStyle}" />
+                            <Button Grid.Column="1" Command="{Binding RestoreSettingsBackupCommand}"
+                                    Content="&#xE72C;" ToolTip="Preserves the current file before restoring the backup."
+                                    Style="{StaticResource IconButtonStyle}" />
                         </Grid>
 
                         <!-- About -->

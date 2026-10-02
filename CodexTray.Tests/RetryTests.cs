@@ -190,6 +190,10 @@ internal static class RetryTests
         typeof(ApiMonitorViewModel).GetField("m_Provider", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(vm.ApiMonitors[0], secret);
         Check(!vm.BuildDiagnostics(PageItem.Apis).Contains(secret), "whole API page uses the same provider whitelist");
         Check(vm.BuildDiagnostics(PageItem.Cursor).Contains("Not collected"), "initial diagnostics do not claim successful collection");
+        string allDiagnostics = vm.BuildDiagnostics(PageItem.All);
+        Check(new[] { "Codex usage:", "Cursor usage:", "Grok usage:", "Unknown API balance:" }.All(allDiagnostics.Contains), "advanced diagnostics include every source");
+        Check(!allDiagnostics.Contains(secret) && !allDiagnostics.Contains("message.example") && !allDiagnostics.Contains("user-secret") && !allDiagnostics.Contains("card-secret"),
+            "combined diagnostics retain provider whitelisting and credential redaction");
     }
 
     /// <summary>

@@ -1245,7 +1245,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Builds redacted diagnostic text for a source or one API card.
+    /// Builds redacted diagnostic text for selected sources or one API card.
     /// </summary>
     internal string BuildDiagnostics(object? target)
     {
@@ -1256,28 +1256,29 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
         else if (target is PageItem page)
         {
-            switch (page)
+            if ((page & PageItem.Codex) != 0)
             {
-                case PageItem.Codex:
-                    Add("Codex usage", CodexUsageState);
-                    Add("Codex resets", CodexResetState);
-                    Add("Codex local cost", CodexTokenCost.Freshness);
-                    break;
-                case PageItem.Cursor:
-                    Add("Cursor usage", CursorUsageState);
-                    Add("Cursor Grok Bot", CursorGrokBotState);
-                    Add("Cursor billed cost", CursorTokenCost.Freshness);
-                    break;
-                case PageItem.Grok:
-                    Add("Grok usage", GrokUsageState);
-                    Add("Grok local cost", GrokTokenCost.Freshness);
-                    break;
-                case PageItem.Apis:
-                    foreach (ApiMonitorViewModel api in ApiMonitors.Where(api => !api.IsPending))
-                    {
-                        AddApi(api);
-                    }
-                    break;
+                Add("Codex usage", CodexUsageState);
+                Add("Codex resets", CodexResetState);
+                Add("Codex local cost", CodexTokenCost.Freshness);
+            }
+            if ((page & PageItem.Cursor) != 0)
+            {
+                Add("Cursor usage", CursorUsageState);
+                Add("Cursor Grok Bot", CursorGrokBotState);
+                Add("Cursor billed cost", CursorTokenCost.Freshness);
+            }
+            if ((page & PageItem.Grok) != 0)
+            {
+                Add("Grok usage", GrokUsageState);
+                Add("Grok local cost", GrokTokenCost.Freshness);
+            }
+            if ((page & PageItem.Apis) != 0)
+            {
+                foreach (ApiMonitorViewModel api in ApiMonitors.Where(api => !api.IsPending))
+                {
+                    AddApi(api);
+                }
             }
         }
 
