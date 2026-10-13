@@ -4,7 +4,6 @@ public sealed class UsageCache
 {
     private volatile UsageResponse? m_CodexResponse;
     private volatile GrokPluginUsage? m_GrokUsage;
-    private volatile CursorPluginUsage? m_CursorUsage;
     private volatile DeepSeekPluginUsage? m_DeepSeekUsage;
 
     /// <summary>
@@ -21,14 +20,6 @@ public sealed class UsageCache
     public void UpdateGrok(GrokPluginUsage usage)
     {
         m_GrokUsage = usage;
-    }
-
-    /// <summary>
-    /// Stores the latest collected Cursor usage response.
-    /// </summary>
-    public void UpdateCursor(CursorPluginUsage usage)
-    {
-        m_CursorUsage = usage;
     }
 
     /// <summary>
@@ -56,14 +47,6 @@ public sealed class UsageCache
     }
 
     /// <summary>
-    /// Clears the cached Cursor usage response.
-    /// </summary>
-    public void ClearCursor()
-    {
-        m_CursorUsage = null;
-    }
-
-    /// <summary>
     /// Clears the cached DeepSeek plugin snapshot.
     /// </summary>
     public void ClearDeepSeek()
@@ -80,15 +63,14 @@ public sealed class UsageCache
     }
 
     /// <summary>
-    /// Gets a merged plugin response from the latest Codex, Cursor, Grok, and DeepSeek values.
+    /// Gets a merged plugin response from the latest Codex, Grok, and DeepSeek values.
     /// </summary>
     public UsageResponse? Get()
     {
         UsageResponse? codex = m_CodexResponse;
         GrokPluginUsage? grok = m_GrokUsage;
-        CursorPluginUsage? cursor = m_CursorUsage;
         DeepSeekPluginUsage? deepSeek = m_DeepSeekUsage;
-        if (codex == null && grok == null && cursor == null && deepSeek == null)
+        if (codex == null && grok == null && deepSeek == null)
         {
             return null;
         }
@@ -98,12 +80,6 @@ public sealed class UsageCache
             Available = false,
             Error = "Codex usage has not been collected yet",
             Source = "cache",
-        };
-        UsageLimit cursorMonthly = cursor?.Monthly ?? new UsageLimit
-        {
-            Name = "monthly",
-            UsedPercent = 100,
-            RemainingPercent = 0,
         };
         UsageLimit grokWeekly = grok?.Weekly ?? new UsageLimit
         {
@@ -118,7 +94,6 @@ public sealed class UsageCache
             RemainingPercent = 0,
         };
         string grokDisplay = grok?.Display ?? CodexTrayDefaults.UnavailableDisplay;
-        string cursorDisplay = cursor?.Display ?? CodexTrayDefaults.UnavailableDisplay;
         string deepSeekDisplay = deepSeek?.Display ?? CodexTrayDefaults.UnavailableDisplay;
         return new UsageResponse
         {
@@ -133,7 +108,6 @@ public sealed class UsageCache
             {
                 Session = codex.Limits.Session,
                 Weekly = codex.Limits.Weekly,
-                CursorMonthly = cursorMonthly,
                 GrokWeekly = grokWeekly,
                 DeepSeek = deepSeekLimit,
             },
@@ -141,10 +115,9 @@ public sealed class UsageCache
             Display = new UsageDisplay
             {
                 Weekly = codex.Display.Weekly,
-                CursorMonthly = cursorDisplay,
                 GrokWeekly = grokDisplay,
                 DeepSeek = deepSeekDisplay,
-                Summary = $"Codex: {codex.Display.Weekly} | Cursor: {cursorDisplay} | Grok: {grokDisplay} | DeepSeek: {deepSeekDisplay}",
+                Summary = $"Codex: {codex.Display.Weekly} | Grok: {grokDisplay} | DeepSeek: {deepSeekDisplay}",
             },
         };
     }

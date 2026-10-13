@@ -4,7 +4,7 @@
     "name": "CodexTray",
     "version": "5.7.0",
     "author": "SnowyLake",
-    "description": "显示 Codex, Cursor, Grok 的剩余额度百分比和 DeepSeek 余额"
+    "description": "显示 Codex, Grok 的剩余额度百分比和 DeepSeek 余额"
   },
   "inputs": [
     {
@@ -27,11 +27,9 @@
         "response_format": "json",
         "extract": {
           "codex_display": "display.weekly",
-          "cursor_display": "display.cursor_monthly",
           "grok_display": "display.grok_weekly",
           "deepseek_display": "display.deepseek",
           "codex_remaining": "limits.weekly.remaining_percent",
-          "cursor_remaining": "limits.cursor_monthly.remaining_percent",
           "grok_remaining": "limits.grok_weekly.remaining_percent",
           "deepseek_remaining": "limits.deepseek.remaining_percent"
         },
@@ -39,16 +37,6 @@
           {
             "var": "codex_color",
             "source": "codex_remaining",
-            "function": "threshold_switch",
-            "value_map": {
-              "0": "2",
-              "20": "1",
-              "50": "0"
-            }
-          },
-          {
-            "var": "cursor_color",
-            "source": "cursor_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -88,14 +76,6 @@
       "format_val": "{{codex_display}}",
       "unit": "",
       "color": "{{codex_color}}"
-    },
-    {
-      "key": "cursor",
-      "label": "Cursor",
-      "short_label": "Cursor",
-      "format_val": "{{cursor_display}}",
-      "unit": "",
-      "color": "{{cursor_color}}"
     },
     {
       "key": "grok",

@@ -26,7 +26,7 @@
 
 `CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 与应用内对话框使用 WPF. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
 
-`CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务, 插件安装和应用内更新. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Cursor, Grok 和 API 监控分别采集, 其中 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应; Token Cost 和其他 API provider 结果仅显示在主面板.
+`CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务, 插件安装和应用内更新. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Grok 和 API 监控分别采集. Codex Weekly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应. Grok Weekly 与产品占比来自同一次 `cli-chat-proxy` credits 查询, 订阅名称使用这次 Grok billing 结果. Token Cost 仅在 Codex 与 Grok 页面显示, 其他 API provider 结果仅显示在主面板.
 
 ## 架构与数据流
 
@@ -35,12 +35,12 @@
 1. `CodexTray.App/Program.cs` 使用 mutex 保证单实例. 后续进程通过 `TrayShowPanel` event 通知已有实例打开面板后退出. `--apply-update` 是更新进程, 不获取 mutex, 也不打开面板.
 2. `CodexTray.App/App.cs` 创建 WPF application host, `TrayController` 管理托盘, 设置, 定时刷新, 插件安装和本地服务.
 3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
-4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Cursor/Grok/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
-5. `AppSettings.VisiblePages` 控制 Codex, Cursor, Grok 与 APIs 页的可见性和后台采集. 无可见数据页时停止本地 HTTP 服务和定时刷新.
+4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Grok/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
+5. `AppSettings.VisiblePages` 控制 Codex, Grok 与 APIs 页的可见性和后台采集. `VisiblePages` 为空时停止本地 HTTP 服务和定时刷新.
 6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 各来源独立发布结果, Codex/Grok 的额度与本地 Token Cost 分开发布; 每次发布前复核退出状态和页面可见性, 单来源失败不阻止其他来源. 刷新所有发布任务仍统一等待, 保持请求合并与退出排空. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
-7. `RefreshRequests` 合并待执行的来源位掩码和 API 卡片 ID; 全部 APIs 请求覆盖单卡请求. 当前 owner 排空后才开始下一批, 防止同一采集器并发执行. 页面刷新仅请求该来源, 卡片保存与重试仅请求该卡片. `ApiUsageSnapshots` 合并单卡结果, 按实时配置顺序重建第一页 DeepSeek 插件映射, 配置已修改或卡片已删除时丢弃迟到结果. 隐藏 APIs 时不得重新发布 DeepSeek 缓存.
-8. `UsageHttp` 仅用于只读额度与用量查询 (包括只读 POST), 不用于 OAuth token POST. 网络错误, 非调用方取消的超时, HTTP 429 与 5xx 最多尝试 3 次, 默认等待 500/1000 毫秒; `Retry-After` 支持秒数与日期, 累计等待预算 10 秒, 超出预算直接结束而不缩短服务要求的等待. 每次重新构造请求与内容, 中间响应先释放, 等待可取消. 401/403, 其他 4xx 与解析错误不自动重试, 复用 Cursor/Grok 原有最多一次强制 OAuth 续期. Grok JSON 端点仅因格式不兼容或 HTTP 404/405 转向 gRPC, 网络/超时/429/5xx 不通过 fallback 绕过重试限制.
-9. `UsageDiagnostics` 使用固定 HTTP/异常描述和错误类别; 不回显服务器 reason phrase, JSON message 或任意 exception.Message. Cursor/Grok 自有解析异常保留固定字段描述, 复制诊断只含应用版本, 固定来源/provider 名称, 成功时间与错误类别, 不含 URL, 账号, 卡片 ID/名称, 请求头或响应原文. 复制诊断和恢复备份入口集中在 Settings 的 Advanced 一栏, 复制按钮传入 `PageItem.All` 汇总所有来源.
+7. `RefreshRequests` 合并待执行的来源位掩码和 API 卡片 ID; 全部 APIs 请求覆盖单卡请求. 当前 owner 排空后才开始下一批, 防止同一采集器并发执行. 页面刷新仅请求该来源; 卡片保存与重试仅请求该卡片. `ApiUsageSnapshots` 合并单卡结果, 按实时配置顺序重建第一页 DeepSeek 插件映射, 配置已修改或卡片已删除时丢弃迟到结果. 隐藏 APIs 时不得重新发布 DeepSeek 缓存.
+8. `UsageHttp` 仅用于只读额度与用量查询 (包括只读 POST), 不用于 OAuth token POST. 网络错误, 非调用方取消的超时, HTTP 429 与 5xx 最多尝试 3 次, 默认等待 500/1000 毫秒; `Retry-After` 支持秒数与日期, 累计等待预算 10 秒, 超出预算直接结束而不缩短服务要求的等待. 每次重新构造请求与内容, 中间响应先释放, 等待可取消. 401/403, 其他 4xx 与解析错误不自动重试, 复用 Grok 原有最多一次强制 OAuth 续期. Grok JSON 端点仅因格式不兼容或 HTTP 404/405 转向 gRPC, 网络/超时/429/5xx 不通过 fallback 绕过重试限制.
+9. `UsageDiagnostics` 使用固定 HTTP/异常描述和错误类别; 不回显服务器 reason phrase, JSON message 或任意 exception.Message. Grok 自有解析异常保留固定字段描述, 复制诊断只含应用版本, 固定来源/provider 名称, 成功时间与错误类别, 不含 URL, 账号, 卡片 ID/名称, 请求头或响应原文. 复制诊断和恢复备份入口集中在 Settings 的 Advanced 一栏, 复制按钮传入 `PageItem.All` 汇总所有来源.
 
 ### 应用内更新
 
@@ -53,11 +53,11 @@
 
 ### 额度与插件链路
 
-1. `CodexUsageCollector` 读取 `~/.codex/auth.json` 中的 OAuth 凭据, 从 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口采集 Session, Weekly 和 Reset Credits. 凭据缺失或无效时返回不可用状态. `CursorUsageCollector` 将 dashboard 中的 Monthly 额度转换为插件数据. `GrokUsageCollector` 将 dashboard 中的 Weekly 额度转换为插件数据. `ApiUsageCollector.BuildDeepSeekPluginUsage` 将 APIs 页中第一张 DeepSeek 卡片的 CNY 余额四舍五入为整元后转换为插件数据, 卡片本身仍显示两位小数.
-2. `TrayController` 将 Codex, Cursor, Grok 与 DeepSeek 的最新结果分别写入 `UsageCache`, 由缓存合并为插件响应. 隐藏任一页面时会清除对应缓存数据.
+1. `CodexUsageCollector` 读取 `~/.codex/auth.json` 中的 OAuth 凭据, 从 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口采集 Session, Weekly 和 Reset Credits. 凭据缺失或无效时返回不可用状态. Grok Weekly 插件值由 `GrokUsageCollector.BuildPluginUsage` 从 billing 的 `creditUsagePercent` 生成. `ApiUsageCollector.BuildDeepSeekPluginUsage` 将 APIs 页中第一张 DeepSeek 卡片的 CNY 余额四舍五入为整元后转换为插件数据, 卡片本身仍显示两位小数.
+2. `TrayController` 将 Codex, Grok 与 DeepSeek 的最新结果分别写入 `UsageCache`, 由缓存合并为插件响应. 隐藏对应页面时会清除该缓存. 恢复备份时清空这三份插件缓存, 并立刻重新刷新.
 3. `LightweightHttpServer` 默认监听 `127.0.0.1:17890`, 暴露以下接口:
    - `/codex-tray`: LiteMonitor 使用的 JSON 响应. DeepSeek 显示 `display.deepseek` 与 `limits.deepseek`; 余额格式为整元 `¥N`; `remaining_percent` 在余额可用时为 100, 否则为 0, 供 LiteMonitor 着色.
-   - `/codex-tray.txt`: TrafficMonitor 使用的四行文本, 依次为 Codex Weekly, Cursor Monthly, Grok Weekly 和 DeepSeek 整元 CNY 余额.
+   - `/codex-tray.txt`: TrafficMonitor 使用的三行文本, 依次为 Codex Weekly, Grok Weekly 和 DeepSeek 整元 CNY 余额.
    - `/health`: 返回本地服务健康状态.
 4. `LiteMonitorPluginInstaller` 和 `TrafficMonitorPluginInstaller` 从发布目录读取模板, 写入当前端口后安装到监控器目录.
 
@@ -68,29 +68,22 @@
 3. 请求发送到各卡片配置的 Base URL. OpenRouter 使用 Management Key, 不使用普通 API key 的 `/key` limit 作为账户余额. Vercel 使用 AI Gateway API key, 不使用普通 Vercel 账号 token. NewAPI 还需要 User ID. NanoGPT 用量按最近 30 个 UTC 日查询, 用量失败不影响余额显示.
 4. `TrayController` 将结果交给 `TrayPopupViewModel` 更新单卡片状态与 APIs 页汇总状态, 并将第一张 DeepSeek 卡片写入 `UsageCache`. 其他 API provider 不进入插件 HTTP 响应. 有多张 DeepSeek 卡片时只使用最靠前的一张, 该卡片不可用时显示 `N/A`, 不回退到后续 DeepSeek 卡片.
 
-### Cursor 页面链路
-
-1. `CursorUsageCollector` 从 `%APPDATA%\Cursor\User\globalStorage\state.vscdb` 读取 `cursorAuth/accessToken` 与 `cursorAuth/refreshToken`. 临近过期或收到 401/403 时, 使用 refresh token 调用 `api2.cursor.sh/oauth/token` 刷新并写回 vscdb.
-2. 同一轮 dashboard 依次请求 `cursor.com/api/usage-summary`, `api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus` 和分页的 `cursor.com/api/dashboard/get-filtered-usage-events`. 三个区域可以独立显示成功或失败状态, 并共享一次凭据读取和最多一次强制 OAuth refresh.
-3. usage-summary 提供计划类型, Monthly, First party, APIs 用量与账期结束时间. `GetSandUsageStatus` 提供 Grok Bot Weekly 额度与重置时间. usage-events 使用返回的 token 字段和实际 `totalCents` 统计 Token Cost, 不用本地模型价格表重算.
-4. `TrayController` 将完整 `CursorUsageDashboard` 交给 `TrayPopupViewModel`, 并将 Monthly 插件数据写入 `UsageCache`. Grok Bot Weekly, First party, APIs 和 Token Cost 不进入插件 HTTP 响应. OAuth token 不会复制到 `settings.json`.
-
 ### Grok 页面链路
 
 1. `GrokUsageCollector` 从 Grok Build 的 `~/.grok/auth.json` 读取 xAI OAuth access token, 不使用 OpenCode 凭据. 临近过期或收到 401/403 时, 使用 refresh token 调用 `auth.x.ai` 刷新并写回原文件. OAuth token 不会复制到 `settings.json`.
-2. Grok billing 接口提供 Weekly 剩余额度, 重置时间和 `productUsage` 产品占比, 采集器支持解析 gRPC-web 响应.
-3. 订阅类型优先取 Grok Build 本地 billing 日志中的最近记录, 没有有效记录时仅检查当前 access token 对应的 auth 条目. 不从未知 protobuf 字段猜测套餐. 常见类型包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列.
-4. `TrayController` 将 dashboard 交给 `TrayPopupViewModel`, 将 Weekly 插件数据写入 `UsageCache`. 本地 Token Cost 由 `TokenCostCollector.CollectGrok` 独立统计.
+2. Grok billing 接口提供 Weekly 已用百分比 `creditUsagePercent`, 账期结束时间 (`currentPeriod.end` 或 `billingPeriodEnd`) 和 `productUsage` 产品占比, 采集器支持解析 gRPC-web 响应. 已用百分比先限制在 0 到 100. 插件把已用百分比四舍五入为整数, 剩余为 `100 - 已用整数`. 卡片把剩余百分比 `100 - 已用` 四舍五入为整数. 重置时间使用该账期结束时间.
+3. 订阅名称只来自这次 Grok billing 结果, 不读取 Cursor 登录, 也不请求 `GetSandUsageStatus`, `usage-summary` 或 `get-filtered-usage-events`. `ParseCreditsResponse` 读取响应根对象或 `config` 的 `subscriptionTier`. 采集成功后, 若 `~/.grok/logs/unified.jsonl` 有更新的 `subscriptionTier`, 或当前 access token 的 auth 条目有订阅档位, 用该本地记录替换响应中的名称. gRPC billing 不提供订阅名称. 不从未知 protobuf 字段猜测套餐. 常见类型包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列. `LooksLikeSubscriptionTier` 接受 `Free`, 或包含 `Premium`, `SuperGrok`, `Business`, `Enterprise` 的字符串.
+4. `TrayController` 将 dashboard 交给 `TrayPopupViewModel`, 并将 `GrokUsageCollector.BuildPluginUsage` 写入 `UsageCache`. Grok billing 失败会清除已发布的 Weekly. 本地 Token Cost 由 `TokenCostCollector.CollectGrok` 独立统计.
 
 ### 本地 Token Cost
 
 - `TokenCostSummary.HasUnpricedUsage` 按事件与所选周期传播, 保留已知费用小计; Grok 部分自报费用无法完整回算时同样标记. `RefreshState` 保存每部分最后成功时间和当前错误, 失败时 UI 和插件清空数值为 `N/A`. Token Cost tooltip 标注来源并列出当前周期不完整模型, 费用显示 `*`. 价格表按内容比较并同步加载, Codex 在价格字典变化后清空已计算费用的会话缓存, 不依赖文件长度或修改时间.
 - `TokenCostCollector.CollectCodex` 读取 `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`, 使用 `Resources/model-pricing.json` 计算 API 等价成本与缓存命中率. 不读取 OpenCode.
-- `model-pricing.json` 每个模型使用默认一口价 `input`/`cachedInput`/`output`, 可选 `aliases` 与 `periods`. 默认三价覆盖全天. `periods` 按数组顺序命中第一段: 每段可写 `daysUtc` (0=周日到 6=周六), `startUtc`, `endUtc` (UTC `HH:mm`, 含起不含止). 省略星期或起止时间则该段默认全星期或全天. 未命中任何时段时回退默认三价. 分时只影响本地回算, 不拆分 UI, 也不覆盖 Grok 完整自报 `costUsdTicks` 或 Cursor 账单.
+- `model-pricing.json` 每个模型使用默认一口价 `input`/`cachedInput`/`output`, 可选 `aliases` 与 `periods`. 默认三价覆盖全天. `periods` 按数组顺序命中第一段: 每段可写 `daysUtc` (0=周日到 6=周六), `startUtc`, `endUtc` (UTC `HH:mm`, 含起不含止). 省略星期或起止时间则该段默认全星期或全天. 未命中任何时段时回退默认三价. 分时只影响本地回算, 不拆分 UI, 也不覆盖 Grok 完整自报 `costUsdTicks`.
 - `CollectGrok` 读取 `~/.grok/sessions/**/updates.jsonl` 和 `~/.grok/archived_sessions/**/updates.jsonl`, 汇总 `turn_completed` 事件中的用量. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在输出中, 不重复相加.
 - Grok 费用优先采用完整的 `costUsdTicks`, 保留其中已计入的工具调用等费用. 自报费用缺失或 `costIsPartial` 为真时, 使用本地模型的输入, 缓存输入和输出价格回算. 只有费用而没有 token 的记录仍保留自报费用; 本地价格不可用时保留已有自报费用. 两者都不可用时, 仍统计 token, 成本按 `$0.00` 计入.
 - Grok 费用规则参考 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs). 修改解析或计费时, 以当前代码和测试确认边界行为.
-- Codex 和 Grok 模型圆环 tooltip 的 `Speed` 使用所选周期的 `TimedOutputTokens` 总和除以 `TimedDurationMilliseconds` 总秒数, 同名模型与 `Other` 先合并分子和分母后计算, 显示一位小数. 不计入没有有效配对耗时的输出, 不重复相加 reasoning. 没有有效样本时显示 `N/A`. `TokenCostDashboardViewModel` 在构造时固定速度显示开关, Cursor 不显示 `Speed` 行, 账单间隔不用于推断速度.
+- Codex 和 Grok 模型圆环 tooltip 的 `Speed` 使用所选周期的 `TimedOutputTokens` 总和除以 `TimedDurationMilliseconds` 总秒数, 同名模型与 `Other` 先合并分子和分母后计算, 显示一位小数. 不计入没有有效配对耗时的输出, 不重复相加 reasoning. 没有有效样本时显示 `N/A`. `TokenCostDashboardViewModel` 在构造时固定速度显示开关.
 - Grok `Speed` 显示 `N.N tok/s`, 使用 `turn_completed.usage.modelUsage[model]` 中同一对象的非负整数 `outputTokens` 与正整数 `apiDurationMs`; 无 `modelUsage` 时沿用顶层 `usage` 的 `unknown` 回退. 先沿现有 session/prompt/model 去重, 不分摊顶层耗时到模型. 报告的 API 耗时包含首 token 等待等开销, 部分调用未报告耗时时结果可能偏高.
 - Codex `Speed` 显示 `~N.N tok/s`, `TokenCostStatistics.IsSpeedEstimated` 标识估算口径. 仅在有效 `task_started.turn_id` 和匹配的 `turn_context` 下重建响应窗口: 最近输入或已接受用量的时间为起点, 最后 reasoning, assistant message 或工具调用 `response_item` 为终点, 排除输出完成后的工具等待. 只将已接受的 `last_token_usage` 输出配到同模型的正耗时窗口; 重复快照不截短窗口, 父会话回放不累计速度, 缓存同时保留输出与耗时. 缺少边界, 乱序, 轮次不匹配, 中断, 错误或压缩后的不完整窗口不估算. 该速度仍包含首 token 等待, 网络和客户端调度, 不使用整轮耗时或减去整轮 TTFT 来推断. 窗口思路参考 [codex-tps](https://github.com/adenta/codex-tps/blob/be549617f50409c8c0e15a8a6838520ec12d2bb1/analysis.go).
 
@@ -101,13 +94,12 @@
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
 - 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.
 - 主面板尺寸固定为 360 x 620.
-- `TrayController.BuildTrayTooltip` 只格式化当前可见来源的插件缓存, 使用 `Codex W`, `Cursor M`, `Grok W` 和 `DeepSeek` 标签, 总长最多 63 字符. 额度限制在 0 到 100 的整数, DeepSeek 整元余额超过 11 字符时截短并加省略号; 不回显源错误或凭据. 各来源发布与页面可见性变化后更新托盘 Text. `TrayPopupViewModel.IsPanelPinned` 默认 false, 不写 settings, 开启后 `OnDeactivated` 不隐藏; Esc 与托盘左键仍沿用显式隐藏逻辑, 页脚图钉使用现有绿色表示选中状态. 窗口关闭时保留 ViewModel 的采集状态, 清理应用内对话框及其确认回调, 并取消窗口的 `PropertyChanged` 订阅.
-- Codex, Cursor, Grok 与 APIs 页面默认全部可见. 无可见数据页时不运行定时刷新和本地 HTTP 服务.
-- Codex, Cursor 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Lifetime`. `24H` 从当前时刻精确向前滚动 24 小时. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
+- `TrayController.BuildTrayTooltip` 只格式化当前可见来源的插件缓存, 使用 `Codex W`, `Grok W` 和 `DeepSeek` 标签, 总长最多 63 字符. 已停用的页面位不增加托盘行. 额度限制在 0 到 100 的整数, DeepSeek 整元余额超过 11 字符时截短并加省略号; 不回显源错误或凭据. 各来源发布与页面可见性变化后更新托盘 Text. `TrayPopupViewModel.IsPanelPinned` 默认 false, 不写 settings, 开启后 `OnDeactivated` 不隐藏; Esc 与托盘左键仍沿用显式隐藏逻辑, 页脚图钉使用现有绿色表示选中状态. 窗口关闭时保留 ViewModel 的采集状态, 清理应用内对话框及其确认回调, 并取消窗口的 `PropertyChanged` 订阅.
+- Codex, Grok 与 APIs 页面默认可见. `VisiblePages` 为空时不运行定时刷新和本地 HTTP 服务. `PageItem` 保留 `Codex = 1`, `Apis = 4`, `Grok = 8`. 位 1 已停用, 旧配置里的该位在 `Normalize` 时被掩掉. 缺少 `SettingsSchemaVersion` 或版本低于当前值, 且 `VisiblePages` 为 7 (旧版 Codex|Cursor|Apis) 时, 视为当时的全部页面并改为 `Codex|Grok|Apis`.
+- Codex 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Lifetime`. `24H` 从当前时刻精确向前滚动 24 小时. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
 - 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). Token 数量使用 K, M, B.
 - Codex 额度大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示, 只有一个有效页面时隐藏页点. Resets 使用全宽小卡片.
-- Cursor 额度大卡片通过页点或鼠标滚轮切换 Monthly 与 Grok Bot Weekly, 两个页点尺寸相同, 选中项使用现有绿色. First party 与 APIs 以半宽卡片并排显示.
-- Grok 上方使用 Weekly 大卡片和产品占比小卡片. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 全为零时显示 `Build`, `Chat`, `Others`; 仅一个非零产品时显示该产品, `Build`, `Others`, 若该产品本身为 `Build` 则第二项用 `Chat`; 两个及以上非零产品时保留最高两项, 其余合并到 `Others`. `Others` tooltip 仅列出其中有用量的产品, 为零时显示 `Others 0%`. 用量不可用时显示 `N/A`.
+- Grok 上方使用 Weekly 大卡片和产品占比小卡片, 这是面板上唯一的订阅额度区域. 订阅徽章使用 Grok billing 返回的订阅档位. Weekly 大卡片显示 billing 剩余整数百分比, 重置时间使用账期结束时间. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 全为零时显示 `Build`, `Chat`, `Others`; 仅一个非零产品时显示该产品, `Build`, `Others`, 若该产品本身为 `Build` 则第二项用 `Chat`; 两个及以上非零产品时保留最高两项, 其余合并到 `Others`. `Others` tooltip 仅列出其中有用量的产品, 为零时显示 `Others 0%`. 用量不可用时显示 `N/A`. 产品名和占比来自 billing `productUsage`.
 - API provider 的 API key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.
 - API key 与 NewAPI User ID 使用 `CredentialInput` 的原生 WPF `PasswordBox` 双向编辑; 明文显示仅由当前控件右侧眼睛按钮的显示/隐藏状态控制, 图标, tooltip 与无障碍名称随状态同步, 隐藏, 卸载或更换卡片后重置, 不持久化显示状态. 主配置与备份尚未启用 DPAPI, 不得把屏幕遮挡描述为加密存储.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
@@ -120,8 +112,8 @@
 
 ## 目录结构
 
-- `CodexTray.Core`: Codex 官方额度采集, Cursor 额度与账单采集, API 余额与用量采集, Token Cost 统计, 缓存, HTTP 服务, 设置存储, 应用内更新, 监控器定位与插件安装, Windows 自启动.
-- `CodexTray.App`: WPF 托盘应用, Codex/Cursor/Grok/APIs/Settings/About 页面, 基于 `CommunityToolkit.Mvvm` 的 ViewModel 与命令, 以及自定义数值输入控件.
+- `CodexTray.Core`: Codex 官方额度采集, Grok Weekly, 产品占比与订阅名称采集, API 余额与用量采集, Token Cost 统计, 缓存, HTTP 服务, 设置存储, 应用内更新, 监控器定位与插件安装, Windows 自启动.
+- `CodexTray.App`: WPF 托盘应用, Codex/Grok/APIs/Settings/About 页面, 基于 `CommunityToolkit.Mvvm` 的 ViewModel 与命令, 以及自定义数值输入控件.
 - `CodexTray.Tests`: 自包含 C# 测试运行器.
 - `Plugins/LiteMonitor`: LiteMonitor JSON 模板 `CodexTray.json`.
 - `Plugins/TrafficMonitor`: TrafficMonitor 原生插件源码与 `CodexTray.ini` 模板. 原生构建输出位于 `Plugins/TrafficMonitor/Builds/**`.
@@ -144,7 +136,7 @@
 - 修改插件字段, HTTP 路径或显示格式时, 同步检查两个插件模板, `TrafficMonitorPlugin.cpp`, `CodexTray.Tests/Program.cs` 和 README 的相关说明.
 - 修改 Token Cost 解析, 周期或定价结构时, 同步检查 `TokenCostCollector`, `TokenCostPeriodAccumulator`, `Resources/model-pricing.json` 和对应测试.
 - 修改 API provider, 请求字段或凭据来源时, 同步检查 `ApiUsageCollector`, `GrokUsageCollector`, `ApiMonitorSettings`, `ApiMonitorViewModel`, `TrayPopupWindow.xaml`, 对应测试和 README 的用户说明.
-- 修改 Cursor quota, usage-events, OAuth, 数据库读写或插件 Monthly 映射时, 同步检查 `CursorUsageCollector`, `UsageCache`, `TrayController`, `TrayPopupViewModel`, `TrayPopupWindow.xaml`, `Microsoft.Data.Sqlite` 依赖, 对应测试和 README 的用户说明.
+- 修改 Grok 订阅名称来源时, 同步检查 `GrokUsageCollector`, `TrayPopupViewModel`, 对应测试和 README. 不读取 Cursor 登录, 也不请求 `GetSandUsageStatus`.
 - 修改 `VisiblePages` 或刷新调度时, 同步检查页面导航, 定时器, 插件本地 HTTP 服务启停, 缓存清理和各采集器调用条件.
 - 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
 - 本地服务必须保持仅监听 `127.0.0.1`. 除第一张 DeepSeek 卡片的 CNY 余额外, 其他 API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.

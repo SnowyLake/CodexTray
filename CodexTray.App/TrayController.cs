@@ -22,7 +22,6 @@ internal sealed class TrayController : IDisposable
     private readonly CodexUsageCollector m_CodexUsageCollector;
     private readonly GrokUsageCollector m_GrokUsageCollector;
     private readonly ApiUsageCollector m_ApiUsageCollector;
-    private readonly CursorUsageCollector m_CursorUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
     private readonly UsageCache m_UsageCache = new();
     private readonly Forms.NotifyIcon m_NotifyIcon;
@@ -61,7 +60,6 @@ internal sealed class TrayController : IDisposable
         m_CodexUsageCollector = new CodexUsageCollector();
         m_GrokUsageCollector = new GrokUsageCollector();
         m_ApiUsageCollector = new ApiUsageCollector();
-        m_CursorUsageCollector = new CursorUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
         m_AppIcon = LoadApplicationIcon();
         bool settingsExists = m_SettingsStore.Exists();
@@ -551,7 +549,6 @@ internal sealed class TrayController : IDisposable
             m_PopupViewModel?.LoadRecoveredSettings(m_Settings);
             SyncSettingsRecoveryStatus();
             m_UsageCache.ClearCodex();
-            m_UsageCache.ClearCursor();
             m_UsageCache.ClearGrok();
             m_UsageCache.ClearDeepSeek();
             ConfigureRefreshTimer();
@@ -580,7 +577,6 @@ internal sealed class TrayController : IDisposable
         int previousPort = m_Settings.Port;
         bool codexWasEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokWasEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
-        bool cursorWasEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
         bool apisWasEnabled = (m_Settings.VisiblePages & PageItem.Apis) != 0;
         bool serviceWasRequired = IsPluginServiceRequired;
         AppSettings candidate = m_Settings.Copy();
@@ -597,7 +593,6 @@ internal sealed class TrayController : IDisposable
         ConfigureRefreshTimer();
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokIsEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
-        bool cursorIsEnabled = (m_Settings.VisiblePages & PageItem.Cursor) != 0;
         bool apisIsEnabled = (m_Settings.VisiblePages & PageItem.Apis) != 0;
         if (codexWasEnabled && !codexIsEnabled)
         {
@@ -607,11 +602,6 @@ internal sealed class TrayController : IDisposable
         if (grokWasEnabled && !grokIsEnabled)
         {
             m_UsageCache.ClearGrok();
-        }
-
-        if (cursorWasEnabled && !cursorIsEnabled)
-        {
-            m_UsageCache.ClearCursor();
         }
 
         if (apisWasEnabled && !apisIsEnabled)
@@ -744,10 +734,6 @@ internal sealed class TrayController : IDisposable
         {
             lines.Add("Codex W: " + (usage?.Available == true && usage.Limits.Weekly.WindowMinutes > 0 ? Percent(usage.Limits.Weekly) : "N/A"));
         }
-        if ((visiblePages & PageItem.Cursor) != 0)
-        {
-            lines.Add("Cursor M: " + (usage?.Display.CursorMonthly != null && usage.Display.CursorMonthly != "N/A" ? Percent(usage.Limits.CursorMonthly) : "N/A"));
-        }
         if ((visiblePages & PageItem.Grok) != 0)
         {
             lines.Add("Grok W: " + (usage?.Display.GrokWeekly != null && usage.Display.GrokWeekly != "N/A" ? Percent(usage.Limits.GrokWeekly) : "N/A"));
@@ -860,15 +846,6 @@ internal sealed class TrayController : IDisposable
                     result => m_PopupViewModel?.UpdateGrokTokenCost(result.Statistics, result.Error), localCosts: true));
             }
 
-            if ((visiblePages & PageItem.Cursor) != 0)
-            {
-                children.Add(PublishAsync(PageItem.Cursor, m_CursorUsageCollector.CollectDashboardAsync(cancellationToken: cancellationToken), dashboard =>
-                {
-                    m_UsageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(dashboard));
-                    m_PopupViewModel?.UpdateCursorDashboard(dashboard);
-                }));
-            }
-
             if ((visiblePages & PageItem.Apis) != 0)
             {
                 ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Where(card => request.AllApiCards || request.ApiIds.Contains(card.Id)).Select(CloneApiMonitor).ToArray();
@@ -932,10 +909,6 @@ internal sealed class TrayController : IDisposable
                     {
                         case PageItem.Codex:
                             m_UsageCache.UpdateCodex(new UsageResponse { Error = error, UpdatedAt = now.ToString("O") });
-                            break;
-                        case PageItem.Cursor:
-                            m_UsageCache.ClearCursor();
-                            m_PopupViewModel?.UpdateCursorDashboard(new(null, null, error, error, now, GrokBotUsageError: error));
                             break;
                         case PageItem.Grok:
                             m_UsageCache.ClearGrok();
