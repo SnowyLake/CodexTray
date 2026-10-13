@@ -72,7 +72,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private const string k_CodexPageName = "Codex";
     private const string k_GrokPageName = "Grok";
     private const string k_GrokBuildProductName = "Build";
-    private const string k_GrokChatProductName = "Chat";
+    private const string k_GrokBotProductName = "Bot";
     private const string k_GrokOthersProductName = "Others";
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
@@ -1519,8 +1519,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             return
             [
                 GetGrokProductUsageItem(items, k_GrokBuildProductName),
-                GetGrokProductUsageItem(items, k_GrokChatProductName),
-                CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokChatProductName),
+                GetGrokProductUsageItem(items, k_GrokBotProductName),
+                CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokBotProductName),
             ];
         }
 
@@ -1532,8 +1532,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 return
                 [
                     primary,
-                    GetGrokProductUsageItem(items, k_GrokChatProductName),
-                    CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokChatProductName),
+                    GetGrokProductUsageItem(items, k_GrokBotProductName),
+                    CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokBotProductName),
                 ];
             }
 

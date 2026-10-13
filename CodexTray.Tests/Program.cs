@@ -443,12 +443,48 @@ internal static class Program
                     DateTimeOffset.Now),
                     CreateTokenCostStatistics(5));
                 AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name when all zero");
-                AssertEqual("Chat", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name when all zero");
+                AssertEqual("Bot", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name when all zero");
                 AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name when all zero");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage build percent when all zero");
-                AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage chat percent when all zero");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage bot percent when all zero");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage others percent when all zero");
                 AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip when all zero");
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("GrokBuild", 5),
+                            new GrokProductUsage("GrokChat", 0),
+                        ],
+                    },
+                    string.Empty,
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name when only build is used");
+                AssertEqual("5%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage build percent when only build is used");
+                AssertEqual("Bot", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name when only build is used");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage bot percent when only build is used");
+                AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name when only build is used");
+                AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip when only build is used");
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(26, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("GrokBuild", 25),
+                            new GrokProductUsage("GrokBot", 1),
+                        ],
+                    },
+                    string.Empty,
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name with build and bot");
+                AssertEqual("25%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage build percent with build and bot");
+                AssertEqual("Bot", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name with build and bot");
+                AssertEqual("1%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage bot percent with build and bot");
+                AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name with build and bot");
+                AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip with build and bot");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(7, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
                     {
