@@ -39,6 +39,7 @@ internal static class Program
         await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
         await RunAsync("collects Codex reset credits", TestResetCreditsAsync);
         await RunAsync("applies quota and reset credit color states", TestQuotaAndResetCreditColorStatesAsync);
+        await RunAsync("formats Codex subscription badges", TestCodexPlanDisplayAsync);
         await RunAsync("keeps plugin displays percentage-only", TestPluginDisplayPercentOnlyAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
@@ -3020,6 +3021,41 @@ internal static class Program
         AssertEqual("40%", viewModel.CodexSessionQuota.PercentText, "valid Session percent text");
         AssertEqual("1h15m", viewModel.CodexSessionQuota.ResetText, "valid Session reset text");
         AssertEqual("80%", viewModel.CodexWeeklyQuota.PercentText, "Weekly percent text after Session becomes valid");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Maps Codex usage plan_type values onto the current Pro 5x/10x/25x badge labels.
+    /// </summary>
+    private static Task TestCodexPlanDisplayAsync()
+    {
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        UsageResponse response = new() { Available = true };
+        (string planType, string display)[] cases =
+        [
+            ("free", "FREE"),
+            ("go", "GO"),
+            ("plus", "PLUS"),
+            ("chatgpt", "PLUS"),
+            ("prolite", "PRO 5X"),
+            ("pro_lite", "PRO 5X"),
+            ("pro-5x", "PRO 5X"),
+            ("pro", "PRO 10X"),
+            ("pro_10x", "PRO 10X"),
+            ("pro_20x", "PRO 10X"),
+            ("promax", "PRO 25X"),
+            ("pro_max", "PRO 25X"),
+            ("pro_25x", "PRO 25X"),
+            ("business", "UNKNOWN"),
+        ];
+
+        foreach ((string planType, string display) in cases)
+        {
+            response.PlanType = planType;
+            viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
+            AssertEqual(display, viewModel.CodexPlanDisplay, $"Codex badge for {planType}");
+        }
+
         return Task.CompletedTask;
     }
 

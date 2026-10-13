@@ -98,7 +98,7 @@
 - Codex, Grok 与 APIs 页面默认可见. `VisiblePages` 为空时不运行定时刷新和本地 HTTP 服务. `PageItem` 保留 `Codex = 1`, `Apis = 4`, `Grok = 8`. 位 1 已停用, 旧配置里的该位在 `Normalize` 时被掩掉. 缺少 `SettingsSchemaVersion` 或版本低于当前值, 且 `VisiblePages` 为 7 (旧版 Codex|Cursor|Apis) 时, 视为当时的全部页面并改为 `Codex|Grok|Apis`.
 - Codex 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Lifetime`. `24H` 从当前时刻精确向前滚动 24 小时. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
 - 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). Token 数量使用 K, M, B.
-- Codex 额度大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示, 只有一个有效页面时隐藏页点. Resets 使用全宽小卡片.
+- Codex 额度大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示, 只有一个有效页面时隐藏页点. Resets 使用全宽小卡片. Codex 订阅徽章来自 usage 响应的 `plan_type`: `free`/`go`/`plus`/`chatgpt` 显示 `FREE`/`GO`/`PLUS`; `prolite` 及 `pro_lite`/`pro_5x`/`pro5x` 显示 `PRO 5X`; `pro` 及 `pro_10x`/`pro10x`/`pro_20x`/`pro20x` 显示 `PRO 10X`; `promax` 及 `pro_max`/`pro_25x`/`pro25x` 显示 `PRO 25X`; 其他值显示 `UNKNOWN`.
 - Grok 上方使用 Weekly 大卡片和产品占比小卡片, 这是面板上唯一的订阅额度区域. 订阅徽章使用 Grok billing 返回的订阅档位. Weekly 大卡片显示 billing 剩余整数百分比, 重置时间使用账期结束时间. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 全为零时显示 `Build`, `Bot`, `Others`; 仅一个非零产品时显示该产品, `Build`, `Others`, 若该产品本身为 `Build` 则第二项用 `Bot`; 两个及以上非零产品时保留最高两项, 其余合并到 `Others`. `Others` tooltip 仅列出其中有用量的产品, 为零时显示 `Others 0%`. 用量不可用时显示 `N/A`. 产品名和占比来自 billing `productUsage`.
 - API provider 的 API key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.
 - API key 与 NewAPI User ID 使用 `CredentialInput` 的原生 WPF `PasswordBox` 双向编辑; 明文显示仅由当前控件右侧眼睛按钮的显示/隐藏状态控制, 图标, tooltip 与无障碍名称随状态同步, 隐藏, 卸载或更换卡片后重置, 不持久化显示状态. 主配置与备份尚未启用 DPAPI, 不得把屏幕遮挡描述为加密存储.
@@ -137,6 +137,7 @@
 - 修改 Token Cost 解析, 周期或定价结构时, 同步检查 `TokenCostCollector`, `TokenCostPeriodAccumulator`, `Resources/model-pricing.json` 和对应测试.
 - 修改 API provider, 请求字段或凭据来源时, 同步检查 `ApiUsageCollector`, `GrokUsageCollector`, `ApiMonitorSettings`, `ApiMonitorViewModel`, `TrayPopupWindow.xaml`, 对应测试和 README 的用户说明.
 - 修改 Grok 订阅名称来源时, 同步检查 `GrokUsageCollector`, `TrayPopupViewModel`, 对应测试和 README. 不读取 Cursor 登录, 也不请求 `GetSandUsageStatus`.
+- 修改 Codex 订阅徽章映射时, 同步检查 `TrayPopupViewModel.FormatPlan`, 对应测试和本文档中的 `plan_type` 显示表.
 - 修改 `VisiblePages` 或刷新调度时, 同步检查页面导航, 定时器, 插件本地 HTTP 服务启停, 缓存清理和各采集器调用条件.
 - 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
 - 本地服务必须保持仅监听 `127.0.0.1`. 除第一张 DeepSeek 卡片的 CNY 余额外, 其他 API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.

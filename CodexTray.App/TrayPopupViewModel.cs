@@ -1441,8 +1441,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             "free" => "FREE",
             "go" => "GO",
             "plus" => "PLUS",
-            "pro_lite" or "prolite" or "pro_5x" or "pro5x" => "PRO",
-            "pro" or "pro_20x" or "pro20x" => "PRO MAX",
+            "pro_lite" or "prolite" or "pro_5x" or "pro5x" => "PRO 5X",
+            "pro" or "pro_10x" or "pro10x" or "pro_20x" or "pro20x" => "PRO 10X",
+            "promax" or "pro_max" or "pro_25x" or "pro25x" => "PRO 25X",
             "chatgpt" => "PLUS",
             _ => "UNKNOWN",
         };
