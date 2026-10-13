@@ -16,15 +16,10 @@ internal static class Program
     private static int s_Failures;
 
     /// <summary>
-    /// Runs deterministic checks or the opt-in redacted Cursor live probe.
+    /// Runs deterministic checks or the opt-in redacted Grok live probe.
     /// </summary>
     private static async Task<int> Main(string[] args)
     {
-        if (args.SequenceEqual(["--cursor-live"], StringComparer.Ordinal))
-        {
-            return await RunCursorLiveAsync();
-        }
-
         if (args.SequenceEqual(["--grok-live"], StringComparer.Ordinal))
         {
             return await RunGrokLiveAsync();
@@ -44,6 +39,7 @@ internal static class Program
         await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
         await RunAsync("collects Codex reset credits", TestResetCreditsAsync);
         await RunAsync("applies quota and reset credit color states", TestQuotaAndResetCreditColorStatesAsync);
+        await RunAsync("formats Codex subscription badges", TestCodexPlanDisplayAsync);
         await RunAsync("keeps plugin displays percentage-only", TestPluginDisplayPercentOnlyAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
@@ -72,12 +68,6 @@ internal static class Program
         await RunAsync("parses Grok billing responses", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
         await RunAsync("ignores OpenCode OAuth for Grok", TestGrokIgnoresOpenCodeOAuthAsync);
-        await RunAsync("parses Cursor quota JSON", TestCursorUsageCollectorAsync);
-        await RunAsync("refreshes expired Cursor OAuth", TestCursorOAuthRefreshAsync);
-        await RunAsync("collects complete Cursor dashboard token cost", TestCursorDashboardAsync);
-        await RunAsync("classifies Cursor event totalCents validation", TestCursorTotalCentsValidationAsync);
-        await RunAsync("clears incomplete Cursor dashboard regions", TestCursorDashboardFailuresAsync);
-        await RunAsync("shares one Cursor dashboard OAuth refresh", TestCursorDashboardRefreshBudgetAsync);
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("publishes completed refresh sources independently", TestIndependentRefreshAsync);
@@ -119,26 +109,25 @@ internal static class Program
             Limits = new UsageLimits
             {
                 Weekly = new UsageLimit { RemainingPercent = 100, WindowMinutes = 10_080 },
-                CursorMonthly = new UsageLimit { RemainingPercent = 99 },
                 GrokWeekly = new UsageLimit { RemainingPercent = 0 },
             },
-            Display = new UsageDisplay { CursorMonthly = "99%", GrokWeekly = "0%", DeepSeek = "¥123" },
+            Display = new UsageDisplay { GrokWeekly = "0%", DeepSeek = "¥123" },
         };
-        AssertEqual("Codex W: 100%\nCursor M: 99%\nGrok W: 0%\nDeepSeek: ¥123", TrayController.BuildTrayTooltip(PageItem.All, usage), "all visible source summary");
-        AssertEqual("Cursor M: 99%", TrayController.BuildTrayTooltip(PageItem.Cursor, usage), "hidden sources are absent");
+        AssertEqual("Codex W: 100%\nGrok W: 0%\nDeepSeek: ¥123", TrayController.BuildTrayTooltip(PageItem.All, usage), "all visible source summary");
+        AssertEqual("Grok W: 0%", TrayController.BuildTrayTooltip(PageItem.Grok, usage), "hidden sources are absent");
+        AssertEqual(CodexTrayDefaults.AppName, TrayController.BuildTrayTooltip((PageItem)2, usage), "retired page bits add no tray quota line");
         usage.Limits.Weekly.WindowMinutes = 0;
         AssertEqual("Codex W: N/A", TrayController.BuildTrayTooltip(PageItem.Codex, usage), "a session-only Codex result cannot invent a weekly quota");
         usage.Limits.Weekly.WindowMinutes = 10_080;
         AssertEqual(CodexTrayDefaults.AppName, TrayController.BuildTrayTooltip(PageItem.None, usage), "no visible sources");
-        AssertEqual("Codex W: N/A\nCursor M: N/A\nGrok W: N/A\nDeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.All, null), "initial unavailable summary");
+        AssertEqual("Codex W: N/A\nGrok W: N/A\nDeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.All, null), "initial unavailable summary");
         usage.Available = false;
-        usage.Display.CursorMonthly = "N/A";
-        AssertTrue(TrayController.BuildTrayTooltip(PageItem.All, usage).StartsWith("Codex W: N/A\nCursor M: N/A"), "failed sources do not show old percentages");
+        usage.Display.GrokWeekly = "N/A";
+        AssertTrue(TrayController.BuildTrayTooltip(PageItem.All, usage).StartsWith("Codex W: N/A\nGrok W: N/A"), "failed sources do not show old percentages");
         usage.Available = true;
         usage.Limits.Weekly.RemainingPercent = 999;
-        usage.Limits.CursorMonthly.RemainingPercent = 100;
         usage.Limits.GrokWeekly.RemainingPercent = 100;
-        usage.Display.CursorMonthly = "100%";
+        usage.Display.GrokWeekly = "100%";
         usage.Display.DeepSeek = "¥79228162514264337593543950335";
         string bounded = TrayController.BuildTrayTooltip(PageItem.All, usage);
         AssertTrue(bounded.Length <= 63 && bounded.EndsWith('…') && !bounded.Contains(usage.Error!), "tray text is bounded and excludes errors");
@@ -166,7 +155,6 @@ internal static class Program
                 AssertEqual("Weekly", viewModel.CodexWeeklyQuota.Title, "Codex weekly quota title");
                 AssertEqual("Session", viewModel.CodexSessionQuota.Title, "Codex session quota title");
                 AssertEqual("Weekly", viewModel.GrokWeeklyQuota.Title, "Grok weekly quota title");
-                AssertEqual("Monthly", viewModel.CursorMonthlyQuota.Title, "Cursor monthly quota title");
                 viewModel.UpdateStatus(
                     isRunning: true,
                     CodexTrayDefaults.Port,
@@ -422,7 +410,7 @@ internal static class Program
                 System.Windows.Controls.Button grokTabButton = (System.Windows.Controls.Button)window.FindName("GrokTabButton");
                 System.Windows.Controls.StackPanel tabPanel = (System.Windows.Controls.StackPanel)grokTabButton.Parent;
                 int grokTabIndex = tabPanel.Children.IndexOf(grokTabButton);
-                AssertEqual("Cursor", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex - 1]).ToolTip, "Grok tab predecessor");
+                AssertEqual("Codex", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex - 1]).ToolTip, "Grok tab predecessor");
                 AssertEqual("APIs", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex + 1]).ToolTip, "Grok tab successor");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
@@ -456,12 +444,48 @@ internal static class Program
                     DateTimeOffset.Now),
                     CreateTokenCostStatistics(5));
                 AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name when all zero");
-                AssertEqual("Chat", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name when all zero");
+                AssertEqual("Bot", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name when all zero");
                 AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name when all zero");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage build percent when all zero");
-                AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage chat percent when all zero");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage bot percent when all zero");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage others percent when all zero");
                 AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip when all zero");
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("GrokBuild", 5),
+                            new GrokProductUsage("GrokChat", 0),
+                        ],
+                    },
+                    string.Empty,
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name when only build is used");
+                AssertEqual("5%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage build percent when only build is used");
+                AssertEqual("Bot", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name when only build is used");
+                AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage bot percent when only build is used");
+                AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name when only build is used");
+                AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip when only build is used");
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(26, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("GrokBuild", 25),
+                            new GrokProductUsage("GrokBot", 1),
+                        ],
+                    },
+                    string.Empty,
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name with build and bot");
+                AssertEqual("25%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage build percent with build and bot");
+                AssertEqual("Bot", viewModel.GrokProductUsageItems[1].Name, "Grok product usage second name with build and bot");
+                AssertEqual("1%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage bot percent with build and bot");
+                AssertEqual("Others", viewModel.GrokProductUsageItems[2].Name, "Grok product usage others name with build and bot");
+                AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip with build and bot");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(7, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
                     {
@@ -483,78 +507,18 @@ internal static class Program
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage others percent with one non-zero item");
                 AssertEqual("Others 0%", viewModel.GrokProductUsageItems[2].Tooltip, "Grok product usage others tooltip with one non-zero item");
 
-                viewModel.UpdateCursorDashboard(new CursorUsageDashboard(
-                    new CursorUsageSnapshot("Pro", 2, 3, 4, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds()),
-                    CreateTokenCostStatistics(4),
+                AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok badge uses the billing subscription tier");
+                AssertEqual("93%", viewModel.GrokWeeklyQuota.PercentText, "billing weekly remaining percent");
+                AssertTrue(window.FindName("CursorPageGrid") == null, "Cursor page is not in the panel");
+                AssertTrue(window.FindName("CursorTokenCostDashboard") == null, "Cursor token cost is not in the panel");
+                long weeklyResetAt = DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds();
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(5, weeklyResetAt, "SuperGrok"),
                     string.Empty,
-                    string.Empty,
-                    DateTimeOffset.Now,
-                    GrokBotUsage: new CursorGrokBotUsageSnapshot(49, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds())));
-                viewModel.ShowCursor();
-                content.InvalidateMeasure();
-                content.Measure(new System.Windows.Size(window.Width, window.Height));
-                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
-                content.UpdateLayout();
-                System.Windows.Controls.ScrollViewer cursorQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("CursorQuotaScrollViewer");
-                AssertTrue(cursorQuotaScrollViewer.ScrollableHeight == 0, $"default Cursor quota cards should not scroll, actual {cursorQuotaScrollViewer.ScrollableHeight}");
-                System.Windows.Controls.Border cursorMonthlyCard = (System.Windows.Controls.Border)window.FindName("CursorMonthlyCard");
-                System.Windows.Controls.Border cursorAutoCard = (System.Windows.Controls.Border)window.FindName("CursorAutoCard");
-                System.Windows.Controls.Border cursorApiCard = (System.Windows.Controls.Border)window.FindName("CursorApiCard");
-                AssertEqual(codexPrimaryCard.ActualHeight, cursorMonthlyCard.ActualHeight, "Codex and Cursor large card heights");
-                AssertEqual(codexResetCreditsCard.ActualHeight, cursorAutoCard.ActualHeight, "Codex and Cursor small card heights");
-                AssertEqual(cursorAutoCard.ActualHeight, cursorApiCard.ActualHeight, "Cursor small card heights");
-                AssertEqual(cursorAutoCard.ActualWidth, cursorApiCard.ActualWidth, "Cursor small card widths");
-                System.Windows.Controls.Button cursorMonthlyPageButton = FindNamedDescendant<System.Windows.Controls.Button>(cursorMonthlyCard, "FirstPageButton");
-                System.Windows.Controls.Button cursorGrokBotPageButton = FindNamedDescendant<System.Windows.Controls.Button>(cursorMonthlyCard, "SecondPageButton");
-                System.Windows.Shapes.Ellipse cursorMonthlyPageIndicator = FindNamedDescendant<System.Windows.Shapes.Ellipse>(cursorMonthlyPageButton, "PageIndicator");
-                System.Windows.Shapes.Ellipse cursorGrokBotPageIndicator = FindNamedDescendant<System.Windows.Shapes.Ellipse>(cursorGrokBotPageButton, "PageIndicator");
-                System.Windows.Controls.ContentControl cursorMonthlyQuotaContent = FindNamedDescendant<System.Windows.Controls.ContentControl>(cursorMonthlyCard, "FirstQuotaContent");
-                System.Windows.Controls.ContentControl cursorGrokBotQuotaContent = FindNamedDescendant<System.Windows.Controls.ContentControl>(cursorMonthlyCard, "SecondQuotaContent");
-                AssertEqual(cursorMonthlyPageIndicator.ActualWidth, cursorGrokBotPageIndicator.ActualWidth, "Cursor quota page indicator widths");
-                AssertEqual(cursorMonthlyPageIndicator.ActualHeight, cursorGrokBotPageIndicator.ActualHeight, "Cursor quota page indicator heights");
-                AssertEqual("Grok Bot Weekly", viewModel.CursorGrokBotQuota.Title, "Cursor Grok Bot quota title");
-                AssertEqual("51%", viewModel.CursorGrokBotQuota.PercentText, "Cursor Grok Bot remaining percentage");
-                AssertTrue(!viewModel.CursorQuotaPager.IsSecondSelected, "Cursor main quota should be selected by default");
-                AssertEqual(System.Windows.Visibility.Visible, cursorMonthlyQuotaContent.Visibility, "Cursor monthly quota should be visible by default");
-                AssertEqual(System.Windows.Visibility.Collapsed, cursorGrokBotQuotaContent.Visibility, "Cursor Grok Bot quota should be hidden by default");
-                System.Windows.Media.Color pageIndicatorGreen = System.Windows.Media.Color.FromRgb(26, 188, 137);
-                AssertEqual(pageIndicatorGreen, ((System.Windows.Media.SolidColorBrush)cursorMonthlyPageIndicator.Fill).Color, "selected Cursor monthly page indicator color");
-                cursorGrokBotPageButton.Command.Execute(cursorGrokBotPageButton.CommandParameter);
-                AssertTrue(viewModel.CursorQuotaPager.IsSecondSelected, "Cursor Grok Bot page button should select its quota");
-                cursorMonthlyPageButton.Command.Execute(cursorMonthlyPageButton.CommandParameter);
-                AssertTrue(!viewModel.CursorQuotaPager.IsSecondSelected, "Cursor monthly page button should select its quota");
-                cursorMonthlyCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(
-                    System.Windows.Input.Mouse.PrimaryDevice,
-                    Environment.TickCount,
-                    -120)
-                {
-                    RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
-                });
-                content.UpdateLayout();
-                AssertTrue(viewModel.CursorQuotaPager.IsSecondSelected, "mouse wheel down should select Cursor Grok Bot quota");
-                AssertEqual(System.Windows.Visibility.Collapsed, cursorMonthlyQuotaContent.Visibility, "Cursor monthly quota should hide on page two");
-                AssertEqual(System.Windows.Visibility.Visible, cursorGrokBotQuotaContent.Visibility, "Cursor Grok Bot quota should show on page two");
-                AssertEqual(pageIndicatorGreen, ((System.Windows.Media.SolidColorBrush)cursorGrokBotPageIndicator.Fill).Color, "selected Cursor Grok Bot page indicator color");
-                AssertTrue(
-                    !Equals(cursorMonthlyPageIndicator.Fill, cursorGrokBotPageIndicator.Fill),
-                    "Cursor quota page indicators should differ only by selected color");
-                cursorMonthlyCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(
-                    System.Windows.Input.Mouse.PrimaryDevice,
-                    Environment.TickCount,
-                    120)
-                {
-                    RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
-                });
-                AssertTrue(!viewModel.CursorQuotaPager.IsSecondSelected, "mouse wheel up should select Cursor monthly quota");
-                AssertEqual(
-                    cursorAutoCard.TranslatePoint(new System.Windows.Point(), window).Y,
-                    cursorApiCard.TranslatePoint(new System.Windows.Point(), window).Y,
-                    "Cursor small card vertical alignment");
-                System.Windows.Controls.Grid cursorPageGrid = (System.Windows.Controls.Grid)window.FindName("CursorPageGrid");
-                System.Windows.Controls.ContentControl cursorTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("CursorTokenCostDashboard");
-                AssertTrue(ReferenceEquals(codexTokenCostDashboard.ContentTemplate, cursorTokenCostDashboard.ContentTemplate), "Codex and Cursor should share the token cost template");
-                AssertEqual(codexPageGrid.RowDefinitions.Count, cursorPageGrid.RowDefinitions.Count, "Codex and Cursor section row count");
-                AssertTrue(codexSectionHeights.SequenceEqual(cursorPageGrid.RowDefinitions.Select(row => row.ActualHeight)), "Codex and Cursor section heights");
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                AssertEqual("SUPERGROK", viewModel.GrokPlanDisplay, "later billing replaces the subscription tier");
+                AssertEqual("95%", viewModel.GrokWeeklyQuota.PercentText, "later billing replaces weekly remaining percent");
 
                 viewModel.ShowApi();
                 content.InvalidateMeasure();
@@ -567,7 +531,6 @@ internal static class Program
                 System.Windows.Controls.Border apiMonitorCard = (System.Windows.Controls.Border)apiMonitorTemplate.FindName("ApiMonitorCard", apiMonitorPresenter);
                 AssertEqual(apiMonitorCard.ActualHeight, codexPrimaryCard.ActualHeight, "API monitor and quota large card heights");
                 AssertEqual(apiMonitorCard.Margin.Bottom, codexPrimaryCard.Margin.Bottom, "API monitor and Codex second card spacing");
-                AssertEqual(apiMonitorCard.Margin.Bottom, cursorMonthlyCard.Margin.Bottom, "API monitor and Cursor card spacing");
 
                 viewModel.UpdateStatus(
                     isRunning: true,
@@ -896,34 +859,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// Runs a redacted live Cursor dashboard probe without emitting credentials or event details.
-    /// </summary>
-    private static async Task<int> RunCursorLiveAsync()
-    {
-        CursorUsageDashboard dashboard = await new CursorUsageCollector().CollectDashboardAsync();
-        Console.WriteLine($"LIVE Cursor usage: {(dashboard.Usage == null ? "unavailable" : "available")}");
-        Console.WriteLine($"LIVE Cursor usage error: {FormatLiveError(dashboard.UsageError)}");
-        Console.WriteLine($"LIVE Cursor Grok Bot: {(dashboard.GrokBotUsage == null ? "unavailable" : $"usedPercent={dashboard.GrokBotUsage.UsedPercent:0.##}, resetsAt={dashboard.GrokBotUsage.ResetsAt}")}");
-        Console.WriteLine($"LIVE Cursor Grok Bot error: {FormatLiveError(dashboard.GrokBotUsageError)}");
-        Console.WriteLine($"LIVE Cursor refresh: initial={dashboard.InitialCredentialRefreshUsed}, forced={dashboard.ForcedCredentialRefreshUsed}");
-        if (dashboard.TokenCostDiagnostics is not CursorUsageEventsDiagnostics diagnostics)
-        {
-            Console.WriteLine("LIVE Cursor usage-events: unavailable");
-            Console.WriteLine($"LIVE Cursor usage-events error: {FormatLiveError(dashboard.TokenCostError)}");
-            return 1;
-        }
-
-        Console.WriteLine($"LIVE Cursor usage-events: events={diagnostics.EventCount}, pages={diagnostics.PageCount}, tokenEvents={diagnostics.TokenEventCount}, zeroTokenMissingCost={diagnostics.ZeroTokenMissingCostEventCount}");
-        Console.WriteLine(
-            $"LIVE Cursor token fields: input={diagnostics.InputTokenFieldCount}/{diagnostics.TokenEventCount}, " +
-            $"output={diagnostics.OutputTokenFieldCount}/{diagnostics.TokenEventCount}, " +
-            $"cacheRead={diagnostics.CacheReadTokenFieldCount}/{diagnostics.TokenEventCount}, " +
-            $"cacheWrite={diagnostics.CacheWriteTokenFieldCount}/{diagnostics.TokenEventCount}");
-        Console.WriteLine($"LIVE Cursor usage-events elapsed: {diagnostics.Elapsed.TotalMilliseconds:0} ms");
-        return dashboard.Usage == null || dashboard.GrokBotUsage == null ? 1 : 0;
-    }
-
-    /// <summary>
     /// Runs a redacted live Grok billing probe for local verification.
     /// </summary>
     private static async Task<int> RunGrokLiveAsync()
@@ -939,33 +874,6 @@ internal static class Program
             Console.Error.WriteLine($"LIVE Grok billing failed: {exception.Message}");
             return 1;
         }
-    }
-
-    /// <summary>
-    /// Formats a collector-generated live probe error without exposing secrets or payload data.
-    /// </summary>
-    private static string FormatLiveError(string error)
-    {
-        if (string.IsNullOrWhiteSpace(error))
-        {
-            return "none";
-        }
-
-        if (error is "Request timed out" or "Cursor network request failed." or "Cursor response JSON decode failed." or "Cursor response numeric overflow." or "Cursor local auth database could not be read." ||
-            error.StartsWith("Cursor local auth database was not found.", StringComparison.Ordinal) ||
-            error.StartsWith("Cursor OAuth access token was not found.", StringComparison.Ordinal) ||
-            error.StartsWith("Cursor OAuth token", StringComparison.Ordinal) ||
-            error.StartsWith("Cursor Grok Bot ", StringComparison.Ordinal) ||
-            error.StartsWith("Cursor usage request failed:", StringComparison.Ordinal) ||
-            error.StartsWith("Cursor usage-events request failed:", StringComparison.Ordinal) ||
-            error.StartsWith("Cursor usage events ", StringComparison.Ordinal) ||
-            error.StartsWith("Cursor usage event ", StringComparison.Ordinal) ||
-            error.StartsWith("Cursor usage-summary ", StringComparison.Ordinal))
-        {
-            return error;
-        }
-
-        return "unclassified request or response failure";
     }
 
     /// <summary>
@@ -1158,13 +1066,6 @@ internal static class Program
             new GrokUsageSnapshot(5, now.AddDays(7).ToUnixTimeSeconds()),
             string.Empty,
             now)));
-        usageCache.UpdateCursor(CursorUsageCollector.BuildPluginUsage(
-            new CursorUsageDashboard(
-                new CursorUsageSnapshot("Pro", 25, 0, 0, now.AddDays(30).ToUnixTimeSeconds()),
-                null,
-                string.Empty,
-                string.Empty,
-                now)));
         usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
             new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
             "¥110"));
@@ -1184,33 +1085,30 @@ internal static class Program
         AssertTrue(!display.TryGetProperty("session", out JsonElement sessionDisplay), "HTTP plugin response should omit Codex Session display");
         AssertTrue(!limits.TryGetProperty("session", out JsonElement sessionLimit), "HTTP plugin response should omit Codex Session limit");
         AssertEqual("80%", display.GetProperty("weekly").GetString(), "HTTP plugin Codex display");
-        AssertEqual("75%", display.GetProperty("cursor_monthly").GetString(), "HTTP plugin Cursor display");
+        AssertTrue(!display.TryGetProperty("cursor_monthly", out JsonElement cursorDisplay), "HTTP plugin response should omit Cursor Monthly display");
+        AssertTrue(!limits.TryGetProperty("cursor_monthly", out JsonElement cursorLimit), "HTTP plugin response should omit Cursor Monthly limit");
         AssertEqual("95%", display.GetProperty("grok_weekly").GetString(), "HTTP plugin Grok display");
         AssertEqual("¥110", display.GetProperty("deepseek").GetString(), "HTTP plugin DeepSeek display");
-        AssertEqual(75, limits.GetProperty("cursor_monthly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Cursor monthly remaining percent");
         AssertEqual(95, limits.GetProperty("grok_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Grok remaining percent");
         AssertEqual(100, limits.GetProperty("deepseek").GetProperty("remaining_percent").GetInt32(), "HTTP plugin DeepSeek remaining percent");
         string[] displayNames = [.. display.EnumerateObject().Select(property => property.Name)];
         string[] limitNames = [.. limits.EnumerateObject().Select(property => property.Name)];
-        AssertTrue(Array.IndexOf(displayNames, "cursor_monthly") < Array.IndexOf(displayNames, "grok_weekly"), "HTTP plugin Cursor display should precede Grok");
         AssertTrue(Array.IndexOf(displayNames, "grok_weekly") < Array.IndexOf(displayNames, "deepseek"), "HTTP plugin Grok display should precede DeepSeek");
-        AssertTrue(Array.IndexOf(limitNames, "cursor_monthly") < Array.IndexOf(limitNames, "grok_weekly"), "HTTP plugin Cursor limit should precede Grok");
         AssertTrue(Array.IndexOf(limitNames, "grok_weekly") < Array.IndexOf(limitNames, "deepseek"), "HTTP plugin Grok limit should precede DeepSeek");
         AssertTrue(!display.TryGetProperty("codex_5h", out JsonElement legacySession), "legacy session plugin field should be removed");
         AssertTrue(!display.TryGetProperty("codex_7d", out JsonElement legacyWeekly), "legacy weekly plugin field should be removed");
 
         string usageText = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageTextEndpointPath}");
         string[] usageLines = usageText.Split(Environment.NewLine);
-        AssertEqual(4, usageLines.Length, "text endpoint line count");
+        AssertEqual(3, usageLines.Length, "text endpoint line count");
         AssertEqual("80%", usageLines[0], "text endpoint Codex display");
-        AssertEqual("75%", usageLines[1], "text endpoint Cursor display");
-        AssertEqual("95%", usageLines[2], "text endpoint Grok display");
-        AssertEqual("¥110", usageLines[3], "text endpoint DeepSeek display");
+        AssertEqual("95%", usageLines[1], "text endpoint Grok display");
+        AssertEqual("¥110", usageLines[2], "text endpoint DeepSeek display");
         await server.StopAsync();
     }
 
     /// <summary>
-    /// Tests independent merging and clearing of Codex, Cursor, Grok, and DeepSeek plugin values.
+    /// Tests independent merging and clearing of Codex, Grok, and DeepSeek plugin values.
     /// </summary>
     private static Task TestUsageCacheSourcesAsync()
     {
@@ -1232,9 +1130,6 @@ internal static class Program
         usageCache.UpdateGrok(new GrokPluginUsage(
             new UsageLimit { Name = "weekly", RemainingPercent = 60 },
             "60%"));
-        usageCache.UpdateCursor(new CursorPluginUsage(
-            new UsageLimit { Name = "monthly", RemainingPercent = 70 },
-            "70%"));
         usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
             new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
             "¥110"));
@@ -1242,27 +1137,21 @@ internal static class Program
         UsageResponse merged = usageCache.Get() ?? throw new InvalidOperationException("merged usage should be available");
         AssertEqual(true, usageCache.GetCodex()?.Available, "Codex snapshot should stay available");
         AssertEqual("80%", merged.Display.Weekly, "merged Codex display");
-        AssertEqual("70%", merged.Display.CursorMonthly, "merged Cursor monthly display");
         AssertEqual("60%", merged.Display.GrokWeekly, "merged Grok display");
         AssertEqual("¥110", merged.Display.DeepSeek, "merged DeepSeek display");
         AssertEqual(100, merged.Limits.DeepSeek.RemainingPercent, "merged DeepSeek remaining percent");
-        AssertEqual("Codex: 80% | Cursor: 70% | Grok: 60% | DeepSeek: ¥110", merged.Display.Summary, "merged plugin summary order");
+        AssertEqual("Codex: 80% | Grok: 60% | DeepSeek: ¥110", merged.Display.Summary, "merged plugin summary order");
 
         usageCache.ClearCodex();
         AssertTrue(usageCache.GetCodex() == null, "cleared Codex snapshot should be empty");
-        UsageResponse grokAndCursor = usageCache.Get() ?? throw new InvalidOperationException("Grok and Cursor usage should be available");
-        AssertEqual("N/A", grokAndCursor.Display.Weekly, "cleared Codex display");
-        AssertEqual("60%", grokAndCursor.Display.GrokWeekly, "preserved Grok display");
-        AssertEqual("¥110", grokAndCursor.Display.DeepSeek, "preserved DeepSeek display");
+        UsageResponse grokAndDeepSeek = usageCache.Get() ?? throw new InvalidOperationException("Grok and DeepSeek usage should be available");
+        AssertEqual("N/A", grokAndDeepSeek.Display.Weekly, "cleared Codex display");
+        AssertEqual("60%", grokAndDeepSeek.Display.GrokWeekly, "preserved Grok display");
+        AssertEqual("¥110", grokAndDeepSeek.Display.DeepSeek, "preserved DeepSeek display");
 
         usageCache.ClearGrok();
-        UsageResponse cursorOnly = usageCache.Get() ?? throw new InvalidOperationException("Cursor-only usage should be available");
-        AssertEqual("N/A", cursorOnly.Display.GrokWeekly, "cleared Grok display");
-        AssertEqual("70%", cursorOnly.Display.CursorMonthly, "preserved Cursor display");
-
-        usageCache.ClearCursor();
         UsageResponse deepSeekOnly = usageCache.Get() ?? throw new InvalidOperationException("DeepSeek-only usage should be available");
-        AssertEqual("N/A", deepSeekOnly.Display.CursorMonthly, "cleared Cursor display");
+        AssertEqual("N/A", deepSeekOnly.Display.GrokWeekly, "cleared Grok display");
         AssertEqual("¥110", deepSeekOnly.Display.DeepSeek, "preserved DeepSeek display after other sources clear");
 
         usageCache.ClearDeepSeek();
@@ -1357,7 +1246,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests pre-canceled Codex, token-cost, Cursor, and monitor locator operations.
+    /// Tests pre-canceled Codex, token-cost, and monitor locator operations.
     /// </summary>
     private static async Task TestCollectorCancellationAsync()
     {
@@ -1368,7 +1257,6 @@ internal static class Program
         await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().CollectCodex(temp.Path, cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => Task.Run(() => new TokenCostCollector().CollectGrok(temp.Path, cancellationToken: cancellation.Token)));
         await AssertCanceledAsync(() => Task.Run(() => LiteMonitorLocator.AutoDetect(cancellationToken: cancellation.Token)));
-        await AssertCanceledAsync(() => new CursorUsageCollector().CollectDashboardAsync(cancellationToken: cancellation.Token));
     }
 
     /// <summary>
@@ -1414,15 +1302,12 @@ internal static class Program
         string trafficMonitorVersion = trafficMonitorSource[(returnIndex + "return L\"".Length)..quoteIndex];
         AssertEqual(expectedVersion, trafficMonitorVersion, "TrafficMonitor version should match the app version");
         AssertTrue(content.Contains("\"short_label\": \"Codex\"", StringComparison.Ordinal), "plugin content should include Codex item");
-        AssertTrue(content.Contains("\"short_label\": \"Cursor\"", StringComparison.Ordinal), "plugin content should include Cursor item");
+        AssertTrue(!content.Contains("\"short_label\": \"Cursor\"", StringComparison.Ordinal), "plugin content should omit Cursor");
+        AssertTrue(!content.Contains("cursor_monthly", StringComparison.Ordinal), "plugin content should omit Cursor Monthly");
         AssertTrue(content.Contains("\"short_label\": \"Grok\"", StringComparison.Ordinal), "plugin content should include Grok item");
         AssertTrue(content.Contains("\"short_label\": \"DeepSeek\"", StringComparison.Ordinal), "plugin content should include DeepSeek item");
-        AssertTrue(content.Contains("\"format_val\": \"{{cursor_display}}\"", StringComparison.Ordinal), "plugin content should include Cursor value");
         AssertTrue(content.Contains("\"format_val\": \"{{grok_display}}\"", StringComparison.Ordinal), "plugin content should include Grok value");
         AssertTrue(content.Contains("\"format_val\": \"{{deepseek_display}}\"", StringComparison.Ordinal), "plugin content should include DeepSeek value");
-        AssertTrue(
-            content.IndexOf("\"short_label\": \"Cursor\"", StringComparison.Ordinal) < content.IndexOf("\"short_label\": \"Grok\"", StringComparison.Ordinal),
-            "plugin Cursor item should precede Grok");
         AssertTrue(
             content.IndexOf("\"short_label\": \"Grok\"", StringComparison.Ordinal) < content.IndexOf("\"short_label\": \"DeepSeek\"", StringComparison.Ordinal),
             "plugin Grok item should precede DeepSeek");
@@ -1462,7 +1347,7 @@ internal static class Program
         {
             Port = 17997,
             RefreshIntervalMinutes = 7,
-            VisiblePages = PageItem.Cursor | PageItem.Apis,
+            VisiblePages = PageItem.Grok | PageItem.Apis,
         };
 
         store.Save(settings);
@@ -1472,13 +1357,13 @@ internal static class Program
         AssertTrue(File.Exists(expectedPath), "settings file should exist beside executable");
         AssertTrue(!Directory.Exists(Path.Combine(temp.Path, "CodexTray")), "settings directory should not exist");
         AssertEqual(17997, store.Load().Port, "saved settings port");
-        AssertEqual(PageItem.Cursor | PageItem.Apis, store.Load().VisiblePages, "saved visible pages");
+        AssertEqual(PageItem.Grok | PageItem.Apis, store.Load().VisiblePages, "saved visible pages");
         DateTime writeTime = File.GetLastWriteTimeUtc(expectedPath);
         AssertEqual(17997, store.Load().Port, "unchanged settings should not rewrite the file");
         AssertEqual(writeTime, File.GetLastWriteTimeUtc(expectedPath), "normalized settings load should keep the file timestamp");
-        settings.VisiblePages = PageItem.Codex | PageItem.Cursor | PageItem.Apis;
+        settings.VisiblePages = PageItem.Codex | PageItem.Apis;
         store.Save(settings);
-        AssertEqual(PageItem.Codex | PageItem.Cursor | PageItem.Apis, store.Load().VisiblePages, "saved settings should keep Grok hidden");
+        AssertEqual(PageItem.Codex | PageItem.Apis, store.Load().VisiblePages, "saved settings should keep Grok hidden");
         return Task.CompletedTask;
     }
 
@@ -1717,7 +1602,7 @@ internal static class Program
             Port = -1,
             RefreshIntervalMinutes = 0,
             ThemeMode = "unexpected",
-            VisiblePages = PageItem.Cursor | (PageItem)(1 << 10),
+            VisiblePages = PageItem.Grok | (PageItem)(1 << 10),
             BackdropMode = "unexpected",
         };
 
@@ -1726,12 +1611,15 @@ internal static class Program
         AssertEqual(CodexTrayDefaults.Port, settings.Port, "default port");
         AssertEqual(CodexTrayDefaults.RefreshIntervalMinutes, settings.RefreshIntervalMinutes, "default refresh interval");
         AssertEqual(AppSettings.ThemeModeSystem, settings.ThemeMode, "default theme mode");
-        AssertEqual(PageItem.Cursor, settings.VisiblePages, "supported visible pages");
+        AssertEqual(PageItem.Grok, settings.VisiblePages, "supported visible pages");
         AssertTrue(!settings.MicaEnabled, "unexpected backdrop should disable Mica");
         AssertEqual<string?>(null, settings.BackdropMode, "legacy backdrop should be cleared");
-        settings.VisiblePages = PageItem.Codex | PageItem.Cursor | PageItem.Apis;
+        settings.VisiblePages = PageItem.Codex | PageItem.Apis;
         settings.Normalize();
-        AssertEqual(PageItem.Codex | PageItem.Cursor | PageItem.Apis, settings.VisiblePages, "normalized settings should keep Grok hidden");
+        AssertEqual(PageItem.Codex | PageItem.Apis, settings.VisiblePages, "normalized settings should keep Grok hidden");
+        settings.VisiblePages = PageItem.Codex | (PageItem)2;
+        settings.Normalize();
+        AssertEqual(PageItem.Codex, settings.VisiblePages, "retired page bit is dropped");
         return Task.CompletedTask;
     }
 
@@ -1756,7 +1644,7 @@ internal static class Program
         SettingsStore store = new(temp.Path);
         AppSettings settings = new()
         {
-            VisiblePages = PageItem.Codex | PageItem.Cursor | PageItem.Apis,
+            VisiblePages = PageItem.Codex | PageItem.Apis,
             ApiMonitors =
             [
                 new ApiMonitorSettings
@@ -1999,6 +1887,13 @@ internal static class Program
         AssertEqual("SuperGrok", creditsSnapshot.SubscriptionTier, "Grok credits subscription tier");
         AssertEqual("GrokChat|PRODUCT_GROK_BUILD|GrokTasks", string.Join('|', creditsSnapshot.ProductUsage.Select(item => item.Product)), "Grok product identifiers");
         AssertEqual("3|2|0", string.Join('|', creditsSnapshot.ProductUsage.Select(item => item.UsedPercent.ToString("0.##", CultureInfo.InvariantCulture))), "Grok product usage percentages");
+        GrokPluginUsage rounded = GrokUsageCollector.BuildPluginUsage(new GrokUsageDashboard(
+            new GrokUsageSnapshot(14.5, resetAt),
+            string.Empty,
+            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000)));
+        AssertEqual(15, rounded.Weekly.UsedPercent, "billing weekly used percent rounds 0.5 away from zero");
+        AssertEqual(85, rounded.Weekly.RemainingPercent, "billing weekly remaining follows the rounded used percent");
+        AssertEqual("85%", rounded.Display, "billing weekly plugin display");
         return Task.CompletedTask;
     }
 
@@ -2106,284 +2001,6 @@ internal static class Program
         {
             Environment.SetEnvironmentVariable("GROK_HOME", string.IsNullOrEmpty(previousGrokHome) ? null : previousGrokHome);
             Environment.SetEnvironmentVariable("XDG_DATA_HOME", string.IsNullOrEmpty(previousXdg) ? null : previousXdg);
-        }
-    }
-
-    /// <summary>
-    /// Tests Cursor main and Grok Bot quota parsing.
-    /// </summary>
-    private static Task TestCursorUsageCollectorAsync()
-    {
-        const long resetAt = 1_802_592_000;
-        string json = CreateCursorUsageSummaryJson(10, 12, 0, DateTimeOffset.FromUnixTimeSeconds(resetAt));
-        CursorUsageSnapshot snapshot = CursorUsageCollector.ParseUsageSummary(
-            json,
-            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
-
-        AssertEqual("pro_plus", snapshot.PlanType, "Cursor plan type");
-        AssertEqual(10, snapshot.MonthlyUsedPercent, "Cursor monthly used percentage");
-        AssertEqual(12, snapshot.AutoUsedPercent, "Cursor first-party used percentage");
-        AssertEqual(0, snapshot.ApiUsedPercent, "Cursor API used percentage");
-        AssertEqual(resetAt, snapshot.ResetsAt, "Cursor reset timestamp");
-
-        CursorGrokBotUsageSnapshot grokBot = CursorUsageCollector.ParseGrokBotUsage(
-            CreateCursorGrokBotUsageJson(49, DateTimeOffset.FromUnixTimeSeconds(resetAt)),
-            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
-        AssertEqual(49, grokBot.UsedPercent, "Cursor Grok Bot used percentage");
-        AssertEqual(resetAt, grokBot.ResetsAt, "Cursor Grok Bot reset timestamp");
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Tests that an expired Cursor token is refreshed and written back to state.vscdb.
-    /// </summary>
-    private static async Task TestCursorOAuthRefreshAsync()
-    {
-        using TempDirectory temp = new();
-        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
-        string dbPath = Path.Combine(temp.Path, "state.vscdb");
-        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
-        try
-        {
-            string oldAccess = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddMinutes(-10));
-            string newAccess = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
-            CreateCursorStateDatabase(dbPath, oldAccess, "cursor-refresh");
-
-            string usageJson = CreateCursorUsageSummaryJson(12.5, 20, 5, DateTimeOffset.FromUnixTimeSeconds(1_802_592_000));
-            using HttpClient client = new(new CursorOAuthRefreshHttpMessageHandler(
-                oldAccess,
-                newAccess,
-                "cursor-refresh",
-                "rotated-cursor-refresh",
-                usageJson));
-            CursorUsageCollector collector = new(client);
-            CursorUsageDashboard dashboard = await collector.CollectDashboardAsync();
-            CursorUsageSnapshot snapshot = dashboard.Usage ?? throw new InvalidOperationException("Cursor usage should be available after OAuth refresh.");
-
-            AssertEqual(12.5, snapshot.MonthlyUsedPercent, "refreshed Cursor monthly used percentage");
-            AssertEqual(20, snapshot.AutoUsedPercent, "refreshed Cursor first-party used percentage");
-            AssertEqual(5, snapshot.ApiUsedPercent, "refreshed Cursor API used percentage");
-            AssertEqual(1_802_592_000, snapshot.ResetsAt, "refreshed Cursor reset timestamp");
-
-            string? writtenAccess;
-            string? writtenRefresh;
-            using (SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString()))
-            {
-                connection.Open();
-                writtenAccess = ReadCursorStateValue(connection, "cursorAuth/accessToken");
-                writtenRefresh = ReadCursorStateValue(connection, "cursorAuth/refreshToken");
-            }
-
-            SqliteConnection.ClearAllPools();
-            AssertEqual(newAccess, writtenAccess, "Cursor access token write-back");
-            AssertEqual("rotated-cursor-refresh", writtenRefresh, "Cursor refresh token write-back");
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
-        }
-    }
-
-    /// <summary>
-    /// Tests complete paged Cursor token-cost aggregation from actual event cents.
-    /// </summary>
-    private static async Task TestCursorDashboardAsync()
-    {
-        using TempDirectory temp = new();
-        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
-        string dbPath = Path.Combine(temp.Path, "state.vscdb");
-        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
-        try
-        {
-            DateTimeOffset now = new(2026, 7, 15, 12, 0, 0, TimeSpan.FromHours(8));
-            string access = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
-            CreateCursorStateDatabase(dbPath, access, "cursor-refresh");
-            DateTimeOffset weekStart = now.Date.AddDays(-((int)now.DayOfWeek + 6) % 7).AddHours(12);
-            object today = CreateCursorUsageEvent(now, "100", 10, "20", 30, "125", 999);
-            object yesterday = CreateCursorUsageEvent(now.AddDays(-1), 1, 1, 1, 1, 10, 999);
-            object week = CreateCursorUsageEvent(weekStart, 2, 2, 2, 2, 20, 999);
-            object nonToken = CreateCursorUsageEvent(now.AddDays(-2), null, null, null, null, null, 999);
-            object sevenDay = CreateCursorUsageEvent(now.AddDays(-6), 5, 5, 5, 5, 30, 999);
-            object thirtyDay = CreateCursorUsageEvent(now.AddDays(-29), 6, 6, 6, 6, 40, 999);
-            object historical = CreateCursorUsageEvent(now.AddDays(-30), 7, 7, 7, 7, 50, 999);
-            using HttpClient client = new(new CursorDashboardHttpMessageHandler(
-                CreateCursorUsageSummaryJson(10, 12, 0, DateTimeOffset.UtcNow.AddDays(30)),
-                page => page switch
-                {
-                    1 => JsonResponse(CreateCursorUsageEventsJson(7, today, yesterday, week, nonToken)),
-                    2 => JsonResponse(CreateCursorUsageEventsJson(7, sevenDay, thirtyDay, historical)),
-                    _ => throw new InvalidOperationException("unexpected usage-events page"),
-                }));
-            CursorUsageDashboard dashboard = await new CursorUsageCollector(client).CollectDashboardAsync(now);
-
-            AssertTrue(dashboard.Usage != null, "Cursor usage should be available");
-            AssertTrue(dashboard.TokenCost != null, "Cursor token cost should be available");
-            AssertEqual(false, dashboard.InitialCredentialRefreshUsed, "Cursor dashboard should not refresh a valid initial token");
-            AssertEqual(false, dashboard.ForcedCredentialRefreshUsed, "Cursor dashboard should not force refresh a valid token");
-            AssertEqual(7, dashboard.TokenCostDiagnostics!.EventCount, "Cursor diagnostics event count");
-            AssertEqual(2, dashboard.TokenCostDiagnostics.PageCount, "Cursor diagnostics page count");
-            AssertEqual(6, dashboard.TokenCostDiagnostics.TokenEventCount, "Cursor diagnostics token event count");
-            AssertEqual(6, dashboard.TokenCostDiagnostics.CacheReadTokenFieldCount, "Cursor diagnostics cache read coverage");
-            AssertEqual(6, dashboard.TokenCostDiagnostics.CacheWriteTokenFieldCount, "Cursor diagnostics cache write coverage");
-            AssertEqual(160L, dashboard.TokenCost!.Today.TotalTokens, "Cursor cache tokens should contribute to total tokens");
-            AssertEqual(20L, dashboard.TokenCost.Today.CacheReadTokens, "Cursor today cache-read tokens");
-            AssertEqual(150L, dashboard.TokenCost.Today.CacheableInputTokens, "Cursor today cacheable input tokens");
-            AssertEqual(13, dashboard.TokenCost.Today.GetCacheHitPercent(), "Cursor today cache hit percent");
-            AssertEqual(1.25m, dashboard.TokenCost.Today.CostUsd, "Cursor cost must use totalCents instead of chargedCents");
-            AssertEqual(192L, dashboard.TokenCost.LastSevenDays.TotalTokens, "Cursor last 7 days boundary");
-            AssertEqual(216L, dashboard.TokenCost.LastThirtyDays.TotalTokens, "Cursor last 30 days boundary");
-            AssertEqual(244L, dashboard.TokenCost.Lifetime.TotalTokens, "Cursor lifetime boundary");
-            AssertEqual(2.75m, dashboard.TokenCost.Lifetime.CostUsd, "Cursor lifetime event cents");
-            AssertEqual("gpt-5.3-codex", dashboard.TokenCost.Models.Single().Model, "Cursor usage event model");
-            AssertEqual(160L, dashboard.TokenCost.Models[0].Today.TotalTokens, "Cursor model today tokens");
-            AssertEqual(244L, dashboard.TokenCost.Models[0].Lifetime.TotalTokens, "Cursor model lifetime tokens");
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
-        }
-    }
-
-    /// <summary>
-    /// Tests safe totalCents error classification and empty-token event handling.
-    /// </summary>
-    private static async Task TestCursorTotalCentsValidationAsync()
-    {
-        using TempDirectory temp = new();
-        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
-        string dbPath = Path.Combine(temp.Path, "state.vscdb");
-        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
-        try
-        {
-            DateTimeOffset now = new(2026, 7, 15, 12, 0, 0, TimeSpan.FromHours(8));
-            string access = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
-            CreateCursorStateDatabase(dbPath, access, "cursor-refresh");
-
-            CursorUsageDashboard missing = await CollectCursorEventCostFixtureAsync(
-                now,
-                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: false));
-            AssertEqual("Cursor usage event totalCents is missing.", missing.TokenCostError, "missing totalCents error");
-
-            CursorUsageDashboard nullValue = await CollectCursorEventCostFixtureAsync(
-                now,
-                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: true, totalCents: null));
-            AssertEqual("Cursor usage event totalCents is null.", nullValue.TokenCostError, "null totalCents error");
-
-            CursorUsageDashboard nonNumeric = await CollectCursorEventCostFixtureAsync(
-                now,
-                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: true, totalCents: "not-a-number"));
-            AssertEqual("Cursor usage event totalCents is a nonnumeric string.", nonNumeric.TokenCostError, "nonnumeric totalCents error");
-
-            CursorUsageDashboard negative = await CollectCursorEventCostFixtureAsync(
-                now,
-                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: true, totalCents: -1));
-            AssertEqual("Cursor usage event totalCents is negative.", negative.TokenCostError, "negative totalCents error");
-
-            CursorUsageDashboard nonFinite = await CollectCursorEventCostFixtureAsync(
-                now,
-                CreateCursorTokenUsageEvent(now, 1, 0, 0, 0, includeTotalCents: true, totalCents: "NaN"));
-            AssertEqual("Cursor usage event totalCents is nonfinite.", nonFinite.TokenCostError, "nonfinite totalCents error");
-
-            CursorUsageDashboard zeroTokenMissingCost = await CollectCursorEventCostFixtureAsync(
-                now,
-                CreateCursorTokenUsageEvent(now, 0, 0, 0, 0, includeTotalCents: false));
-            AssertTrue(zeroTokenMissingCost.TokenCost != null, "zero-token event without cost should not clear token cost");
-            AssertEqual(0L, zeroTokenMissingCost.TokenCost!.Lifetime.TotalTokens, "zero-token event lifetime");
-            AssertEqual(0m, zeroTokenMissingCost.TokenCost.Lifetime.CostUsd, "zero-token event cost");
-            AssertEqual(1, zeroTokenMissingCost.TokenCostDiagnostics!.ZeroTokenMissingCostEventCount, "zero-token missing-cost diagnostics");
-            AssertEqual(0, zeroTokenMissingCost.TokenCostDiagnostics.TokenEventCount, "zero-token missing-cost should not count as a token event");
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
-        }
-    }
-
-    /// <summary>
-    /// Tests independent dashboard failure regions and atomic token-cost paging failure.
-    /// </summary>
-    private static async Task TestCursorDashboardFailuresAsync()
-    {
-        using TempDirectory temp = new();
-        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
-        string dbPath = Path.Combine(temp.Path, "state.vscdb");
-        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
-        try
-        {
-            DateTimeOffset now = new(2026, 7, 15, 12, 0, 0, TimeSpan.FromHours(8));
-            string access = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
-            CreateCursorStateDatabase(dbPath, access, "cursor-refresh");
-            object eventRecord = CreateCursorUsageEvent(now, 1, 1, 1, 1, 1, 1);
-            using HttpClient usageFailureClient = new(new CursorDashboardHttpMessageHandler(
-                CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
-                _ => JsonResponse(CreateCursorUsageEventsJson(1, eventRecord)),
-                usageStatus: HttpStatusCode.InternalServerError));
-            CursorUsageDashboard usageFailure = await new CursorUsageCollector(usageFailureClient).CollectDashboardAsync(now);
-            AssertTrue(usageFailure.Usage == null, "failed usage-summary must clear usage region");
-            AssertTrue(usageFailure.GrokBotUsage != null, "Grok Bot usage should survive usage-summary failure");
-            AssertTrue(usageFailure.TokenCost != null, "usage-events should remain available after usage-summary failure");
-
-            using HttpClient grokBotFailureClient = new(new CursorDashboardHttpMessageHandler(
-                CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
-                _ => JsonResponse(CreateCursorUsageEventsJson(1, eventRecord)),
-                grokBotUsageStatus: HttpStatusCode.InternalServerError));
-            CursorUsageDashboard grokBotFailure = await new CursorUsageCollector(grokBotFailureClient).CollectDashboardAsync(now);
-            AssertTrue(grokBotFailure.Usage != null, "usage-summary should survive Grok Bot usage failure");
-            AssertTrue(grokBotFailure.GrokBotUsage == null, "failed Grok Bot usage must clear its quota region");
-            AssertTrue(grokBotFailure.TokenCost != null, "usage-events should survive Grok Bot usage failure");
-
-            using HttpClient pagingFailureClient = new(new CursorDashboardHttpMessageHandler(
-                CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
-                page => page == 1
-                    ? JsonResponse(CreateCursorUsageEventsJson(2, eventRecord))
-                    : new HttpResponseMessage(HttpStatusCode.InternalServerError)));
-            CursorUsageDashboard pagingFailure = await new CursorUsageCollector(pagingFailureClient).CollectDashboardAsync(now);
-            AssertTrue(pagingFailure.Usage != null, "successful usage-summary must survive usage-events failure");
-            AssertTrue(pagingFailure.TokenCost == null, "incomplete usage-events paging must not return partial token cost");
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
-        }
-    }
-
-    /// <summary>
-    /// Tests one forced OAuth refresh shared by Cursor usage-summary and usage-events.
-    /// </summary>
-    private static async Task TestCursorDashboardRefreshBudgetAsync()
-    {
-        using TempDirectory temp = new();
-        string previousDb = Environment.GetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB") ?? string.Empty;
-        string dbPath = Path.Combine(temp.Path, "state.vscdb");
-        Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", dbPath);
-        try
-        {
-            DateTimeOffset now = new(2026, 7, 15, 12, 0, 0, TimeSpan.FromHours(8));
-            string oldAccess = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(1));
-            string newAccess = CreateTestJwt("user_cursor_test", DateTimeOffset.UtcNow.AddHours(2));
-            CreateCursorStateDatabase(dbPath, oldAccess, "cursor-refresh");
-            CursorDashboardHttpMessageHandler handler = new(
-                CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
-                _ => JsonResponse(CreateCursorUsageEventsJson(0)),
-                oldAccess,
-                newAccess,
-                "cursor-refresh");
-            using HttpClient client = new(handler);
-            CursorUsageDashboard dashboard = await new CursorUsageCollector(client).CollectDashboardAsync(now);
-
-            AssertTrue(dashboard.Usage != null && dashboard.TokenCost != null, "refreshed Cursor dashboard should be available");
-            AssertEqual(1, handler.RefreshCount, "Cursor dashboard should use one shared refresh budget");
-            AssertEqual(false, dashboard.InitialCredentialRefreshUsed, "Cursor dashboard forced refresh should begin with a valid token");
-            AssertEqual(true, dashboard.ForcedCredentialRefreshUsed, "Cursor dashboard should report its forced refresh");
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            Environment.SetEnvironmentVariable("CODEXTRAY_CURSOR_STATE_VSCDB", string.IsNullOrEmpty(previousDb) ? null : previousDb);
         }
     }
 
@@ -2638,207 +2255,6 @@ internal static class Program
                 },
             },
         });
-    }
-
-    /// <summary>
-    /// Builds a redacted Cursor usage-summary fixture for parser tests.
-    /// </summary>
-    private static string CreateCursorUsageSummaryJson(
-        double monthlyUsedPercent,
-        double firstPartyUsedPercent,
-        double apiUsedPercent,
-        DateTimeOffset billingCycleEnd)
-    {
-        return JsonSerializer.Serialize(new
-        {
-            billingCycleEnd = billingCycleEnd.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
-            membershipType = "pro_plus",
-            individualUsage = new
-            {
-                plan = new
-                {
-                    totalPercentUsed = monthlyUsedPercent,
-                    autoPercentUsed = firstPartyUsedPercent,
-                    apiPercentUsed = apiUsedPercent,
-                },
-            },
-        });
-    }
-
-    /// <summary>
-    /// Builds a redacted Cursor Grok Bot usage fixture.
-    /// </summary>
-    private static string CreateCursorGrokBotUsageJson(double usedPercent, DateTimeOffset reset)
-    {
-        return JsonSerializer.Serialize(new
-        {
-            usagePercent = usedPercent,
-            nextResetTimestampUtc = reset.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
-        });
-    }
-
-    /// <summary>
-    /// Builds one Cursor usage-events page fixture.
-    /// </summary>
-    private static string CreateCursorUsageEventsJson(int totalCount, params object[] displays)
-    {
-        return JsonSerializer.Serialize(new
-        {
-            totalUsageEventsCount = totalCount,
-            usageEventsDisplay = displays,
-        });
-    }
-
-    /// <summary>
-    /// Collects a one-event Cursor token-cost fixture with a valid usage-summary response.
-    /// </summary>
-    private static async Task<CursorUsageDashboard> CollectCursorEventCostFixtureAsync(DateTimeOffset now, object usageEvent)
-    {
-        using HttpClient client = new(new CursorDashboardHttpMessageHandler(
-            CreateCursorUsageSummaryJson(10, 10, 10, DateTimeOffset.UtcNow.AddDays(30)),
-            _ => JsonResponse(CreateCursorUsageEventsJson(1, usageEvent))));
-        return await new CursorUsageCollector(client).CollectDashboardAsync(now);
-    }
-
-    /// <summary>
-    /// Builds one Cursor usage event fixture with optional token counters.
-    /// </summary>
-    private static object CreateCursorUsageEvent(
-        DateTimeOffset timestamp,
-        object? inputTokens,
-        object? outputTokens,
-        object? cacheReadTokens,
-        object? cacheWriteTokens,
-        object? totalCents,
-        object chargedCents)
-    {
-        Dictionary<string, object?> display = new()
-        {
-            ["timestamp"] = timestamp.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
-            ["model"] = "gpt-5.3-codex",
-            ["chargedCents"] = chargedCents,
-        };
-        if (totalCents != null)
-        {
-            display["tokenUsage"] = new Dictionary<string, object?>
-            {
-                ["inputTokens"] = inputTokens,
-                ["outputTokens"] = outputTokens,
-                ["cacheReadTokens"] = cacheReadTokens,
-                ["cacheWriteTokens"] = cacheWriteTokens,
-                ["totalCents"] = totalCents,
-            };
-        }
-
-        return display;
-    }
-
-    /// <summary>
-    /// Builds one Cursor event fixture with tokenUsage present and configurable totalCents presence.
-    /// </summary>
-    private static object CreateCursorTokenUsageEvent(
-        DateTimeOffset timestamp,
-        object inputTokens,
-        object outputTokens,
-        object cacheReadTokens,
-        object cacheWriteTokens,
-        bool includeTotalCents,
-        object? totalCents = null)
-    {
-        Dictionary<string, object?> tokenUsage = new()
-        {
-            ["inputTokens"] = inputTokens,
-            ["outputTokens"] = outputTokens,
-            ["cacheReadTokens"] = cacheReadTokens,
-            ["cacheWriteTokens"] = cacheWriteTokens,
-        };
-        if (includeTotalCents)
-        {
-            tokenUsage["totalCents"] = totalCents;
-        }
-
-        return new Dictionary<string, object?>
-        {
-            ["timestamp"] = timestamp.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
-            ["model"] = "gpt-test",
-            ["tokenUsage"] = tokenUsage,
-        };
-    }
-
-    /// <summary>
-    /// Creates a JSON HTTP response for one fake Cursor endpoint request.
-    /// </summary>
-    private static HttpResponseMessage JsonResponse(string body)
-    {
-        return new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        };
-    }
-
-    /// <summary>
-    /// Builds an unsigned JWT carrying only the claims CursorUsageCollector reads.
-    /// </summary>
-    private static string CreateTestJwt(string subject, DateTimeOffset expiresAt)
-    {
-        static string Encode(object value)
-        {
-            string json = JsonSerializer.Serialize(value);
-            return Convert.ToBase64String(Encoding.UTF8.GetBytes(json))
-                .TrimEnd('=')
-                .Replace('+', '-')
-                .Replace('/', '_');
-        }
-
-        return $"{Encode(new { alg = "none", typ = "JWT" })}.{Encode(new { sub = subject, exp = expiresAt.ToUnixTimeSeconds() })}.sig";
-    }
-
-    /// <summary>
-    /// Creates a minimal Cursor state.vscdb with access and refresh tokens.
-    /// </summary>
-    private static void CreateCursorStateDatabase(string dbPath, string accessToken, string refreshToken)
-    {
-        using SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString());
-        connection.Open();
-        using (SqliteCommand create = connection.CreateCommand())
-        {
-            create.CommandText = "CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);";
-            create.ExecuteNonQuery();
-        }
-
-        UpsertCursorStateValue(connection, "cursorAuth/accessToken", accessToken);
-        UpsertCursorStateValue(connection, "cursorAuth/refreshToken", refreshToken);
-        UpsertCursorStateValue(connection, "unrelated/keep", "keep-me");
-    }
-
-    /// <summary>
-    /// Inserts or replaces one Cursor state.vscdb ItemTable value for tests.
-    /// </summary>
-    private static void UpsertCursorStateValue(SqliteConnection connection, string key, string value)
-    {
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "INSERT OR REPLACE INTO ItemTable (key, value) VALUES ($key, $value);";
-        command.Parameters.AddWithValue("$key", key);
-        command.Parameters.AddWithValue("$value", value);
-        command.ExecuteNonQuery();
-    }
-
-    /// <summary>
-    /// Reads one Cursor state.vscdb ItemTable value for assertions.
-    /// </summary>
-    private static string? ReadCursorStateValue(SqliteConnection connection, string key)
-    {
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "SELECT value FROM ItemTable WHERE key = $key LIMIT 1;";
-        command.Parameters.AddWithValue("$key", key);
-        object? value = command.ExecuteScalar();
-        return value switch
-        {
-            null or DBNull => null,
-            byte[] bytes => Encoding.UTF8.GetString(bytes),
-            string text => text,
-            _ => Convert.ToString(value, CultureInfo.InvariantCulture),
-        };
     }
 
     /// <summary>
@@ -3176,29 +2592,6 @@ internal static class Program
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 7D donut model tooltip");
         AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7D row should be selected");
-
-        viewModel.UpdateCursorDashboard(new CursorUsageDashboard(null, statistics, "N/A", string.Empty, DateTimeOffset.Now));
-        AssertEqual(
-            System.Windows.Media.Color.FromRgb(226, 176, 54),
-            ((System.Windows.Media.SolidColorBrush)viewModel.CursorStatusDotBrush).Color,
-            "Cursor usage-only token cost should keep a yellow status");
-        AssertEqual(
-            System.Windows.Media.Color.FromRgb(26, 188, 137),
-            ((System.Windows.Media.SolidColorBrush)viewModel.CursorTokenCost.AccentBrush).Color,
-            "Cursor token cost accent should stay green when usage is unavailable");
-        AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.CursorTokenCost.Rows.Select(row => row.Title)), "Cursor token cost row titles");
-        AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CursorTokenCost.Rows.Select(row => row.Display.Cost)), "Cursor token cost row values");
-        AssertEqual(30, viewModel.CursorTokenCost.ChartDays.Count, "Cursor token cost chart day count");
-        AssertEqual(daily[^1].Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), viewModel.CursorTokenCost.ChartDays[29].Tooltip[..10], "Cursor token cost chart tooltip date");
-        AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
-            viewModel.CursorTokenCost.DonutSegments[0].Tooltip,
-            "Cursor donut model tooltip omits speed");
-        viewModel.CursorTokenCost.SelectPeriodCommand.Execute(viewModel.CursorTokenCost.Rows[1]);
-        AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
-            viewModel.CursorTokenCost.DonutSegments[0].Tooltip,
-            "Cursor donut model tooltip keeps speed hidden after period selection");
 
         TokenCostStatistics grokStatistics = new()
         {
@@ -3628,6 +3021,41 @@ internal static class Program
         AssertEqual("40%", viewModel.CodexSessionQuota.PercentText, "valid Session percent text");
         AssertEqual("1h15m", viewModel.CodexSessionQuota.ResetText, "valid Session reset text");
         AssertEqual("80%", viewModel.CodexWeeklyQuota.PercentText, "Weekly percent text after Session becomes valid");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Maps Codex usage plan_type values onto the current Pro 5x/10x/25x badge labels.
+    /// </summary>
+    private static Task TestCodexPlanDisplayAsync()
+    {
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        UsageResponse response = new() { Available = true };
+        (string planType, string display)[] cases =
+        [
+            ("free", "FREE"),
+            ("go", "GO"),
+            ("plus", "PLUS"),
+            ("chatgpt", "PLUS"),
+            ("prolite", "PRO 5X"),
+            ("pro_lite", "PRO 5X"),
+            ("pro-5x", "PRO 5X"),
+            ("pro", "PRO 10X"),
+            ("pro_10x", "PRO 10X"),
+            ("pro_20x", "PRO 10X"),
+            ("promax", "PRO 25X"),
+            ("pro_max", "PRO 25X"),
+            ("pro_25x", "PRO 25X"),
+            ("business", "UNKNOWN"),
+        ];
+
+        foreach ((string planType, string display) in cases)
+        {
+            response.PlanType = planType;
+            viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
+            AssertEqual(display, viewModel.CodexPlanDisplay, $"Codex badge for {planType}");
+        }
+
         return Task.CompletedTask;
     }
 
@@ -4775,302 +4203,6 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
         }
 
         throw new InvalidOperationException($"unexpected Grok request URI: {requestUri}");
-    }
-}
-
-internal sealed class CursorOAuthRefreshHttpMessageHandler : HttpMessageHandler
-{
-    private const string k_UsageEndpoint = "https://cursor.com/api/usage-summary";
-    private const string k_TokenEndpoint = "https://api2.cursor.sh/oauth/token";
-    private readonly string m_OldAccessToken;
-    private readonly string m_NewAccessToken;
-    private readonly string m_ExpectedRefreshToken;
-    private readonly string m_RotatedRefreshToken;
-    private readonly string m_UsageBody;
-
-    /// <summary>
-    /// Creates a handler that refreshes Cursor OAuth tokens and then serves usage-summary.
-    /// </summary>
-    public CursorOAuthRefreshHttpMessageHandler(
-        string oldAccessToken,
-        string newAccessToken,
-        string expectedRefreshToken,
-        string rotatedRefreshToken,
-        string usageBody)
-    {
-        m_OldAccessToken = oldAccessToken;
-        m_NewAccessToken = newAccessToken;
-        m_ExpectedRefreshToken = expectedRefreshToken;
-        m_RotatedRefreshToken = rotatedRefreshToken;
-        m_UsageBody = usageBody;
-    }
-
-    /// <summary>
-    /// Handles Cursor OAuth refresh and usage-summary requests for collector tests.
-    /// </summary>
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        string? requestUri = request.RequestUri?.ToString();
-        if (requestUri == k_TokenEndpoint)
-        {
-            string body = request.Content == null
-                ? string.Empty
-                : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (!body.Contains($"refresh_token={Uri.EscapeDataString(m_ExpectedRefreshToken)}", StringComparison.Ordinal) &&
-                !body.Contains($"refresh_token={m_ExpectedRefreshToken}", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("missing Cursor refresh token");
-            }
-
-            if (!body.Contains("client_id=KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB", StringComparison.Ordinal) &&
-                !body.Contains($"client_id={Uri.EscapeDataString("KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB")}", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("missing Cursor client id");
-            }
-
-            string response = JsonSerializer.Serialize(new
-            {
-                access_token = m_NewAccessToken,
-                refresh_token = m_RotatedRefreshToken,
-                expires_in = 3600,
-            });
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(response, Encoding.UTF8, "application/json"),
-            };
-        }
-
-        if (requestUri == k_UsageEndpoint)
-        {
-            if (!request.Headers.TryGetValues("Cookie", out IEnumerable<string>? cookies))
-            {
-                throw new InvalidOperationException("missing Cursor session cookie");
-            }
-
-            string cookie = string.Join(';', cookies);
-            if (cookie.Contains(m_OldAccessToken, StringComparison.Ordinal))
-            {
-                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
-            }
-
-            if (!cookie.Contains(m_NewAccessToken, StringComparison.Ordinal) ||
-                !cookie.Contains("WorkosCursorSessionToken=user_cursor_test%3A%3A", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("unexpected Cursor session cookie");
-            }
-
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(m_UsageBody, Encoding.UTF8, "application/json"),
-            };
-        }
-
-        throw new InvalidOperationException($"unexpected Cursor request URI: {requestUri}");
-    }
-}
-
-internal sealed class CursorDashboardHttpMessageHandler : HttpMessageHandler
-{
-    private const string k_UsageEndpoint = "https://cursor.com/api/usage-summary";
-    private const string k_GrokBotUsageEndpoint = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus";
-    private const string k_UsageEventsEndpoint = "https://cursor.com/api/dashboard/get-filtered-usage-events";
-    private const string k_TokenEndpoint = "https://api2.cursor.sh/oauth/token";
-    private readonly string m_UsageBody;
-    private readonly Func<int, HttpResponseMessage> m_UsageEventsResponse;
-    private readonly string? m_OldAccessToken;
-    private readonly string? m_NewAccessToken;
-    private readonly string? m_ExpectedRefreshToken;
-    private readonly HttpStatusCode m_UsageStatus;
-    private readonly string m_GrokBotUsageBody;
-    private readonly HttpStatusCode m_GrokBotUsageStatus;
-
-    public int RequestCount { get; private set; }
-
-    public int RefreshCount { get; private set; }
-
-    /// <summary>
-    /// Creates a handler for Cursor dashboard requests with optional forced OAuth refresh.
-    /// </summary>
-    public CursorDashboardHttpMessageHandler(
-        string usageBody,
-        Func<int, HttpResponseMessage> usageEventsResponse,
-        string? oldAccessToken = null,
-        string? newAccessToken = null,
-        string? expectedRefreshToken = null,
-        HttpStatusCode usageStatus = HttpStatusCode.OK,
-        string? grokBotUsageBody = null,
-        HttpStatusCode grokBotUsageStatus = HttpStatusCode.OK)
-    {
-        m_UsageBody = usageBody;
-        m_UsageEventsResponse = usageEventsResponse;
-        m_OldAccessToken = oldAccessToken;
-        m_NewAccessToken = newAccessToken;
-        m_ExpectedRefreshToken = expectedRefreshToken;
-        m_UsageStatus = usageStatus;
-        m_GrokBotUsageBody = grokBotUsageBody ?? "{\"usagePercent\":49,\"nextResetTimestampUtc\":\"2030-01-01T00:00:00.000Z\"}";
-        m_GrokBotUsageStatus = grokBotUsageStatus;
-    }
-
-    /// <summary>
-    /// Handles Cursor dashboard, OAuth refresh, and usage-events paging requests.
-    /// </summary>
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        RequestCount++;
-        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-        if (requestUri == k_TokenEndpoint)
-        {
-            RefreshCount++;
-            if (m_NewAccessToken == null || m_ExpectedRefreshToken == null)
-            {
-                throw new InvalidOperationException("unexpected Cursor OAuth refresh");
-            }
-
-            string body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (!body.Contains($"refresh_token={Uri.EscapeDataString(m_ExpectedRefreshToken)}", StringComparison.Ordinal) &&
-                !body.Contains($"refresh_token={m_ExpectedRefreshToken}", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("missing Cursor dashboard refresh token");
-            }
-
-            return CreateJsonResponse(JsonSerializer.Serialize(new
-            {
-                access_token = m_NewAccessToken,
-                refresh_token = "rotated-cursor-refresh",
-                expires_in = 3600,
-            }));
-        }
-
-        if (requestUri == k_UsageEndpoint)
-        {
-            if (ShouldRejectOldCookie(request))
-            {
-                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
-            }
-
-            if (m_UsageStatus != HttpStatusCode.OK)
-            {
-                return new HttpResponseMessage(m_UsageStatus);
-            }
-
-            ValidateNewCookie(request);
-            return CreateJsonResponse(m_UsageBody);
-        }
-
-        if (requestUri == k_GrokBotUsageEndpoint)
-        {
-            if (ShouldRejectOldBearer(request))
-            {
-                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
-            }
-
-            if (m_GrokBotUsageStatus != HttpStatusCode.OK)
-            {
-                return new HttpResponseMessage(m_GrokBotUsageStatus);
-            }
-
-            string body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (request.Method != HttpMethod.Post ||
-                body != "{}" ||
-                request.Content?.Headers.ContentType?.MediaType != "application/json" ||
-                !request.Headers.Accept.Any(header => header.MediaType == "application/json") ||
-                !request.Headers.TryGetValues("connect-protocol-version", out IEnumerable<string>? versions) ||
-                versions.Single() != "1")
-            {
-                throw new InvalidOperationException("invalid Cursor Grok Bot usage request");
-            }
-
-            ValidateNewBearer(request);
-            return CreateJsonResponse(m_GrokBotUsageBody);
-        }
-
-        if (requestUri == k_UsageEventsEndpoint)
-        {
-            if (ShouldRejectOldCookie(request))
-            {
-                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
-            }
-
-            if (!request.Headers.TryGetValues("Origin", out IEnumerable<string>? origins) || origins.Single() != "https://cursor.com")
-            {
-                throw new InvalidOperationException("missing Cursor usage-events origin");
-            }
-
-            string body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            using JsonDocument document = JsonDocument.Parse(body);
-            int page = document.RootElement.GetProperty("page").GetInt32();
-            if (document.RootElement.GetProperty("pageSize").GetInt32() != 1000 ||
-                document.RootElement.GetProperty("startDate").GetString() != "0" ||
-                !long.TryParse(document.RootElement.GetProperty("endDate").GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long endDate) ||
-                endDate <= 0 ||
-                request.Content?.Headers.ContentType?.MediaType != "application/json" ||
-                !request.Headers.Accept.Any(header => header.MediaType == "application/json"))
-            {
-                throw new InvalidOperationException("invalid Cursor usage-events pagination request");
-            }
-            ValidateNewCookie(request);
-            return m_UsageEventsResponse(page);
-        }
-
-        throw new InvalidOperationException($"unexpected Cursor dashboard request URI: {requestUri}");
-    }
-
-    /// <summary>
-    /// Returns whether the request still carries the initial access token.
-    /// </summary>
-    private bool ShouldRejectOldCookie(HttpRequestMessage request)
-    {
-        return m_OldAccessToken != null && request.Headers.TryGetValues("Cookie", out IEnumerable<string>? cookies) &&
-            string.Join(';', cookies).Contains(m_OldAccessToken, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Returns whether the request still carries the initial bearer token.
-    /// </summary>
-    private bool ShouldRejectOldBearer(HttpRequestMessage request)
-    {
-        return m_OldAccessToken != null && request.Headers.Authorization?.Parameter == m_OldAccessToken;
-    }
-
-    /// <summary>
-    /// Verifies that forced-refresh requests use the rotated access token.
-    /// </summary>
-    private void ValidateNewCookie(HttpRequestMessage request)
-    {
-        if (m_NewAccessToken == null)
-        {
-            return;
-        }
-
-        if (!request.Headers.TryGetValues("Cookie", out IEnumerable<string>? cookies) ||
-            !string.Join(';', cookies).Contains(m_NewAccessToken, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException("missing refreshed Cursor dashboard cookie");
-        }
-    }
-
-    /// <summary>
-    /// Verifies the Cursor Grok Bot bearer token.
-    /// </summary>
-    private void ValidateNewBearer(HttpRequestMessage request)
-    {
-        string? token = request.Headers.Authorization?.Parameter;
-        if (request.Headers.Authorization?.Scheme != "Bearer" || string.IsNullOrWhiteSpace(token) ||
-            (m_NewAccessToken != null && token != m_NewAccessToken))
-        {
-            throw new InvalidOperationException("missing Cursor Grok Bot bearer token");
-        }
-    }
-
-    /// <summary>
-    /// Creates a successful JSON response for one fake Cursor dashboard request.
-    /// </summary>
-    private static HttpResponseMessage CreateJsonResponse(string body)
-    {
-        return new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        };
     }
 }
 

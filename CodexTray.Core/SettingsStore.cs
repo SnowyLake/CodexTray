@@ -8,10 +8,10 @@ public enum PageItem
 {
     None = 0,
     Codex = 1 << 0,
-    Cursor = 1 << 1,
+    // Bit 1 stays unused so older settings do not revive Cursor collection and a new flag does not collide with it.
     Apis = 1 << 2,
     Grok = 1 << 3,
-    All = Codex | Cursor | Grok | Apis,
+    All = Codex | Grok | Apis,
 }
 
 public sealed class ApiMonitorSettings
@@ -344,9 +344,10 @@ public sealed class SettingsStore
         bool migrateLegacyAllPages = !document.RootElement.TryGetProperty(nameof(AppSettings.SettingsSchemaVersion), out JsonElement schemaVersion) ||
             !schemaVersion.TryGetInt32(out int version) || version < AppSettings.CurrentSettingsSchemaVersion;
         AppSettings settings = JsonSerializer.Deserialize<AppSettings>(json, s_JsonOptions) ?? throw new JsonException("Settings object is missing.");
-        if (migrateLegacyAllPages && settings.VisiblePages == (PageItem.Codex | PageItem.Cursor | PageItem.Apis))
+        // VisiblePages 7 was Codex|Cursor|Apis, the full set before Grok existed.
+        if (migrateLegacyAllPages && settings.VisiblePages == (PageItem)7)
         {
-            settings.VisiblePages |= PageItem.Grok;
+            settings.VisiblePages = PageItem.All;
         }
 
         return settings.Normalize();

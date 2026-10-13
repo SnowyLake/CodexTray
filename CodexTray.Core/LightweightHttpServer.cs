@@ -497,11 +497,11 @@ public sealed class LightweightHttpServer : IDisposable
     }
 
     /// <summary>
-    /// Writes Codex Weekly, Cursor Monthly, Grok Weekly, and DeepSeek as a four-line text response for TrafficMonitor.
+    /// Writes Codex Weekly, Grok Weekly, and DeepSeek as a three-line text response for TrafficMonitor.
     /// </summary>
     private static Task WriteUsageTextAsync(NetworkStream stream, UsageResponse response, CancellationToken cancellationToken)
     {
-        string body = string.Join(Environment.NewLine, response.Display.Weekly, response.Display.CursorMonthly, response.Display.GrokWeekly, response.Display.DeepSeek);
+        string body = string.Join(Environment.NewLine, response.Display.Weekly, response.Display.GrokWeekly, response.Display.DeepSeek);
         return WriteResponseAsync(stream, 200, "OK", "text/plain; charset=utf-8", body, cancellationToken);
     }
 

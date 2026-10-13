@@ -160,9 +160,9 @@ internal static class RetryTests
         List<(PageItem, string?)> targets = [];
         TrayPopupViewModel vm = new(new AppSettings { ApiMonitors = [a, b] }, () => throw new InvalidOperationException("targeted retry must not call full refresh"),
             (page, id) => { targets.Add((page, id)); return Task.CompletedTask; });
-        await vm.RetrySourceCommand.ExecuteAsync(PageItem.Cursor);
+        await vm.RetrySourceCommand.ExecuteAsync(PageItem.Grok);
         await vm.RetryApiMonitorCommand.ExecuteAsync(vm.ApiMonitors[1]);
-        Check(targets.SequenceEqual([(PageItem.Cursor, null), (PageItem.Apis, "b")]), "UI targets one source or card");
+        Check(targets.SequenceEqual([(PageItem.Grok, null), (PageItem.Apis, "b")]), "UI targets one source or card");
     }
 
     /// <summary>
@@ -189,9 +189,9 @@ internal static class RetryTests
         Check(diagnostics.Contains("Rate limit") && !diagnostics.Contains(secret) && !diagnostics.Contains("message.example") && !diagnostics.Contains("user-secret") && !diagnostics.Contains("card-secret"), "copied diagnostics are redacted by construction");
         typeof(ApiMonitorViewModel).GetField("m_Provider", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(vm.ApiMonitors[0], secret);
         Check(!vm.BuildDiagnostics(PageItem.Apis).Contains(secret), "whole API page uses the same provider whitelist");
-        Check(vm.BuildDiagnostics(PageItem.Cursor).Contains("Not collected"), "initial diagnostics do not claim successful collection");
+        Check(vm.BuildDiagnostics(PageItem.Grok).Contains("Not collected"), "initial diagnostics do not claim successful collection");
         string allDiagnostics = vm.BuildDiagnostics(PageItem.All);
-        Check(new[] { "Codex usage:", "Cursor usage:", "Grok usage:", "Unknown API balance:" }.All(allDiagnostics.Contains), "advanced diagnostics include every source");
+        Check(new[] { "Codex usage:", "Grok usage:", "Unknown API balance:" }.All(allDiagnostics.Contains), "advanced diagnostics include every source");
         Check(!allDiagnostics.Contains(secret) && !allDiagnostics.Contains("message.example") && !allDiagnostics.Contains("user-secret") && !allDiagnostics.Contains("card-secret"),
             "combined diagnostics retain provider whitelisting and credential redaction");
     }

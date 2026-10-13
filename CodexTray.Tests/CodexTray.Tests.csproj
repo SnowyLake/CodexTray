@@ -3,6 +3,9 @@
   <ItemGroup>
     <ProjectReference Include="..\CodexTray.App\CodexTray.App.csproj" />
     <ProjectReference Include="..\CodexTray.Core\CodexTray.Core.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <!-- Pin the native SQLite bundle above the 2.1.11 version pulled by Microsoft.Data.Sqlite. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <Content Include="..\Plugins\LiteMonitor\CodexTray.json" Link="Plugins\LiteMonitor\CodexTray.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\Plugins\TrafficMonitor\CodexTray.ini" Link="Plugins\TrafficMonitor\CodexTray.ini" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\Resources\model-pricing.json" Link="Resources\model-pricing.json" CopyToOutputDirectory="PreserveNewest" />

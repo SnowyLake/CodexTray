@@ -8,7 +8,6 @@
 - [安装](#安装)
 - [使用](#使用)
 - [Token Cost](#token-cost)
-- [Cursor 页面](#cursor-页面)
 - [Grok 页面](#grok-页面)
 - [API 监控](#api-监控)
 - [插件支持](#插件支持)
@@ -17,9 +16,9 @@
 
 ## 概览
 
-`CodexTray` 是一个适用于 Windows x64 的托盘应用, 用于查看 Codex, Cursor 和 Grok 的剩余额度, 重置时间, token 用量与费用, 也支持监控多个 API 账户的余额. 点击托盘图标即可查看, 平时无需保持窗口打开.
+`CodexTray` 是一个适用于 Windows x64 的托盘应用, 用于查看 Codex 与 Grok 的剩余额度, 重置时间, token 用量与费用, 也支持监控多个 API 账户的余额. Grok 页面显示订阅名称. 点击托盘图标即可查看, 平时无需保持窗口打开.
 
-配合 LiteMonitor 或 TrafficMonitor, 还可以在监控器中显示 Codex Weekly, Cursor Monthly 和 Grok Weekly 的剩余百分比, 以及第一张 DeepSeek 卡片的 CNY 余额.
+配合 LiteMonitor 或 TrafficMonitor, 还可以在监控器中显示 Codex Weekly 和 Grok Weekly 的剩余百分比, 以及第一张 DeepSeek 卡片的 CNY 余额.
 
 本文介绍功能, 安装和使用方法. 开发维护说明见 [AGENTS.md](AGENTS.md).
 
@@ -30,15 +29,15 @@
 ## 功能
 
 - 查看 Codex 计划状态, Session 与 Weekly 额度, Resets 数量及最近到期时间.
-- 查看 Cursor Monthly, Grok Bot Weekly, First party 和 APIs 额度, 以及 Grok Weekly 额度与各产品使用占比.
+- 在 Grok 页查看订阅类型, Weekly 额度, 各产品使用占比和 Token Cost.
 - 按时段查看 token 总量, 费用, 缓存命中率, 模型占比和用量趋势.
 - 在 APIs 页添加多个余额监控卡片, 自定义名称, 调整顺序或删除.
-- 自动刷新并显示刷新状态, 也可以随时手动刷新. Codex, Cursor, Grok 和 APIs 完成采集后各自立即更新, Codex 与 Grok 的额度和本地 Token Cost 也分别更新, 不必等待其他来源.
+- 自动刷新并显示刷新状态, 也可以随时手动刷新. Codex, Grok 和 APIs 完成采集后各自立即更新, Codex 与 Grok 的额度和本地 Token Cost 也分别更新, 不必等待其他来源.
 - 各页面的刷新按钮只刷新当前来源, API 卡片的重试按钮只刷新该卡片. Settings 的 Advanced 一栏提供 `Copy diagnostics`, 一次复制所有来源的应用版本, 各部分最后成功时间和错误分类, 便于排查认证, 网络, 超时, 限流或响应格式问题; 不包含卡片名称, 地址或凭据. 暂时故障会有限重试, 服务要求较长等待时请稍后手动重试.
 - 将鼠标放到刷新状态或 Token Cost 区域可查看各部分最后成功时间和失败原因. 读取失败的数值与插件数据显示 N/A, 不沿用旧值. 费用旁的 `*` 表示部分费用, 悬停可查看未定价或费用不完整的模型; tooltip 同时说明费用来源.
 - 支持浅色, 深色和跟随系统的主题, 可隐藏不使用的页面, 设置随 Windows 启动.
 - 配置读取或备份写入失败时显示错误并保留原文件, 保存操作会暂停. 已成功读取的有效配置仍会继续使用. Settings 的 Advanced 一栏提供 `Restore last good settings`, 可恢复上一份有效配置, 恢复前会另存当前文件. 没有有效备份时, 请修复原配置或目录写入权限后重新启动.
-- 托盘悬停显示可见来源的 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片余额, 不可用时显示 N/A. 面板左下角的图钉可固定显示, 再点一次恢复失焦收起; Esc 或托盘左键仍可收起, 固定状态只保留到应用退出.
+- 托盘悬停显示可见来源的 Codex Weekly, Grok Weekly 和第一张 DeepSeek 卡片余额, 不可用时显示 N/A. 面板左下角的图钉可固定显示, 再点一次恢复失焦收起; Esc 或托盘左键仍可收起, 固定状态只保留到应用退出.
 - 自动检测 LiteMonitor 与 TrafficMonitor 目录, 一键安装插件.
 - 在 Settings 页检查 GitHub 上的新版本, 确认后完成升级.
 
@@ -55,13 +54,12 @@
 
 首次启动时, 应用会保存默认设置并打开主面板. 之后应用常驻 Windows 系统托盘.
 
-使用 Codex, Cursor 或 Grok 页面前, 请先在本机登录对应的 Codex, Cursor IDE 或 Grok Build. CodexTray 会使用已有登录信息.
+使用 Codex 或 Grok 页面前, 请先在本机登录对应的 Codex 或 Grok Build. CodexTray 会使用已有登录信息.
 
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
 - Codex 页: 查看额度, Resets 和 Token Cost. 点击额度卡片左下角的页点或使用鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示.
-- Cursor 页: 查看 Monthly, Grok Bot Weekly, First party, APIs 额度和实际账单 Token Cost.
-- Grok 页: 查看订阅类型, Weekly 额度, 重置时间, 各产品使用占比和 Token Cost.
+- Grok 页: 查看订阅类型, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称, Weekly 额度和各产品占比来自同一次 Grok 查询.
 - APIs 页: 添加和查看 DeepSeek, OpenRouter, Vercel AI Gateway, NanoGPT 或 NewAPI 监控卡片.
 - Settings 页: 调整刷新间隔, 主题, 重置时间格式, 自启动和插件设置. 在 `Visible pages` 中隐藏页面后, 对应的后台采集也会停止. 版本号右侧的 `Check for updates` 会检查 GitHub Release. 发现新版本时, 弹窗询问是否安装.
 - About 页: 查看当前版本, 项目主页和许可证信息.
@@ -72,34 +70,27 @@
 
 ## Token Cost
 
-Codex, Cursor 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓存命中率和模型占比, 并切换最近 30 天或当前自然月的趋势图.
+Codex 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓存命中率和模型占比, 并切换最近 30 天或当前自然月的趋势图.
 
 - 滚动周期: `24H`, `7D`, `30D`, `Lifetime`. `24H` 表示从当前时刻向前的 24 小时.
 - 自然周期: `Today`, `Week`, `Month`, `Lifetime`.
 
-悬停 Codex 或 Grok 圆环中的模型可查看 `Speed`, 显示所选时段内有计时记录的平均输出速度. Codex 根据本机会话的单次模型响应窗口估算, 排除输出完成后的工具执行等待, 显示 `~N.N tok/s`; `~` 表示估算值. Grok 使用会话中报告的 API 调用耗时计算, 显示 `N.N tok/s`, 部分调用未报告耗时时结果可能偏高. 两种口径都包含首 token 等待等开销, 不代表纯生成阶段的速度. Codex 或 Grok 记录缺少可靠计时数据时显示 `N/A`. Cursor 圆环 tooltip 不显示速度.
+悬停 Codex 或 Grok 圆环中的模型可查看 `Speed`, 显示所选时段内有计时记录的平均输出速度. Codex 根据本机会话的单次模型响应窗口估算, 排除输出完成后的工具执行等待, 显示 `~N.N tok/s`; `~` 表示估算值. Grok 使用会话中报告的 API 调用耗时计算, 显示 `N.N tok/s`, 部分调用未报告耗时时结果可能偏高. 两种口径都包含首 token 等待等开销, 不代表纯生成阶段的速度. Codex 或 Grok 记录缺少可靠计时数据时显示 `N/A`.
 
-三个页面的费用来源不同:
+两个页面的费用来源不同:
 
 | 页面 | 费用含义 |
 | --- | --- |
 | Codex | 根据本机会话用量和模型价格估算的 API 等价成本, 不代表订阅实际扣费. DeepSeek 按官方高峰和低谷时段计价. |
-| Cursor | Cursor 返回的实际账单费用. |
 | Grok | 优先使用 Grok Build 会话中记录的费用, 记录缺失或不完整时按模型价格估算. DeepSeek 回算同样区分高峰和低谷. |
 
 没有可用费用记录且价格表未收录的模型, 仍统计 token, 成本按 `$0.00` 计入. Token 数量以 K, M, B 分别表示千, 百万和十亿.
 
-## Cursor 页面
-
-在本机 Cursor IDE 登录后, 打开 Cursor 页面即可查看额度和账单用量. 点击额度卡片左下角的页点或使用鼠标滚轮, 可切换 Monthly 与 Grok Bot Weekly, 并查看各自的重置时间. First party 和 APIs 额度在下方并排显示.
-
-页面下方显示 Token Cost. LiteMonitor 和 TrafficMonitor 仅显示其中的 Monthly 额度.
-
 ## Grok 页面
 
-在本机 Grok Build 登录后, 打开 Grok 页面即可查看 Weekly 剩余额度, 重置时间和各产品使用占比. 订阅类型显示在页面标题旁.
+在本机 Grok Build 登录后, 打开 Grok 页面可查看订阅名称, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称, Weekly 额度和各产品占比来自同一次 Grok 查询.
 
-产品占比中的 `Others` 汇总其余产品, 鼠标悬停可查看明细. 重置时间可以在 Settings 中切换为倒计时或具体时间.
+产品占比默认显示 `Build` 和 `Bot`, `Others` 汇总其余产品, 鼠标悬停可查看明细. 重置时间可以在 Settings 中切换为倒计时或具体时间.
 
 页面下方的 Token Cost 统计本机 Grok Build 会话中的用量和费用.
 
@@ -113,25 +104,25 @@ Codex, Cursor 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓�
 - NanoGPT: 填写 Base URL 和 API key, 默认 Base URL 为 `https://nano-gpt.com`. 卡片优先显示 USD 余额, 并在接口可用时显示最近 30 个 UTC 日的已用金额; 用量查询失败不会影响余额显示.
 - NewAPI: 填写实例 Base URL, access token 和 User ID, 查看剩余与已用额度.
 
-卡片支持自定义显示名称, 调整顺序和删除. Cursor 与 Grok 均使用独立页面, 不作为 API 监控卡片.
+卡片支持自定义显示名称, 调整顺序和删除. Grok 使用独立页面, 不作为 API 监控卡片.
 
 ## 插件支持
 
 CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监控器, 使用 `Browse` 手动选择目录或 `Auto detect` 自动定位, 然后点击 `Setup` 安装插件. 安装完成后重启对应监控器或重新加载插件.
 
-两个插件都显示 `Codex`, `Cursor`, `Grok` 和 `DeepSeek` 四项, 分别对应 Codex Weekly, Cursor Monthly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额. 插件中的 DeepSeek 余额按四舍五入显示为整数, 不带小数. 插件不显示重置时间, Token Cost 或其他 API provider 的余额. 有多张 DeepSeek 卡片时, 只使用 APIs 页中最靠前的一张.
+两个插件都显示 `Codex`, `Grok` 和 `DeepSeek` 三项, 分别对应 Codex Weekly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额. 插件中的 DeepSeek 余额按四舍五入显示为整数, 不带小数. 插件不显示重置时间, Token Cost, Cursor 额度或其他 API provider 的余额. 有多张 DeepSeek 卡片时, 只使用 APIs 页中最靠前的一张.
 
-隐藏 Codex, Cursor, Grok 或 APIs 页面后, 对应插件项会显示 `N/A`. 四个数据页全部隐藏后, 应用会停止向插件提供数据.
+隐藏 Codex, Grok 或 APIs 后, 对应插件项会显示 `N/A`. 这三项全部关闭后, 应用会停止向插件提供数据.
 
 升级 CodexTray 或修改 HTTP 端口后, 请重新执行 `Setup`, 让插件文件和端口配置同步到监控器.
 
 ## 数据与隐私
 
-- Codex, Cursor 和 Grok 的额度使用本机已有登录信息向各自的官方服务查询.
-- Codex 和 Grok 的 Token Cost 从本机会话日志统计; Cursor 使用官方账单记录. Codex 和 Grok 页面不读取 OpenCode 会话.
+- Codex 与 Grok 的额度使用本机已有登录信息向各自的官方服务查询. Grok 页的订阅名称来自同一次 Grok 额度查询.
+- Codex 和 Grok 的 Token Cost 从本机会话日志统计. Codex 和 Grok 页面不读取 OpenCode 会话.
 - DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击输入框右侧的眼睛图标可临时显示和编辑, 再次点击或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.
-- Cursor 和 Grok 的登录凭据会自动续期并写回各自的本地登录文件, 不会复制到 `settings.json`.
+- Grok 的登录凭据会自动续期并写回本地登录文件, 不会复制到 `settings.json`.
 - 插件连接仅供本机访问, 默认端口为 `17890`, 不向局域网开放. 登录凭据不会写入日志, 插件配置或插件收到的数据.
 - 应用设置保存在 `CodexTray.exe` 同级目录的 `settings.json`.
 - 有效配置备份与恢复时保留的原文件也在应用目录中, 凭据同样为明文. 请勿分享 `settings.json`, `settings.last-good.json` 或 `settings.damaged-*.json`.
@@ -144,23 +135,23 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 ### 为什么 Token Cost 显示 N/A
 
-请确认已完整解压发布包, 保留 `Resources/model-pricing.json`, 并且本机有对应的 Codex 或 Grok Build 会话记录. Grok 会话需要包含已完成轮次的用量记录. Cursor 的 Token Cost 需要能正常获取账单记录.
+请确认已完整解压发布包, 保留 `Resources/model-pricing.json`, 并且本机有对应的 Codex 或 Grok Build 会话记录. Grok 会话需要包含已完成轮次的用量记录.
 
 ### 为什么 API 卡片显示 N/A
 
 将鼠标悬停在卡片名称或状态圆点上查看错误信息. DeepSeek, OpenRouter, Vercel, NanoGPT 和 NewAPI 需要有效的 Base URL 与凭据, NewAPI 还需要 User ID, OpenRouter 必须使用 Management Key, Vercel 必须使用 AI Gateway API key.
 
-### 为什么 Cursor 页面显示 N/A
+### 为什么 Grok 页的订阅名称是 UNKNOWN
 
-请确认本机 Cursor IDE 已登录. 自动续期失败时, 请回到 Cursor IDE 重新登录. 额度与 Token Cost 可以独立更新, 部分数据不可用时, 其余部分仍可能正常显示.
+请先在 Grok Build 中登录. 订阅名称随 Weekly 额度一起更新. 没有读到订阅档位时显示 `UNKNOWN`. 自动续期失败时, 请运行 `grok login`.
 
 ### 为什么 Grok 页面显示 N/A
 
-请先在 Grok Build 中登录. 自动续期失败时, 请运行 `grok login` 重新登录.
+Weekly 额度和各产品使用占比需要先在 Grok Build 中登录. 自动续期失败时, 请运行 `grok login`.
 
 ### 为什么 LiteMonitor 或 TrafficMonitor 没有更新
 
-请确认 CodexTray 正在运行, 且 Settings 中 Codex, Cursor, Grok 或 APIs 至少一个页面可见. 在托盘菜单中点击 `Refresh Now`, 再检查监控器路径并重新执行 `Setup`. 升级后或修改过 HTTP 端口时, 必须重新安装插件.
+请确认 CodexTray 正在运行, 且 Settings 中 Codex, Grok 或 APIs 至少有一项开启. 在托盘菜单中点击 `Refresh Now`, 再检查监控器路径并重新执行 `Setup`. 升级后或修改过 HTTP 端口时, 必须重新安装插件. 已安装的旧插件如果仍显示 Cursor, 也需要重新执行 `Setup`.
 
 ### 为什么找不到 LiteMonitor 或 TrafficMonitor
 

@@ -72,9 +72,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private const string k_CodexPageName = "Codex";
     private const string k_GrokPageName = "Grok";
     private const string k_GrokBuildProductName = "Build";
-    private const string k_GrokChatProductName = "Chat";
+    private const string k_GrokBotProductName = "Bot";
     private const string k_GrokOthersProductName = "Others";
-    private const string k_CursorPageName = "Cursor";
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
     private const string k_AboutPageName = "About";
@@ -109,12 +108,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private bool m_IsInAppDialogOpen;
     private bool m_IsNativeModalOpen;
     private GrokUsageDashboard m_GrokDashboard = new(null, string.Empty, DateTimeOffset.Now);
+    private string m_GrokSubscriptionTier = string.Empty;
     private bool m_GrokTokenCostAvailable;
     public RefreshState CodexUsageState { get; } = new();
     public RefreshState CodexResetState { get; } = new();
     public RefreshState GrokUsageState { get; } = new();
-    public RefreshState CursorUsageState { get; } = new();
-    public RefreshState CursorGrokBotState { get; } = new();
 
     [ObservableProperty]
     public partial string CodexStatusTooltip { get; private set; } = string.Empty;
@@ -167,23 +165,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public QuotaViewModel GrokWeeklyQuota { get; } = new("Weekly");
 
-    public QuotaViewModel CursorMonthlyQuota { get; } = new("Monthly");
-
-    public QuotaViewModel CursorGrokBotQuota { get; } = new("Grok Bot Weekly");
-
-    public QuotaViewModel CursorAutoQuota { get; } = new("First party");
-
-    public QuotaViewModel CursorApiQuota { get; } = new("APIs");
-
     public QuotaPagerViewModel CodexQuotaPager { get; }
-
-    public QuotaPagerViewModel CursorQuotaPager { get; }
 
     public TokenCostDashboardViewModel CodexTokenCost { get; }
 
     public TokenCostDashboardViewModel GrokTokenCost { get; }
-
-    public TokenCostDashboardViewModel CursorTokenCost { get; }
 
     public IRelayCommand OpenRepositoryCommand { get; }
 
@@ -325,7 +311,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 OnPropertyChanged(nameof(VisiblePagesDisplay));
                 OnPropertyChanged(nameof(ShowCodexPage));
                 OnPropertyChanged(nameof(ShowGrokPage));
-                OnPropertyChanged(nameof(ShowCursorPage));
                 OnPropertyChanged(nameof(ShowApisPage));
                 EvaluateDirtyState();
             }
@@ -349,12 +334,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         get => (m_VisiblePages & PageItem.Grok) != 0;
         set => SetPageItem(PageItem.Grok, value);
-    }
-
-    public bool ShowCursorPage
-    {
-        get => (m_VisiblePages & PageItem.Cursor) != 0;
-        set => SetPageItem(PageItem.Cursor, value);
     }
 
     public bool ShowApisPage
@@ -390,8 +369,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
 
     public bool IsGrokVisible => m_CurrentPage == k_GrokPageName;
-
-    public bool IsCursorVisible => m_CurrentPage == k_CursorPageName;
 
     public bool IsApiVisible => m_CurrentPage == k_ApiPageName;
 
@@ -459,21 +436,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial bool HasGrokProductUsageItems { get; private set; }
 
     [ObservableProperty]
-    public partial Media.Brush CursorStatusDotBrush { get; private set; } = s_RedBrush;
-
-    [ObservableProperty]
-    public partial string CursorPlanDisplay { get; private set; } = "UNKNOWN";
-
-    [ObservableProperty]
-    public partial Media.Brush CursorPlanBadgeBrush { get; private set; } = s_PlanBadgeInactiveBrush;
-
-    [ObservableProperty]
-    public partial string CursorUpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
-
-    [ObservableProperty]
-    public partial string CursorStatusTooltip { get; private set; } = string.Empty;
-
-    [ObservableProperty]
     public partial bool IsRefreshing { get; set; }
 
     public bool IsModalOpen => m_IsInAppDialogOpen || m_IsNativeModalOpen;
@@ -512,10 +474,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         m_Settings = settings;
         CodexQuotaPager = new QuotaPagerViewModel(CodexSessionQuota, CodexWeeklyQuota);
-        CursorQuotaPager = new QuotaPagerViewModel(CursorMonthlyQuota, CursorGrokBotQuota);
         CodexTokenCost = new TokenCostDashboardViewModel(showSpeed: true, "Local pricing · API equivalent");
         GrokTokenCost = new TokenCostDashboardViewModel(showSpeed: true, "Grok reported cost / local pricing fallback");
-        CursorTokenCost = new TokenCostDashboardViewModel(showSpeed: false, "Cursor billed totalCents");
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
         retryAsync ??= (_, _) => RefreshCommand.CanExecute(null) ? RefreshCommand.ExecuteAsync(null) : Task.CompletedTask;
@@ -533,13 +493,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         AutoDetectTrafficMonitorCommand = new AsyncRelayCommand(cancellationToken => DetectTrafficMonitorAsync(showNotFound: true, cancellationToken));
         m_CurrentPage = (settings.VisiblePages & PageItem.Codex) != 0
             ? k_CodexPageName
-            : (settings.VisiblePages & PageItem.Cursor) != 0
-                ? k_CursorPageName
-                : (settings.VisiblePages & PageItem.Grok) != 0
-                    ? k_GrokPageName
-                    : (settings.VisiblePages & PageItem.Apis) != 0
-                        ? k_ApiPageName
-                        : k_SettingsPageName;
+            : (settings.VisiblePages & PageItem.Grok) != 0
+                ? k_GrokPageName
+                : (settings.VisiblePages & PageItem.Apis) != 0
+                    ? k_ApiPageName
+                    : k_SettingsPageName;
         LoadSettings(settings);
         LoadApiMonitors(settings.ApiMonitors);
     }
@@ -840,8 +798,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         GrokUsageState.Update(dashboard.Usage != null, dashboard.UpdatedAt, dashboard.Error);
         if (dashboard.Usage is GrokUsageSnapshot usage)
         {
-            GrokPlanDisplay = FormatGrokPlan(usage.SubscriptionTier);
-            GrokPlanBadgeBrush = GrokPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
+            m_GrokSubscriptionTier = usage.SubscriptionTier;
+            ApplyGrokPlanBadge();
             ApplyGrokProductUsage(usage.ProductUsage);
             string reset = m_Settings.UseAbsoluteResetTime
                 ? UsageLimit.FormatResetDate(usage.ResetsAt, dashboard.UpdatedAt)
@@ -850,8 +808,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
         else
         {
-            GrokPlanDisplay = "UNKNOWN";
-            GrokPlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            m_GrokSubscriptionTier = string.Empty;
+            ApplyGrokPlanBadge();
             ClearGrokProductUsage();
             GrokWeeklyQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
         }
@@ -900,89 +858,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Updates the Cursor page from one shared dashboard collection result.
-    /// </summary>
-    public void UpdateCursorDashboard(CursorUsageDashboard dashboard)
-    {
-        CursorUsageSnapshot? usage = dashboard.Usage;
-        bool usageAvailable = usage != null;
-        bool grokBotUsageAvailable = dashboard.GrokBotUsage != null;
-        bool tokenCostAvailable = dashboard.TokenCost != null;
-        CursorUsageState.Update(usageAvailable, dashboard.UpdatedAt, dashboard.UsageError);
-        CursorGrokBotState.Update(grokBotUsageAvailable, dashboard.UpdatedAt, dashboard.GrokBotUsageError);
-        if (usage != null)
-        {
-            CursorPlanDisplay = FormatCursorPlan(usage.PlanType);
-            CursorPlanBadgeBrush = CursorPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
-            string reset = m_Settings.UseAbsoluteResetTime
-                ? UsageLimit.FormatResetDate(usage.ResetsAt, dashboard.UpdatedAt)
-                : UsageLimit.FormatResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
-            CursorMonthlyQuota.UpdateUsedPercent(usage.MonthlyUsedPercent, reset, showReset: true);
-            CursorAutoQuota.UpdateUsedPercent(usage.AutoUsedPercent, string.Empty, showReset: false);
-            CursorApiQuota.UpdateUsedPercent(usage.ApiUsedPercent, string.Empty, showReset: false);
-        }
-        else
-        {
-            CursorPlanDisplay = "UNKNOWN";
-            CursorPlanBadgeBrush = s_PlanBadgeInactiveBrush;
-            CursorMonthlyQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
-            CursorAutoQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
-            CursorApiQuota.UpdateUnavailable(showReset: false, unavailableResetText: "N/A");
-        }
-
-        if (dashboard.GrokBotUsage is CursorGrokBotUsageSnapshot grokBotUsage)
-        {
-            string reset = m_Settings.UseAbsoluteResetTime
-                ? UsageLimit.FormatResetDate(grokBotUsage.ResetsAt, dashboard.UpdatedAt)
-                : UsageLimit.FormatResetLabel(grokBotUsage.ResetsAt, dashboard.UpdatedAt);
-            CursorGrokBotQuota.UpdateUsedPercent(grokBotUsage.UsedPercent, reset, showReset: true);
-        }
-        else
-        {
-            CursorGrokBotQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
-        }
-
-        bool allAvailable = usageAvailable && grokBotUsageAvailable && tokenCostAvailable;
-        bool anyAvailable = usageAvailable || grokBotUsageAvailable || tokenCostAvailable;
-        CursorStatusDotBrush = allAvailable
-            ? s_GreenBrush
-            : anyAvailable
-                ? s_YellowBrush
-                : s_RedBrush;
-        CursorUpdatedAtDisplay = allAvailable
-            ? FormatUpdatedAt(dashboard.UpdatedAt.ToString("O", CultureInfo.InvariantCulture))
-            : anyAvailable
-                ? "Partial update"
-                : "Update error";
-        CursorTokenCost.Update(dashboard.TokenCost, dashboard.TokenCostError, dashboard.UpdatedAt);
-        CursorStatusTooltip = $"Usage: {CursorUsageState.Tooltip}\nGrok Bot: {CursorGrokBotState.Tooltip}\nToken Cost: {CursorTokenCost.Freshness.Tooltip}";
-    }
-
-    /// <summary>
-    /// Combines sanitized Cursor endpoint errors for the status tooltip.
-    /// </summary>
-    private static string FormatCursorStatusTooltip(CursorUsageDashboard dashboard, bool usageAvailable, bool grokBotUsageAvailable, bool tokenCostAvailable)
-    {
-        List<string> errors = [];
-        if (!usageAvailable && dashboard.UsageError.Length > 0)
-        {
-            errors.Add($"Usage: {dashboard.UsageError}");
-        }
-
-        if (!grokBotUsageAvailable && dashboard.GrokBotUsageError.Length > 0)
-        {
-            errors.Add($"Grok Bot: {dashboard.GrokBotUsageError}");
-        }
-
-        if (!tokenCostAvailable && dashboard.TokenCostError.Length > 0)
-        {
-            errors.Add($"Token Cost: {dashboard.TokenCostError}");
-        }
-
-        return string.Join(Environment.NewLine, errors);
-    }
-
-    /// <summary>
     /// Combines Grok quota and local token-statistics errors for the status tooltip.
     /// </summary>
     private static string FormatGrokStatusTooltip(GrokUsageDashboard dashboard, bool usageAvailable, bool tokenCostAvailable)
@@ -1017,15 +892,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public void ShowGrok()
     {
         SetPage(k_GrokPageName);
-    }
-
-    /// <summary>
-    /// Shows the Cursor dashboard page inside the tray popup.
-    /// </summary>
-    [RelayCommand]
-    public void ShowCursor()
-    {
-        SetPage(k_CursorPageName);
     }
 
     /// <summary>
@@ -1073,7 +939,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_CurrentPage = pageName;
         OnPropertyChanged(nameof(IsCodexVisible));
         OnPropertyChanged(nameof(IsGrokVisible));
-        OnPropertyChanged(nameof(IsCursorVisible));
         OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsAboutVisible));
@@ -1263,12 +1128,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 Add("Codex usage", CodexUsageState);
                 Add("Codex resets", CodexResetState);
                 Add("Codex local cost", CodexTokenCost.Freshness);
-            }
-            if ((page & PageItem.Cursor) != 0)
-            {
-                Add("Cursor usage", CursorUsageState);
-                Add("Cursor Grok Bot", CursorGrokBotState);
-                Add("Cursor billed cost", CursorTokenCost.Freshness);
             }
             if ((page & PageItem.Grok) != 0)
             {
@@ -1582,22 +1441,21 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             "free" => "FREE",
             "go" => "GO",
             "plus" => "PLUS",
-            "pro_lite" or "prolite" or "pro_5x" or "pro5x" => "PRO",
-            "pro" or "pro_20x" or "pro20x" => "PRO MAX",
+            "pro_lite" or "prolite" or "pro_5x" or "pro5x" => "PRO 5X",
+            "pro" or "pro_10x" or "pro10x" or "pro_20x" or "pro20x" => "PRO 10X",
+            "promax" or "pro_max" or "pro_25x" or "pro25x" => "PRO 25X",
             "chatgpt" => "PLUS",
             _ => "UNKNOWN",
         };
     }
 
     /// <summary>
-    /// Formats a Cursor membership type as a compact subscription label.
+    /// Shows the Grok billing subscription tier on the Grok badge.
     /// </summary>
-    private static string FormatCursorPlan(string? planType)
+    private void ApplyGrokPlanBadge()
     {
-        string normalized = (planType ?? string.Empty).Trim().Replace("-", "_", StringComparison.Ordinal).Replace(" ", "_", StringComparison.Ordinal);
-        return string.IsNullOrEmpty(normalized)
-            ? "UNKNOWN"
-            : normalized.Replace("_plus", "+", StringComparison.OrdinalIgnoreCase).Replace("_", " ", StringComparison.Ordinal).ToUpperInvariant();
+        GrokPlanDisplay = FormatGrokPlan(m_GrokSubscriptionTier);
+        GrokPlanBadgeBrush = GrokPlanDisplay == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
     }
 
     /// <summary>
@@ -1662,8 +1520,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             return
             [
                 GetGrokProductUsageItem(items, k_GrokBuildProductName),
-                GetGrokProductUsageItem(items, k_GrokChatProductName),
-                CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokChatProductName),
+                GetGrokProductUsageItem(items, k_GrokBotProductName),
+                CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokBotProductName),
             ];
         }
 
@@ -1675,8 +1533,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 return
                 [
                     primary,
-                    GetGrokProductUsageItem(items, k_GrokChatProductName),
-                    CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokChatProductName),
+                    GetGrokProductUsageItem(items, k_GrokBotProductName),
+                    CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokBotProductName),
                 ];
             }
 
