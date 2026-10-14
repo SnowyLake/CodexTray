@@ -71,7 +71,7 @@
 ### Grok 页面链路
 
 1. `GrokUsageCollector` 从 Grok Build 的 `~/.grok/auth.json` 读取 xAI OAuth access token, 不使用 OpenCode 凭据. 临近过期或收到 401/403 时, 使用 refresh token 调用 `auth.x.ai` 刷新并写回原文件. OAuth token 不会复制到 `settings.json`.
-2. Grok billing 接口提供 Weekly 已用百分比 `creditUsagePercent`, 账期结束时间 (`currentPeriod.end` 或 `billingPeriodEnd`) 和 `productUsage` 产品占比, 采集器支持解析 gRPC-web 响应. 已用百分比先限制在 0 到 100. 插件把已用百分比四舍五入为整数, 剩余为 `100 - 已用整数`. 卡片把剩余百分比 `100 - 已用` 四舍五入为整数. 重置时间使用该账期结束时间.
+2. Grok billing 接口提供 Weekly 已用百分比 `creditUsagePercent`, 账期结束时间 (`currentPeriod.end` 或 `billingPeriodEnd`) 和 `productUsage` 产品占比, 采集器支持解析 gRPC-web 响应. 已用百分比先限制在 0 到 100. `productUsage` 缺少产品名或名称为空时记为 `Cursor`. 插件把已用百分比四舍五入为整数, 剩余为 `100 - 已用整数`. 卡片把剩余百分比 `100 - 已用` 四舍五入为整数. 重置时间使用该账期结束时间.
 3. 订阅名称只来自这次 Grok billing 结果, 不读取 Cursor 登录, 也不请求 `GetSandUsageStatus`, `usage-summary` 或 `get-filtered-usage-events`. `ParseCreditsResponse` 读取响应根对象或 `config` 的 `subscriptionTier`. 采集成功后, 若 `~/.grok/logs/unified.jsonl` 有更新的 `subscriptionTier`, 或当前 access token 的 auth 条目有订阅档位, 用该本地记录替换响应中的名称. gRPC billing 不提供订阅名称. 不从未知 protobuf 字段猜测套餐. 常见类型包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列. `LooksLikeSubscriptionTier` 接受 `Free`, 或包含 `Premium`, `SuperGrok`, `Business`, `Enterprise` 的字符串.
 4. `TrayController` 将 dashboard 交给 `TrayPopupViewModel`, 并将 `GrokUsageCollector.BuildPluginUsage` 写入 `UsageCache`. Grok billing 失败会清除已发布的 Weekly. 本地 Token Cost 由 `TokenCostCollector.CollectGrok` 独立统计.
 
@@ -99,7 +99,7 @@
 - Codex 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Lifetime`. `24H` 从当前时刻精确向前滚动 24 小时. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
 - 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). Token 数量使用 K, M, B.
 - Codex 额度大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示, 只有一个有效页面时隐藏页点. Resets 使用全宽小卡片. Codex 订阅徽章来自 usage 响应的 `plan_type`: `free`/`go`/`plus`/`chatgpt` 显示 `FREE`/`GO`/`PLUS`; `prolite` 及 `pro_lite`/`pro_5x`/`pro5x` 显示 `PRO 5X`; `pro` 及 `pro_10x`/`pro10x`/`pro_20x`/`pro20x` 显示 `PRO 10X`; `promax` 及 `pro_max`/`pro_25x`/`pro25x` 显示 `PRO 25X`; 其他值显示 `UNKNOWN`.
-- Grok 上方使用 Weekly 大卡片和产品占比小卡片, 这是面板上唯一的订阅额度区域. 订阅徽章使用 Grok billing 返回的订阅档位. Weekly 大卡片显示 billing 剩余整数百分比, 重置时间使用账期结束时间. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 全为零时显示 `Build`, `Bot`, `Others`; 仅一个非零产品时显示该产品, `Build`, `Others`, 若该产品本身为 `Build` 则第二项用 `Bot`; 两个及以上非零产品时保留最高两项, 其余合并到 `Others`. `Others` tooltip 仅列出其中有用量的产品, 为零时显示 `Others 0%`. 用量不可用时显示 `N/A`. 产品名和占比来自 billing `productUsage`.
+- Grok 上方使用 Weekly 大卡片和产品占比小卡片, 这是面板上唯一的订阅额度区域. 订阅徽章使用 Grok billing 返回的订阅档位. Weekly 大卡片显示 billing 剩余整数百分比, 重置时间使用账期结束时间. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 进度条最多四段: 最高三项加上 `Others`. 图例固定三项, 全为零时显示 `Build`, `Bot`, `Cursor`; 不足三项时按该默认顺序补齐. 三个及以上非零产品时保留最高三项, 其余仅合并到进度条中的 `Others`. `Others` 不出现在图例中; 鼠标悬停进度条时显示其中有用量的产品, 为零时不显示该段也不显示 tooltip. 图例前三项颜色与 Token Cost 圆环前三项一致, `Others` 与圆环第四项一致. 用量不可用时显示 `N/A`. 产品名和占比来自 billing `productUsage`, 缺少产品名时按 `Cursor` 计.
 - API provider 的 API key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.
 - API key 与 NewAPI User ID 使用 `CredentialInput` 的原生 WPF `PasswordBox` 双向编辑; 明文显示仅由当前控件右侧眼睛按钮的显示/隐藏状态控制, 图标, tooltip 与无障碍名称随状态同步, 隐藏, 卸载或更换卡片后重置, 不持久化显示状态. 主配置与备份尚未启用 DPAPI, 不得把屏幕遮挡描述为加密存储.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
