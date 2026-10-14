@@ -78,14 +78,15 @@
 ### 本地 Token Cost
 
 - `TokenCostSummary.HasUnpricedUsage` 按事件与所选周期传播, 保留已知费用小计; Grok 部分自报费用无法完整回算时同样标记. `RefreshState` 保存每部分最后成功时间和当前错误, 失败时 UI 和插件清空数值为 `N/A`. Token Cost tooltip 标注来源并列出当前周期不完整模型, 费用显示 `*`. 价格表按内容比较并同步加载, Codex 在价格字典变化后清空已计算费用的会话缓存, 不依赖文件长度或修改时间.
-- `TokenCostCollector.CollectCodex` 读取 `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`, 使用 `Resources/model-pricing.json` 计算 API 等价成本与缓存命中率. 不读取 OpenCode.
+- `TokenCostCollector.CollectCodex` 读取 `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`, 使用 `Resources/model-pricing.json` 计算 API 等价成本与缓存命中率. 不读取 OpenCode. 同一 thread 的桌面分页文件按文件名顺序拼接后共享累计水位; 父会话未写到 `forked_from` / `parent_thread_id` 截止点的子会话整段不计.
 - `model-pricing.json` 每个模型使用默认一口价 `input`/`cachedInput`/`output`, 可选 `aliases` 与 `periods`. 默认三价覆盖全天. `periods` 按数组顺序命中第一段: 每段可写 `daysUtc` (0=周日到 6=周六), `startUtc`, `endUtc` (UTC `HH:mm`, 含起不含止). 省略星期或起止时间则该段默认全星期或全天. 未命中任何时段时回退默认三价. 分时只影响本地回算, 不拆分 UI, 也不覆盖 Grok 完整自报 `costUsdTicks`.
 - `CollectGrok` 读取 `~/.grok/sessions/**/updates.jsonl` 和 `~/.grok/archived_sessions/**/updates.jsonl`, 汇总 `turn_completed` 事件中的用量. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在输出中, 不重复相加.
 - Grok 费用优先采用完整的 `costUsdTicks`, 保留其中已计入的工具调用等费用. 自报费用缺失或 `costIsPartial` 为真时, 使用本地模型的输入, 缓存输入和输出价格回算. 只有费用而没有 token 的记录仍保留自报费用; 本地价格不可用时保留已有自报费用. 两者都不可用时, 仍统计 token, 成本按 `$0.00` 计入.
 - Grok 费用规则参考 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs). 修改解析或计费时, 以当前代码和测试确认边界行为.
 - Codex 和 Grok 模型圆环 tooltip 的 `Speed` 使用所选周期的 `TimedOutputTokens` 总和除以 `TimedDurationMilliseconds` 总秒数, 同名模型与 `Other` 先合并分子和分母后计算, 显示一位小数. 不计入没有有效配对耗时的输出, 不重复相加 reasoning. 没有有效样本时显示 `N/A`. `TokenCostDashboardViewModel` 在构造时固定速度显示开关.
-- Grok `Speed` 显示 `N.N tok/s`, 使用 `turn_completed.usage.modelUsage[model]` 中同一对象的非负整数 `outputTokens` 与正整数 `apiDurationMs`; 无 `modelUsage` 时沿用顶层 `usage` 的 `unknown` 回退. 先沿现有 session/prompt/model 去重, 不分摊顶层耗时到模型. 报告的 API 耗时包含首 token 等待等开销, 部分调用未报告耗时时结果可能偏高.
-- Codex `Speed` 显示 `~N.N tok/s`, `TokenCostStatistics.IsSpeedEstimated` 标识估算口径. 仅在有效 `task_started.turn_id` 和匹配的 `turn_context` 下重建响应窗口: 最近输入或已接受用量的时间为起点, 最后 reasoning, assistant message 或工具调用 `response_item` 为终点, 排除输出完成后的工具等待. 只将已接受的 `last_token_usage` 输出配到同模型的正耗时窗口; 重复快照不截短窗口, 父会话回放不累计速度, 缓存同时保留输出与耗时. 缺少边界, 乱序, 轮次不匹配, 中断, 错误或压缩后的不完整窗口不估算. 该速度仍包含首 token 等待, 网络和客户端调度, 不使用整轮耗时或减去整轮 TTFT 来推断. 窗口思路参考 [codex-tps](https://github.com/adenta/codex-tps/blob/be549617f50409c8c0e15a8a6838520ec12d2bb1/analysis.go).
+- Grok `Speed` 显示 `N.N tok/s`, 使用 `turn_completed.usage.modelUsage[model]` 中同一对象的非负整数 `outputTokens` 与正整数 `apiDurationMs`; 无 `modelUsage` 时沿用顶层 `usage` 的 `unknown` 回退. 先沿现有 session/prompt/model 去重, 不分摊顶层耗时到模型. 只计入输出不少于 100 且 `apiDurationMs` 不少于 100 毫秒的调用. 报告的 API 耗时包含首 token 等待等开销, 部分调用未报告耗时时结果可能偏高.
+- Codex `Speed` 显示 `~N.N tok/s`, `TokenCostStatistics.IsSpeedEstimated` 标识估算口径. 仅在有效 `task_started.turn_id` 和匹配的 `turn_context` 下重建响应窗口: 最近输入或已接受用量的时间为起点; 匹配的 `token_usage_record` 优先作为终点, 否则用最后 reasoning, assistant message 或工具调用 `response_item`; 排除输出完成后的工具等待, 并忽略 `token_count` 后 100 毫秒内补写的旧输出项. 只将已接受的 `last_token_usage` 输出配到同模型的窗口; 输出少于 200 或耗时不在 1 秒到 1 小时内的窗口不计入速度. 重复快照不截短窗口, 父会话回放不累计速度, 缓存同时保留输出与耗时. 缺少边界, 乱序, 轮次不匹配, 中断, 错误或压缩后的不完整窗口不估算. 该速度仍包含首 token 等待, 网络和客户端调度, 不使用整轮耗时或减去整轮 TTFT 来推断. 窗口思路参考 [codex-tps](https://github.com/adenta/codex-tps/blob/be549617f50409c8c0e15a8a6838520ec12d2bb1/analysis.go) 与 CC Switch 的会话估算门槛.
+- Codex 分叉会话在父会话日志尚未写到分叉时刻时整段跳过, 不把回放前缀当新用量. 双段文件名 `rollout-…-<threadId>_<rolloutId>.jsonl` 按 thread id 拼页后再解析累计增量和父会话截止点; 同一 rollout id 的归档副本仍只计一份.
 
 ### 设置边界
 

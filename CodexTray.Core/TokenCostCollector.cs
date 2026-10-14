@@ -101,6 +101,12 @@ public sealed class TokenCostCollector
 {
     private const long GrokCostTicksPerUsd = 10_000_000_000L;
     private const long MaxGrokSessionFileBytes = 50L * 1024 * 1024;
+    private const long SameFlushSlackMilliseconds = 100;
+    private const long MaxPlausibleLatencyMilliseconds = 60L * 60 * 1000;
+    private const long EstimatedSpeedMinOutputTokens = 200;
+    private const long EstimatedSpeedMinDurationMilliseconds = 1000;
+    private const long MeasuredSpeedMinOutputTokens = 100;
+    private const long MeasuredSpeedMinDurationMilliseconds = 100;
     private readonly string m_PricingPath;
     private readonly Dictionary<string, CachedFileUsage> m_FileUsageCache = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, ModelPricing>? m_CachedPricing;
@@ -141,20 +147,19 @@ public sealed class TokenCostCollector
         }
         TokenCostPeriodAccumulator accumulator = new(current);
         string[] sessionFiles = EnumerateCodexSessionFiles(root, cancellationToken).ToArray();
-        Dictionary<string, string> rolloutIndex = BuildRolloutIndex(sessionFiles, cancellationToken);
+        List<string[]> sessionGroups = GroupCodexSessionFiles(sessionFiles);
+        Dictionary<string, IReadOnlyList<string>> rolloutIndex = BuildRolloutIndex(sessionGroups);
         HashSet<string> seenFiles = new(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> seenRollouts = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string path in sessionFiles)
+        foreach (string[] paths in sessionGroups)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            seenFiles.Add(path);
-            if (TryGetRolloutThreadId(path, out string threadId) && !seenRollouts.Add(threadId))
+            foreach (string path in paths)
             {
-                continue;
+                seenFiles.Add(path);
             }
 
-            CollectCodexFile(path, pricing, rolloutIndex, accumulator, cancellationToken);
+            CollectCodexThread(paths, pricing, rolloutIndex, accumulator, cancellationToken);
         }
 
         PruneFileUsageCache(seenFiles);
@@ -409,7 +414,7 @@ public sealed class TokenCostCollector
             : reportedCost.HasValue && !costIsPartial ? reportedCost : localCost ?? reportedCost;
         long timedOutputTokens = GetInt64(value, "outputTokens", -1);
         long apiDurationMilliseconds = GetInt64(value, "apiDurationMs");
-        if (timedOutputTokens < 0 || apiDurationMilliseconds <= 0)
+        if (timedOutputTokens < MeasuredSpeedMinOutputTokens || apiDurationMilliseconds < MeasuredSpeedMinDurationMilliseconds)
         {
             timedOutputTokens = 0;
             apiDurationMilliseconds = 0;
@@ -445,18 +450,29 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Adds accepted Codex token deltas and estimated response windows while excluding tool waits and replayed usage.
     /// </summary>
-    private void CollectCodexFile(
-        string path,
+    private void CollectCodexThread(
+        string[] paths,
         Dictionary<string, ModelPricing> pricing,
-        Dictionary<string, string> rolloutIndex,
+        Dictionary<string, IReadOnlyList<string>> rolloutIndex,
         TokenCostPeriodAccumulator accumulator,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (TryGetCachedFileUsage(path, out List<CachedUsageEvent>? cachedEvents))
+        if (TryGetCachedThreadUsage(paths, out List<CachedUsageEvent>? cachedEvents))
         {
             AddCachedUsage(cachedEvents, accumulator);
             return;
+        }
+
+        ReplayContext? context = ReadReplayContext(paths[0], cancellationToken);
+        IReadOnlyList<TokenUsageSignature>? parentSignatures = null;
+        if (context != null)
+        {
+            if (!rolloutIndex.TryGetValue(context.Value.ParentId, out IReadOnlyList<string>? parentPaths)
+                || !TryLoadParentSignatures(parentPaths, context.Value.Cutoff, out parentSignatures, cancellationToken))
+            {
+                return;
+            }
         }
 
         string model = "unknown";
@@ -465,170 +481,244 @@ public sealed class TokenCostCollector
         string? responseModel = null;
         DateTimeOffset? responseStart = null;
         DateTimeOffset? responseEnd = null;
+        DateTimeOffset? lastTokenCount = null;
+        DateTimeOffset? usageRecordEnd = null;
+        TokenCounts? usageRecordCounts = null;
         TokenCounts? totalHighWater = null;
         TokenUsageSnapshot? previousSnapshot = null;
         List<CachedUsageEvent> events = [];
-        IReadOnlyList<TokenUsageSignature>? parentSignatures = LoadParentSignatures(path, rolloutIndex, cancellationToken);
         int parentOffset = 0;
         bool matchingReplay = parentSignatures?.Count > 0;
-        foreach (string line in ReadLinesShared(path, cancellationToken))
+        foreach (string path in paths)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!line.Contains("\"turn_context\"", StringComparison.Ordinal)
-                && !line.Contains("\"event_msg\"", StringComparison.Ordinal)
-                && !line.Contains("\"response_item\"", StringComparison.Ordinal)
-                && !line.Contains("\"compacted\"", StringComparison.Ordinal))
+            foreach (string line in ReadLinesShared(path, cancellationToken))
             {
-                continue;
-            }
-
-            try
-            {
-                using JsonDocument document = JsonDocument.Parse(line);
-                JsonElement root = document.RootElement;
-                string type = GetString(root, "type");
-                JsonElement payload = GetObject(root, "payload");
-                string eventType = GetString(payload, "type");
-                bool hasTimestamp = DateTimeOffset.TryParse(GetString(root, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp);
-                if (type == "event_msg" && eventType == "task_started")
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!line.Contains("\"turn_context\"", StringComparison.Ordinal)
+                    && !line.Contains("\"event_msg\"", StringComparison.Ordinal)
+                    && !line.Contains("\"response_item\"", StringComparison.Ordinal)
+                    && !line.Contains("\"token_usage_record\"", StringComparison.Ordinal)
+                    && !line.Contains("\"compacted\"", StringComparison.Ordinal))
                 {
-                    string turnId = GetString(payload, "turn_id");
-                    activeTurnId = hasTimestamp && turnId.Length > 0 ? turnId : null;
-                    hasTurnContext = false;
-                    responseStart = activeTurnId != null ? timestamp : null;
-                    responseEnd = null;
-                    responseModel = null;
                     continue;
                 }
 
-                if (type == "compacted" || type == "event_msg" && eventType is "task_complete" or "turn_aborted" or "context_compacted" or "error")
+                try
                 {
-                    activeTurnId = null;
-                    hasTurnContext = false;
-                    responseStart = responseEnd = null;
-                    responseModel = null;
-                    continue;
-                }
+                    using JsonDocument document = JsonDocument.Parse(line);
+                    JsonElement root = document.RootElement;
+                    string type = GetString(root, "type");
+                    JsonElement payload = GetObject(root, "payload");
+                    string eventType = GetString(payload, "type");
+                    bool hasTimestamp = DateTimeOffset.TryParse(GetString(root, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp);
+                    if (type == "event_msg" && eventType == "task_started")
+                    {
+                        string turnId = GetString(payload, "turn_id");
+                        activeTurnId = hasTimestamp && turnId.Length > 0 ? turnId : null;
+                        hasTurnContext = false;
+                        responseStart = activeTurnId != null ? timestamp : null;
+                        responseEnd = null;
+                        responseModel = null;
+                        usageRecordEnd = null;
+                        usageRecordCounts = null;
+                        continue;
+                    }
 
-                if (type == "turn_context")
-                {
-                    string candidate = GetString(payload, "model");
-                    model = candidate.Length > 0 ? NormalizeModel(candidate) : model;
-                    if (!hasTimestamp || GetString(payload, "turn_id") != activeTurnId || responseModel != null && responseModel != model)
+                    if (type == "compacted" || type == "event_msg" && eventType is "task_complete" or "turn_aborted" or "context_compacted" or "error")
                     {
                         activeTurnId = null;
                         hasTurnContext = false;
                         responseStart = responseEnd = null;
                         responseModel = null;
-                    }
-                    else if (responseEnd == null)
-                    {
-                        hasTurnContext = true;
-                        responseStart = hasTimestamp ? timestamp : null;
+                        usageRecordEnd = null;
+                        usageRecordCounts = null;
+                        continue;
                     }
 
-                    continue;
-                }
+                    if (type == "token_usage_record")
+                    {
+                        JsonElement usage = GetObject(payload, "usage");
+                        if (hasTimestamp && HasAnyProperty(usage))
+                        {
+                            usageRecordEnd = timestamp;
+                            usageRecordCounts = ParseCounts(usage);
+                        }
 
-                if (type == "response_item" || type == "event_msg" && eventType == "user_message")
-                {
-                    string role = GetString(payload, "role");
-                    bool isGenerated = type == "response_item" && (eventType == "reasoning" || eventType == "message" && role == "assistant" || eventType.EndsWith("_call", StringComparison.Ordinal));
-                    bool isInput = eventType is "function_call_output" or "custom_tool_call_output" or "agent_message" or "user_message"
-                        || eventType == "message" && role is "user" or "developer" or "system";
-                    if (!hasTimestamp || responseStart.HasValue && timestamp < responseStart.Value || responseEnd.HasValue && timestamp < responseEnd.Value)
-                    {
-                        responseStart = responseEnd = null;
-                        responseModel = null;
-                    }
-                    else if (activeTurnId != null && hasTurnContext && isGenerated && responseStart.HasValue)
-                    {
-                        responseEnd = timestamp;
-                        responseModel ??= model;
-                    }
-                    else if (activeTurnId != null && hasTurnContext && isInput && responseEnd == null)
-                    {
-                        responseStart = timestamp;
+                        continue;
                     }
 
-                    continue;
-                }
-
-                if (type != "event_msg" || eventType != "token_count")
-                {
-                    continue;
-                }
-
-                JsonElement info = GetObject(payload, "info");
-                if (!HasUsageObject(info, "last_token_usage") && !HasUsageObject(info, "total_token_usage"))
-                {
-                    continue;
-                }
-
-                string eventModel = GetString(info, "model");
-                eventModel = eventModel.Length > 0 ? eventModel : GetString(info, "model_name");
-                model = eventModel.Length > 0 ? NormalizeModel(eventModel) : model;
-                bool isReplay = false;
-                if (matchingReplay && TryParseTokenSignature(info, out TokenUsageSignature signature))
-                {
-                    int match = FindSignature(parentSignatures!, parentOffset, signature, cancellationToken);
-                    if (match >= 0)
+                    if (type == "turn_context")
                     {
-                        parentOffset = match + 1;
-                        isReplay = true;
+                        string candidate = GetString(payload, "model");
+                        model = candidate.Length > 0 ? NormalizeModel(candidate) : model;
+                        if (!hasTimestamp || GetString(payload, "turn_id") != activeTurnId || responseModel != null && responseModel != model)
+                        {
+                            activeTurnId = null;
+                            hasTurnContext = false;
+                            responseStart = responseEnd = null;
+                            responseModel = null;
+                            usageRecordEnd = null;
+                            usageRecordCounts = null;
+                        }
+                        else if (responseEnd == null)
+                        {
+                            hasTurnContext = true;
+                            responseStart = hasTimestamp ? timestamp : null;
+                        }
+
+                        continue;
+                    }
+
+                    if (type == "response_item" || type == "event_msg" && eventType == "user_message")
+                    {
+                        string role = GetString(payload, "role");
+                        bool isGenerated = type == "response_item" && (eventType == "reasoning" || eventType == "message" && role == "assistant" || eventType.EndsWith("_call", StringComparison.Ordinal));
+                        bool isInput = eventType is "function_call_output" or "custom_tool_call_output" or "agent_message" or "user_message"
+                            || eventType == "message" && role is "user" or "developer" or "system";
+                        if (!hasTimestamp || responseStart.HasValue && timestamp < responseStart.Value || responseEnd.HasValue && timestamp < responseEnd.Value)
+                        {
+                            responseStart = responseEnd = null;
+                            responseModel = null;
+                        }
+                        else if (activeTurnId != null && hasTurnContext && isGenerated && responseStart.HasValue)
+                        {
+                            if (lastTokenCount is { } previousCount
+                                && responseEnd == null
+                                && timestamp >= previousCount
+                                && (timestamp - previousCount).TotalMilliseconds <= SameFlushSlackMilliseconds)
+                            {
+                                continue;
+                            }
+
+                            responseEnd = timestamp;
+                            responseModel ??= model;
+                        }
+                        else if (activeTurnId != null && hasTurnContext && isInput && responseEnd == null)
+                        {
+                            responseStart = timestamp;
+                        }
+
+                        continue;
+                    }
+
+                    if (type != "event_msg" || eventType != "token_count")
+                    {
+                        continue;
+                    }
+
+                    JsonElement info = GetObject(payload, "info");
+                    if (!HasUsageObject(info, "last_token_usage") && !HasUsageObject(info, "total_token_usage"))
+                    {
+                        continue;
+                    }
+
+                    string eventModel = GetString(info, "model");
+                    eventModel = eventModel.Length > 0 ? eventModel : GetString(info, "model_name");
+                    model = eventModel.Length > 0 ? NormalizeModel(eventModel) : model;
+                    bool isReplay = false;
+                    if (matchingReplay && TryParseTokenSignature(info, out TokenUsageSignature signature))
+                    {
+                        int match = FindSignature(parentSignatures!, parentOffset, signature, cancellationToken);
+                        if (match >= 0)
+                        {
+                            parentOffset = match + 1;
+                            isReplay = true;
+                        }
+                        else
+                        {
+                            matchingReplay = false;
+                        }
                     }
                     else
                     {
                         matchingReplay = false;
                     }
-                }
-                else
-                {
-                    matchingReplay = false;
-                }
 
-                bool shouldBill = TryResolveCodexIncrement(info, ref totalHighWater, ref previousSnapshot, out TokenCounts increment);
-                if (!isReplay && !shouldBill)
-                {
-                    continue;
-                }
+                    bool shouldBill = TryResolveCodexIncrement(info, ref totalHighWater, ref previousSnapshot, out TokenCounts increment);
+                    if (!isReplay && !shouldBill)
+                    {
+                        continue;
+                    }
 
-                long timedDurationMilliseconds = hasTimestamp && activeTurnId != null && responseStart.HasValue && responseEnd.HasValue
-                    && responseEnd.Value > responseStart.Value && responseEnd.Value <= timestamp
-                    ? (responseEnd.Value - responseStart.Value).Ticks / TimeSpan.TicksPerMillisecond
-                    : 0;
-                string? timedModel = responseModel;
-                responseStart = hasTimestamp && activeTurnId != null ? timestamp : null;
-                responseEnd = null;
-                responseModel = null;
-                if (isReplay
-                    || !shouldBill
-                    || !hasTimestamp)
-                {
-                    continue;
-                }
+                    DateTimeOffset? windowEnd = usageRecordEnd is { } recordEnd
+                        && usageRecordCounts is { } recordCounts
+                        && TryGetUsageCounts(info, "last_token_usage", out TokenCounts lastUsage)
+                        && recordCounts == lastUsage
+                            ? recordEnd
+                            : responseEnd;
+                    long timedDurationMilliseconds = hasTimestamp && activeTurnId != null && responseStart.HasValue && windowEnd.HasValue
+                        && windowEnd.Value > responseStart.Value && windowEnd.Value <= timestamp
+                        ? (windowEnd.Value - responseStart.Value).Ticks / TimeSpan.TicksPerMillisecond
+                        : 0;
+                    string? timedModel = responseModel;
+                    if (hasTimestamp)
+                    {
+                        lastTokenCount = timestamp;
+                    }
 
-                decimal? costUsd = CalculateCost(pricing, model, increment, timestamp);
-                // ponytail: rollout boundaries estimate client-observed speed; use paired server timing if it becomes persisted.
-                bool hasTimedOutput = timedDurationMilliseconds > 0 && timedModel == model && increment.Output > 0
-                    && TryGetUsageCounts(info, "last_token_usage", out TokenCounts last) && last == increment;
-                long timedOutputTokens = hasTimedOutput ? increment.Output : 0;
-                timedDurationMilliseconds = hasTimedOutput ? timedDurationMilliseconds : 0;
-                events.Add(new CachedUsageEvent(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens,
-                                               timedOutputTokens, timedDurationMilliseconds));
-                accumulator.Add(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
-            }
-            catch (JsonException)
-            {
-                // Codex can leave a partially written final JSONL line while a session is active.
-                activeTurnId = null;
-                hasTurnContext = false;
-                responseStart = responseEnd = null;
-                responseModel = null;
+                    usageRecordEnd = null;
+                    usageRecordCounts = null;
+                    responseStart = hasTimestamp && activeTurnId != null ? timestamp : null;
+                    responseEnd = null;
+                    responseModel = null;
+                    if (isReplay
+                        || !shouldBill
+                        || !hasTimestamp)
+                    {
+                        continue;
+                    }
+
+                    decimal? costUsd = CalculateCost(pricing, model, increment, timestamp);
+                    bool hasTimedOutput = timedDurationMilliseconds > 0 && timedModel == model && increment.Output > 0
+                        && TryGetUsageCounts(info, "last_token_usage", out TokenCounts last) && last == increment;
+                    long timedOutputTokens = 0;
+                    if (hasTimedOutput)
+                    {
+                        TryPairEstimatedSpeed(increment.Output, timedDurationMilliseconds, out timedOutputTokens, out timedDurationMilliseconds);
+                    }
+                    else
+                    {
+                        timedDurationMilliseconds = 0;
+                    }
+
+                    events.Add(new CachedUsageEvent(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens,
+                                                   timedOutputTokens, timedDurationMilliseconds));
+                    accumulator.Add(timestamp, increment.Total, costUsd, model, increment.CacheReadTokens, increment.CacheableInputTokens, timedOutputTokens, timedDurationMilliseconds);
+                }
+                catch (JsonException)
+                {
+                    // Codex can leave a partially written final JSONL line while a session is active.
+                    activeTurnId = null;
+                    hasTurnContext = false;
+                    responseStart = responseEnd = null;
+                    responseModel = null;
+                    usageRecordEnd = null;
+                    usageRecordCounts = null;
+                }
             }
         }
 
-        StoreCachedFileUsage(path, events);
+        StoreCachedThreadUsage(paths, events);
+    }
+
+    /// <summary>
+    /// Accepts estimated Codex speed only for responses with enough output and a plausible duration.
+    /// </summary>
+    private static bool TryPairEstimatedSpeed(long outputTokens, long durationMilliseconds, out long timedOutputTokens, out long timedDurationMilliseconds)
+    {
+        timedOutputTokens = 0;
+        timedDurationMilliseconds = 0;
+        if (outputTokens < EstimatedSpeedMinOutputTokens
+            || durationMilliseconds < EstimatedSpeedMinDurationMilliseconds
+            || durationMilliseconds > MaxPlausibleLatencyMilliseconds)
+        {
+            return false;
+        }
+
+        timedOutputTokens = outputTokens;
+        timedDurationMilliseconds = durationMilliseconds;
+        return true;
     }
 
     /// <summary>
@@ -751,82 +841,142 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Indexes rollout files by the thread UUID at the end of each filename.
+    /// Groups Codex logs by thread id, stitches dual-segment pages, and drops archived twins of the same rollout.
     /// </summary>
-    private static Dictionary<string, string> BuildRolloutIndex(IEnumerable<string> paths, CancellationToken cancellationToken)
+    private static List<string[]> GroupCodexSessionFiles(string[] paths)
     {
-        Dictionary<string, string> result = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<(string Path, string RolloutId)>> threads = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> seenRollouts = new(StringComparer.OrdinalIgnoreCase);
+        List<string[]> groups = [];
         foreach (string path in paths)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (TryGetRolloutThreadId(path, out string threadId))
+            if (!TryParseRolloutIds(path, out string threadId, out string rolloutId))
             {
-                result.TryAdd(threadId, path);
+                groups.Add([path]);
+                continue;
             }
-        }
 
-        return result;
-    }
-
-    /// <summary>
-    /// Reads the thread UUID from the end of a Codex rollout file name.
-    /// </summary>
-    private static bool TryGetRolloutThreadId(string path, out string threadId)
-    {
-        threadId = string.Empty;
-        string name = Path.GetFileNameWithoutExtension(path);
-        if (name.Length < 36 || !Guid.TryParse(name[^36..], out Guid parsed))
-        {
-            return false;
-        }
-
-        threadId = parsed.ToString();
-        return true;
-    }
-
-    /// <summary>
-    /// Loads token signatures from the explicit parent rollout before the child starts.
-    /// </summary>
-    private static IReadOnlyList<TokenUsageSignature>? LoadParentSignatures(string path, Dictionary<string, string> rolloutIndex, CancellationToken cancellationToken)
-    {
-        ReplayContext? context = ReadReplayContext(path, cancellationToken);
-        if (context == null || !rolloutIndex.TryGetValue(context.Value.ParentId, out string? parentPath))
-        {
-            return null;
-        }
-
-        List<TokenUsageSignature> result = [];
-        foreach (string line in ReadLinesShared(parentPath, cancellationToken))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!line.Contains("\"token_count\"", StringComparison.Ordinal))
+            if (!seenRollouts.Add(rolloutId))
             {
                 continue;
             }
 
-            try
+            if (!threads.TryGetValue(threadId, out List<(string Path, string RolloutId)>? pages))
             {
-                using JsonDocument document = JsonDocument.Parse(line);
-                JsonElement root = document.RootElement;
-                JsonElement payload = GetObject(root, "payload");
-                if (GetString(root, "type") != "event_msg"
-                    || GetString(payload, "type") != "token_count"
-                    || !DateTimeOffset.TryParse(GetString(root, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp)
-                    || timestamp > context.Value.Cutoff
-                    || !TryParseTokenSignature(GetObject(payload, "info"), out TokenUsageSignature signature))
-                {
-                    continue;
-                }
-
-                result.Add(signature);
+                pages = [];
+                threads[threadId] = pages;
             }
-            catch (JsonException)
+
+            pages.Add((path, rolloutId));
+        }
+
+        foreach (List<(string Path, string RolloutId)> pages in threads.Values)
+        {
+            groups.Add([.. pages.OrderBy(page => Path.GetFileName(page.Path), StringComparer.OrdinalIgnoreCase).Select(page => page.Path)]);
+        }
+
+        return groups;
+    }
+
+    /// <summary>
+    /// Indexes stitched rollout pages by stable thread UUID.
+    /// </summary>
+    private static Dictionary<string, IReadOnlyList<string>> BuildRolloutIndex(List<string[]> groups)
+    {
+        Dictionary<string, IReadOnlyList<string>> result = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string[] paths in groups)
+        {
+            if (TryParseRolloutIds(paths[0], out string threadId, out _))
             {
-                // Active parent rollouts can also end with a partially written JSONL line.
+                result.TryAdd(threadId, paths);
             }
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Reads the thread and rollout UUIDs from a Codex filename, including dual-segment desktop pages.
+    /// </summary>
+    private static bool TryParseRolloutIds(string path, out string threadId, out string rolloutId)
+    {
+        threadId = string.Empty;
+        rolloutId = string.Empty;
+        string name = Path.GetFileNameWithoutExtension(path);
+        if (name.Length < 36 || !Guid.TryParse(name.AsSpan(name.Length - 36, 36), out Guid rollout))
+        {
+            return false;
+        }
+
+        rolloutId = rollout.ToString();
+        threadId = rolloutId;
+        if (name.Length >= 73
+            && name[name.Length - 37] == '_'
+            && Guid.TryParse(name.AsSpan(name.Length - 73, 36), out Guid thread))
+        {
+            threadId = thread.ToString();
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Loads parent token signatures when the stitched parent log has already reached the child fork time.
+    /// </summary>
+    private static bool TryLoadParentSignatures(
+        IReadOnlyList<string> parentPaths,
+        DateTimeOffset cutoff,
+        out IReadOnlyList<TokenUsageSignature> signatures,
+        CancellationToken cancellationToken)
+    {
+        signatures = [];
+        List<TokenUsageSignature> result = [];
+        DateTimeOffset? lastTimestamp = null;
+        foreach (string path in parentPaths)
+        {
+            foreach (string line in ReadLinesShared(path, cancellationToken))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!line.Contains("\"timestamp\"", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using JsonDocument document = JsonDocument.Parse(line);
+                    JsonElement root = document.RootElement;
+                    if (!DateTimeOffset.TryParse(GetString(root, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp))
+                    {
+                        continue;
+                    }
+
+                    lastTimestamp = lastTimestamp is { } previous && previous > timestamp ? previous : timestamp;
+                    JsonElement payload = GetObject(root, "payload");
+                    if (GetString(root, "type") != "event_msg"
+                        || GetString(payload, "type") != "token_count"
+                        || timestamp > cutoff
+                        || !TryParseTokenSignature(GetObject(payload, "info"), out TokenUsageSignature signature))
+                    {
+                        continue;
+                    }
+
+                    result.Add(signature);
+                }
+                catch (JsonException)
+                {
+                    // Active parent rollouts can also end with a partially written JSONL line.
+                }
+            }
+        }
+
+        if (lastTimestamp == null || lastTimestamp < cutoff)
+        {
+            return false;
+        }
+
+        signatures = result;
+        return true;
     }
 
     /// <summary>
@@ -1134,17 +1284,27 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Returns cached usage when the file length and write time are unchanged.
+    /// Returns cached usage when every stitched page still matches its stored fingerprint.
     /// </summary>
-    private bool TryGetCachedFileUsage(string path, [NotNullWhen(true)] out List<CachedUsageEvent>? events)
+    private bool TryGetCachedThreadUsage(string[] paths, [NotNullWhen(true)] out List<CachedUsageEvent>? events)
     {
         events = null;
-        if (!TryGetFileFingerprint(path, out long length, out DateTime lastWriteUtc) ||
-            !m_FileUsageCache.TryGetValue(path, out CachedFileUsage? cached) ||
-            cached.Length != length ||
-            cached.LastWriteUtc != lastWriteUtc)
+        if (!m_FileUsageCache.TryGetValue(paths[0], out CachedFileUsage? cached)
+            || cached.Files.Length != paths.Length)
         {
             return false;
+        }
+
+        for (int index = 0; index < paths.Length; index++)
+        {
+            FileFingerprint fingerprint = cached.Files[index];
+            if (!string.Equals(fingerprint.Path, paths[index], StringComparison.OrdinalIgnoreCase)
+                || !TryGetFileFingerprint(paths[index], out long length, out DateTime lastWriteUtc)
+                || fingerprint.Length != length
+                || fingerprint.LastWriteUtc != lastWriteUtc)
+            {
+                return false;
+            }
         }
 
         events = cached.Events;
@@ -1152,19 +1312,24 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Stores parsed usage for one file fingerprint.
+    /// Stores parsed usage for the current fingerprints of every stitched page.
     /// </summary>
-    private void StoreCachedFileUsage(string path, List<CachedUsageEvent> events)
+    private void StoreCachedThreadUsage(string[] paths, List<CachedUsageEvent> events)
     {
-        if (!TryGetFileFingerprint(path, out long length, out DateTime lastWriteUtc))
+        FileFingerprint[] files = new FileFingerprint[paths.Length];
+        for (int index = 0; index < paths.Length; index++)
         {
-            return;
+            if (!TryGetFileFingerprint(paths[index], out long length, out DateTime lastWriteUtc))
+            {
+                return;
+            }
+
+            files[index] = new FileFingerprint(paths[index], length, lastWriteUtc);
         }
 
-        m_FileUsageCache[path] = new CachedFileUsage
+        m_FileUsageCache[paths[0]] = new CachedFileUsage
         {
-            Length = length,
-            LastWriteUtc = lastWriteUtc,
+            Files = files,
             Events = events,
         };
     }
@@ -1226,11 +1391,11 @@ public sealed class TokenCostCollector
         long TimedOutputTokens,
         long TimedDurationMilliseconds);
 
+    private readonly record struct FileFingerprint(string Path, long Length, DateTime LastWriteUtc);
+
     private sealed class CachedFileUsage
     {
-        public required long Length { get; init; }
-
-        public required DateTime LastWriteUtc { get; init; }
+        public required FileFingerprint[] Files { get; init; }
 
         public required List<CachedUsageEvent> Events { get; init; }
     }
