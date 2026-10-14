@@ -73,6 +73,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private const string k_GrokPageName = "Grok";
     private const string k_GrokBuildProductName = "Build";
     private const string k_GrokBotProductName = "Bot";
+    private const string k_GrokCursorProductName = "Cursor";
     private const string k_GrokOthersProductName = "Others";
     private const string k_ApiPageName = "API";
     private const string k_SettingsPageName = "Settings";
@@ -94,6 +95,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         CreateFrozenBrush(82, 193, 181),
         CreateFrozenBrush(92, 143, 202),
         CreateFrozenBrush(166, 173, 179),
+    ];
+    private static readonly string[] s_GrokDefaultProductNames =
+    [
+        k_GrokBuildProductName,
+        k_GrokBotProductName,
+        k_GrokCursorProductName,
     ];
     private static readonly string[] s_ModelEffortSuffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh"];
     private static readonly Media.Brush s_PlanBadgeActiveBrush = s_GreenBrush;
@@ -431,6 +438,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     [ObservableProperty]
     public partial IReadOnlyList<GrokProductUsageItemViewModel> GrokProductUsageItems { get; private set; } = [];
+
+    [ObservableProperty]
+    public partial IReadOnlyList<GrokProductUsageItemViewModel> GrokProductUsageBarItems { get; private set; } = [];
+
+    [ObservableProperty]
+    public partial string? GrokProductUsageBarTooltip { get; private set; }
 
     [ObservableProperty]
     public partial bool HasGrokProductUsageItems { get; private set; }
@@ -1479,8 +1492,18 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private void ApplyGrokProductUsage(IReadOnlyList<GrokProductUsage> productUsage)
     {
         IReadOnlyList<GrokProductUsageItemViewModel> all = NormalizeGrokProductUsageItems(productUsage);
-        IReadOnlyList<GrokProductUsageItemViewModel> items = ColorGrokProductUsageItems(SummarizeGrokProductUsageItems(all));
-        GrokProductUsageItems = items;
+        IReadOnlyList<GrokProductUsageItemViewModel> legend = SummarizeGrokProductUsageItems(all);
+        GrokProductUsageItemViewModel others = CreateGrokOthersItem(all, legend.Select(item => item.Name).ToArray());
+        List<GrokProductUsageItemViewModel> bar = [.. legend];
+        if (others.UsedPercent > 0)
+        {
+            bar.Add(others);
+        }
+
+        IReadOnlyList<GrokProductUsageItemViewModel> coloredBar = ColorGrokProductUsageItems(bar);
+        GrokProductUsageBarItems = coloredBar;
+        GrokProductUsageItems = coloredBar.Take(3).ToArray();
+        GrokProductUsageBarTooltip = CreateGrokProductUsageBarTooltip(all);
         HasGrokProductUsageItems = true;
     }
 
@@ -1490,6 +1513,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private void ClearGrokProductUsage()
     {
         GrokProductUsageItems = [];
+        GrokProductUsageBarItems = [];
+        GrokProductUsageBarTooltip = null;
         HasGrokProductUsageItems = false;
     }
 
@@ -1499,7 +1524,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private static IReadOnlyList<GrokProductUsageItemViewModel> NormalizeGrokProductUsageItems(IReadOnlyList<GrokProductUsage> productUsage)
     {
         return productUsage
-            .Where(item => !string.IsNullOrWhiteSpace(item.Product) && double.IsFinite(item.UsedPercent))
+            .Where(item => double.IsFinite(item.UsedPercent))
             .Select(item => CreateGrokProductUsageItem(FormatGrokProductName(item.Product), item.UsedPercent))
             .Where(item => item.Name.Length > 0)
             .GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
@@ -1510,48 +1535,37 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Collapses Grok product usage into three legend items with an Others bucket.
+    /// Keeps the highest three products for the legend, filling Build / Bot / Cursor when needed.
     /// </summary>
     private static IReadOnlyList<GrokProductUsageItemViewModel> SummarizeGrokProductUsageItems(IReadOnlyList<GrokProductUsageItemViewModel> items)
     {
-        GrokProductUsageItemViewModel[] nonZero = items.Where(item => item.UsedPercent > 0).ToArray();
-        if (nonZero.Length == 0)
+        List<GrokProductUsageItemViewModel> selected = [];
+        foreach (GrokProductUsageItemViewModel item in items.Where(item => item.UsedPercent > 0))
         {
-            return
-            [
-                GetGrokProductUsageItem(items, k_GrokBuildProductName),
-                GetGrokProductUsageItem(items, k_GrokBotProductName),
-                CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokBotProductName),
-            ];
-        }
-
-        if (nonZero.Length == 1)
-        {
-            GrokProductUsageItemViewModel primary = nonZero[0];
-            if (IsGrokBuildProduct(primary.Name))
+            if (selected.Count == 3)
             {
-                return
-                [
-                    primary,
-                    GetGrokProductUsageItem(items, k_GrokBotProductName),
-                    CreateGrokOthersItem(items, k_GrokBuildProductName, k_GrokBotProductName),
-                ];
+                break;
             }
 
-            return
-            [
-                primary,
-                GetGrokProductUsageItem(items, k_GrokBuildProductName),
-                CreateGrokOthersItem(items, primary.Name, k_GrokBuildProductName),
-            ];
+            selected.Add(item);
         }
 
-        return
-        [
-            nonZero[0],
-            nonZero[1],
-            CreateGrokOthersItem(items, nonZero[0].Name, nonZero[1].Name),
-        ];
+        foreach (string name in s_GrokDefaultProductNames)
+        {
+            if (selected.Count == 3)
+            {
+                break;
+            }
+
+            if (selected.Any(item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            selected.Add(GetGrokProductUsageItem(items, name));
+        }
+
+        return selected;
     }
 
     /// <summary>
@@ -1582,13 +1596,20 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         GrokProductUsageItemViewModel[] packed = items
             .Where(item => !excluded.Contains(item.Name))
             .ToArray();
-        GrokProductUsageItemViewModel[] usedPacked = packed
-            .Where(item => item.UsedPercent > 0)
-            .ToArray();
-        string tooltip = usedPacked.Length == 0
-            ? $"{k_GrokOthersProductName} 0%"
-            : string.Join('\n', usedPacked.Select(item => $"{item.Name} {item.PercentText}"));
-        return CreateGrokProductUsageItem(k_GrokOthersProductName, packed.Sum(item => item.UsedPercent), tooltip);
+        return CreateGrokProductUsageItem(k_GrokOthersProductName, packed.Sum(item => item.UsedPercent));
+    }
+
+    /// <summary>
+    /// Builds the progress-bar tooltip listing every returned product percent.
+    /// </summary>
+    private static string? CreateGrokProductUsageBarTooltip(IReadOnlyList<GrokProductUsageItemViewModel> items)
+    {
+        if (items.Count == 0)
+        {
+            return null;
+        }
+
+        return string.Join('\n', items.Select(item => $"{item.Name} {item.PercentText}"));
     }
 
     /// <summary>
@@ -1606,20 +1627,17 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Returns whether the product name is the Grok Build legend item.
-    /// </summary>
-    private static bool IsGrokBuildProduct(string name)
-    {
-        return name.Equals(k_GrokBuildProductName, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
     /// Converts Grok product identifiers into compact display names.
     /// </summary>
     private static string FormatGrokProductName(string product)
     {
         const string protoPrefix = "PRODUCT_GROK_";
-        string normalized = product.Trim();
+        string normalized = product?.Trim() ?? string.Empty;
+        if (normalized.Length == 0)
+        {
+            return k_GrokCursorProductName;
+        }
+
         if (normalized.StartsWith(protoPrefix, StringComparison.OrdinalIgnoreCase))
         {
             normalized = normalized[protoPrefix.Length..];
@@ -1630,6 +1648,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         normalized = string.Join(' ', normalized.Replace('_', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (normalized.Length == 0)
+        {
+            return k_GrokCursorProductName;
+        }
+
         if (normalized.Equals("API", StringComparison.OrdinalIgnoreCase))
         {
             return "API";
