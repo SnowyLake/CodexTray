@@ -167,16 +167,27 @@ public sealed class GrokUsageCollector
         {
             foreach (JsonElement item in productUsageElement.EnumerateArray())
             {
-                if (item.ValueKind != JsonValueKind.Object ||
-                    !item.TryGetProperty("product", out JsonElement productElement) ||
-                    productElement.ValueKind != JsonValueKind.String ||
-                    string.IsNullOrWhiteSpace(productElement.GetString()))
+                if (item.ValueKind != JsonValueKind.Object)
                 {
                     continue;
                 }
 
+                string product = string.Empty;
+                if (item.TryGetProperty("product", out JsonElement productElement))
+                {
+                    if (productElement.ValueKind == JsonValueKind.String)
+                    {
+                        product = productElement.GetString()?.Trim() ?? string.Empty;
+                    }
+                    else if (productElement.ValueKind != JsonValueKind.Null)
+                    {
+                        continue;
+                    }
+                }
+
                 double productUsedPercent = 0;
-                if (item.TryGetProperty("usagePercent", out JsonElement productPercentElement) &&
+                bool hasUsagePercent = item.TryGetProperty("usagePercent", out JsonElement productPercentElement);
+                if (hasUsagePercent &&
                     (productPercentElement.ValueKind != JsonValueKind.Number ||
                      !productPercentElement.TryGetDouble(out productUsedPercent) ||
                      !double.IsFinite(productUsedPercent)))
@@ -184,7 +195,17 @@ public sealed class GrokUsageCollector
                     continue;
                 }
 
-                productUsage.Add(new GrokProductUsage(productElement.GetString()!.Trim(), Math.Clamp(productUsedPercent, 0, 100)));
+                if (product.Length == 0)
+                {
+                    if (!hasUsagePercent)
+                    {
+                        continue;
+                    }
+
+                    product = "Cursor";
+                }
+
+                productUsage.Add(new GrokProductUsage(product, Math.Clamp(productUsedPercent, 0, 100)));
             }
         }
 

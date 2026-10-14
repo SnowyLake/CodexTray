@@ -90,7 +90,7 @@ Codex 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓存命中
 
 在本机 Grok Build 登录后, 打开 Grok 页面可查看订阅名称, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称, Weekly 额度和各产品占比来自同一次 Grok 查询.
 
-产品占比默认显示 `Build` 和 `Bot`, `Others` 汇总其余产品, 鼠标悬停可查看明细. 重置时间可以在 Settings 中切换为倒计时或具体时间.
+产品占比默认显示 `Build`, `Bot` 和 `Cursor`. 进度条最多四段, 其余产品合并为 `Others`, 鼠标悬停进度条可查看全部产品占比. 重置时间可以在 Settings 中切换为倒计时或具体时间.
 
 页面下方的 Token Cost 统计本机 Grok Build 会话中的用量和费用.
 

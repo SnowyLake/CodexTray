@@ -442,10 +442,7 @@
                 <StackPanel x:Name="GrokProductUsageLegendItem"
                             Orientation="Horizontal"
                             HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            ToolTip="{Binding Tooltip}"
-                            ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                            ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
+                            VerticalAlignment="Center">
                     <Ellipse x:Name="GrokProductUsageLegendDot"
                              Width="7"
                              Height="7"
@@ -1102,12 +1099,15 @@
                                         CornerRadius="3"
                                         SnapsToDevicePixels="True"
                                         Background="{DynamicResource ControlStrongFillColorDefaultBrush}"
+                                        ToolTip="{Binding GrokProductUsageBarTooltip}"
+                                        ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                        ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
                                         Visibility="{Binding HasGrokProductUsageItems, Converter={StaticResource BooleanToVisibilityConverter}}">
                                     <ItemsControl x:Name="GrokProductUsageBarItems"
                                                   Height="{StaticResource QuotaBarHeight}"
                                                   VerticalAlignment="Stretch"
                                                   HorizontalAlignment="Stretch"
-                                                  ItemsSource="{Binding GrokProductUsageItems}"
+                                                  ItemsSource="{Binding GrokProductUsageBarItems}"
                                                   ItemTemplate="{StaticResource GrokProductUsageBarSegmentDataTemplate}"
                                                   Style="{StaticResource GrokProductUsageItemsControlStyle}">
                                         <ItemsControl.ItemsPanel>
