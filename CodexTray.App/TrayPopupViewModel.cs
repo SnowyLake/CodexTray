@@ -1829,8 +1829,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
             TokenCostSummary summary = GetPeriodSummary(m_Statistics, period);
             SelectedTokenDisplay = AppSettings.FormatTokenCount(summary.TotalTokens);
-            string cost = summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-            SelectedCostDisplay = string.Create(CultureInfo.InvariantCulture, $"{cost}{(summary.HasUnpricedUsage ? "*" : string.Empty)} · {summary.GetCacheHitPercent()}%");
+            string cacheHit = string.Create(CultureInfo.InvariantCulture, $"{summary.GetCacheHitPercent()}%");
+            SelectedCostDisplay = summary.CostUsd is decimal selectedCost
+                ? string.Create(CultureInfo.InvariantCulture, $"{selectedCost.ToString("$0.00", CultureInfo.InvariantCulture)}{(summary.HasUnpricedUsage ? "*" : string.Empty)} · {cacheHit}")
+                : cacheHit;
             string[] unpriced = m_Statistics.Models.Where(model => GetPeriodSummary(model, period).HasUnpricedUsage).Select(model => model.Model).ToArray();
             DetailsTooltip = $"{m_CostSource}\n{Freshness.Tooltip}" + (summary.HasUnpricedUsage ? $"\nPartial cost · Unpriced/incomplete: {string.Join(", ", unpriced)}" : string.Empty);
 
@@ -1875,21 +1877,30 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     : model.Tokens / (double)totalTokens * 360;
                 double share = model.Tokens / (double)totalTokens;
                 string shareText = $"{Math.Round(share * 100):0}%";
-                string tokensText = AppSettings.FormatTokenCount(model.Tokens);
-                string costText = model.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A";
-                string speedLine = string.Empty;
-                if (m_ShowSpeed)
+                List<string> tooltipLines =
+                [
+                    model.Label,
+                    $"Tokens: {AppSettings.FormatTokenCount(model.Tokens)}",
+                ];
+                if (model.CostUsd is decimal modelCost)
                 {
-                    string speedText = model.TimedDurationMilliseconds > 0
-                        ? (m_Statistics.IsSpeedEstimated ? "~" : string.Empty)
-                            + (model.TimedOutputTokens * 1000m / model.TimedDurationMilliseconds).ToString("0.0", CultureInfo.InvariantCulture) + " tok/s"
-                        : "N/A";
-                    speedLine = $"{Environment.NewLine}Speed: {speedText}";
+                    tooltipLines.Add($"Cost: {modelCost.ToString("$0.00", CultureInfo.InvariantCulture)}");
                 }
 
-                string tooltip = $"{model.Label}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}"
-                    + (summary.HasUnpricedUsage ? "\nPartial cost · See overview for incomplete models" : string.Empty)
-                    + speedLine + $"{Environment.NewLine}Share: {shareText}";
+                if (summary.HasUnpricedUsage)
+                {
+                    tooltipLines.Add("Partial cost · See overview for incomplete models");
+                }
+
+                if (m_ShowSpeed && model.TimedDurationMilliseconds > 0)
+                {
+                    string speedPrefix = m_Statistics.IsSpeedEstimated ? "~" : string.Empty;
+                    string speedValue = (model.TimedOutputTokens * 1000m / model.TimedDurationMilliseconds).ToString("0.0", CultureInfo.InvariantCulture);
+                    tooltipLines.Add($"Speed: {speedPrefix}{speedValue} tok/s");
+                }
+
+                tooltipLines.Add($"Share: {shareText}");
+                string tooltip = string.Join(Environment.NewLine, tooltipLines);
                 segments.Add(new TokenCostDonutSegment(
                     model.Label,
                     shareText,
@@ -2121,7 +2132,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 {
                     int index = offset + slotCount - 1;
                     DateTime date = DateTime.Today.AddDays(offset);
-                    string tooltip = $"{date:yyyy-MM-dd}{Environment.NewLine}Tokens: N/A{Environment.NewLine}Cost: N/A";
+                    string tooltip = $"{date:yyyy-MM-dd}{Environment.NewLine}Tokens: N/A";
                     string label = index == 0 || index == slotCount - 1 || (index + 1) % 10 == 0
                         ? date.Day.ToString(CultureInfo.InvariantCulture)
                         : string.Empty;
@@ -2144,9 +2155,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     : maximumTokens <= 0 || day.Summary.TotalTokens <= 0
                         ? 0
                         : Math.Max(2, (double)day.Summary.TotalTokens / maximumTokens * k_TokenCostChartMaximumBarHeight);
-                string costText = (day.Summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A") + (day.Summary.HasUnpricedUsage ? "* · Partial cost" : string.Empty);
                 string tokensText = AppSettings.FormatTokenCount(day.Summary.TotalTokens);
-                string tooltip = $"{day.Date:yyyy-MM-dd}{Environment.NewLine}Tokens: {tokensText}{Environment.NewLine}Cost: {costText}";
+                string tooltip = $"{day.Date:yyyy-MM-dd}{Environment.NewLine}Tokens: {tokensText}";
+                if (day.Summary.CostUsd is decimal dayCost)
+                {
+                    string costText = dayCost.ToString("$0.00", CultureInfo.InvariantCulture)
+                        + (day.Summary.HasUnpricedUsage ? "* · Partial cost" : string.Empty);
+                    tooltip += $"{Environment.NewLine}Cost: {costText}";
+                }
                 string label = index == 0 || index == dailySummaries.Count - 1 || (index + 1) % 10 == 0
                     ? day.Date.Day.ToString(CultureInfo.InvariantCulture)
                     : string.Empty;

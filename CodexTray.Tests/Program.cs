@@ -2592,11 +2592,11 @@ internal static class Program
         AssertEqual("$6.00 · 40%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 24-hour cost and cache hit");
         AssertEqual("56%|44%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 24-hour donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 56%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 24-hour donut model tooltip");
         AssertEqual(
-            $"GPT-5.4{Environment.NewLine}Tokens: 0.40K{Environment.NewLine}Cost: $2.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 44%",
+            $"GPT-5.4{Environment.NewLine}Tokens: 0.40K{Environment.NewLine}Cost: $2.00{Environment.NewLine}Share: 44%",
             viewModel.CodexTokenCost.DonutSegments[1].Tooltip,
             "Codex 24-hour donut second model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
@@ -2605,7 +2605,7 @@ internal static class Program
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected today token total");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 60%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Share: 60%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex today donut model tooltip");
         AssertEqual(31, viewModel.CodexTokenCost.ChartDays.Count, "current-month Codex token cost chart day count");
@@ -2620,7 +2620,7 @@ internal static class Program
         AssertEqual("$9.00 · 45%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-week cost and cache hit");
         AssertEqual("80%|20%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-week donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 80%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Share: 80%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex current-week donut model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
@@ -2631,7 +2631,7 @@ internal static class Program
         AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
         AssertEqual("65%|35%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 7D donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 65%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 7D donut model tooltip");
         AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7D row should be selected");
@@ -2663,7 +2663,8 @@ internal static class Program
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Title)), "Grok token cost row titles");
         AssertEqual("N/A|N/A|N/A|N/A", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Display.Cost)), "Grok unknown cost values");
         AssertEqual(58d, viewModel.GrokTokenCost.ChartDays[29].BarHeight, "Grok token chart maximum height");
-        AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K{Environment.NewLine}Cost: N/A", viewModel.GrokTokenCost.ChartDays[29].Tooltip, "Grok token chart tooltip");
+        AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K", viewModel.GrokTokenCost.ChartDays[29].Tooltip, "Grok token chart tooltip");
+        AssertEqual("0%", viewModel.GrokTokenCost.SelectedCostDisplay, "unknown cost omits the dollar value and keeps cache hit");
 
         viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[0]);
         viewModel.UpdateTokenCost(new TokenCostStatistics
@@ -2680,7 +2681,7 @@ internal static class Program
         });
         AssertEqual("a|b|c|Other", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut other model labels");
         AssertEqual(
-            $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 20%",
+            $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Share: 20%",
             viewModel.CodexTokenCost.DonutSegments[3].Tooltip,
             "Codex donut other model tooltip");
 
@@ -2697,7 +2698,7 @@ internal static class Program
             ],
         });
         AssertEqual(
-            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Cost: N/A{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 100%",
+            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Share: 100%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "unpriced donut model tooltip");
 
@@ -3224,7 +3225,7 @@ internal static class Program
         });
         AssertTrue(viewModel.CodexTokenCost.DonutSegments[0].Tooltip.Contains("Speed: 20.0 tok/s"), "same display label merges raw timing before calculating speed");
         AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "Other").Tooltip.Contains("Speed: 20.0 tok/s"), "Other excludes untimed tokens from weighted speed");
-        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "b").Tooltip.Contains("Speed: N/A"), "missing timing displays N/A");
+        AssertTrue(!viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "b").Tooltip.Contains("Speed:"), "missing timing omits Speed");
         return Task.CompletedTask;
     }
 
