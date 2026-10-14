@@ -311,7 +311,7 @@ internal static class Program
                 AssertEqual(30, viewModel.GrokTokenCost.ChartDays.Count, "Grok token cost chart day count");
                 AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
                 AssertTrue(window.FindName("GrokProductUsageTitle") is null, "Grok product usage card should not show a title");
-                AssertEqual("Voice 0.5%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar others tooltip");
+                AssertEqual("Chat 3%\nBuild 2%\nTasks 1%\nVoice 0.5%\nImagine 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip lists every product");
                 AssertTrue(viewModel.GrokProductUsageItems[0].Tooltip is null, "Grok product usage first item should not have a tooltip");
                 AssertTrue(viewModel.GrokProductUsageItems[1].Tooltip is null, "Grok product usage second item should not have a tooltip");
                 AssertTrue(viewModel.GrokProductUsageItems[2].Tooltip is null, "Grok product usage third item should not have a tooltip");
@@ -366,7 +366,7 @@ internal static class Program
                 AssertTrue(grokProductUsageLegend.ToolTip is null, "Grok product usage legend should not show a shared tooltip");
                 AssertTrue(grokProductUsageChatLegendItem.ToolTip is null, "Grok product usage chat item should not show a tooltip");
                 AssertTrue(grokProductUsageThirdLegendItem.ToolTip is null, "Grok product usage legend items should not show a tooltip");
-                AssertEqual("Voice 0.5%", grokProductUsageBar.ToolTip, "Grok product usage bar should show others tooltip");
+                AssertEqual("Chat 3%\nBuild 2%\nTasks 1%\nVoice 0.5%\nImagine 0%", grokProductUsageBar.ToolTip, "Grok product usage bar should list every product");
                 AssertEqual(
                     System.Windows.Media.Color.FromRgb(26, 188, 137),
                     ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageItems[0].Brush).Color,
@@ -433,7 +433,7 @@ internal static class Program
                     string.Empty,
                     DateTimeOffset.Now),
                     CreateTokenCostStatistics(5));
-                AssertTrue(viewModel.GrokProductUsageBarTooltip is null, "Grok product usage bar tooltip with two items");
+                AssertEqual("Chat 3%\nBuild 2%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip with two items");
                 AssertEqual(3, viewModel.GrokProductUsageItems.Count, "Grok product usage item count with two items");
                 AssertEqual(3, viewModel.GrokProductUsageBarItems.Count, "Grok product usage bar item count with two items");
                 AssertEqual("Chat", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name with two items");
@@ -459,7 +459,7 @@ internal static class Program
                 AssertEqual("0%", viewModel.GrokProductUsageItems[0].PercentText, "Grok product usage build percent when all zero");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage bot percent when all zero");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage cursor percent when all zero");
-                AssertTrue(viewModel.GrokProductUsageBarTooltip is null, "Grok product usage bar tooltip when all zero");
+                AssertEqual("Build 0%\nChat 0%\nTasks 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip when all zero");
                 AssertEqual(3, viewModel.GrokProductUsageBarItems.Count, "Grok product usage bar item count when all zero");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
@@ -479,7 +479,7 @@ internal static class Program
                 AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage bot percent when only build is used");
                 AssertEqual("Cursor", viewModel.GrokProductUsageItems[2].Name, "Grok product usage third name when only build is used");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage cursor percent when only build is used");
-                AssertTrue(viewModel.GrokProductUsageBarTooltip is null, "Grok product usage bar tooltip when only build is used");
+                AssertEqual("Build 5%\nChat 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip when only build is used");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(26, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
                     {
@@ -498,7 +498,7 @@ internal static class Program
                 AssertEqual("1%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage bot percent with build and bot");
                 AssertEqual("Cursor", viewModel.GrokProductUsageItems[2].Name, "Grok product usage third name with build and bot");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage cursor percent with build and bot");
-                AssertTrue(viewModel.GrokProductUsageBarTooltip is null, "Grok product usage bar tooltip with build and bot");
+                AssertEqual("Build 25%\nBot 1%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip with build and bot");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(7, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
                     {
@@ -518,7 +518,7 @@ internal static class Program
                 AssertEqual("0%", viewModel.GrokProductUsageItems[1].PercentText, "Grok product usage build percent with one non-zero item");
                 AssertEqual("Bot", viewModel.GrokProductUsageItems[2].Name, "Grok product usage bot name with one non-zero item");
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage bot percent with one non-zero item");
-                AssertTrue(viewModel.GrokProductUsageBarTooltip is null, "Grok product usage bar tooltip with one non-zero item");
+                AssertEqual("Imagine 7%\nBuild 0%\nChat 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip with one non-zero item");
 
                 AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok badge uses the billing subscription tier");
                 AssertEqual("93%", viewModel.GrokWeeklyQuota.PercentText, "billing weekly remaining percent");
@@ -545,7 +545,7 @@ internal static class Program
                 AssertEqual(4, viewModel.GrokProductUsageBarItems.Count, "Grok product usage bar item count with unnamed cursor");
                 AssertEqual("Others", viewModel.GrokProductUsageBarItems[3].Name, "Grok product usage others name with unnamed cursor");
                 AssertEqual("1%", viewModel.GrokProductUsageBarItems[3].PercentText, "Grok product usage others percent with unnamed cursor");
-                AssertEqual("Imagine 1%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip with unnamed cursor");
+                AssertEqual("Build 29%\nCursor 5%\nBot 2%\nImagine 1%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip with unnamed cursor");
                 AssertEqual(
                     System.Windows.Media.Color.FromRgb(166, 173, 179),
                     ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageBarItems[3].Brush).Color,

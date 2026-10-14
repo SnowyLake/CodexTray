@@ -1503,7 +1503,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         IReadOnlyList<GrokProductUsageItemViewModel> coloredBar = ColorGrokProductUsageItems(bar);
         GrokProductUsageBarItems = coloredBar;
         GrokProductUsageItems = coloredBar.Take(3).ToArray();
-        GrokProductUsageBarTooltip = others.UsedPercent > 0 ? others.Tooltip : null;
+        GrokProductUsageBarTooltip = CreateGrokProductUsageBarTooltip(all);
         HasGrokProductUsageItems = true;
     }
 
@@ -1596,13 +1596,20 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         GrokProductUsageItemViewModel[] packed = items
             .Where(item => !excluded.Contains(item.Name))
             .ToArray();
-        GrokProductUsageItemViewModel[] usedPacked = packed
-            .Where(item => item.UsedPercent > 0)
-            .ToArray();
-        string tooltip = usedPacked.Length == 0
-            ? $"{k_GrokOthersProductName} 0%"
-            : string.Join('\n', usedPacked.Select(item => $"{item.Name} {item.PercentText}"));
-        return CreateGrokProductUsageItem(k_GrokOthersProductName, packed.Sum(item => item.UsedPercent), tooltip);
+        return CreateGrokProductUsageItem(k_GrokOthersProductName, packed.Sum(item => item.UsedPercent));
+    }
+
+    /// <summary>
+    /// Builds the progress-bar tooltip listing every returned product percent.
+    /// </summary>
+    private static string? CreateGrokProductUsageBarTooltip(IReadOnlyList<GrokProductUsageItemViewModel> items)
+    {
+        if (items.Count == 0)
+        {
+            return null;
+        }
+
+        return string.Join('\n', items.Select(item => $"{item.Name} {item.PercentText}"));
     }
 
     /// <summary>
