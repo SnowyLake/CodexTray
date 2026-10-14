@@ -83,6 +83,8 @@ internal static class Program
         await RunAsync("computes cache hit percent", TestCacheHitPercentAsync);
         await RunAsync("computes paired model output speed", TestModelOutputSpeedAsync);
         await RunAsync("estimates Codex output speed without tool waits or replay", TestCodexOutputSpeedAsync);
+        await RunAsync("applies Codex estimated speed floors and usage-record ends", TestCodexSpeedWindowEdgesAsync);
+        await RunAsync("stitches Codex desktop pages and skips unread parent forks", TestCodexForkAndPaginationAsync);
         await RunAsync("collects exact Codex token cost", TestCodexTokenCostCollectorAsync);
         await RunAsync("prefers Codex last_token_usage over cumulative totals", TestCodexLastTokenUsageAsync);
         await RunAsync("deduplicates archived Codex rollouts by thread id", TestCodexArchivedRolloutDedupAsync);
@@ -2590,11 +2592,11 @@ internal static class Program
         AssertEqual("$6.00 · 40%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 24-hour cost and cache hit");
         AssertEqual("56%|44%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 24-hour donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 56%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 24-hour donut model tooltip");
         AssertEqual(
-            $"GPT-5.4{Environment.NewLine}Tokens: 0.40K{Environment.NewLine}Cost: $2.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 44%",
+            $"GPT-5.4{Environment.NewLine}Tokens: 0.40K{Environment.NewLine}Cost: $2.00{Environment.NewLine}Share: 44%",
             viewModel.CodexTokenCost.DonutSegments[1].Tooltip,
             "Codex 24-hour donut second model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
@@ -2603,7 +2605,7 @@ internal static class Program
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected today token total");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 60%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Share: 60%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex today donut model tooltip");
         AssertEqual(31, viewModel.CodexTokenCost.ChartDays.Count, "current-month Codex token cost chart day count");
@@ -2618,7 +2620,7 @@ internal static class Program
         AssertEqual("$9.00 · 45%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-week cost and cache hit");
         AssertEqual("80%|20%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-week donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 80%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Share: 80%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex current-week donut model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
@@ -2629,7 +2631,7 @@ internal static class Program
         AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
         AssertEqual("65%|35%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 7D donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 65%",
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 7D donut model tooltip");
         AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7D row should be selected");
@@ -2661,7 +2663,8 @@ internal static class Program
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Title)), "Grok token cost row titles");
         AssertEqual("N/A|N/A|N/A|N/A", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Display.Cost)), "Grok unknown cost values");
         AssertEqual(58d, viewModel.GrokTokenCost.ChartDays[29].BarHeight, "Grok token chart maximum height");
-        AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K{Environment.NewLine}Cost: N/A", viewModel.GrokTokenCost.ChartDays[29].Tooltip, "Grok token chart tooltip");
+        AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K", viewModel.GrokTokenCost.ChartDays[29].Tooltip, "Grok token chart tooltip");
+        AssertEqual("0%", viewModel.GrokTokenCost.SelectedCostDisplay, "unknown cost omits the dollar value and keeps cache hit");
 
         viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[0]);
         viewModel.UpdateTokenCost(new TokenCostStatistics
@@ -2678,7 +2681,7 @@ internal static class Program
         });
         AssertEqual("a|b|c|Other", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut other model labels");
         AssertEqual(
-            $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 20%",
+            $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Share: 20%",
             viewModel.CodexTokenCost.DonutSegments[3].Tooltip,
             "Codex donut other model tooltip");
 
@@ -2695,7 +2698,7 @@ internal static class Program
             ],
         });
         AssertEqual(
-            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Cost: N/A{Environment.NewLine}Speed: N/A{Environment.NewLine}Share: 100%",
+            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Share: 100%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "unpriced donut model tooltip");
 
@@ -3137,6 +3140,10 @@ internal static class Program
             CreateGrokTopLevelTokenUpdate("top-level", today, 10, 0, 25, 0, apiDurationMilliseconds: 500),
             CreateGrokTokenUpdate("zero", today, 10, 0, 0, apiDurationMilliseconds: 1_000)
                 .Replace("grok-4.5-build", "zero-output", StringComparison.Ordinal),
+            CreateGrokTokenUpdate("few", today, 10, 0, 99, apiDurationMilliseconds: 1_000)
+                .Replace("grok-4.5-build", "few-output", StringComparison.Ordinal),
+            CreateGrokTokenUpdate("brief", today, 10, 0, 100, apiDurationMilliseconds: 99)
+                .Replace("grok-4.5-build", "short-duration", StringComparison.Ordinal),
         ];
         string[] invalidDurations = ["null", "0", "-1", "\"1000\"", "1.5", "9223372036854775808"];
         for (int index = 0; index < invalidDurations.Length; index++)
@@ -3191,8 +3198,10 @@ internal static class Program
         AssertEqual(370L, invalid.TotalTokens, "invalid timing keeps token totals");
         AssertEqual(0m, invalid.CostUsd, "invalid timing keeps unknown-price cost behavior");
         AssertEqual(null, invalid.GetOutputTokensPerSecond(), "invalid timing cannot produce a speed");
-        AssertEqual(0m, statistics.Models.Single(item => item.Model == "zero-output").Today.GetOutputTokensPerSecond(), "explicit zero output has valid zero speed");
-        AssertEqual(50m, statistics.Models.Single(item => item.Model == "unknown").Today.GetOutputTokensPerSecond(), "top-level usage pairs its own timing");
+        AssertEqual(null, statistics.Models.Single(item => item.Model == "zero-output").Today.GetOutputTokensPerSecond(), "zero output is not a measured speed sample");
+        AssertEqual(null, statistics.Models.Single(item => item.Model == "unknown").Today.GetOutputTokensPerSecond(), "output below the measured floor has no speed");
+        AssertEqual(null, statistics.Models.Single(item => item.Model == "few-output").Today.GetOutputTokensPerSecond(), "99 output tokens are below the measured floor");
+        AssertEqual(null, statistics.Models.Single(item => item.Model == "short-duration").Today.GetOutputTokensPerSecond(), "API duration below 100 ms is not a speed sample");
         AssertEqual(100m, statistics.Models.Single(item => item.Model == "model-a").Today.GetOutputTokensPerSecond(), "model A uses its own API duration");
         AssertEqual(25m, statistics.Models.Single(item => item.Model == "model-b").Today.GetOutputTokensPerSecond(), "model B does not inherit top-level duration");
 
@@ -3216,7 +3225,7 @@ internal static class Program
         });
         AssertTrue(viewModel.CodexTokenCost.DonutSegments[0].Tooltip.Contains("Speed: 20.0 tok/s"), "same display label merges raw timing before calculating speed");
         AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "Other").Tooltip.Contains("Speed: 20.0 tok/s"), "Other excludes untimed tokens from weighted speed");
-        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "b").Tooltip.Contains("Speed: N/A"), "missing timing displays N/A");
+        AssertTrue(!viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "b").Tooltip.Contains("Speed:"), "missing timing omits Speed");
         return Task.CompletedTask;
     }
 
@@ -3237,14 +3246,14 @@ internal static class Program
         DateTimeOffset past = today.AddHours(-25);
         const string parentId = "11111111-1111-1111-1111-111111111111";
         const string childId = "22222222-2222-2222-2222-222222222222";
-        string firstUsage = CreateCodexTokenCount(today.AddSeconds(15.001).ToString("O"), last: (100, 20, 100), total: (140, 20, 180));
-        string thirdUsage = CreateCodexTokenCount(today.AddSeconds(23.001).ToString("O"), last: (20, 0, 40), total: (210, 20, 300));
+        string firstUsage = CreateCodexTokenCount(today.AddSeconds(15.001).ToString("O"), last: (100, 20, 300), total: (140, 20, 540));
+        string thirdUsage = CreateCodexTokenCount(today.AddSeconds(23.001).ToString("O"), last: (20, 0, 200), total: (210, 20, 980));
         string[] parentLines =
         [
             CreateCodexRecord(past, "event_msg", new { type = "task_started", turn_id = "past" }),
             CreateCodexRecord(past, "turn_context", new { turn_id = "past", model = "gpt-test" }),
             CreateCodexRecord(past.AddSeconds(8), "response_item", new { type = "message", role = "assistant" }),
-            CreateCodexTokenCount(past.AddSeconds(8.001).ToString("O"), last: (40, 0, 80), total: (40, 0, 80)),
+            CreateCodexTokenCount(past.AddSeconds(8.001).ToString("O"), last: (40, 0, 240), total: (40, 0, 240)),
             CreateCodexRecord(past.AddSeconds(8.002), "event_msg", new { type = "task_complete", turn_id = "past" }),
             CreateCodexRecord(today, "event_msg", new { type = "task_started", turn_id = "first" }),
             CreateCodexRecord(today, "turn_context", new { turn_id = "first", model = "gpt-test" }),
@@ -3255,7 +3264,7 @@ internal static class Program
             firstUsage,
             firstUsage.Replace(today.AddSeconds(15.001).ToString("O"), today.AddSeconds(16).ToString("O"), StringComparison.Ordinal),
             CreateCodexRecord(today.AddSeconds(19.001), "response_item", new { type = "message", role = "assistant" }),
-            CreateCodexTokenCount(today.AddSeconds(19.002).ToString("O"), last: (50, 0, 80), total: (190, 20, 260)),
+            CreateCodexTokenCount(today.AddSeconds(19.002).ToString("O"), last: (50, 0, 240), total: (190, 20, 780)),
             CreateCodexRecord(today.AddSeconds(19.003), "event_msg", new { type = "task_complete", turn_id = "first" }),
             CreateCodexRecord(today.AddSeconds(20), "event_msg", new { type = "task_started", turn_id = "second" }),
             CreateCodexRecord(today.AddSeconds(20), "turn_context", new { turn_id = "second", model = "gpt-test" }),
@@ -3265,12 +3274,13 @@ internal static class Program
             CreateCodexRecord(today.AddSeconds(33), "response_item", new { type = "function_call_output" }),
             thirdUsage.Replace(today.AddSeconds(23.001).ToString("O"), today.AddSeconds(35).ToString("O"), StringComparison.Ordinal),
             CreateCodexRecord(today.AddSeconds(37), "response_item", new { type = "message", role = "assistant" }),
-            CreateCodexTokenCount(today.AddSeconds(37.001).ToString("O"), last: (30, 0, 120), total: (240, 20, 420)),
+            CreateCodexTokenCount(today.AddSeconds(37.001).ToString("O"), last: (30, 0, 360), total: (240, 20, 1340)),
             CreateCodexRecord(today.AddSeconds(37.002), "event_msg", new { type = "task_complete", turn_id = "second" }),
+            CreateCodexRecord(today.AddSeconds(40), "event_msg", new { type = "task_complete", turn_id = "idle" }),
         ];
         File.WriteAllLines(Path.Combine(sessions, $"rollout-{parentId}.jsonl"), parentLines);
         File.WriteAllLines(Path.Combine(archived, $"rollout-{parentId}.jsonl"), parentLines);
-        DateTimeOffset childStart = today.AddMinutes(5);
+        DateTimeOffset childStart = today.AddSeconds(40);
         string childPath = Path.Combine(sessions, $"rollout-{childId}.jsonl");
         File.WriteAllLines(childPath,
         [
@@ -3280,7 +3290,7 @@ internal static class Program
             CreateCodexRecord(childStart, "turn_context", new { turn_id = "child", model = "gpt-test" }),
             CreateCodexRecord(childStart.AddSeconds(1), "response_item", new { type = "message", role = "developer" }),
             CreateCodexRecord(childStart.AddSeconds(3), "response_item", new { type = "message", role = "assistant" }),
-            CreateCodexTokenCount(childStart.AddSeconds(3.001).ToString("O"), last: (10, 0, 20), total: (250, 20, 440)),
+            CreateCodexTokenCount(childStart.AddSeconds(3.001).ToString("O"), last: (10, 0, 200), total: (250, 20, 1540)),
             CreateCodexRecord(childStart.AddSeconds(3.002), "event_msg", new { type = "task_complete", turn_id = "child" }),
         ]);
         string[] invalidCases = ["legacy", "missing-context", "missing-end", "backwards", "zero", "cumulative", "mismatch", "aborted", "compacted", "malformed"];
@@ -3318,17 +3328,17 @@ internal static class Program
         TokenCostStatistics statistics = collector.CollectCodex(temp.Path, now);
         TokenCostModelStatistics model = statistics.Models.Single(item => item.Model == "gpt-test");
         AssertTrue(statistics.IsSpeedEstimated, "Codex marks response-window speed as estimated");
-        AssertEqual(570L, model.Today.TotalTokens, "duplicate snapshots and parent replay keep existing token deduplication");
-        AssertEqual(360L, model.Today.TimedOutputTokens, "only accepted live response outputs contribute to speed");
+        AssertEqual(1510L, model.Today.TotalTokens, "duplicate snapshots and parent replay keep existing token deduplication");
+        AssertEqual(1300L, model.Today.TimedOutputTokens, "only accepted live response outputs contribute to speed");
         AssertEqual(16_000L, model.Today.TimedDurationMilliseconds, "tool waits are excluded before and after usage records");
-        AssertEqual(22.5m, model.Today.GetOutputTokensPerSecond(), "Codex response windows produce weighted speed");
-        AssertEqual(22.5m, model.LastTwentyFourHours.GetOutputTokensPerSecond(), "rolling speed excludes older responses");
-        AssertEqual(440L, model.Lifetime.TimedOutputTokens, "historical responses are measured once");
+        AssertEqual(81.25m, model.Today.GetOutputTokensPerSecond(), "Codex response windows produce weighted speed");
+        AssertEqual(81.25m, model.LastTwentyFourHours.GetOutputTokensPerSecond(), "rolling speed excludes older responses");
+        AssertEqual(1540L, model.Lifetime.TimedOutputTokens, "historical responses are measured once");
         AssertEqual(24_000L, model.Lifetime.TimedDurationMilliseconds, "historical windows retain matching duration");
         TokenCostSummary invalid = statistics.Models.Single(item => item.Model == "gpt-invalid").Today;
         AssertEqual(1100L, invalid.TotalTokens, "unmeasurable responses keep their usage");
         AssertEqual(null, invalid.GetOutputTokensPerSecond(), "incomplete or ambiguous response windows have no speed");
-        AssertEqual(360L, collector.CollectCodex(temp.Path, now).Today.TimedOutputTokens, "cached rollouts retain timing");
+        AssertEqual(1300L, collector.CollectCodex(temp.Path, now).Today.TimedOutputTokens, "cached rollouts retain timing");
         AssertEqual(16_000L, collector.CollectCodex(temp.Path, now).Today.TimedDurationMilliseconds, "cached rollouts retain duration");
         AssertEqual(null, collector.CollectCodex(temp.Path, now.AddDays(1)).Today.GetOutputTokensPerSecond(), "cached timing is rebucketed for a new day");
         File.AppendAllLines(childPath,
@@ -3336,15 +3346,15 @@ internal static class Program
             CreateCodexRecord(childStart.AddMinutes(1), "event_msg", new { type = "task_started", turn_id = "appended" }),
             CreateCodexRecord(childStart.AddMinutes(1), "turn_context", new { turn_id = "appended", model = "gpt-test" }),
             CreateCodexRecord(childStart.AddMinutes(1).AddSeconds(3), "response_item", new { type = "message", role = "assistant" }),
-            CreateCodexTokenCount(childStart.AddMinutes(1).AddSeconds(3.001).ToString("O"), last: (10, 0, 30), total: (260, 20, 470)),
+            CreateCodexTokenCount(childStart.AddMinutes(1).AddSeconds(3.001).ToString("O"), last: (10, 0, 210), total: (260, 20, 1750)),
         ]);
-        AssertEqual(390L, collector.CollectCodex(temp.Path, now).Today.TimedOutputTokens, "appended usage invalidates the timing cache");
+        AssertEqual(1510L, collector.CollectCodex(temp.Path, now).Today.TimedOutputTokens, "appended usage invalidates the timing cache");
 
         TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
         viewModel.UpdateTokenCost(statistics);
-        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~22.5 tok/s"), "Codex tooltip marks estimated speed");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~81.3 tok/s"), "Codex tooltip marks estimated speed");
         viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
-        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~18.3 tok/s"), "estimated speed follows period selection");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~64.2 tok/s"), "estimated speed follows period selection");
         return Task.CompletedTask;
     }
 
@@ -3354,6 +3364,123 @@ internal static class Program
     private static string CreateCodexRecord(DateTimeOffset timestamp, string type, object payload)
     {
         return JsonSerializer.Serialize(new { timestamp = timestamp.ToString("O"), type, payload });
+    }
+
+    /// <summary>
+    /// Verifies estimated speed floors, token_usage_record ends, and ignored late-flushed output items.
+    /// </summary>
+    private static Task TestCodexSpeedWindowEdgesAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{}");
+        string sessions = Path.Combine(temp.Path, "sessions");
+        Directory.CreateDirectory(sessions);
+        DateTimeOffset now = new(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset today = now.AddHours(-3);
+
+        File.WriteAllLines(Path.Combine(sessions, "short.jsonl"), CreateCodexSpeedWindow(today, "gpt-short", output: 200, userSeconds: 0, assistantSeconds: 0.4, usageSeconds: 0.5));
+        File.WriteAllLines(Path.Combine(sessions, "few.jsonl"), CreateCodexSpeedWindow(today, "gpt-few", output: 199, userSeconds: 1, assistantSeconds: 5, usageSeconds: 6));
+        File.WriteAllLines(Path.Combine(sessions, "hour.jsonl"), CreateCodexSpeedWindow(today, "gpt-hour", output: 200, userSeconds: 0, assistantSeconds: 3601, usageSeconds: 3601.001));
+
+        DateTimeOffset recordStart = today.AddMinutes(10);
+        File.WriteAllLines(Path.Combine(sessions, "usage-record.jsonl"),
+        [
+            CreateCodexRecord(recordStart, "event_msg", new { type = "task_started", turn_id = "record" }),
+            CreateCodexRecord(recordStart, "turn_context", new { turn_id = "record", model = "gpt-record" }),
+            CreateCodexRecord(recordStart.AddSeconds(1), "response_item", new { type = "message", role = "user" }),
+            CreateCodexRecord(recordStart.AddSeconds(3), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexRecord(recordStart.AddSeconds(5), "token_usage_record", new { usage = new { input_tokens = 10, cached_input_tokens = 0, output_tokens = 200 } }),
+            CreateCodexTokenCount(recordStart.AddSeconds(5.001).ToString("O"), last: (10, 0, 200), total: (10, 0, 200)),
+        ]);
+
+        DateTimeOffset flushStart = today.AddMinutes(20);
+        File.WriteAllLines(Path.Combine(sessions, "trailing-flush.jsonl"),
+        [
+            CreateCodexRecord(flushStart, "event_msg", new { type = "task_started", turn_id = "flush" }),
+            CreateCodexRecord(flushStart, "turn_context", new { turn_id = "flush", model = "gpt-flush" }),
+            CreateCodexRecord(flushStart.AddSeconds(1), "response_item", new { type = "message", role = "user" }),
+            CreateCodexRecord(flushStart.AddSeconds(3), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(flushStart.AddSeconds(3.001).ToString("O"), last: (10, 0, 200), total: (10, 0, 200)),
+            CreateCodexRecord(flushStart.AddSeconds(3.05), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexRecord(flushStart.AddSeconds(30), "response_item", new { type = "message", role = "user" }),
+            CreateCodexRecord(flushStart.AddSeconds(32), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(flushStart.AddSeconds(32.001).ToString("O"), last: (10, 0, 200), total: (20, 0, 400)),
+        ]);
+
+        TokenCostStatistics statistics = new TokenCostCollector(pricingPath).CollectCodex(temp.Path, now);
+        AssertEqual(210L, statistics.Models.Single(item => item.Model == "gpt-short").Today.TotalTokens, "short windows still bill tokens");
+        AssertEqual(null, statistics.Models.Single(item => item.Model == "gpt-short").Today.GetOutputTokensPerSecond(), "estimated speed ignores sub-second windows");
+        AssertEqual(209L, statistics.Models.Single(item => item.Model == "gpt-few").Today.TotalTokens, "small outputs still bill tokens");
+        AssertEqual(null, statistics.Models.Single(item => item.Model == "gpt-few").Today.GetOutputTokensPerSecond(), "estimated speed ignores outputs below 200");
+        AssertEqual(210L, statistics.Models.Single(item => item.Model == "gpt-hour").Today.TotalTokens, "hour-plus windows still bill tokens");
+        AssertEqual(null, statistics.Models.Single(item => item.Model == "gpt-hour").Today.GetOutputTokensPerSecond(), "estimated speed ignores durations over one hour");
+        AssertEqual(4000L, statistics.Models.Single(item => item.Model == "gpt-record").Today.TimedDurationMilliseconds, "matching token_usage_record is the response end");
+        AssertEqual(50m, statistics.Models.Single(item => item.Model == "gpt-record").Today.GetOutputTokensPerSecond(), "usage-record window keeps estimated speed");
+        AssertEqual(4000L, statistics.Models.Single(item => item.Model == "gpt-flush").Today.TimedDurationMilliseconds, "output flushed with token_count does not pin the next start");
+        AssertEqual(100m, statistics.Models.Single(item => item.Model == "gpt-flush").Today.GetOutputTokensPerSecond(), "two live windows after a flush keep their own durations");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Builds one Codex turn with a response window spanning the given offsets.
+    /// </summary>
+    private static string[] CreateCodexSpeedWindow(DateTimeOffset start, string model, long output, double userSeconds, double assistantSeconds, double usageSeconds)
+    {
+        return
+        [
+            CreateCodexRecord(start, "event_msg", new { type = "task_started", turn_id = "edge" }),
+            CreateCodexRecord(start, "turn_context", new { turn_id = "edge", model }),
+            CreateCodexRecord(start.AddSeconds(userSeconds), "response_item", new { type = "message", role = "user" }),
+            CreateCodexRecord(start.AddSeconds(assistantSeconds), "response_item", new { type = "message", role = "assistant" }),
+            CreateCodexTokenCount(start.AddSeconds(usageSeconds).ToString("O"), last: (10, 0, output), total: (10, 0, output)),
+        ];
+    }
+
+    /// <summary>
+    /// Verifies dual-segment rollout pages share a high-water mark and unread parent forks are skipped.
+    /// </summary>
+    private static Task TestCodexForkAndPaginationAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{\"gpt-pages\":{\"input\":2,\"cachedInput\":0.2,\"output\":10},\"gpt-stalled\":{\"input\":2,\"cachedInput\":0.2,\"output\":10}}");
+        string sessions = Path.Combine(temp.Path, "sessions", "2026", "07", "11");
+        Directory.CreateDirectory(sessions);
+        const string threadId = "44444444-4444-4444-4444-444444444444";
+        const string pageOneId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        const string pageTwoId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        File.WriteAllLines(Path.Combine(sessions, $"rollout-2026-07-11T09-00-00-{threadId}_{pageOneId}.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-pages\"}}",
+            CreateCodexTokenCount("2026-07-11T09:00:00+08:00", last: (1000, 400, 100), total: (1000, 400, 100)),
+        ]);
+        File.WriteAllLines(Path.Combine(sessions, $"rollout-2026-07-11T10-00-00-{threadId}_{pageTwoId}.jsonl"),
+        [
+            CreateCodexTokenCount("2026-07-11T10:00:00+08:00", total: (2000, 800, 200)),
+        ]);
+
+        const string parentId = "55555555-5555-5555-5555-555555555555";
+        const string stalledId = "66666666-6666-6666-6666-666666666666";
+        File.WriteAllLines(Path.Combine(sessions, $"rollout-{parentId}.jsonl"),
+        [
+            $"{{\"timestamp\":\"2026-07-11T09:00:00+08:00\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"{parentId}\"}}}}",
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-stalled\"}}",
+            CreateCodexTokenCount("2026-07-11T10:00:00+08:00", last: (10, 0, 10), total: (10, 0, 10)),
+        ]);
+        File.WriteAllLines(Path.Combine(sessions, $"rollout-{stalledId}.jsonl"),
+        [
+            $"{{\"timestamp\":\"2026-07-11T11:00:00+08:00\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"{stalledId}\",\"forked_from_id\":\"{parentId}\"}}}}",
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-stalled\"}}",
+            CreateCodexTokenCount("2026-07-11T11:05:00+08:00", last: (5000, 0, 500), total: (5010, 0, 510)),
+        ]);
+
+        TokenCostStatistics statistics = new TokenCostCollector(pricingPath)
+            .CollectCodex(temp.Path, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)));
+        AssertEqual(2200L, statistics.Models.Single(item => item.Model == "gpt-pages").Today.TotalTokens, "stitched pages continue the cumulative high-water");
+        AssertEqual(0.00456m, statistics.Models.Single(item => item.Model == "gpt-pages").Today.CostUsd, "stitched page cost");
+        AssertEqual(20L, statistics.Models.Single(item => item.Model == "gpt-stalled").Today.TotalTokens, "child is skipped until the parent log reaches the fork time");
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -3913,6 +4040,7 @@ internal static class Program
             "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
             "{\"timestamp\":\"2026-07-11T09:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":1000,\"cached_input_tokens\":400,\"output_tokens\":100}}}}",
             "{\"timestamp\":\"2026-07-11T10:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":2000,\"cached_input_tokens\":800,\"output_tokens\":200}}}}",
+            "{\"timestamp\":\"2026-07-11T10:30:00+08:00\",\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
         ]);
         File.WriteAllLines(Path.Combine(sessions, $"rollout-{legacyChildId}.jsonl"),
         [
