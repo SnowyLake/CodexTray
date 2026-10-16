@@ -548,6 +548,30 @@ internal static class Program
                 AssertEqual("Others", viewModel.GrokProductUsageBarItems[3].Name, "Grok product usage others name with unnamed cursor");
                 AssertEqual("1%", viewModel.GrokProductUsageBarItems[3].PercentText, "Grok product usage others percent with unnamed cursor");
                 AssertEqual("Build 29%\nCursor 5%\nBot 2%\nImagine 1%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip with unnamed cursor");
+                viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                    new GrokUsageSnapshot(51, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
+                    {
+                        ProductUsage =
+                        [
+                            new GrokProductUsage("PRODUCT_GROK_BUILD", 32),
+                            new GrokProductUsage("PRODUCT_CURSOR", 12),
+                            new GrokProductUsage("PRODUCT_GROK_BOT", 6),
+                            new GrokProductUsage("PRODUCT_GROK_IMAGINE", 1),
+                        ],
+                    },
+                    string.Empty,
+                    DateTimeOffset.Now),
+                    CreateTokenCostStatistics(5));
+                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "REST product usage first name");
+                AssertEqual("32%", viewModel.GrokProductUsageItems[0].PercentText, "REST product usage build percent");
+                AssertEqual("Cursor", viewModel.GrokProductUsageItems[1].Name, "REST product usage cursor name");
+                AssertEqual("12%", viewModel.GrokProductUsageItems[1].PercentText, "REST product usage cursor percent");
+                AssertEqual("Bot", viewModel.GrokProductUsageItems[2].Name, "REST product usage bot name");
+                AssertEqual("6%", viewModel.GrokProductUsageItems[2].PercentText, "REST product usage bot percent");
+                AssertEqual(4, viewModel.GrokProductUsageBarItems.Count, "REST product usage bar item count");
+                AssertEqual("Others", viewModel.GrokProductUsageBarItems[3].Name, "REST product usage others name");
+                AssertEqual("1%", viewModel.GrokProductUsageBarItems[3].PercentText, "REST product usage others percent");
+                AssertEqual("Build 32%\nCursor 12%\nBot 6%\nImagine 1%", viewModel.GrokProductUsageBarTooltip, "REST product usage bar tooltip");
                 AssertEqual(
                     System.Windows.Media.Color.FromRgb(166, 173, 179),
                     ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageBarItems[3].Brush).Color,
@@ -1890,18 +1914,11 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests JSON and protobuf parsing for Grok billing usage.
+    /// Tests JSON parsing for Grok credits usage.
     /// </summary>
     private static Task TestGrokUsageCollectorAsync()
     {
         const long resetAt = 1_802_592_000;
-        byte[] response = CreateGrokBillingResponse(42.5f, resetAt, "Premium support");
-        GrokUsageSnapshot snapshot = GrokUsageCollector.ParseGrpcWebResponse(response, DateTimeOffset.FromUnixTimeSeconds(1_800_000_000));
-
-        AssertEqual(42.5, snapshot.UsedPercent, "Grok used percentage");
-        AssertEqual(resetAt, snapshot.ResetsAt, "Grok reset timestamp");
-        AssertEqual(string.Empty, snapshot.SubscriptionTier, "unconfirmed protobuf strings should not become a Grok subscription tier");
-
         string creditsResponse = JsonSerializer.Serialize(new
         {
             config = new
@@ -2114,35 +2131,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// Builds a minimal gRPC-web billing body for Grok collector tests.
-    /// </summary>
-    private static byte[] CreateGrokBillingResponse(float usedPercent, long resetAt, string unrelatedText = "")
-    {
-        int bits = BitConverter.SingleToInt32Bits(usedPercent);
-        List<byte> payload =
-        [
-            0x0D,
-            (byte)bits,
-            (byte)(bits >> 8),
-            (byte)(bits >> 16),
-            (byte)(bits >> 24),
-            0x28,
-        ];
-        payload.AddRange(EncodeVarint(resetAt));
-        if (unrelatedText.Length > 0)
-        {
-            byte[] tier = Encoding.UTF8.GetBytes(unrelatedText);
-            payload.Add(0x7A);
-            payload.AddRange(EncodeVarint(tier.Length));
-            payload.AddRange(tier);
-        }
-
-        List<byte> response = [0, 0, 0, 0, (byte)payload.Count];
-        response.AddRange(payload);
-        return [.. response];
-    }
-
-    /// <summary>
     /// Builds a minimal JSON credits response for Grok collector tests.
     /// </summary>
     private static string CreateGrokCreditsResponse(double usedPercent, long resetAt)
@@ -2298,24 +2286,6 @@ internal static class Program
                 },
             },
         });
-    }
-
-    /// <summary>
-    /// Encodes a positive integer in protobuf varint form.
-    /// </summary>
-    private static byte[] EncodeVarint(long value)
-    {
-        List<byte> bytes = [];
-        ulong remaining = (ulong)value;
-        do
-        {
-            byte next = (byte)(remaining & 0x7F);
-            remaining >>= 7;
-            bytes.Add(remaining == 0 ? next : (byte)(next | 0x80));
-        }
-        while (remaining != 0);
-
-        return [.. bytes];
     }
 
     /// <summary>
@@ -4292,7 +4262,7 @@ internal sealed class CanceledHttpMessageHandler : HttpMessageHandler
 
 internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
 {
-    private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+    private const string k_CreditsEndpoint = "https://grok.com/rest/grok/credits";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private readonly string m_OldAccessToken;
     private readonly string m_NewAccessToken;

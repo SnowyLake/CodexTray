@@ -1631,14 +1631,19 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     private static string FormatGrokProductName(string product)
     {
-        const string protoPrefix = "PRODUCT_GROK_";
+        const string grokProtoPrefix = "PRODUCT_GROK_";
+        const string protoPrefix = "PRODUCT_";
         string normalized = product?.Trim() ?? string.Empty;
         if (normalized.Length == 0)
         {
             return k_GrokCursorProductName;
         }
 
-        if (normalized.StartsWith(protoPrefix, StringComparison.OrdinalIgnoreCase))
+        if (normalized.StartsWith(grokProtoPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[grokProtoPrefix.Length..];
+        }
+        else if (normalized.StartsWith(protoPrefix, StringComparison.OrdinalIgnoreCase))
         {
             normalized = normalized[protoPrefix.Length..];
         }
