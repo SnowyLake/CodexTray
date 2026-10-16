@@ -121,8 +121,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public RefreshState CodexResetState { get; } = new();
     public RefreshState GrokUsageState { get; } = new();
 
-    [ObservableProperty]
-    public partial string CodexStatusTooltip { get; private set; } = string.Empty;
     private ApiUsageRefreshStatus? m_ApiUsageStatus;
     private int m_ApiUsageErrorCount;
     private int m_ApiUsageMonitorCount;
@@ -434,9 +432,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial string GrokUpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
 
     [ObservableProperty]
-    public partial string GrokStatusTooltip { get; private set; } = string.Empty;
-
-    [ObservableProperty]
     public partial IReadOnlyList<GrokProductUsageItemViewModel> GrokProductUsageItems { get; private set; } = [];
 
     [ObservableProperty]
@@ -487,8 +482,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         m_Settings = settings;
         CodexQuotaPager = new QuotaPagerViewModel(CodexSessionQuota, CodexWeeklyQuota);
-        CodexTokenCost = new TokenCostDashboardViewModel(showSpeed: true, "Local pricing · API equivalent");
-        GrokTokenCost = new TokenCostDashboardViewModel(showSpeed: true, "Grok reported cost / local pricing fallback");
+        CodexTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
+        GrokTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
         retryAsync ??= (_, _) => RefreshCommand.CanExecute(null) ? RefreshCommand.ExecuteAsync(null) : Task.CompletedTask;
@@ -727,7 +722,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         DateTimeOffset timestamp = DateTimeOffset.TryParse(response?.UpdatedAt, out DateTimeOffset parsed) ? parsed : DateTimeOffset.Now;
         CodexUsageState.Update(response?.Available == true, timestamp, response?.Error);
         CodexResetState.Update(response?.ResetCredits.Available == true, timestamp, response?.ResetCredits.Error);
-        CodexStatusTooltip = $"Usage: {CodexUsageState.Tooltip}\nResets: {CodexResetState.Tooltip}";
 
         if (response == null)
         {
@@ -867,26 +861,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 : tokenCostAvailable
                     ? "Token Cost updated, Usage N/A"
                     : "Update error";
-        GrokStatusTooltip = $"Usage: {GrokUsageState.Tooltip}\nToken Cost: {GrokTokenCost.Freshness.Tooltip}";
-    }
-
-    /// <summary>
-    /// Combines Grok quota and local token-statistics errors for the status tooltip.
-    /// </summary>
-    private static string FormatGrokStatusTooltip(GrokUsageDashboard dashboard, bool usageAvailable, bool tokenCostAvailable)
-    {
-        List<string> errors = [];
-        if (!usageAvailable && dashboard.Error.Length > 0)
-        {
-            errors.Add($"Usage: {dashboard.Error}");
-        }
-
-        if (!tokenCostAvailable)
-        {
-            errors.Add("Token Cost: Local Grok Build session data could not be read.");
-        }
-
-        return string.Join(Environment.NewLine, errors);
     }
 
     /// <summary>
@@ -1692,11 +1666,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     internal sealed partial class TokenCostDashboardViewModel : ObservableObject
     {
         private readonly bool m_ShowSpeed;
-        private readonly string m_CostSource;
         public RefreshState Freshness { get; } = new();
 
-        [ObservableProperty]
-        public partial string DetailsTooltip { get; private set; } = string.Empty;
         private TokenCostStatistics? m_Statistics;
         private TokenCostChartPeriod m_ChartPeriod;
 
@@ -1725,10 +1696,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// <summary>
         /// Creates a token-cost dashboard with provider-specific speed visibility.
         /// </summary>
-        public TokenCostDashboardViewModel(bool showSpeed, string costSource = "Provider billing")
+        public TokenCostDashboardViewModel(bool showSpeed)
         {
             m_ShowSpeed = showSpeed;
-            m_CostSource = costSource;
         }
 
         /// <summary>
@@ -1825,7 +1795,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             TokenCostPeriod period = Rows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.LastTwentyFourHours;
             if (m_Statistics == null)
             {
-                DetailsTooltip = $"{m_CostSource}\n{Freshness.Tooltip}";
                 SelectedTokenDisplay = "N/A";
                 SelectedCostDisplay = "N/A";
                 DonutSegments = [];
@@ -1838,8 +1807,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             SelectedCostDisplay = summary.CostUsd is decimal selectedCost
                 ? string.Create(CultureInfo.InvariantCulture, $"{selectedCost.ToString("$0.00", CultureInfo.InvariantCulture)}{(summary.HasUnpricedUsage ? "*" : string.Empty)} · {cacheHit}")
                 : cacheHit;
-            string[] unpriced = m_Statistics.Models.Where(model => GetPeriodSummary(model, period).HasUnpricedUsage).Select(model => model.Model).ToArray();
-            DetailsTooltip = $"{m_CostSource}\n{Freshness.Tooltip}" + (summary.HasUnpricedUsage ? $"\nPartial cost · Unpriced/incomplete: {string.Join(", ", unpriced)}" : string.Empty);
 
             List<TokenCostModelShare> modelShares = m_Statistics.Models
                 .Select(model =>
@@ -1890,11 +1857,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 if (model.CostUsd is decimal modelCost)
                 {
                     tooltipLines.Add($"Cost: {modelCost.ToString("$0.00", CultureInfo.InvariantCulture)}");
-                }
-
-                if (summary.HasUnpricedUsage)
-                {
-                    tooltipLines.Add("Partial cost · See overview for incomplete models");
                 }
 
                 if (m_ShowSpeed && model.TimedDurationMilliseconds > 0)

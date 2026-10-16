@@ -77,7 +77,7 @@
 
 ### 本地 Token Cost
 
-- `TokenCostSummary.HasUnpricedUsage` 按事件与所选周期传播, 保留已知费用小计; Grok 部分自报费用无法完整回算时同样标记. `RefreshState` 保存每部分最后成功时间和当前错误, 失败时 UI 和插件清空数值为 `N/A`. Token Cost tooltip 标注来源并列出当前周期不完整模型, 费用显示 `*`. 价格表按内容比较并同步加载, Codex 在价格字典变化后清空已计算费用的会话缓存, 不依赖文件长度或修改时间.
+- `TokenCostSummary.HasUnpricedUsage` 按事件与所选周期传播, 保留已知费用小计; Grok 部分自报费用无法完整回算时同样标记. `RefreshState` 保存每部分最后成功时间和当前错误, 失败时 UI 和插件清空数值为 `N/A`. 部分费用在金额旁显示 `*`. 时段列表, 圆环中心与 Codex, Grok 标题栏更新时间不显示 tooltip. 价格表按内容比较并同步加载, Codex 在价格字典变化后清空已计算费用的会话缓存, 不依赖文件长度或修改时间.
 - `TokenCostCollector.CollectCodex` 读取 `~/.codex/sessions/**/*.jsonl` 和 `~/.codex/archived_sessions/*.jsonl`, 使用 `Resources/model-pricing.json` 计算 API 等价成本与缓存命中率. 不读取 OpenCode. 同一 thread 的桌面分页文件按文件名顺序拼接后共享累计水位; 父会话未写到 `forked_from` / `parent_thread_id` 截止点的子会话整段不计.
 - `model-pricing.json` 每个模型使用默认一口价 `input`/`cachedInput`/`output`, 可选 `aliases` 与 `periods`. 默认三价覆盖全天. `periods` 按数组顺序命中第一段: 每段可写 `daysUtc` (0=周日到 6=周六), `startUtc`, `endUtc` (UTC `HH:mm`, 含起不含止). 省略星期或起止时间则该段默认全星期或全天. 未命中任何时段时回退默认三价. 分时只影响本地回算, 不拆分 UI, 也不覆盖 Grok 完整自报 `costUsdTicks`.
 - `CollectGrok` 读取 `~/.grok/sessions/**/updates.jsonl` 和 `~/.grok/archived_sessions/**/updates.jsonl`, 汇总 `turn_completed` 事件中的用量. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在输出中, 不重复相加.
@@ -98,7 +98,7 @@
 - `TrayController.BuildTrayTooltip` 只格式化当前可见来源的插件缓存, 使用 `Codex W`, `Grok W` 和 `DeepSeek` 标签, 总长最多 63 字符. 已停用的页面位不增加托盘行. 额度限制在 0 到 100 的整数, DeepSeek 整元余额超过 11 字符时截短并加省略号; 不回显源错误或凭据. 各来源发布与页面可见性变化后更新托盘 Text. `TrayPopupViewModel.IsPanelPinned` 默认 false, 不写 settings, 开启后 `OnDeactivated` 不隐藏; Esc 与托盘左键仍沿用显式隐藏逻辑, 页脚图钉使用现有绿色表示选中状态. 窗口关闭时保留 ViewModel 的采集状态, 清理应用内对话框及其确认回调, 并取消窗口的 `PropertyChanged` 订阅.
 - Codex, Grok 与 APIs 页面默认可见. `VisiblePages` 为空时不运行定时刷新和本地 HTTP 服务. `PageItem` 保留 `Codex = 1`, `Apis = 4`, `Grok = 8`. 位 1 已停用, 旧配置里的该位在 `Normalize` 时被掩掉. 缺少 `SettingsSchemaVersion` 或版本低于当前值, 且 `VisiblePages` 为 7 (旧版 Codex|Cursor|Apis) 时, 视为当时的全部页面并改为 `Codex|Grok|Apis`.
 - Codex 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Lifetime`. `24H` 从当前时刻精确向前滚动 24 小时. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
-- 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). Token 数量使用 K, M, B.
+- 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). 时段列表与圆环中心不显示 tooltip. Token 数量使用 K, M, B.
 - Codex 额度大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示, 只有一个有效页面时隐藏页点. Resets 使用全宽小卡片. Codex 订阅徽章来自 usage 响应的 `plan_type`: `free`/`go`/`plus`/`chatgpt` 显示 `FREE`/`GO`/`PLUS`; `prolite` 及 `pro_lite`/`pro_5x`/`pro5x` 显示 `PRO 5X`; `pro` 及 `pro_10x`/`pro10x`/`pro_20x`/`pro20x` 显示 `PRO 10X`; `promax` 及 `pro_max`/`pro_25x`/`pro25x` 显示 `PRO 25X`; 其他值显示 `UNKNOWN`.
 - Grok 上方使用 Weekly 大卡片和产品占比小卡片, 这是面板上唯一的订阅额度区域. 订阅徽章使用 Grok billing 返回的订阅档位. Weekly 大卡片显示 billing 剩余整数百分比, 重置时间使用账期结束时间. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 进度条最多四段: 最高三项加上 `Others`. 图例固定三项, 全为零时显示 `Build`, `Bot`, `Cursor`; 不足三项时按该默认顺序补齐. 三个及以上非零产品时保留最高三项, 其余仅合并到进度条中的 `Others`. `Others` 不出现在图例中. 鼠标悬停进度条时列出全部返回产品的占比, 包括零值; 没有返回产品时不显示 tooltip. 图例前三项颜色与 Token Cost 圆环前三项一致, `Others` 与圆环第四项一致. 用量不可用时显示 `N/A`. 产品名和占比来自 billing `productUsage`. 显示名去掉 `PRODUCT_GROK_`, `PRODUCT_` 与 `Grok` 前缀, 因此 `PRODUCT_CURSOR` 显示为 `Cursor`. 缺少产品名时按 `Cursor` 计.
 - API provider 的 API key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.

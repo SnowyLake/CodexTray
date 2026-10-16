@@ -689,15 +689,15 @@
                     </Grid.RowDefinitions>
 
                     <Grid x:Name="TokenCostOverview"
-                          Grid.Row="1"
-                          ToolTip="{Binding DetailsTooltip}">
+                          Grid.Row="1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="10" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <ItemsControl ItemsSource="{Binding Rows}"
+                        <ItemsControl x:Name="TokenCostPeriodList"
+                                      ItemsSource="{Binding Rows}"
                                       VerticalAlignment="Top"
                                       ItemTemplate="{StaticResource TokenCostPeriodRowDataTemplate}">
                             <ItemsControl.RenderTransform>
@@ -753,8 +753,8 @@
                                                    HorizontalAlignment="Center"
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                                    FontSize="14" />
-                                        <TextBlock Text="{Binding SelectedCostDisplay}"
-                                                   ToolTip="{Binding DetailsTooltip}"
+                                        <TextBlock x:Name="TokenCostCenterCost"
+                                                   Text="{Binding SelectedCostDisplay}"
                                                    Margin="0,1,0,0"
                                                    HorizontalAlignment="Center"
                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
@@ -910,8 +910,8 @@
                                  Margin="0,0,6,0"
                                  VerticalAlignment="Center"
                                  Fill="{Binding CodexStatusDotBrush}" />
-                        <TextBlock Text="{Binding CodexUpdatedAtDisplay}"
-                                   ToolTip="{Binding CodexStatusTooltip}"
+                        <TextBlock x:Name="CodexUpdatedAtText"
+                                   Text="{Binding CodexUpdatedAtDisplay}"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    FontSize="12" />
@@ -1044,10 +1044,10 @@
                             </Button>
                         </StackPanel>
                     </Grid>
-                    <StackPanel Orientation="Horizontal"
+                    <StackPanel x:Name="GrokUpdatedStatus"
+                                Orientation="Horizontal"
                                 Margin="2,6,0,0"
-                                VerticalAlignment="Center"
-                                ToolTip="{Binding GrokStatusTooltip}">
+                                VerticalAlignment="Center">
                         <Ellipse Width="7"
                                  Height="7"
                                  Margin="0,0,6,0"
