@@ -268,6 +268,15 @@ internal static class Program
                 AssertEqual(22d, codexTokenCostChartPeriodButton.ActualHeight, "Codex token cost chart period button height");
                 AssertEqual("\uE8AB", codexTokenCostChartPeriodButton.Content, "Codex token cost chart period button glyph");
                 AssertTrue(codexTokenCostChartPeriodButton.ToolTip is null, "Codex token cost chart period button should not show a tooltip");
+                AssertTrue(codexTokenCostOverview.ToolTip is null, "token cost overview should not show a tooltip");
+                System.Windows.Controls.ItemsControl codexTokenCostPeriodList = FindNamedDescendant<System.Windows.Controls.ItemsControl>(codexTokenCostDashboard, "TokenCostPeriodList");
+                AssertTrue(codexTokenCostPeriodList.ToolTip is null, "period list should not show a tooltip");
+                System.Windows.Controls.TextBlock codexTokenCostCenterCost = FindNamedDescendant<System.Windows.Controls.TextBlock>(codexTokenCostDashboard, "TokenCostCenterCost");
+                AssertTrue(codexTokenCostCenterCost.ToolTip is null, "donut center should not show a tooltip");
+                System.Windows.Controls.TextBlock codexUpdatedAtText = (System.Windows.Controls.TextBlock)window.FindName("CodexUpdatedAtText");
+                AssertTrue(codexUpdatedAtText.ToolTip is null, "Codex updated time should not show a tooltip");
+                System.Windows.Controls.StackPanel grokUpdatedStatus = (System.Windows.Controls.StackPanel)window.FindName("GrokUpdatedStatus");
+                AssertTrue(grokUpdatedStatus.ToolTip is null, "Grok updated time should not show a tooltip");
                 AssertTrue(
                     ReferenceEquals(System.Windows.Media.VisualTreeHelper.GetParent(codexTokenCostChartPeriodButton), codexTokenCostDonutArea),
                     "Codex token cost chart period button should be hosted by the donut area");
@@ -2415,7 +2424,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Verifies failed reads keep success times while clearing values and exposing missing model prices.
+    /// Verifies failed reads keep success times while clearing values and marking partial costs.
     /// </summary>
     private static Task TestDataFreshnessAsync()
     {
@@ -2428,12 +2437,11 @@ internal static class Program
             Models = [new TokenCostModelStatistics { Model = "unknown-price", LastTwentyFourHours = partial }],
         });
         AssertTrue(viewModel.CodexTokenCost.SelectedCostDisplay.Contains('*'), "partial cost must be visibly marked");
-        AssertTrue(viewModel.CodexTokenCost.DetailsTooltip.Contains("unknown-price"), "missing model must be listed");
         DateTimeOffset? lastSuccess = viewModel.CodexTokenCost.Freshness.LastSuccess;
         viewModel.UpdateTokenCost(null, "pricing unavailable");
         AssertEqual(lastSuccess, viewModel.CodexTokenCost.Freshness.LastSuccess, "failure must preserve the success timestamp");
         AssertEqual("N/A", viewModel.CodexTokenCost.SelectedCostDisplay, "failed read must clear old values");
-        AssertTrue(viewModel.CodexTokenCost.DetailsTooltip.Contains("pricing unavailable"), "cost failure reason must be accessible");
+        AssertEqual("pricing unavailable", viewModel.CodexTokenCost.Freshness.Error, "cost failure reason must stay on the refresh state");
         ApiMonitorViewModel card = new(new ApiMonitorSettings { Id = "test", Provider = ApiMonitorSettings.DeepSeekProvider });
         card.Update(new ApiUsageResult("test", true, "¥1.00", "", "", now));
         card.Update(new ApiUsageResult("test", false, "N/A", "", "timeout", now.AddMinutes(1)));
