@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
+using ZstdSharp;
 
 namespace CodexTray.Core;
 
@@ -266,23 +267,85 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Enumerates active and archived Codex session logs.
+    /// Enumerates active and archived Codex session logs, including zstd rollouts from local history compression.
     /// </summary>
     private static IEnumerable<string> EnumerateCodexSessionFiles(string codexDirectory, CancellationToken cancellationToken)
     {
         string sessions = Path.Combine(codexDirectory, "sessions");
         string archived = Path.Combine(codexDirectory, "archived_sessions");
-        IEnumerable<string> activeFiles = Directory.Exists(sessions)
-            ? Directory.EnumerateFiles(sessions, "*.jsonl", SearchOption.AllDirectories)
-            : Enumerable.Empty<string>();
-        IEnumerable<string> archivedFiles = Directory.Exists(archived)
-            ? Directory.EnumerateFiles(archived, "*.jsonl", SearchOption.TopDirectoryOnly)
-            : Enumerable.Empty<string>();
-        foreach (string path in activeFiles.Concat(archivedFiles))
+        foreach (string path in EnumerateCodexSessionDirectory(sessions, SearchOption.AllDirectories, cancellationToken))
         {
-            cancellationToken.ThrowIfCancellationRequested();
             yield return path;
         }
+
+        foreach (string path in EnumerateCodexSessionDirectory(archived, SearchOption.TopDirectoryOnly, cancellationToken))
+        {
+            yield return path;
+        }
+    }
+
+    /// <summary>
+    /// Enumerates JSONL logs and keeps the plain file when a zstd sibling is still present.
+    /// </summary>
+    private static IEnumerable<string> EnumerateCodexSessionDirectory(string directory, SearchOption searchOption, CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(directory))
+        {
+            yield break;
+        }
+
+        Dictionary<string, string> selected = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string pattern in new[] { "*.jsonl", "*.jsonl.zst" })
+        {
+            foreach (string path in Directory.EnumerateFiles(directory, pattern, searchOption))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!IsCodexSessionLog(path))
+                {
+                    continue;
+                }
+
+                string logicalPath = LogicalCodexSessionPath(path);
+                if (!selected.TryGetValue(logicalPath, out string? existing))
+                {
+                    selected[logicalPath] = path;
+                }
+                else if (IsCompressedCodexSession(existing) && !IsCompressedCodexSession(path))
+                {
+                    selected[logicalPath] = path;
+                }
+            }
+        }
+
+        foreach (string path in selected.Values)
+        {
+            yield return path;
+        }
+    }
+
+    /// <summary>
+    /// Returns whether the path is a Codex rollout log, including a zstd-compressed one.
+    /// </summary>
+    private static bool IsCodexSessionLog(string path)
+    {
+        return path.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)
+            || IsCompressedCodexSession(path);
+    }
+
+    /// <summary>
+    /// Returns whether Codex replaced this rollout with a zstd frame of the original JSONL.
+    /// </summary>
+    private static bool IsCompressedCodexSession(string path)
+    {
+        return path.EndsWith(".jsonl.zst", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Returns the uncompressed rollout path used to pair a plain file with its zstd sibling.
+    /// </summary>
+    private static string LogicalCodexSessionPath(string path)
+    {
+        return IsCompressedCodexSession(path) ? path[..^".zst".Length] : path;
     }
 
     /// <summary>
@@ -902,7 +965,7 @@ public sealed class TokenCostCollector
     {
         threadId = string.Empty;
         rolloutId = string.Empty;
-        string name = Path.GetFileNameWithoutExtension(path);
+        string name = Path.GetFileNameWithoutExtension(LogicalCodexSessionPath(path));
         if (name.Length < 36 || !Guid.TryParse(name.AsSpan(name.Length - 36, 36), out Guid rollout))
         {
             return false;
@@ -1047,16 +1110,64 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Reads an active Codex JSONL file without blocking its writer.
+    /// Reads an active Codex JSONL file without blocking its writer. Compressed rollouts are zstd frames of the same JSONL.
     /// </summary>
     private static IEnumerable<string> ReadLinesShared(string path, CancellationToken cancellationToken)
     {
-        using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using StreamReader reader = new(stream);
-        while (reader.ReadLine() is string line)
+        bool compressed = IsCompressedCodexSession(path);
+        FileStream stream;
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            yield return line;
+            stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        }
+        catch (Exception exception) when (compressed && exception is not OperationCanceledException)
+        {
+            yield break;
+        }
+
+        using (stream)
+        {
+            Stream content = stream;
+            DecompressionStream? decompressed = null;
+            if (compressed)
+            {
+                try
+                {
+                    decompressed = new DecompressionStream(stream);
+                    content = decompressed;
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    yield break;
+                }
+            }
+
+            using (decompressed)
+            using (StreamReader reader = new(content, leaveOpen: true))
+            {
+                while (TryReadSessionLine(reader, compressed, out string? line))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    yield return line;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads one JSONL line. A damaged compressed rollout stops that file instead of failing every session.
+    /// </summary>
+    private static bool TryReadSessionLine(StreamReader reader, bool compressed, [NotNullWhen(true)] out string? line)
+    {
+        try
+        {
+            line = reader.ReadLine();
+            return line != null;
+        }
+        catch (Exception exception) when (compressed && exception is not OperationCanceledException)
+        {
+            line = null;
+            return false;
         }
     }
 

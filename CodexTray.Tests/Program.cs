@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using ZstdSharp;
 
 namespace CodexTray.Tests;
 
@@ -88,6 +89,7 @@ internal static class Program
         await RunAsync("collects exact Codex token cost", TestCodexTokenCostCollectorAsync);
         await RunAsync("prefers Codex last_token_usage over cumulative totals", TestCodexLastTokenUsageAsync);
         await RunAsync("deduplicates archived Codex rollouts by thread id", TestCodexArchivedRolloutDedupAsync);
+        await RunAsync("reads Codex token totals from zstd compressed history", TestCodexCompressedHistoryAsync);
         await RunAsync("applies model alias pricing", TestModelAliasPricingAsync);
         await RunAsync("applies DeepSeek peak and off-peak pricing", TestDeepSeekPeakPricingAsync);
         await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
@@ -3641,6 +3643,89 @@ internal static class Program
         AssertEqual(110L, summary.TotalTokens, "archived duplicate rollout is skipped");
         AssertEqual(0.0003m, summary.CostUsd, "archived duplicate rollout cost");
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies zstd session logs keep older-date totals, prefer a plain sibling, and skip a damaged frame.
+    /// </summary>
+    private static Task TestCodexCompressedHistoryAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{\"gpt-test\":{\"input\":2,\"cachedInput\":0.2,\"output\":10}}");
+        DateTimeOffset now = new(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8));
+        const string olderId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        const string todayId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        const string bothId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+        const string threadId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+        const string pageOneId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+        const string pageTwoId = "12121212-1212-1212-1212-121212121212";
+        string olderDir = Path.Combine(temp.Path, "sessions", "2026", "05", "01");
+        string todayDir = Path.Combine(temp.Path, "sessions", "2026", "07", "11");
+        string archived = Path.Combine(temp.Path, "archived_sessions");
+        Directory.CreateDirectory(olderDir);
+        Directory.CreateDirectory(todayDir);
+        Directory.CreateDirectory(archived);
+        WriteCompressedCodexLog(Path.Combine(olderDir, $"rollout-{olderId}.jsonl.zst"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-05-01T10:00:00+08:00", last: (100, 0, 10)),
+        ]);
+        WriteCompressedCodexLog(Path.Combine(olderDir, $"rollout-2026-05-01T09-00-00-{threadId}_{pageOneId}.jsonl.zst"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-05-01T09:00:00+08:00", total: (1000, 0, 100)),
+        ]);
+        WriteCompressedCodexLog(Path.Combine(olderDir, $"rollout-2026-05-01T10-00-00-{threadId}_{pageTwoId}.jsonl.zst"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-05-01T11:00:00+08:00", total: (2000, 0, 200)),
+        ]);
+        File.WriteAllLines(Path.Combine(todayDir, $"rollout-{todayId}.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-07-11T09:00:00+08:00", last: (200, 0, 20)),
+        ]);
+        File.WriteAllLines(Path.Combine(todayDir, $"rollout-{bothId}.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-07-11T10:00:00+08:00", last: (30, 0, 3)),
+        ]);
+        WriteCompressedCodexLog(Path.Combine(todayDir, $"rollout-{bothId}.jsonl.zst"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-07-11T10:00:00+08:00", last: (9000, 0, 900)),
+        ]);
+        WriteCompressedCodexLog(Path.Combine(archived, $"rollout-{todayId}.jsonl.zst"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-07-11T09:00:00+08:00", last: (8000, 0, 800)),
+        ]);
+        WriteCompressedCodexLog(Path.Combine(archived, "rollout-abababab-abab-abab-abab-abababababab.jsonl.zst"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-06-01T10:00:00+08:00", last: (40, 0, 4)),
+        ]);
+        File.WriteAllBytes(Path.Combine(olderDir, "rollout-dddddddd-dddd-dddd-dddd-dddddddddddd.jsonl.zst"), [1, 2, 3, 4, 5]);
+
+        TokenCostStatistics statistics = new TokenCostCollector(pricingPath).CollectCodex(temp.Path, now);
+        AssertEqual(253L, statistics.Today.TotalTokens, "plain sibling and archived zstd twin are not double-counted");
+        AssertEqual(2607L, statistics.Lifetime.TotalTokens, "older zstd rollouts, stitched pages, and archived-only logs are included");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Writes one Codex JSONL log as a zstd frame, matching local history compression.
+    /// </summary>
+    private static void WriteCompressedCodexLog(string path, IReadOnlyList<string> lines)
+    {
+        using FileStream stream = File.Create(path);
+        using CompressionStream compression = new(stream, 3);
+        using StreamWriter writer = new(compression, leaveOpen: true);
+        foreach (string line in lines)
+        {
+            writer.WriteLine(line);
+        }
     }
 
     /// <summary>
