@@ -4,6 +4,7 @@
     <ProjectReference Include="..\CodexTray.App\CodexTray.App.csproj" />
     <ProjectReference Include="..\CodexTray.Core\CodexTray.Core.csproj" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
     <!-- Pin the native SQLite bundle above the 2.1.11 version pulled by Microsoft.Data.Sqlite. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <Content Include="..\Plugins\LiteMonitor\CodexTray.json" Link="Plugins\LiteMonitor\CodexTray.json" CopyToOutputDirectory="PreserveNewest" />
