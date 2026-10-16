@@ -197,7 +197,7 @@ internal static class RetryTests
     }
 
     /// <summary>
-    /// Verifies the gRPC fallback does not bypass a terminal server Retry-After instruction.
+    /// Verifies a terminal server Retry-After instruction is not bypassed by another credits request.
     /// </summary>
     internal static async Task GrokRateLimitAsync()
     {
@@ -220,7 +220,7 @@ internal static class RetryTests
                 }));
                 GrokUsageDashboard dashboard = await new GrokUsageCollector(client).CollectDashboardAsync();
                 Check(sends == 1 && UsageDiagnostics.Category(dashboard.Error) == (status == HttpStatusCode.TooManyRequests ? "Rate limit" : "Service unavailable"),
-                    "no gRPC or OAuth bypass on terminal HTTP failure");
+                    "no extra credits request or OAuth bypass on terminal HTTP failure");
                 sends = 0;
                 try
                 {

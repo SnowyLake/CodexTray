@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -18,12 +17,9 @@ public sealed record GrokUsageDashboard(GrokUsageSnapshot? Usage, string Error, 
 
 public sealed class GrokUsageCollector
 {
-    private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
-    private const string k_BillingEndpoint = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
+    private const string k_CreditsEndpoint = "https://grok.com/rest/grok/credits";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private const string k_DefaultClientId = "b1a00492-073a-47ea-816f-4c329264a828";
-    private const long k_MinimumUnixTimestamp = 1_700_000_000;
-    private const long k_MaximumUnixTimestamp = 2_100_000_000;
     private static readonly TimeSpan s_RefreshBuffer = TimeSpan.FromMinutes(5);
     private static readonly SemaphoreSlim s_GrokBuildAuthLock = new(1, 1);
     private static readonly HttpClient s_HttpClient = new()
@@ -63,12 +59,12 @@ public sealed class GrokUsageCollector
         GrokUsageSnapshot usage;
         try
         {
-            usage = await FetchBillingAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
+            usage = await FetchCreditsAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidOperationException exception) when (IsAuthFailure(exception))
         {
             (accessToken, userId) = await ResolveGrokBuildAccessTokenAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
-            usage = await FetchBillingAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
+            usage = await FetchCreditsAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
         }
 
         return TryLoadLocalSubscriptionTier(accessToken, out string subscriptionTier)
@@ -222,39 +218,6 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Parses a Grok billing gRPC-web or raw protobuf response.
-    /// </summary>
-    public static GrokUsageSnapshot ParseGrpcWebResponse(byte[] responseBody, DateTimeOffset now)
-    {
-        List<byte[]> payloads = ExtractProtobufPayloads(responseBody);
-        ProtobufScan scan = new();
-        foreach (byte[] payload in payloads)
-        {
-            ScanProtobuf(payload, 0, [], scan);
-        }
-
-        Fixed32Field? percentField = scan.Fixed32Fields
-            .Where(field => field.Path[^1] == 1 && float.IsFinite(field.Value) && field.Value >= 0 && field.Value <= 100)
-            .OrderBy(field => field.Path.Count)
-            .ThenBy(field => field.Order)
-            .FirstOrDefault();
-        VarintField? resetField = scan.VarintFields
-            .Where(field => field.Value >= k_MinimumUnixTimestamp && field.Value <= k_MaximumUnixTimestamp && field.Value > (ulong)now.ToUnixTimeSeconds())
-            .OrderBy(field => PathEquals(field.Path, 1, 5, 1) ? 0 : 1)
-            .ThenBy(field => field.Value)
-            .FirstOrDefault();
-        bool hasUsagePeriod = scan.VarintFields.Any(field =>
-            PathStartsWith(field.Path, 1, 6) ||
-            (PathEquals(field.Path, 1, 8, 1) && (field.Value == 1 || field.Value == 2)));
-        if (resetField == null || (percentField == null && !hasUsagePeriod))
-        {
-            throw new GrokDataException("Could not parse Grok billing usage.");
-        }
-
-        return new GrokUsageSnapshot(percentField?.Value ?? 0, (long)resetField.Value);
-    }
-
-    /// <summary>
     /// Loads Grok Build credentials and refreshes them when expired or forced.
     /// </summary>
     private async Task<(string AccessToken, string UserId)> ResolveGrokBuildAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
@@ -313,35 +276,7 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Fetches Grok credits through the official JSON endpoint with a gRPC-web fallback.
-    /// </summary>
-    private async Task<GrokUsageSnapshot> FetchBillingAsync(string accessToken, string userId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await FetchCreditsAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
-        }
-        catch (JsonException)
-        {
-        }
-        catch (FormatException)
-        {
-        }
-        catch (OverflowException)
-        {
-        }
-        catch (GrokDataException exception) when (!IsAuthFailure(exception))
-        {
-        }
-        catch (UsageHttpException exception) when (exception.Status is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
-        {
-        }
-
-        return await FetchGrpcWebBillingAsync(accessToken, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Sends the Grok credits JSON request for one access token.
+    /// Requests weekly Grok credits for one access token.
     /// </summary>
     private async Task<GrokUsageSnapshot> FetchCreditsAsync(string accessToken, string userId, CancellationToken cancellationToken)
     {
@@ -369,39 +304,6 @@ public sealed class GrokUsageCollector
         }
 
         return ParseCreditsResponse(responseBody);
-    }
-
-    /// <summary>
-    /// Sends the Grok billing gRPC-web fallback request for one access token.
-    /// </summary>
-    private async Task<GrokUsageSnapshot> FetchGrpcWebBillingAsync(string accessToken, CancellationToken cancellationToken)
-    {
-        using HttpRequestMessage request = new(HttpMethod.Post, k_BillingEndpoint);
-        using ByteArrayContent content = new([0, 0, 0, 0, 0]);
-        content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc-web+proto");
-        request.Content = content;
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        request.Headers.TryAddWithoutValidation("Origin", "https://grok.com");
-        request.Headers.TryAddWithoutValidation("Referer", "https://grok.com/?_s=usage");
-        request.Headers.TryAddWithoutValidation("x-grpc-web", "1");
-        request.Headers.TryAddWithoutValidation("x-user-agent", "connect-es/2.1.1");
-        request.Headers.Accept.ParseAdd("*/*");
-        request.Headers.UserAgent.ParseAdd("CodexTray");
-
-        using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
-        byte[] responseBody = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-        {
-            throw new GrokDataException("Grok Build OAuth token expired or unauthorized. Run grok login again.");
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new UsageHttpException(response.StatusCode);
-        }
-
-        ValidateGrpcStatus(response.Headers);
-        return ParseGrpcWebResponse(responseBody, DateTimeOffset.UtcNow);
     }
 
     /// <summary>
@@ -711,224 +613,6 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Validates a nonzero gRPC status returned in response headers.
-    /// </summary>
-    private static void ValidateGrpcStatus(HttpResponseHeaders headers)
-    {
-        if (headers.TryGetValues("grpc-status", out IEnumerable<string>? values) &&
-            int.TryParse(values.FirstOrDefault(), CultureInfo.InvariantCulture, out int status) &&
-            status != 0)
-        {
-            throw new GrokDataException(status == 16
-                ? "Grok Build OAuth token expired or unauthorized. Run grok login again."
-                : $"Grok billing request failed with gRPC status {status}.");
-        }
-    }
-
-    /// <summary>
-    /// Extracts protobuf messages from a gRPC-web response or accepts raw protobuf.
-    /// </summary>
-    private static List<byte[]> ExtractProtobufPayloads(byte[] responseBody)
-    {
-        List<byte[]> payloads = [];
-        int index = 0;
-        while (index < responseBody.Length)
-        {
-            if (index + 5 > responseBody.Length)
-            {
-                payloads.Clear();
-                break;
-            }
-
-            byte flags = responseBody[index];
-            int length = (responseBody[index + 1] << 24) |
-                (responseBody[index + 2] << 16) |
-                (responseBody[index + 3] << 8) |
-                responseBody[index + 4];
-            int payloadStart = index + 5;
-            int payloadEnd = payloadStart + length;
-            if (length < 0 || payloadEnd > responseBody.Length)
-            {
-                payloads.Clear();
-                break;
-            }
-
-            if ((flags & 0x80) != 0)
-            {
-                ValidateGrpcTrailer(responseBody[payloadStart..payloadEnd]);
-            }
-            else
-            {
-                payloads.Add(responseBody[payloadStart..payloadEnd]);
-            }
-
-            index = payloadEnd;
-        }
-
-        if (payloads.Count == 0 && LooksLikeProtobuf(responseBody))
-        {
-            payloads.Add(responseBody);
-        }
-
-        if (payloads.Count == 0)
-        {
-            throw new GrokDataException("Grok billing returned no protobuf payload.");
-        }
-
-        return payloads;
-    }
-
-    /// <summary>
-    /// Validates a gRPC status encoded in a gRPC-web trailer frame.
-    /// </summary>
-    private static void ValidateGrpcTrailer(byte[] trailer)
-    {
-        string text = Encoding.UTF8.GetString(trailer);
-        foreach (string line in text.Split("\r\n", StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (!line.StartsWith("grpc-status:", StringComparison.OrdinalIgnoreCase) ||
-                !int.TryParse(line["grpc-status:".Length..].Trim(), CultureInfo.InvariantCulture, out int status) ||
-                status == 0)
-            {
-                continue;
-            }
-
-            throw new GrokDataException(status == 16
-                ? "Grok Build OAuth token expired or unauthorized. Run grok login again."
-                : $"Grok billing request failed with gRPC status {status}.");
-        }
-    }
-
-    /// <summary>
-    /// Determines whether bytes can start a raw protobuf message.
-    /// </summary>
-    private static bool LooksLikeProtobuf(byte[] data)
-    {
-        if (data.Length == 0)
-        {
-            return false;
-        }
-
-        byte first = data[0];
-        int fieldNumber = first >> 3;
-        int wireType = first & 0x07;
-        return fieldNumber > 0 && wireType is 0 or 1 or 2 or 5;
-    }
-
-    /// <summary>
-    /// Scans nested protobuf fields needed to identify usage and reset values.
-    /// </summary>
-    private static void ScanProtobuf(byte[] data, int depth, List<ulong> path, ProtobufScan scan)
-    {
-        int index = 0;
-        while (index < data.Length)
-        {
-            int fieldStart = index;
-            if (!TryReadVarint(data, ref index, out ulong key) || key == 0)
-            {
-                index = fieldStart + 1;
-                continue;
-            }
-
-            ulong fieldNumber = key >> 3;
-            ulong wireType = key & 0x07;
-            List<ulong> fieldPath = new(path) { fieldNumber };
-            switch (wireType)
-            {
-                case 0:
-                    if (TryReadVarint(data, ref index, out ulong value))
-                    {
-                        scan.VarintFields.Add(new VarintField(fieldPath, value));
-                    }
-                    else
-                    {
-                        index = fieldStart + 1;
-                    }
-
-                    break;
-                case 1:
-                    if (index + 8 > data.Length)
-                    {
-                        return;
-                    }
-
-                    index += 8;
-                    break;
-                case 2:
-                    if (!TryReadVarint(data, ref index, out ulong length) || length > (ulong)(data.Length - index))
-                    {
-                        index = fieldStart + 1;
-                        continue;
-                    }
-
-                    int nestedLength = (int)length;
-                    if (depth < 4 && nestedLength > 0)
-                    {
-                        byte[] nested = data[index..(index + nestedLength)];
-                        ScanProtobuf(nested, depth + 1, fieldPath, scan);
-                    }
-
-                    index += nestedLength;
-                    break;
-                case 5:
-                    if (index + 4 > data.Length)
-                    {
-                        return;
-                    }
-
-                    int bits = data[index] |
-                        (data[index + 1] << 8) |
-                        (data[index + 2] << 16) |
-                        (data[index + 3] << 24);
-                    scan.Fixed32Fields.Add(new Fixed32Field(fieldPath, BitConverter.Int32BitsToSingle(bits), scan.NextOrder++));
-                    index += 4;
-                    break;
-                default:
-                    index = fieldStart + 1;
-                    break;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Reads one protobuf varint from the supplied byte array.
-    /// </summary>
-    private static bool TryReadVarint(byte[] data, ref int index, out ulong value)
-    {
-        value = 0;
-        int shift = 0;
-        while (index < data.Length && shift < 64)
-        {
-            byte current = data[index++];
-            value |= (ulong)(current & 0x7F) << shift;
-            if ((current & 0x80) == 0)
-            {
-                return true;
-            }
-
-            shift += 7;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Checks whether a protobuf field path exactly matches the expected path.
-    /// </summary>
-    private static bool PathEquals(IReadOnlyList<ulong> path, params ulong[] expected)
-    {
-        return path.Count == expected.Length && path.SequenceEqual(expected);
-    }
-
-    /// <summary>
-    /// Checks whether a protobuf field path starts with the expected prefix.
-    /// </summary>
-    private static bool PathStartsWith(IReadOnlyList<ulong> path, params ulong[] expected)
-    {
-        return path.Count >= expected.Length && path.Take(expected.Length).SequenceEqual(expected);
-    }
-
-    /// <summary>
     /// Identifies subscription tier strings while allowing future xAI tier names to pass through.
     /// </summary>
     private static bool LooksLikeSubscriptionTier(string value)
@@ -940,19 +624,6 @@ public sealed class GrokUsageCollector
             normalized.Contains("Business", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("Enterprise", StringComparison.OrdinalIgnoreCase);
     }
-
-    private sealed class ProtobufScan
-    {
-        public List<Fixed32Field> Fixed32Fields { get; } = [];
-
-        public int NextOrder { get; set; }
-
-        public List<VarintField> VarintFields { get; } = [];
-    }
-
-    private sealed record Fixed32Field(IReadOnlyList<ulong> Path, float Value, int Order);
-
-    private sealed record VarintField(IReadOnlyList<ulong> Path, ulong Value);
 
     private sealed record OAuthTokenRefresh(string AccessToken, string RefreshToken, string? IdToken, DateTimeOffset ExpiresAt);
 
