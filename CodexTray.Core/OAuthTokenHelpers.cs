@@ -19,7 +19,6 @@ internal static class OAuthTokenHelpers
         string clientId,
         string refreshToken,
         string providerLabel,
-        string reauthenticationHint,
         CancellationToken cancellationToken)
     {
         using HttpRequestMessage request = new(HttpMethod.Post, endpoint);
@@ -79,22 +78,6 @@ internal static class OAuthTokenHelpers
         {
             return false;
         }
-    }
-
-    /// <summary>
-    /// Reads the JWT sub claim without validating the signature.
-    /// </summary>
-    internal static bool TryGetJwtSubject(string token, out string subject)
-    {
-        subject = string.Empty;
-        if (!TryReadJwtPayload(token, out JsonElement payload) ||
-            !TryGetRequiredString(payload, "sub", out string parsedSubject))
-        {
-            return false;
-        }
-
-        subject = parsedSubject;
-        return true;
     }
 
     /// <summary>

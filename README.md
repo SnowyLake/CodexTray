@@ -59,7 +59,7 @@
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
 - Codex 页: 查看额度, Resets 和 Token Cost. 点击额度卡片左下角的页点或使用鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示.
-- Grok 页: 查看订阅类型, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称, Weekly 额度和各产品占比来自同一次 Grok 查询.
+- Grok 页: 查看订阅类型, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. Weekly 额度和各产品占比来自额度查询.
 - APIs 页: 添加和查看 DeepSeek, OpenRouter, Vercel AI Gateway, NanoGPT 或 NewAPI 监控卡片.
 - Settings 页: 调整刷新间隔, 主题, 重置时间格式, 自启动和插件设置. 在 `Visible pages` 中隐藏页面后, 对应的后台采集也会停止. 版本号右侧的 `Check for updates` 会检查 GitHub Release. 发现新版本时, 弹窗询问是否安装.
 - About 页: 查看当前版本, 项目主页和许可证信息.
@@ -88,7 +88,7 @@ Codex 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓存命中
 
 ## Grok 页面
 
-在本机 Grok Build 登录后, 打开 Grok 页面可查看订阅名称, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称, Weekly 额度和各产品占比来自同一次 Grok 查询.
+在本机 Grok Build 登录后, 打开 Grok 页面可查看订阅名称, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. Weekly 额度和各产品占比来自额度查询.
 
 产品占比默认显示 `Build`, `Bot` 和 `Cursor`. 进度条最多四段, 其余产品合并为 `Others`, 鼠标悬停进度条可查看全部产品占比. 重置时间可以在 Settings 中切换为倒计时或具体时间.
 
@@ -118,7 +118,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 ## 数据与隐私
 
-- Codex 与 Grok 的额度使用本机已有登录信息向各自的官方服务查询. Grok 页的订阅名称来自同一次 Grok 额度查询.
+- Codex 与 Grok 的额度使用本机已有登录信息向各自的官方服务查询. Grok 页的订阅名称来自 Grok Build 设置中的显示名, 读不到时使用本机已有的订阅记录.
 - Codex 和 Grok 的 Token Cost 从本机会话日志统计. Codex 开启「压缩本地聊天记录」后, 较早的会话会保存为 `.jsonl.zst`, 这些压缩日志仍按原来的记录时间计入对应日期. Codex 和 Grok 页面不读取 OpenCode 会话.
 - DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击输入框右侧的眼睛图标可临时显示和编辑, 再次点击或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.
@@ -143,7 +143,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 ### 为什么 Grok 页的订阅名称是 UNKNOWN
 
-请先在 Grok Build 中登录. 订阅名称随 Weekly 额度一起更新. 没有读到订阅档位时显示 `UNKNOWN`. 自动续期失败时, 请运行 `grok login`.
+请先在 Grok Build 中登录. 订阅名称使用 Grok 设置中的显示名, 读不到时再看本机记录. 仍然没有时显示 `UNKNOWN`. 自动续期失败时, 请运行 `grok login`.
 
 ### 为什么 Grok 页面显示 N/A
 

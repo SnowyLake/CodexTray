@@ -224,7 +224,7 @@ internal static class RetryTests
                 sends = 0;
                 try
                 {
-                    await OAuthTokenHelpers.RefreshAsync(client, "https://auth.example/token", "fake-client", "fake-refresh", "Grok", "Sign in", default);
+                    await OAuthTokenHelpers.RefreshAsync(client, "https://auth.example/token", "fake-client", "fake-refresh", "Grok", default);
                     throw new InvalidOperationException("expected OAuth rejection");
                 }
                 catch (UsageHttpException)

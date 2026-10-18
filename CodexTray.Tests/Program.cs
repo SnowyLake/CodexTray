@@ -53,7 +53,7 @@ internal static class Program
         await RunAsync("bounds transient retries and respects Retry-After", RetryTests.HttpRetriesAsync);
         await RunAsync("merges retry targets and preserves independent API snapshots", RetryTests.TargetsAndSnapshotsAsync);
         await RunAsync("redacts response content and copied diagnostics", RetryTests.DiagnosticsAsync);
-        await RunAsync("avoids Grok fallback after terminal rate limits", RetryTests.GrokRateLimitAsync);
+        await RunAsync("does not replay Grok credits after a terminal rate limit", RetryTests.GrokRateLimitAsync);
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
         await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
@@ -68,6 +68,7 @@ internal static class Program
         await RunAsync("maps the first DeepSeek card to plugin usage", TestDeepSeekPluginUsageAsync);
         await RunAsync("parses Grok billing responses", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
+        await RunAsync("prefers Grok settings display name", TestGrokSettingsSubscriptionTierAsync);
         await RunAsync("ignores OpenCode OAuth for Grok", TestGrokIgnoresOpenCodeOAuthAsync);
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
@@ -325,9 +326,6 @@ internal static class Program
                 AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
                 AssertTrue(window.FindName("GrokProductUsageTitle") is null, "Grok product usage card should not show a title");
                 AssertEqual("Chat 3%\nBuild 2%\nTasks 1%\nVoice 0.5%\nImagine 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip lists every product");
-                AssertTrue(viewModel.GrokProductUsageItems[0].Tooltip is null, "Grok product usage first item should not have a tooltip");
-                AssertTrue(viewModel.GrokProductUsageItems[1].Tooltip is null, "Grok product usage second item should not have a tooltip");
-                AssertTrue(viewModel.GrokProductUsageItems[2].Tooltip is null, "Grok product usage third item should not have a tooltip");
                 AssertEqual(3, viewModel.GrokProductUsageItems.Count, "Grok product usage legend item count");
                 AssertEqual(4, viewModel.GrokProductUsageBarItems.Count, "Grok product usage bar item count");
                 AssertEqual("Chat", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name");
@@ -573,16 +571,16 @@ internal static class Program
                     string.Empty,
                     DateTimeOffset.Now),
                     CreateTokenCostStatistics(5));
-                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "REST product usage first name");
-                AssertEqual("32%", viewModel.GrokProductUsageItems[0].PercentText, "REST product usage build percent");
-                AssertEqual("Cursor", viewModel.GrokProductUsageItems[1].Name, "REST product usage cursor name");
-                AssertEqual("12%", viewModel.GrokProductUsageItems[1].PercentText, "REST product usage cursor percent");
-                AssertEqual("Bot", viewModel.GrokProductUsageItems[2].Name, "REST product usage bot name");
-                AssertEqual("6%", viewModel.GrokProductUsageItems[2].PercentText, "REST product usage bot percent");
-                AssertEqual(4, viewModel.GrokProductUsageBarItems.Count, "REST product usage bar item count");
-                AssertEqual("Others", viewModel.GrokProductUsageBarItems[3].Name, "REST product usage others name");
-                AssertEqual("1%", viewModel.GrokProductUsageBarItems[3].PercentText, "REST product usage others percent");
-                AssertEqual("Build 32%\nCursor 12%\nBot 6%\nImagine 1%", viewModel.GrokProductUsageBarTooltip, "REST product usage bar tooltip");
+                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "prefixed product usage first name");
+                AssertEqual("32%", viewModel.GrokProductUsageItems[0].PercentText, "prefixed product usage build percent");
+                AssertEqual("Cursor", viewModel.GrokProductUsageItems[1].Name, "prefixed product usage cursor name");
+                AssertEqual("12%", viewModel.GrokProductUsageItems[1].PercentText, "prefixed product usage cursor percent");
+                AssertEqual("Bot", viewModel.GrokProductUsageItems[2].Name, "prefixed product usage bot name");
+                AssertEqual("6%", viewModel.GrokProductUsageItems[2].PercentText, "prefixed product usage bot percent");
+                AssertEqual(4, viewModel.GrokProductUsageBarItems.Count, "prefixed product usage bar item count");
+                AssertEqual("Others", viewModel.GrokProductUsageBarItems[3].Name, "prefixed product usage others name");
+                AssertEqual("1%", viewModel.GrokProductUsageBarItems[3].PercentText, "prefixed product usage others percent");
+                AssertEqual("Build 32%\nCursor 12%\nBot 6%\nImagine 1%", viewModel.GrokProductUsageBarTooltip, "prefixed product usage bar tooltip");
                 AssertEqual(
                     System.Windows.Media.Color.FromRgb(166, 173, 179),
                     ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageBarItems[3].Brush).Color,
@@ -1958,6 +1956,33 @@ internal static class Program
         AssertEqual("SuperGrok", creditsSnapshot.SubscriptionTier, "Grok credits subscription tier");
         AssertEqual("GrokChat|PRODUCT_GROK_BUILD|GrokTasks|Cursor", string.Join('|', creditsSnapshot.ProductUsage.Select(item => item.Product)), "Grok product identifiers");
         AssertEqual("3|2|0|99", string.Join('|', creditsSnapshot.ProductUsage.Select(item => item.UsedPercent.ToString("0.##", CultureInfo.InvariantCulture))), "Grok product usage percentages");
+
+        string proxyResponse = JsonSerializer.Serialize(new
+        {
+            config = new
+            {
+                currentPeriod = new
+                {
+                    type = "USAGE_PERIOD_TYPE_WEEKLY",
+                    start = DateTimeOffset.FromUnixTimeSeconds(resetAt).AddDays(-7).ToString("O", CultureInfo.InvariantCulture),
+                    end = DateTimeOffset.FromUnixTimeSeconds(resetAt).ToString("O", CultureInfo.InvariantCulture),
+                },
+                creditUsagePercent = 64.0,
+                productUsage = new[]
+                {
+                    new { product = "GrokBuild", usagePercent = 38.0 },
+                    new { product = "Cursor", usagePercent = 16.0 },
+                    new { product = "GrokBot", usagePercent = 9.0 },
+                    new { product = "GrokImagine", usagePercent = 1.0 },
+                },
+            },
+        });
+        GrokUsageSnapshot proxySnapshot = GrokUsageCollector.ParseCreditsResponse(proxyResponse);
+        AssertEqual(64.0, proxySnapshot.UsedPercent, "CLI proxy credits used percentage");
+        AssertEqual(resetAt, proxySnapshot.ResetsAt, "CLI proxy credits reset timestamp");
+        AssertEqual(string.Empty, proxySnapshot.SubscriptionTier, "CLI proxy credits omit subscription tier");
+        AssertEqual("GrokBuild|Cursor|GrokBot|GrokImagine", string.Join('|', proxySnapshot.ProductUsage.Select(item => item.Product)), "CLI proxy product identifiers");
+        AssertEqual("38|16|9|1", string.Join('|', proxySnapshot.ProductUsage.Select(item => item.UsedPercent.ToString("0.##", CultureInfo.InvariantCulture))), "CLI proxy product usage percentages");
         GrokPluginUsage rounded = GrokUsageCollector.BuildPluginUsage(new GrokUsageDashboard(
             new GrokUsageSnapshot(14.5, resetAt),
             string.Empty,
@@ -1965,6 +1990,15 @@ internal static class Program
         AssertEqual(15, rounded.Weekly.UsedPercent, "billing weekly used percent rounds 0.5 away from zero");
         AssertEqual(85, rounded.Weekly.RemainingPercent, "billing weekly remaining follows the rounded used percent");
         AssertEqual("85%", rounded.Display, "billing weekly plugin display");
+        AssertEqual(
+            "SuperGrok",
+            GrokUsageCollector.ParseSettingsSubscriptionTier("{\"subscription_tier_display\":\"SuperGrok\",\"subscription_tier\":\"GrokPro\"}"),
+            "settings display name wins over subscription_tier");
+        AssertEqual(
+            "X Premium",
+            GrokUsageCollector.ParseSettingsSubscriptionTier("{\"subscription_tier_display\":null,\"subscription_tier\":\" X Premium \"}"),
+            "empty settings display falls back to subscription_tier");
+        AssertEqual(string.Empty, GrokUsageCollector.ParseSettingsSubscriptionTier("{}"), "missing settings tier stays empty");
         return Task.CompletedTask;
     }
 
@@ -2037,6 +2071,71 @@ internal static class Program
         {
             Environment.SetEnvironmentVariable("GROK_HOME", string.IsNullOrEmpty(previousGrokHome) ? null : previousGrokHome);
         }
+    }
+
+    /// <summary>
+    /// Tests that the settings display name overrides local logs, and failures keep the local backfill.
+    /// </summary>
+    private static async Task TestGrokSettingsSubscriptionTierAsync()
+    {
+        using TempDirectory temp = new();
+        string previousGrokHome = Environment.GetEnvironmentVariable("GROK_HOME") ?? string.Empty;
+        Environment.SetEnvironmentVariable("GROK_HOME", temp.Path);
+        try
+        {
+            const string entryKey = "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828";
+            File.WriteAllText(Path.Combine(temp.Path, "auth.json"), JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                [entryKey] = new
+                {
+                    key = "new-grok-access",
+                    refresh_token = "grok-refresh",
+                    expires_at = DateTimeOffset.UtcNow.AddHours(1).ToString("o", CultureInfo.InvariantCulture),
+                    user_id = "grok-user-123",
+                    subscriptionTier = "Free",
+                },
+            }));
+            string logsDirectory = Path.Combine(temp.Path, "logs");
+            Directory.CreateDirectory(logsDirectory);
+            File.WriteAllText(
+                Path.Combine(logsDirectory, "unified.jsonl"),
+                "{\"msg\":\"billing: fetched credits config\",\"ctx\":{\"subscriptionTier\":\"SuperGrok Heavy\"}}");
+
+            GrokUsageSnapshot display = await CollectGrokSettingsAsync(
+                "{\"subscription_tier_display\":\"SuperGrok\",\"subscription_tier\":\"GrokPro\"}");
+            AssertEqual(12.5, display.UsedPercent, "settings display keeps billing usage");
+            AssertEqual("SuperGrok", display.SubscriptionTier, "settings display overrides the local log and subscription_tier");
+
+            GrokUsageSnapshot tier = await CollectGrokSettingsAsync("{\"subscription_tier_display\":\"\",\"subscription_tier\":\"X Premium\"}");
+            AssertEqual("X Premium", tier.SubscriptionTier, "blank settings display uses subscription_tier before the local log");
+
+            GrokUsageSnapshot failed = await CollectGrokSettingsAsync("not-json", HttpStatusCode.NotFound);
+            AssertEqual(12.5, failed.UsedPercent, "failed settings request keeps billing usage");
+            AssertEqual("SuperGrok Heavy", failed.SubscriptionTier, "failed settings request uses the local log");
+
+            GrokUsageSnapshot invalid = await CollectGrokSettingsAsync("not-json");
+            AssertEqual("SuperGrok Heavy", invalid.SubscriptionTier, "invalid settings JSON uses the local log");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GROK_HOME", string.IsNullOrEmpty(previousGrokHome) ? null : previousGrokHome);
+        }
+    }
+
+    /// <summary>
+    /// Collects Grok usage against a fixed settings response.
+    /// </summary>
+    private static async Task<GrokUsageSnapshot> CollectGrokSettingsAsync(string settingsBody, HttpStatusCode settingsStatus = HttpStatusCode.OK)
+    {
+        using HttpClient client = new(new GrokOAuthRefreshHttpMessageHandler(
+            "old-grok-access",
+            "new-grok-access",
+            "grok-refresh",
+            "rotated-grok-refresh",
+            CreateGrokCreditsResponse(12.5, 1_802_592_000),
+            settingsBody,
+            settingsStatus));
+        return await new GrokUsageCollector(client).CollectAsync();
     }
 
     /// <summary>
@@ -4355,13 +4454,16 @@ internal sealed class CanceledHttpMessageHandler : HttpMessageHandler
 
 internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
 {
-    private const string k_CreditsEndpoint = "https://grok.com/rest/grok/credits";
+    private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+    private const string k_SettingsEndpoint = "https://cli-chat-proxy.grok.com/v1/settings";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private readonly string m_OldAccessToken;
     private readonly string m_NewAccessToken;
     private readonly string m_ExpectedRefreshToken;
     private readonly string m_RotatedRefreshToken;
     private readonly string m_CreditsBody;
+    private readonly string m_SettingsBody;
+    private readonly HttpStatusCode m_SettingsStatus;
 
     /// <summary>
     /// Creates a handler that refreshes OAuth tokens and then serves billing usage.
@@ -4371,13 +4473,17 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
         string newAccessToken,
         string expectedRefreshToken,
         string rotatedRefreshToken,
-        string creditsBody)
+        string creditsBody,
+        string settingsBody = "{}",
+        HttpStatusCode settingsStatus = HttpStatusCode.OK)
     {
         m_OldAccessToken = oldAccessToken;
         m_NewAccessToken = newAccessToken;
         m_ExpectedRefreshToken = expectedRefreshToken;
         m_RotatedRefreshToken = rotatedRefreshToken;
         m_CreditsBody = creditsBody;
+        m_SettingsBody = settingsBody;
+        m_SettingsStatus = settingsStatus;
     }
 
     /// <summary>
@@ -4431,6 +4537,22 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(m_CreditsBody, Encoding.UTF8, "application/json"),
+            };
+        }
+
+        if (requestUri == k_SettingsEndpoint)
+        {
+            if (!request.Headers.TryGetValues("X-XAI-Token-Auth", out IEnumerable<string>? tokenAuth) || tokenAuth.Single() != "xai-grok-cli" ||
+                !request.Headers.TryGetValues("x-userid", out IEnumerable<string>? userIds) || userIds.Single() != "grok-user-123" ||
+                !request.Headers.Accept.Any(value => value.MediaType == "application/json") ||
+                request.Headers.Authorization?.Parameter != m_NewAccessToken)
+            {
+                throw new InvalidOperationException("missing Grok settings headers");
+            }
+
+            return new HttpResponseMessage(m_SettingsStatus)
+            {
+                Content = new StringContent(m_SettingsBody, Encoding.UTF8, "application/json"),
             };
         }
 
