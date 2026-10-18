@@ -293,7 +293,6 @@ public sealed class GrokUsageCollector
             clientId,
             refreshToken,
             "Grok",
-            "Run grok login again.",
             cancellationToken).ConfigureAwait(false);
         DateTimeOffset expiresAt = response.ExpiresInSeconds is double seconds
             ? DateTimeOffset.UtcNow.AddSeconds(seconds)

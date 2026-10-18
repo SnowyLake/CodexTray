@@ -1589,15 +1589,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Creates one Grok product usage legend item.
     /// </summary>
-    private static GrokProductUsageItemViewModel CreateGrokProductUsageItem(string name, double usedPercent, string? tooltip = null)
+    private static GrokProductUsageItemViewModel CreateGrokProductUsageItem(string name, double usedPercent)
     {
         double percent = double.IsFinite(usedPercent) ? Math.Clamp(usedPercent, 0, 100) : 0;
         return new GrokProductUsageItemViewModel(
             name,
             $"{percent.ToString("0.##", CultureInfo.InvariantCulture)}%",
             percent,
-            s_GreenBrush,
-            tooltip);
+            s_GreenBrush);
     }
 
     /// <summary>
@@ -2179,7 +2178,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// <summary>
     /// Displays one Grok product usage entry on the compact quota card.
     /// </summary>
-    internal sealed record GrokProductUsageItemViewModel(string Name, string PercentText, double UsedPercent, Media.Brush Brush, string? Tooltip = null);
+    internal sealed record GrokProductUsageItemViewModel(string Name, string PercentText, double UsedPercent, Media.Brush Brush);
 
     /// <summary>
     /// Selects between two quota pages displayed by one large card.

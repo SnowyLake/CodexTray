@@ -53,7 +53,7 @@ internal static class Program
         await RunAsync("bounds transient retries and respects Retry-After", RetryTests.HttpRetriesAsync);
         await RunAsync("merges retry targets and preserves independent API snapshots", RetryTests.TargetsAndSnapshotsAsync);
         await RunAsync("redacts response content and copied diagnostics", RetryTests.DiagnosticsAsync);
-        await RunAsync("avoids Grok fallback after terminal rate limits", RetryTests.GrokRateLimitAsync);
+        await RunAsync("does not replay Grok credits after a terminal rate limit", RetryTests.GrokRateLimitAsync);
         await RunAsync("installs LiteMonitor plugin config", TestPluginInstallAsync);
         await RunAsync("installs TrafficMonitor plugin", TestTrafficMonitorPluginInstallAsync);
         await RunAsync("stores settings beside the executable", TestSettingsStorePathAsync);
@@ -326,9 +326,6 @@ internal static class Program
                 AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
                 AssertTrue(window.FindName("GrokProductUsageTitle") is null, "Grok product usage card should not show a title");
                 AssertEqual("Chat 3%\nBuild 2%\nTasks 1%\nVoice 0.5%\nImagine 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip lists every product");
-                AssertTrue(viewModel.GrokProductUsageItems[0].Tooltip is null, "Grok product usage first item should not have a tooltip");
-                AssertTrue(viewModel.GrokProductUsageItems[1].Tooltip is null, "Grok product usage second item should not have a tooltip");
-                AssertTrue(viewModel.GrokProductUsageItems[2].Tooltip is null, "Grok product usage third item should not have a tooltip");
                 AssertEqual(3, viewModel.GrokProductUsageItems.Count, "Grok product usage legend item count");
                 AssertEqual(4, viewModel.GrokProductUsageBarItems.Count, "Grok product usage bar item count");
                 AssertEqual("Chat", viewModel.GrokProductUsageItems[0].Name, "Grok product usage first name");
@@ -574,16 +571,16 @@ internal static class Program
                     string.Empty,
                     DateTimeOffset.Now),
                     CreateTokenCostStatistics(5));
-                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "REST product usage first name");
-                AssertEqual("32%", viewModel.GrokProductUsageItems[0].PercentText, "REST product usage build percent");
-                AssertEqual("Cursor", viewModel.GrokProductUsageItems[1].Name, "REST product usage cursor name");
-                AssertEqual("12%", viewModel.GrokProductUsageItems[1].PercentText, "REST product usage cursor percent");
-                AssertEqual("Bot", viewModel.GrokProductUsageItems[2].Name, "REST product usage bot name");
-                AssertEqual("6%", viewModel.GrokProductUsageItems[2].PercentText, "REST product usage bot percent");
-                AssertEqual(4, viewModel.GrokProductUsageBarItems.Count, "REST product usage bar item count");
-                AssertEqual("Others", viewModel.GrokProductUsageBarItems[3].Name, "REST product usage others name");
-                AssertEqual("1%", viewModel.GrokProductUsageBarItems[3].PercentText, "REST product usage others percent");
-                AssertEqual("Build 32%\nCursor 12%\nBot 6%\nImagine 1%", viewModel.GrokProductUsageBarTooltip, "REST product usage bar tooltip");
+                AssertEqual("Build", viewModel.GrokProductUsageItems[0].Name, "prefixed product usage first name");
+                AssertEqual("32%", viewModel.GrokProductUsageItems[0].PercentText, "prefixed product usage build percent");
+                AssertEqual("Cursor", viewModel.GrokProductUsageItems[1].Name, "prefixed product usage cursor name");
+                AssertEqual("12%", viewModel.GrokProductUsageItems[1].PercentText, "prefixed product usage cursor percent");
+                AssertEqual("Bot", viewModel.GrokProductUsageItems[2].Name, "prefixed product usage bot name");
+                AssertEqual("6%", viewModel.GrokProductUsageItems[2].PercentText, "prefixed product usage bot percent");
+                AssertEqual(4, viewModel.GrokProductUsageBarItems.Count, "prefixed product usage bar item count");
+                AssertEqual("Others", viewModel.GrokProductUsageBarItems[3].Name, "prefixed product usage others name");
+                AssertEqual("1%", viewModel.GrokProductUsageBarItems[3].PercentText, "prefixed product usage others percent");
+                AssertEqual("Build 32%\nCursor 12%\nBot 6%\nImagine 1%", viewModel.GrokProductUsageBarTooltip, "prefixed product usage bar tooltip");
                 AssertEqual(
                     System.Windows.Media.Color.FromRgb(166, 173, 179),
                     ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageBarItems[3].Brush).Color,
