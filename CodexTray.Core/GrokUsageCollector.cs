@@ -19,6 +19,8 @@ public sealed class GrokUsageCollector
 {
     // Grok Build reads credits here. grok.com/rest/grok/credits returns a Cloudflare challenge to non-browser clients.
     private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+    // Grok Build reads the badge from this settings object. /v1/user subscriptionTier is a different name, such as GrokPro.
+    private const string k_SettingsEndpoint = "https://cli-chat-proxy.grok.com/v1/settings";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private const string k_DefaultClientId = "b1a00492-073a-47ea-816f-4c329264a828";
     private static readonly TimeSpan s_RefreshBuffer = TimeSpan.FromMinutes(5);
@@ -68,7 +70,13 @@ public sealed class GrokUsageCollector
             usage = await FetchCreditsAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
         }
 
-        return TryLoadLocalSubscriptionTier(accessToken, out string subscriptionTier)
+        string subscriptionTier = await TryFetchSettingsSubscriptionTierAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
+        if (subscriptionTier.Length == 0 && TryLoadLocalSubscriptionTier(accessToken, out string localTier))
+        {
+            subscriptionTier = localTier;
+        }
+
+        return subscriptionTier.Length > 0
             ? usage with { SubscriptionTier = subscriptionTier }
             : usage;
     }
@@ -219,6 +227,26 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
+    /// Reads the Grok Build settings display name, then <c>subscription_tier</c> when the display is empty.
+    /// </summary>
+    public static string ParseSettingsSubscriptionTier(string responseBody)
+    {
+        using JsonDocument document = JsonDocument.Parse(responseBody);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            return string.Empty;
+        }
+
+        string display = ReadJsonString(document.RootElement, "subscription_tier_display").Trim();
+        if (display.Length > 0)
+        {
+            return display;
+        }
+
+        return ReadJsonString(document.RootElement, "subscription_tier").Trim();
+    }
+
+    /// <summary>
     /// Loads Grok Build credentials and refreshes them when expired or forced.
     /// </summary>
     private async Task<(string AccessToken, string UserId)> ResolveGrokBuildAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
@@ -282,15 +310,7 @@ public sealed class GrokUsageCollector
     private async Task<GrokUsageSnapshot> FetchCreditsAsync(string accessToken, string userId, CancellationToken cancellationToken)
     {
         using HttpRequestMessage request = new(HttpMethod.Get, k_CreditsEndpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        request.Headers.TryAddWithoutValidation("X-XAI-Token-Auth", "xai-grok-cli");
-        if (!string.IsNullOrWhiteSpace(userId))
-        {
-            request.Headers.TryAddWithoutValidation("x-userid", userId);
-        }
-
-        request.Headers.Accept.ParseAdd("application/json");
-        request.Headers.UserAgent.ParseAdd("CodexTray");
+        ApplyCliProxyHeaders(request, accessToken, userId);
 
         using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
         string responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -305,6 +325,51 @@ public sealed class GrokUsageCollector
         }
 
         return ParseCreditsResponse(responseBody);
+    }
+
+    /// <summary>
+    /// Reads the subscription badge from Grok Build settings. A failed request leaves the local backfill in place.
+    /// </summary>
+    private async Task<string> TryFetchSettingsSubscriptionTierAsync(string accessToken, string userId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using HttpRequestMessage request = new(HttpMethod.Get, k_SettingsEndpoint);
+            ApplyCliProxyHeaders(request, accessToken, userId);
+            using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return string.Empty;
+            }
+
+            string responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return ParseSettingsSubscriptionTier(responseBody);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or
+            InvalidOperationException or IOException or UnauthorizedAccessException or FormatException or OverflowException)
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Applies the CLI-proxy auth headers used by Grok Build billing and settings.
+    /// </summary>
+    private static void ApplyCliProxyHeaders(HttpRequestMessage request, string accessToken, string userId)
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.TryAddWithoutValidation("X-XAI-Token-Auth", "xai-grok-cli");
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            request.Headers.TryAddWithoutValidation("x-userid", userId);
+        }
+
+        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.UserAgent.ParseAdd("CodexTray");
     }
 
     /// <summary>
@@ -467,6 +532,7 @@ public sealed class GrokUsageCollector
 
     /// <summary>
     /// Loads the most recent subscription tier cached by Grok Build, then checks the active auth entry.
+    /// Used when settings does not provide a display name or tier.
     /// </summary>
     private bool TryLoadLocalSubscriptionTier(string accessToken, out string subscriptionTier)
     {
@@ -587,6 +653,16 @@ public sealed class GrokUsageCollector
         }
 
         return string.Empty;
+    }
+
+    /// <summary>
+    /// Reads one string property, treating missing or non-string values as empty.
+    /// </summary>
+    private static string ReadJsonString(JsonElement value, string name)
+    {
+        return value.TryGetProperty(name, out JsonElement property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString() ?? string.Empty
+            : string.Empty;
     }
 
     /// <summary>

@@ -1437,7 +1437,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Shows the Grok billing subscription tier on the Grok badge.
+    /// Shows the Grok subscription display name on the Grok badge.
     /// </summary>
     private void ApplyGrokPlanBadge()
     {
@@ -1446,7 +1446,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Formats a Grok billing subscription tier while preserving future tier names.
+    /// Formats a Grok subscription display name while preserving future tier names.
     /// </summary>
     private static string FormatGrokPlan(string? subscriptionTier)
     {

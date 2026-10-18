@@ -68,6 +68,7 @@ internal static class Program
         await RunAsync("maps the first DeepSeek card to plugin usage", TestDeepSeekPluginUsageAsync);
         await RunAsync("parses Grok billing responses", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
+        await RunAsync("prefers Grok settings display name", TestGrokSettingsSubscriptionTierAsync);
         await RunAsync("ignores OpenCode OAuth for Grok", TestGrokIgnoresOpenCodeOAuthAsync);
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
@@ -1992,6 +1993,15 @@ internal static class Program
         AssertEqual(15, rounded.Weekly.UsedPercent, "billing weekly used percent rounds 0.5 away from zero");
         AssertEqual(85, rounded.Weekly.RemainingPercent, "billing weekly remaining follows the rounded used percent");
         AssertEqual("85%", rounded.Display, "billing weekly plugin display");
+        AssertEqual(
+            "SuperGrok",
+            GrokUsageCollector.ParseSettingsSubscriptionTier("{\"subscription_tier_display\":\"SuperGrok\",\"subscription_tier\":\"GrokPro\"}"),
+            "settings display name wins over subscription_tier");
+        AssertEqual(
+            "X Premium",
+            GrokUsageCollector.ParseSettingsSubscriptionTier("{\"subscription_tier_display\":null,\"subscription_tier\":\" X Premium \"}"),
+            "empty settings display falls back to subscription_tier");
+        AssertEqual(string.Empty, GrokUsageCollector.ParseSettingsSubscriptionTier("{}"), "missing settings tier stays empty");
         return Task.CompletedTask;
     }
 
@@ -2064,6 +2074,71 @@ internal static class Program
         {
             Environment.SetEnvironmentVariable("GROK_HOME", string.IsNullOrEmpty(previousGrokHome) ? null : previousGrokHome);
         }
+    }
+
+    /// <summary>
+    /// Tests that the settings display name overrides local logs, and failures keep the local backfill.
+    /// </summary>
+    private static async Task TestGrokSettingsSubscriptionTierAsync()
+    {
+        using TempDirectory temp = new();
+        string previousGrokHome = Environment.GetEnvironmentVariable("GROK_HOME") ?? string.Empty;
+        Environment.SetEnvironmentVariable("GROK_HOME", temp.Path);
+        try
+        {
+            const string entryKey = "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828";
+            File.WriteAllText(Path.Combine(temp.Path, "auth.json"), JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                [entryKey] = new
+                {
+                    key = "new-grok-access",
+                    refresh_token = "grok-refresh",
+                    expires_at = DateTimeOffset.UtcNow.AddHours(1).ToString("o", CultureInfo.InvariantCulture),
+                    user_id = "grok-user-123",
+                    subscriptionTier = "Free",
+                },
+            }));
+            string logsDirectory = Path.Combine(temp.Path, "logs");
+            Directory.CreateDirectory(logsDirectory);
+            File.WriteAllText(
+                Path.Combine(logsDirectory, "unified.jsonl"),
+                "{\"msg\":\"billing: fetched credits config\",\"ctx\":{\"subscriptionTier\":\"SuperGrok Heavy\"}}");
+
+            GrokUsageSnapshot display = await CollectGrokSettingsAsync(
+                "{\"subscription_tier_display\":\"SuperGrok\",\"subscription_tier\":\"GrokPro\"}");
+            AssertEqual(12.5, display.UsedPercent, "settings display keeps billing usage");
+            AssertEqual("SuperGrok", display.SubscriptionTier, "settings display overrides the local log and subscription_tier");
+
+            GrokUsageSnapshot tier = await CollectGrokSettingsAsync("{\"subscription_tier_display\":\"\",\"subscription_tier\":\"X Premium\"}");
+            AssertEqual("X Premium", tier.SubscriptionTier, "blank settings display uses subscription_tier before the local log");
+
+            GrokUsageSnapshot failed = await CollectGrokSettingsAsync("not-json", HttpStatusCode.NotFound);
+            AssertEqual(12.5, failed.UsedPercent, "failed settings request keeps billing usage");
+            AssertEqual("SuperGrok Heavy", failed.SubscriptionTier, "failed settings request uses the local log");
+
+            GrokUsageSnapshot invalid = await CollectGrokSettingsAsync("not-json");
+            AssertEqual("SuperGrok Heavy", invalid.SubscriptionTier, "invalid settings JSON uses the local log");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GROK_HOME", string.IsNullOrEmpty(previousGrokHome) ? null : previousGrokHome);
+        }
+    }
+
+    /// <summary>
+    /// Collects Grok usage against a fixed settings response.
+    /// </summary>
+    private static async Task<GrokUsageSnapshot> CollectGrokSettingsAsync(string settingsBody, HttpStatusCode settingsStatus = HttpStatusCode.OK)
+    {
+        using HttpClient client = new(new GrokOAuthRefreshHttpMessageHandler(
+            "old-grok-access",
+            "new-grok-access",
+            "grok-refresh",
+            "rotated-grok-refresh",
+            CreateGrokCreditsResponse(12.5, 1_802_592_000),
+            settingsBody,
+            settingsStatus));
+        return await new GrokUsageCollector(client).CollectAsync();
     }
 
     /// <summary>
@@ -4383,12 +4458,15 @@ internal sealed class CanceledHttpMessageHandler : HttpMessageHandler
 internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
 {
     private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+    private const string k_SettingsEndpoint = "https://cli-chat-proxy.grok.com/v1/settings";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private readonly string m_OldAccessToken;
     private readonly string m_NewAccessToken;
     private readonly string m_ExpectedRefreshToken;
     private readonly string m_RotatedRefreshToken;
     private readonly string m_CreditsBody;
+    private readonly string m_SettingsBody;
+    private readonly HttpStatusCode m_SettingsStatus;
 
     /// <summary>
     /// Creates a handler that refreshes OAuth tokens and then serves billing usage.
@@ -4398,13 +4476,17 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
         string newAccessToken,
         string expectedRefreshToken,
         string rotatedRefreshToken,
-        string creditsBody)
+        string creditsBody,
+        string settingsBody = "{}",
+        HttpStatusCode settingsStatus = HttpStatusCode.OK)
     {
         m_OldAccessToken = oldAccessToken;
         m_NewAccessToken = newAccessToken;
         m_ExpectedRefreshToken = expectedRefreshToken;
         m_RotatedRefreshToken = rotatedRefreshToken;
         m_CreditsBody = creditsBody;
+        m_SettingsBody = settingsBody;
+        m_SettingsStatus = settingsStatus;
     }
 
     /// <summary>
@@ -4458,6 +4540,22 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(m_CreditsBody, Encoding.UTF8, "application/json"),
+            };
+        }
+
+        if (requestUri == k_SettingsEndpoint)
+        {
+            if (!request.Headers.TryGetValues("X-XAI-Token-Auth", out IEnumerable<string>? tokenAuth) || tokenAuth.Single() != "xai-grok-cli" ||
+                !request.Headers.TryGetValues("x-userid", out IEnumerable<string>? userIds) || userIds.Single() != "grok-user-123" ||
+                !request.Headers.Accept.Any(value => value.MediaType == "application/json") ||
+                request.Headers.Authorization?.Parameter != m_NewAccessToken)
+            {
+                throw new InvalidOperationException("missing Grok settings headers");
+            }
+
+            return new HttpResponseMessage(m_SettingsStatus)
+            {
+                Content = new StringContent(m_SettingsBody, Encoding.UTF8, "application/json"),
             };
         }
 
