@@ -17,7 +17,8 @@ public sealed record GrokUsageDashboard(GrokUsageSnapshot? Usage, string Error, 
 
 public sealed class GrokUsageCollector
 {
-    private const string k_CreditsEndpoint = "https://grok.com/rest/grok/credits";
+    // Grok Build reads credits here. grok.com/rest/grok/credits returns a Cloudflare challenge to non-browser clients.
+    private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private const string k_DefaultClientId = "b1a00492-073a-47ea-816f-4c329264a828";
     private static readonly TimeSpan s_RefreshBuffer = TimeSpan.FromMinutes(5);

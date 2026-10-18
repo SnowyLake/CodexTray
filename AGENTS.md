@@ -26,7 +26,7 @@
 
 `CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 与应用内对话框使用 WPF. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
 
-`CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务, 插件安装和应用内更新. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Grok 和 API 监控分别采集. Codex Weekly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应. Grok Weekly 与产品占比来自同一次 `https://grok.com/rest/grok/credits` 查询, 订阅名称使用这次 Grok billing 结果. Token Cost 仅在 Codex 与 Grok 页面显示, 其他 API provider 结果仅显示在主面板.
+`CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务, 插件安装和应用内更新. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Grok 和 API 监控分别采集. Codex Weekly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应. Grok Weekly 与产品占比来自同一次 `https://cli-chat-proxy.grok.com/v1/billing?format=credits` 查询, 订阅名称使用这次 Grok billing 结果. Token Cost 仅在 Codex 与 Grok 页面显示, 其他 API provider 结果仅显示在主面板.
 
 ## 架构与数据流
 
@@ -71,7 +71,7 @@
 ### Grok 页面链路
 
 1. `GrokUsageCollector` 从 Grok Build 的 `~/.grok/auth.json` 读取 xAI OAuth access token, 不使用 OpenCode 凭据. 临近过期或收到 401/403 时, 使用 refresh token 调用 `auth.x.ai` 刷新并写回原文件. OAuth token 不会复制到 `settings.json`.
-2. Grok 额度请求 `GET https://grok.com/rest/grok/credits`. 响应提供 Weekly 已用百分比 `creditUsagePercent`, 账期结束时间 (`currentPeriod.end`, 缺失时用 `billingPeriodEnd`) 和 `productUsage` 产品占比. 已用百分比先限制在 0 到 100. `productUsage` 缺少产品名或名称为空时记为 `Cursor`. 插件把已用百分比四舍五入为整数, 剩余为 `100 - 已用整数`. 卡片把剩余百分比 `100 - 已用` 四舍五入为整数. 重置时间使用该账期结束时间.
+2. Grok 额度请求 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`, 与 Grok Build 客户端相同. `https://grok.com/rest/grok/credits` 对非浏览器返回 Cloudflare 挑战页, 不使用. 响应提供 Weekly 已用百分比 `creditUsagePercent`, 账期结束时间 (`currentPeriod.end`, 缺失时用 `billingPeriodEnd`) 和 `productUsage` 产品占比. 当前响应可以只有 `config`, 不带 `subscriptionTier`. 已用百分比先限制在 0 到 100. `productUsage` 缺少产品名或名称为空时记为 `Cursor`. 插件把已用百分比四舍五入为整数, 剩余为 `100 - 已用整数`. 卡片把剩余百分比 `100 - 已用` 四舍五入为整数. 重置时间使用该账期结束时间.
 3. 订阅名称只来自这次 Grok billing 结果, 不读取 Cursor 登录, 也不请求 `GetSandUsageStatus`, `usage-summary` 或 `get-filtered-usage-events`. `ParseCreditsResponse` 读取响应根对象或 `config` 的 `subscriptionTier`. 采集成功后, 若 `~/.grok/logs/unified.jsonl` 有更新的 `subscriptionTier`, 或当前 access token 的 auth 条目有订阅档位, 用该本地记录替换响应中的名称. 常见类型包括 `Free`, `SuperGrok`, `SuperGrok Heavy` 和 `X Premium` 系列. `LooksLikeSubscriptionTier` 接受 `Free`, 或包含 `Premium`, `SuperGrok`, `Business`, `Enterprise` 的字符串.
 4. `TrayController` 将 dashboard 交给 `TrayPopupViewModel`, 并将 `GrokUsageCollector.BuildPluginUsage` 写入 `UsageCache`. Grok billing 失败会清除已发布的 Weekly. 本地 Token Cost 由 `TokenCostCollector.CollectGrok` 独立统计.
 

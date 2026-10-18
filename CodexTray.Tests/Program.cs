@@ -1958,6 +1958,33 @@ internal static class Program
         AssertEqual("SuperGrok", creditsSnapshot.SubscriptionTier, "Grok credits subscription tier");
         AssertEqual("GrokChat|PRODUCT_GROK_BUILD|GrokTasks|Cursor", string.Join('|', creditsSnapshot.ProductUsage.Select(item => item.Product)), "Grok product identifiers");
         AssertEqual("3|2|0|99", string.Join('|', creditsSnapshot.ProductUsage.Select(item => item.UsedPercent.ToString("0.##", CultureInfo.InvariantCulture))), "Grok product usage percentages");
+
+        string proxyResponse = JsonSerializer.Serialize(new
+        {
+            config = new
+            {
+                currentPeriod = new
+                {
+                    type = "USAGE_PERIOD_TYPE_WEEKLY",
+                    start = DateTimeOffset.FromUnixTimeSeconds(resetAt).AddDays(-7).ToString("O", CultureInfo.InvariantCulture),
+                    end = DateTimeOffset.FromUnixTimeSeconds(resetAt).ToString("O", CultureInfo.InvariantCulture),
+                },
+                creditUsagePercent = 64.0,
+                productUsage = new[]
+                {
+                    new { product = "GrokBuild", usagePercent = 38.0 },
+                    new { product = "Cursor", usagePercent = 16.0 },
+                    new { product = "GrokBot", usagePercent = 9.0 },
+                    new { product = "GrokImagine", usagePercent = 1.0 },
+                },
+            },
+        });
+        GrokUsageSnapshot proxySnapshot = GrokUsageCollector.ParseCreditsResponse(proxyResponse);
+        AssertEqual(64.0, proxySnapshot.UsedPercent, "CLI proxy credits used percentage");
+        AssertEqual(resetAt, proxySnapshot.ResetsAt, "CLI proxy credits reset timestamp");
+        AssertEqual(string.Empty, proxySnapshot.SubscriptionTier, "CLI proxy credits omit subscription tier");
+        AssertEqual("GrokBuild|Cursor|GrokBot|GrokImagine", string.Join('|', proxySnapshot.ProductUsage.Select(item => item.Product)), "CLI proxy product identifiers");
+        AssertEqual("38|16|9|1", string.Join('|', proxySnapshot.ProductUsage.Select(item => item.UsedPercent.ToString("0.##", CultureInfo.InvariantCulture))), "CLI proxy product usage percentages");
         GrokPluginUsage rounded = GrokUsageCollector.BuildPluginUsage(new GrokUsageDashboard(
             new GrokUsageSnapshot(14.5, resetAt),
             string.Empty,
@@ -4355,7 +4382,7 @@ internal sealed class CanceledHttpMessageHandler : HttpMessageHandler
 
 internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
 {
-    private const string k_CreditsEndpoint = "https://grok.com/rest/grok/credits";
+    private const string k_CreditsEndpoint = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
     private const string k_TokenEndpoint = "https://auth.x.ai/oauth2/token";
     private readonly string m_OldAccessToken;
     private readonly string m_NewAccessToken;
