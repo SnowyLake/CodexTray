@@ -154,6 +154,14 @@
                 </Setter>
             </Style>
 
+            <Style x:Key="SessionLogPagerButtonStyle"
+                   BasedOn="{StaticResource IconButtonStyle}"
+                   TargetType="{x:Type Button}">
+                <Setter Property="Width" Value="28" />
+                <Setter Property="Height" Value="28" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+
             <Style x:Key="QuotaPageIndicatorButtonStyle"
                    BasedOn="{StaticResource IconButtonStyle}"
                    TargetType="{x:Type Button}">
@@ -836,6 +844,150 @@
                 </Grid>
             </DataTemplate>
 
+            <DataTemplate x:Key="SessionLogListTemplate">
+                <Grid Margin="0,14,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Column="0" Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="98" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="68" />
+                                <ColumnDefinition Width="84" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Time"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="11" />
+                            <TextBlock Grid.Column="1"
+                                       Text="Model"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="11" />
+                            <TextBlock Grid.Column="2"
+                                       Text="Cost"
+                                       HorizontalAlignment="Right"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="11" />
+                            <TextBlock Grid.Column="3"
+                                       Text="Speed"
+                                       HorizontalAlignment="Right"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="11" />
+                        </Grid>
+                        <ScrollViewer Grid.Row="1"
+                                      Grid.Column="0"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Hidden"
+                                      ScrollChanged="SessionLogList_ScrollChanged"
+                                      PreviewMouseWheel="SessionLogList_PreviewMouseWheel">
+                        <ItemsControl ItemsSource="{Binding Rows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Height="28">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="1" />
+                                        </Grid.RowDefinitions>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="98" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="68" />
+                                                <ColumnDefinition Width="84" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Time}"
+                                                       ToolTip="{Binding TimeTooltip}"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                       FontSize="12" />
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding Model}"
+                                                       ToolTip="{Binding Model}"
+                                                       Margin="8,0,6,0"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                       FontSize="12"
+                                                       FontWeight="Medium" />
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding Cost}"
+                                                       VerticalAlignment="Center"
+                                                       HorizontalAlignment="Right"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                       FontSize="12" />
+                                            <TextBlock Grid.Column="3"
+                                                       Text="{Binding Speed}"
+                                                       Margin="6,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       HorizontalAlignment="Right"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                       FontSize="12" />
+                                        </Grid>
+                                        <Border Grid.Row="1"
+                                                Height="1"
+                                                Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        </ScrollViewer>
+                        <ScrollBar Grid.Row="1"
+                                   Grid.Column="1"
+                                   Minimum="0"
+                                   SmallChange="28"
+                                   ViewportSize="1"
+                                   Visibility="Collapsed"
+                                   Scroll="SessionLogBar_Scroll" />
+                        <TextBlock Grid.Row="1"
+                                   Grid.Column="0"
+                                   Text="{Binding EmptyText}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="13"
+                                   Visibility="{Binding IsEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </Grid>
+                    <Grid Grid.Row="1" Margin="0,8,0,0">
+                        <TextBlock Text="{Binding Summary}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   FontSize="12" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="&#xE76B;"
+                                    Command="{Binding PreviousPageCommand}"
+                                    IsEnabled="{Binding CanGoPrevious}"
+                                    ToolTip="Previous page"
+                                    Click="SessionLogPager_Click"
+                                    Style="{StaticResource SessionLogPagerButtonStyle}" />
+                            <TextBlock Text="{Binding PageLabel}"
+                                       MinWidth="52"
+                                       Margin="2,0"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                       FontSize="12" />
+                            <Button Content="&#xE76C;"
+                                    Command="{Binding NextPageCommand}"
+                                    IsEnabled="{Binding CanGoNext}"
+                                    ToolTip="Next page"
+                                    Click="SessionLogPager_Click"
+                                    Style="{StaticResource SessionLogPagerButtonStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </DataTemplate>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -895,6 +1047,21 @@
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button VerticalAlignment="Center"
+                                    Command="{Binding CodexSessionLogs.ToggleCommand}"
+                                    Content="{Binding CodexSessionLogs.ToggleGlyph}"
+                                    ToolTip="{Binding CodexSessionLogs.ToggleTooltip}"
+                                    AutomationProperties.Name="{Binding CodexSessionLogs.ToggleTooltip}">
+                                <Button.Style>
+                                    <Style TargetType="{x:Type Button}" BasedOn="{StaticResource IconButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CodexSessionLogs.IsOpen}" Value="True">
+                                                <Setter Property="Foreground" Value="#1ABC89" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                             <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
                                     CommandParameter="{x:Static core:PageItem.Codex}"
                                     ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
@@ -922,6 +1089,7 @@
                 <ScrollViewer x:Name="CodexQuotaScrollViewer"
                               Grid.Row="1"
                               Margin="0,18,-8,0"
+                              Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
                               Padding="0,0,8,0"
                               HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Hidden">
@@ -991,7 +1159,16 @@
                                 Content="{Binding CodexTokenCost}"
                                 ContentTemplate="{StaticResource TokenCostDashboardDataTemplate}"
                                 HorizontalContentAlignment="Stretch"
-                                VerticalContentAlignment="Stretch" />
+                                VerticalContentAlignment="Stretch"
+                                Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                <ContentControl Grid.Row="1"
+                                Grid.RowSpan="2"
+                                Margin="0,4,0,0"
+                                Content="{Binding CodexSessionLogs}"
+                                ContentTemplate="{StaticResource SessionLogListTemplate}"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
             </Grid>
 
@@ -1037,6 +1214,21 @@
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button VerticalAlignment="Center"
+                                    Command="{Binding GrokSessionLogs.ToggleCommand}"
+                                    Content="{Binding GrokSessionLogs.ToggleGlyph}"
+                                    ToolTip="{Binding GrokSessionLogs.ToggleTooltip}"
+                                    AutomationProperties.Name="{Binding GrokSessionLogs.ToggleTooltip}">
+                                <Button.Style>
+                                    <Style TargetType="{x:Type Button}" BasedOn="{StaticResource IconButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding GrokSessionLogs.IsOpen}" Value="True">
+                                                <Setter Property="Foreground" Value="#1ABC89" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                             <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
                                     CommandParameter="{x:Static core:PageItem.Grok}"
                                     ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
@@ -1063,6 +1255,7 @@
                 <ScrollViewer x:Name="GrokQuotaScrollViewer"
                               Grid.Row="1"
                               Margin="0,18,-8,0"
+                              Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
                               Padding="0,0,8,0"
                               HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Hidden">
@@ -1154,7 +1347,16 @@
                                 Content="{Binding GrokTokenCost}"
                                 ContentTemplate="{StaticResource TokenCostDashboardDataTemplate}"
                                 HorizontalContentAlignment="Stretch"
-                                VerticalContentAlignment="Stretch" />
+                                VerticalContentAlignment="Stretch"
+                                Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                <ContentControl Grid.Row="1"
+                                Grid.RowSpan="2"
+                                Margin="0,4,0,0"
+                                Content="{Binding GrokSessionLogs}"
+                                ContentTemplate="{StaticResource SessionLogListTemplate}"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </Grid>
 
             <!-- ===================== APIs ===================== -->

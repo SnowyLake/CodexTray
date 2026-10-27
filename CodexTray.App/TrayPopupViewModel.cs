@@ -177,6 +177,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public TokenCostDashboardViewModel GrokTokenCost { get; }
 
+    public SessionLogListViewModel CodexSessionLogs { get; } = new();
+
+    public SessionLogListViewModel GrokSessionLogs { get; } = new();
+
     public IRelayCommand OpenRepositoryCommand { get; }
 
     public IAsyncRelayCommand RefreshCommand { get; }
@@ -795,6 +799,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public void UpdateTokenCost(TokenCostStatistics? statistics, string? error = null)
     {
         CodexTokenCost.Update(statistics, error);
+        CodexSessionLogs.Update(statistics);
     }
 
     /// <summary>
@@ -839,6 +844,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         m_GrokTokenCostAvailable = statistics != null;
         GrokTokenCost.Update(statistics, error);
+        GrokSessionLogs.Update(statistics);
         UpdateGrokStatus();
     }
 

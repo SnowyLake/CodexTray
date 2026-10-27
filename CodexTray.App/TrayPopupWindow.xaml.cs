@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using Controls = System.Windows.Controls;
+using Primitives = System.Windows.Controls.Primitives;
 using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 using Input = System.Windows.Input;
@@ -179,6 +180,147 @@ internal sealed partial class TrayPopupWindow : Window
             contextMenu.IsOpen = true;
             args.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// Keeps the external session-log bar in sync without taking width away from the columns.
+    /// </summary>
+    private void SessionLogList_ScrollChanged(object sender, Controls.ScrollChangedEventArgs args)
+    {
+        if (sender is not Controls.ScrollViewer viewer || FindSessionLogBar(viewer) is not Primitives.ScrollBar bar)
+        {
+            return;
+        }
+
+        bar.Maximum = Math.Max(0, viewer.ScrollableHeight);
+        bar.ViewportSize = Math.Max(0, viewer.ViewportHeight);
+        bar.LargeChange = Math.Max(1, viewer.ViewportHeight);
+        bar.Visibility = viewer.ScrollableHeight > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (Math.Abs(bar.Value - viewer.VerticalOffset) > 0.5)
+        {
+            bar.Value = viewer.VerticalOffset;
+        }
+    }
+
+    /// <summary>
+    /// Scrolls the session-log list from its external bar.
+    /// </summary>
+    private void SessionLogBar_Scroll(object sender, Primitives.ScrollEventArgs args)
+    {
+        if (sender is not DependencyObject source || FindSessionLogScroller(source) is not Controls.ScrollViewer viewer)
+        {
+            return;
+        }
+
+        if (Math.Abs(viewer.VerticalOffset - args.NewValue) > 0.5)
+        {
+            viewer.ScrollToVerticalOffset(args.NewValue);
+        }
+    }
+
+    /// <summary>
+    /// At the list edge, the wheel moves between session-log pages.
+    /// </summary>
+    private void SessionLogList_PreviewMouseWheel(object sender, Input.MouseWheelEventArgs args)
+    {
+        if (sender is not Controls.ScrollViewer viewer || viewer.DataContext is not SessionLogListViewModel logs || args.Delta == 0)
+        {
+            return;
+        }
+
+        bool atBottom = viewer.ScrollableHeight <= 1 || viewer.VerticalOffset >= viewer.ScrollableHeight - 1;
+        bool atTop = viewer.VerticalOffset <= 1;
+        if (args.Delta < 0 && atBottom && logs.CanGoNext)
+        {
+            logs.NextPage();
+            viewer.ScrollToVerticalOffset(0);
+            args.Handled = true;
+            return;
+        }
+
+        if (args.Delta > 0 && atTop && logs.CanGoPrevious)
+        {
+            logs.PreviousPage();
+            viewer.ScrollToVerticalOffset(0);
+            args.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Returns the session-log list to the top after a pager click.
+    /// </summary>
+    private void SessionLogPager_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is DependencyObject source && FindSessionLogScroller(source) is Controls.ScrollViewer viewer)
+        {
+            viewer.ScrollToVerticalOffset(0);
+        }
+    }
+
+    /// <summary>
+    /// Finds the external bar that shares a parent with the session-log scroller.
+    /// </summary>
+    private static Primitives.ScrollBar? FindSessionLogBar(Controls.ScrollViewer viewer)
+    {
+        if (VisualTreeHelper.GetParent(viewer) is not DependencyObject parent)
+        {
+            return null;
+        }
+
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int index = 0; index < count; index++)
+        {
+            if (VisualTreeHelper.GetChild(parent, index) is Primitives.ScrollBar bar)
+            {
+                return bar;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Finds the session-log scroller under the nearest parent that contains one.
+    /// </summary>
+    private static Controls.ScrollViewer? FindSessionLogScroller(DependencyObject source)
+    {
+        DependencyObject? current = VisualTreeHelper.GetParent(source);
+        while (current != null)
+        {
+            Controls.ScrollViewer? viewer = FindDescendantScrollViewer(current);
+            if (viewer != null)
+            {
+                return viewer;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the first scroll viewer under a session-log root.
+    /// </summary>
+    private static Controls.ScrollViewer? FindDescendantScrollViewer(DependencyObject source)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(source);
+        for (int index = 0; index < count; index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(source, index);
+            if (child is Controls.ScrollViewer viewer)
+            {
+                return viewer;
+            }
+
+            Controls.ScrollViewer? nested = FindDescendantScrollViewer(child);
+            if (nested != null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

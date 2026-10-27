@@ -78,6 +78,8 @@ internal static class Program
         await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
         await RunAsync("formats bounded visible-source tray summaries", TestTrayTooltipAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
+        await RunAsync("pages session log rows for the current harness", TestSessionLogPagingAsync);
+        await RunAsync("keeps per-call session log rows from Codex and Grok collects", TestSessionLogEntriesAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
         await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
@@ -2324,6 +2326,133 @@ internal static class Program
                 },
             ],
         };
+    }
+
+    /// <summary>
+    /// Pages Codex and Grok session-log rows without mixing the two harnesses.
+    /// </summary>
+    private static Task TestSessionLogPagingAsync()
+    {
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        DateTimeOffset newest = new(2026, 10, 27, 21, 54, 49, TimeSpan.FromHours(8));
+        SessionLogEntry[] entries = Enumerable.Range(0, 21)
+            .Select(index => new SessionLogEntry
+            {
+                Timestamp = newest.AddMinutes(-index),
+                Model = index == 0 ? "gpt-6-astra" : "gpt-test",
+                CostUsd = index == 1 ? null : 0.1326m,
+                HasUnpricedUsage = index == 2,
+                TimedOutputTokens = index == 3 ? 0 : 220,
+                TimedDurationMilliseconds = index == 3 ? 0 : 10_000,
+            })
+            .ToArray();
+        viewModel.UpdateTokenCost(new TokenCostStatistics { IsSpeedEstimated = true, SessionLogs = entries });
+        SessionLogListViewModel logs = viewModel.CodexSessionLogs;
+        AssertEqual(false, logs.IsOpen, "session logs start on the usage panel");
+        logs.ToggleCommand.Execute(null);
+        AssertEqual(true, logs.IsOpen, "the same button opens session logs");
+        AssertEqual("\uE72B", logs.ToggleGlyph, "open session logs shows the back glyph");
+        AssertEqual("Back to usage", logs.ToggleTooltip, "open session logs explains how to return");
+        AssertEqual(SessionLogListViewModel.PageSize, logs.Rows.Count, "first page has 20 rows");
+        AssertEqual("21 records", logs.Summary, "record count");
+        AssertEqual("1 / 2", logs.PageLabel, "first page label");
+        AssertEqual(true, logs.CanGoNext, "first page can advance");
+        AssertEqual(false, logs.CanGoPrevious, "first page cannot go back");
+        AssertEqual(newest.ToLocalTime().ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture), logs.Rows[0].Time, "newest row time");
+        AssertEqual("gpt-6-astra", logs.Rows[0].Model, "newest row model");
+        AssertEqual("$0.1326", logs.Rows[0].Cost, "priced row");
+        AssertEqual("~22.0 tok/s", logs.Rows[0].Speed, "estimated Codex speed");
+        AssertEqual("—", logs.Rows[1].Cost, "missing cost stays blank");
+        AssertEqual("$0.1326*", logs.Rows[2].Cost, "incomplete cost keeps the star");
+        AssertEqual("—", logs.Rows[3].Speed, "missing speed stays blank");
+        logs.NextPageCommand.Execute(null);
+        AssertEqual(1, logs.Rows.Count, "second page has the remainder");
+        AssertEqual("2 / 2", logs.PageLabel, "second page label");
+        AssertEqual(false, logs.CanGoNext, "last page cannot advance");
+        logs.NextPageCommand.Execute(null);
+        AssertEqual("2 / 2", logs.PageLabel, "next on the last page stays");
+        logs.PreviousPageCommand.Execute(null);
+        AssertEqual(SessionLogListViewModel.PageSize, logs.Rows.Count, "previous page restores 20 rows");
+        viewModel.UpdateTokenCost(new TokenCostStatistics { IsSpeedEstimated = true, SessionLogs = entries.Take(1).ToArray() });
+        AssertEqual("1 / 1", logs.PageLabel, "page clamps after the list shrinks");
+        AssertEqual(1, logs.Rows.Count, "clamped page shows the remaining row");
+        AssertEqual(true, logs.IsOpen, "a refresh keeps the open list");
+        viewModel.UpdateTokenCost(null, "pricing unavailable");
+        AssertEqual(0, logs.Rows.Count, "a failed collect clears rows");
+        AssertEqual(true, logs.IsEmpty, "a failed collect is empty");
+        AssertEqual("N/A", logs.EmptyText, "a failed collect shows N/A");
+        AssertEqual(true, logs.IsOpen, "a failed collect leaves the list open");
+        viewModel.UpdateGrokTokenCost(new TokenCostStatistics
+        {
+            IsSpeedEstimated = false,
+            SessionLogs = [entries[0]],
+        });
+        AssertEqual("22.0 tok/s", viewModel.GrokSessionLogs.Rows[0].Speed, "measured Grok speed has no tilde");
+        AssertEqual(0, logs.Rows.Count, "Grok rows do not refill Codex");
+        AssertEqual(false, viewModel.GrokSessionLogs.IsOpen, "Grok session logs stay closed");
+        logs.ToggleCommand.Execute(null);
+        AssertEqual(false, logs.IsOpen, "the same button returns to usage");
+        AssertEqual("\uE81C", logs.ToggleGlyph, "closed session logs shows the list glyph");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Session-log rows come from the same Codex increments and Grok turns as the period totals.
+    /// </summary>
+    private static Task TestSessionLogEntriesAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{\"gpt-fast\":{\"input\":3,\"cachedInput\":0.3,\"output\":15},\"gpt-slow\":{\"input\":3,\"cachedInput\":0.3,\"output\":15}}");
+        string sessions = Path.Combine(temp.Path, "codex", "sessions", "2026", "10", "27");
+        Directory.CreateDirectory(sessions);
+        DateTimeOffset now = new(2026, 10, 27, 22, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset fast = now.AddMinutes(-10);
+        DateTimeOffset slow = now.AddMinutes(-30);
+        File.WriteAllLines(Path.Combine(sessions, "fast.jsonl"), CreateCodexSpeedWindow(fast, "gpt-fast", 220, 1, 3, 3));
+        File.WriteAllLines(Path.Combine(sessions, "slow.jsonl"), CreateCodexSpeedWindow(slow, "gpt-slow", 50, 1, 2, 2));
+        File.WriteAllLines(Path.Combine(sessions, "future.jsonl"), CreateCodexSpeedWindow(now.AddDays(1), "gpt-fast", 220, 1, 3, 3));
+        TokenCostCollector collector = new(pricingPath);
+        string codexRoot = Path.Combine(temp.Path, "codex");
+        TokenCostStatistics first = collector.CollectCodex(codexRoot, now);
+        AssertEqual(2, first.SessionLogs.Count, "one row per accepted Codex increment, excluding a later local day");
+        AssertEqual(true, first.IsSpeedEstimated, "Codex session log speed is estimated");
+        AssertEqual("gpt-fast", first.SessionLogs[0].Model, "newest Codex row is first");
+        AssertEqual(fast.AddSeconds(3), first.SessionLogs[0].Timestamp, "Codex row time is the token_count time");
+        AssertEqual(0.00333m, first.SessionLogs[0].CostUsd, "Codex row uses local pricing");
+        AssertEqual(false, first.SessionLogs[0].HasUnpricedUsage, "priced Codex row is complete");
+        AssertEqual(2_000L, first.SessionLogs[0].TimedDurationMilliseconds, "Codex row keeps the response window");
+        AssertEqual(110m, first.SessionLogs[0].GetOutputTokensPerSecond(), "Codex row speed");
+        AssertEqual("gpt-slow", first.SessionLogs[1].Model, "older Codex row is second");
+        AssertEqual(0L, first.SessionLogs[1].TimedDurationMilliseconds, "a small Codex output has no speed sample");
+        AssertTrue(first.SessionLogs[1].CostUsd != null, "a small Codex output still has a price");
+        TokenCostStatistics cached = collector.CollectCodex(codexRoot, now);
+        AssertEqual(first.SessionLogs.Count, cached.SessionLogs.Count, "cached Codex collect keeps session log rows");
+        AssertEqual(first.SessionLogs[0].TimedOutputTokens, cached.SessionLogs[0].TimedOutputTokens, "cached Codex row keeps speed tokens");
+        AssertEqual(first.SessionLogs[0].CostUsd, cached.SessionLogs[0].CostUsd, "cached Codex row keeps cost");
+
+        string grokSession = Path.Combine(temp.Path, "grok", "sessions", "workspace", "one");
+        string archived = Path.Combine(temp.Path, "grok", "archived_sessions", "workspace", "one");
+        Directory.CreateDirectory(grokSession);
+        Directory.CreateDirectory(archived);
+        string fastTurn = CreateGrokTokenUpdate("p1", now.AddMinutes(-5), 10, 0, 200, costUsdTicks: 1_326_000_000, apiDurationMilliseconds: 10_000);
+        string partialTurn = CreateGrokTokenUpdate("p3", now.AddMinutes(-2), 10, 0, 200, costUsdTicks: 2_000_000_000, costIsPartial: true, apiDurationMilliseconds: 10_000);
+        string shortTurn = CreateGrokTokenUpdate("p2", now.AddMinutes(-1), 10, 0, 20, apiDurationMilliseconds: 50);
+        string futureTurn = CreateGrokTokenUpdate("future", now.AddDays(1), 10, 0, 200, costUsdTicks: 5_000_000_000, apiDurationMilliseconds: 10_000);
+        File.WriteAllLines(Path.Combine(grokSession, "updates.jsonl"), [fastTurn, partialTurn, shortTurn, futureTurn]);
+        File.WriteAllLines(Path.Combine(archived, "updates.jsonl"), [fastTurn]);
+        TokenCostStatistics grok = new TokenCostCollector(pricingPath).CollectGrok(Path.Combine(temp.Path, "grok"), now);
+        AssertEqual(3, grok.SessionLogs.Count, "an archived Grok twin and a later local day are not extra rows");
+        AssertEqual(false, grok.IsSpeedEstimated, "Grok speed is measured");
+        AssertEqual(now.AddMinutes(-1), grok.SessionLogs[0].Timestamp, "newest Grok row is first");
+        AssertEqual(null, grok.SessionLogs[0].CostUsd, "an unknown model does not invent a row cost");
+        AssertEqual(true, grok.SessionLogs[0].HasUnpricedUsage, "an unknown model row stays unpriced");
+        AssertEqual(0L, grok.SessionLogs[0].TimedDurationMilliseconds, "a short Grok call has no speed");
+        AssertEqual(0.2m, grok.SessionLogs[1].CostUsd, "a partial Grok row keeps the reported cost");
+        AssertEqual(true, grok.SessionLogs[1].HasUnpricedUsage, "a partial Grok row stays marked");
+        AssertEqual(0.1326m, grok.SessionLogs[2].CostUsd, "reported Grok ticks become the row cost");
+        AssertEqual(20m, grok.SessionLogs[2].GetOutputTokensPerSecond(), "Grok row speed uses the paired duration");
+        return Task.CompletedTask;
     }
 
     /// <summary>

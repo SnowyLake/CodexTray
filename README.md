@@ -58,8 +58,8 @@
 
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
-- Codex 页: 查看额度, Resets 和 Token Cost. 点击额度卡片左下角的页点或使用鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示.
-- Grok 页: 查看订阅类型, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. Weekly 额度和各产品占比来自额度查询.
+- Codex 页: 查看额度, Resets 和 Token Cost. 点击额度卡片左下角的页点或使用鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示. 标题栏刷新按钮左侧可以打开 Session Logs, 再点一次回到额度与 Token Cost.
+- Grok 页: 查看订阅类型, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. Weekly 额度和各产品占比来自额度查询. Session Logs 按钮与 Codex 页相同, 只显示 Grok 自己的记录.
 - APIs 页: 添加和查看 DeepSeek, OpenRouter, Vercel AI Gateway, NanoGPT 或 NewAPI 监控卡片.
 - Settings 页: 调整刷新间隔, 主题, 重置时间格式, 自启动和插件设置. 在 `Visible pages` 中隐藏页面后, 对应的后台采集也会停止. 版本号右侧的 `Check for updates` 会检查 GitHub Release. 发现新版本时, 弹窗询问是否安装.
 - About 页: 查看当前版本, 项目主页和许可证信息.
@@ -76,6 +76,8 @@ Codex 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓存命中
 - 自然周期: `Today`, `Week`, `Month`, `Year`. `Year` 按本地日历日统计当年 1 月 1 日到今天的用量. 滚动组里的 `Lifetime` 仍是全部历史累计.
 
 悬停 Codex 或 Grok 圆环中的模型可查看 `Speed`, 显示所选时段内有计时记录的平均输出速度. Codex 根据本机会话的单次模型响应窗口估算, 排除输出完成后的工具执行等待, 显示 `~N.N tok/s`; `~` 表示估算值, 且只统计输出较多, 耗时合理的响应. Grok 使用会话中报告的 API 调用耗时计算, 显示 `N.N tok/s`, 只统计有足够输出和耗时的调用, 部分调用未报告耗时时结果可能偏高. 两种口径都包含首 token 等待等开销, 不代表纯生成阶段的速度. 没有可靠计时或费用时, tooltip 不显示 `Speed` 或 `Cost`.
+
+Session Logs 用同一套记录列出每一次用量, 而不是时段合计. 列为 Time, Model, Cost 和 Speed, 新的在前, 每页 20 条. 列表滚到底部后可以用滚轮翻页, 底部也可以直接切换上一页和下一页. Codex 显示 `~N.N tok/s`, Grok 显示 `N.N tok/s`. 没有可靠速度或费用时该格为 `—`. 费用不完整时金额后带 `*`. 采集失败时列表为 `N/A`.
 
 两个页面的费用来源不同:
 

@@ -129,12 +129,13 @@ internal sealed class TokenCostPeriodAccumulator
     /// <summary>
     /// Converts the accumulated periods into statistics with the timing source's estimation status.
     /// </summary>
-    public TokenCostStatistics ToStatistics(bool isSpeedEstimated = false, string costSource = "Provider billing")
+    public TokenCostStatistics ToStatistics(bool isSpeedEstimated = false, string costSource = "Provider billing", IReadOnlyList<SessionLogEntry>? sessionLogs = null)
     {
         return new TokenCostStatistics
         {
             IsSpeedEstimated = isSpeedEstimated,
             CostSource = costSource,
+            SessionLogs = sessionLogs ?? [],
             LastTwentyFourHours = m_LastTwentyFourHoursPeriod.ToSummary(),
             Today = m_TodayPeriod.ToSummary(),
             LastSevenDays = m_LastSevenDaysPeriod.ToSummary(),
