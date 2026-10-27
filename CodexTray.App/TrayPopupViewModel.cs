@@ -51,6 +51,7 @@ internal enum TokenCostPeriod
     LastThirtyDays,
     CurrentWeek,
     CurrentMonth,
+    CurrentYear,
     Lifetime,
 }
 
@@ -1777,6 +1778,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             Rows[1].Period = useCalendarPeriods ? TokenCostPeriod.CurrentWeek : TokenCostPeriod.LastSevenDays;
             Rows[2].Title = useCalendarPeriods ? "Month" : "30D";
             Rows[2].Period = useCalendarPeriods ? TokenCostPeriod.CurrentMonth : TokenCostPeriod.LastThirtyDays;
+            Rows[3].Title = useCalendarPeriods ? "Year" : "Lifetime";
+            Rows[3].Period = useCalendarPeriods ? TokenCostPeriod.CurrentYear : TokenCostPeriod.Lifetime;
 
             foreach (TokenCostRowViewModel row in Rows)
             {
@@ -1918,6 +1921,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 TokenCostPeriod.LastThirtyDays => statistics.LastThirtyDays,
                 TokenCostPeriod.CurrentWeek => statistics.CurrentWeek,
                 TokenCostPeriod.CurrentMonth => statistics.CurrentMonth,
+                TokenCostPeriod.CurrentYear => statistics.CurrentYear,
                 _ => statistics.Lifetime,
             };
         }
@@ -1935,6 +1939,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 TokenCostPeriod.LastThirtyDays => statistics.LastThirtyDays,
                 TokenCostPeriod.CurrentWeek => statistics.CurrentWeek,
                 TokenCostPeriod.CurrentMonth => statistics.CurrentMonth,
+                TokenCostPeriod.CurrentYear => statistics.CurrentYear,
                 _ => statistics.Lifetime,
             };
         }
