@@ -10,6 +10,7 @@ internal sealed class TokenCostPeriodAccumulator
     private readonly DateTime m_LastThirtyDaysStart;
     private readonly DateTime m_CurrentWeekStart;
     private readonly DateTime m_CurrentMonthStart;
+    private readonly DateTime m_CurrentYearStart;
     private readonly PeriodAccumulator[] m_LastThirtyDaysDailyPeriods;
     private readonly PeriodAccumulator[] m_CurrentMonthDailyPeriods;
     private readonly Dictionary<string, ModelPeriodAccumulator> m_ModelPeriods = new(StringComparer.OrdinalIgnoreCase);
@@ -19,6 +20,7 @@ internal sealed class TokenCostPeriodAccumulator
     private readonly PeriodAccumulator m_LastThirtyDaysPeriod;
     private readonly PeriodAccumulator m_CurrentWeekPeriod;
     private readonly PeriodAccumulator m_CurrentMonthPeriod;
+    private readonly PeriodAccumulator m_CurrentYearPeriod;
     private readonly PeriodAccumulator m_LifetimePeriod;
 
     /// <summary>
@@ -34,12 +36,14 @@ internal sealed class TokenCostPeriodAccumulator
         m_LastThirtyDaysStart = m_Today.AddDays(-29);
         m_CurrentWeekStart = m_Today.AddDays(-(((int)m_Today.DayOfWeek + 6) % 7));
         m_CurrentMonthStart = new DateTime(m_Today.Year, m_Today.Month, 1);
+        m_CurrentYearStart = new DateTime(m_Today.Year, 1, 1);
         m_LastTwentyFourHoursPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_TodayPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_LastSevenDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_LastThirtyDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_CurrentWeekPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_CurrentMonthPeriod = new PeriodAccumulator(requireCompleteCosts);
+        m_CurrentYearPeriod = new PeriodAccumulator(requireCompleteCosts);
         m_LifetimePeriod = new PeriodAccumulator(requireCompleteCosts);
         m_LastThirtyDaysDailyPeriods = Enumerable.Range(0, 30).Select(_ => new PeriodAccumulator(requireCompleteCosts)).ToArray();
         m_CurrentMonthDailyPeriods = Enumerable.Range(0, m_Today.Day).Select(_ => new PeriodAccumulator(requireCompleteCosts)).ToArray();
@@ -103,6 +107,11 @@ internal sealed class TokenCostPeriodAccumulator
             m_CurrentMonthPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
 
+        if (eventDate >= m_CurrentYearStart)
+        {
+            m_CurrentYearPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
+        }
+
         m_LifetimePeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         if (!string.IsNullOrWhiteSpace(model))
         {
@@ -112,8 +121,8 @@ internal sealed class TokenCostPeriodAccumulator
                 m_ModelPeriods.Add(model, modelPeriods);
             }
 
-            modelPeriods.Add(isLastTwentyFourHours, eventDate, m_Today, m_LastSevenDaysStart, m_CurrentWeekStart, m_CurrentMonthStart, tokens, costUsd,
-                             cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
+            modelPeriods.Add(isLastTwentyFourHours, eventDate, m_Today, m_LastSevenDaysStart, m_CurrentWeekStart, m_CurrentMonthStart, m_CurrentYearStart,
+                             tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
     }
 
@@ -132,6 +141,7 @@ internal sealed class TokenCostPeriodAccumulator
             LastThirtyDays = m_LastThirtyDaysPeriod.ToSummary(),
             CurrentWeek = m_CurrentWeekPeriod.ToSummary(),
             CurrentMonth = m_CurrentMonthPeriod.ToSummary(),
+            CurrentYear = m_CurrentYearPeriod.ToSummary(),
             Lifetime = m_LifetimePeriod.ToSummary(),
             LastSevenDaysDaily = m_LastThirtyDaysDailyPeriods
                 .Skip(23)
@@ -170,6 +180,7 @@ internal sealed class TokenCostPeriodAccumulator
         private readonly PeriodAccumulator m_LastThirtyDaysPeriod;
         private readonly PeriodAccumulator m_CurrentWeekPeriod;
         private readonly PeriodAccumulator m_CurrentMonthPeriod;
+        private readonly PeriodAccumulator m_CurrentYearPeriod;
         private readonly PeriodAccumulator m_LifetimePeriod;
 
         /// <summary>
@@ -183,6 +194,7 @@ internal sealed class TokenCostPeriodAccumulator
             m_LastThirtyDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
             m_CurrentWeekPeriod = new PeriodAccumulator(requireCompleteCosts);
             m_CurrentMonthPeriod = new PeriodAccumulator(requireCompleteCosts);
+            m_CurrentYearPeriod = new PeriodAccumulator(requireCompleteCosts);
             m_LifetimePeriod = new PeriodAccumulator(requireCompleteCosts);
         }
 
@@ -196,6 +208,7 @@ internal sealed class TokenCostPeriodAccumulator
             DateTime lastSevenDaysStart,
             DateTime currentWeekStart,
             DateTime currentMonthStart,
+            DateTime currentYearStart,
             long tokens,
             decimal? costUsd,
             long cacheReadTokens,
@@ -233,6 +246,11 @@ internal sealed class TokenCostPeriodAccumulator
                 m_CurrentMonthPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
             }
 
+            if (eventDate >= currentYearStart)
+            {
+                m_CurrentYearPeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
+            }
+
             m_LifetimePeriod.Add(tokens, costUsd, cacheReadTokens, cacheableInputTokens, timedOutputTokens, timedDurationMilliseconds, hasUnpricedUsage);
         }
 
@@ -250,6 +268,7 @@ internal sealed class TokenCostPeriodAccumulator
                 LastThirtyDays = m_LastThirtyDaysPeriod.ToSummary(),
                 CurrentWeek = m_CurrentWeekPeriod.ToSummary(),
                 CurrentMonth = m_CurrentMonthPeriod.ToSummary(),
+                CurrentYear = m_CurrentYearPeriod.ToSummary(),
                 Lifetime = m_LifetimePeriod.ToSummary(),
             };
         }

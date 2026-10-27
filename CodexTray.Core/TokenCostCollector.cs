@@ -66,6 +66,8 @@ public sealed class TokenCostModelStatistics
 
     public TokenCostSummary CurrentMonth { get; init; } = new();
 
+    public TokenCostSummary CurrentYear { get; init; } = new();
+
     public TokenCostSummary Lifetime { get; init; } = new();
 }
 
@@ -86,6 +88,8 @@ public sealed class TokenCostStatistics
     public TokenCostSummary CurrentWeek { get; init; } = new();
 
     public TokenCostSummary CurrentMonth { get; init; } = new();
+
+    public TokenCostSummary CurrentYear { get; init; } = new();
 
     public TokenCostSummary Lifetime { get; init; } = new();
 

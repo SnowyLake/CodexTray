@@ -2626,6 +2626,7 @@ internal static class Program
             LastThirtyDays = new TokenCostSummary { TotalTokens = 3_000, CostUsd = 30 },
             CurrentWeek = new TokenCostSummary { TotalTokens = 1_000, CostUsd = 9, CacheReadTokens = 450, CacheableInputTokens = 1_000 },
             CurrentMonth = new TokenCostSummary { TotalTokens = 2_000, CostUsd = 20 },
+            CurrentYear = new TokenCostSummary { TotalTokens = 3_500, CostUsd = 80 },
             Lifetime = new TokenCostSummary { TotalTokens = 4_000, CostUsd = 100 },
             LastThirtyDaysDaily = daily,
             CurrentMonthDaily = daily[..20],
@@ -2640,6 +2641,7 @@ internal static class Program
                     LastSevenDays = new TokenCostSummary { TotalTokens = 1_300, CostUsd = 8.45m },
                     CurrentWeek = new TokenCostSummary { TotalTokens = 800, CostUsd = 7.2m },
                     CurrentMonth = new TokenCostSummary { TotalTokens = 1_200, CostUsd = 12 },
+                    CurrentYear = new TokenCostSummary { TotalTokens = 1_500, CostUsd = 15 },
                 },
                 new TokenCostModelStatistics
                 {
@@ -2649,6 +2651,7 @@ internal static class Program
                     LastSevenDays = new TokenCostSummary { TotalTokens = 700, CostUsd = 4.55m },
                     CurrentWeek = new TokenCostSummary { TotalTokens = 200, CostUsd = 1.8m },
                     CurrentMonth = new TokenCostSummary { TotalTokens = 800, CostUsd = 8 },
+                    CurrentYear = new TokenCostSummary { TotalTokens = 500, CostUsd = 5 },
                 },
             ],
         };
@@ -2683,8 +2686,8 @@ internal static class Program
             viewModel.CodexTokenCost.DonutSegments[1].Tooltip,
             "Codex 24-hour donut second model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
-        AssertEqual("Today|Week|Month|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "calendar Codex token cost row titles");
-        AssertEqual("$7.00|$9.00|$20.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "calendar Codex token cost row values");
+        AssertEqual("Today|Week|Month|Year", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "calendar Codex token cost row titles");
+        AssertEqual("$7.00|$9.00|$20.00|$80.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "calendar Codex token cost row values");
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected today token total");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
         AssertEqual(
@@ -2706,6 +2709,15 @@ internal static class Program
             $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Share: 80%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex current-week donut model tooltip");
+        viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[3]);
+        AssertEqual("3.50K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected current-year token total");
+        AssertEqual("$80.00 · 0%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-year cost and cache hit");
+        AssertEqual("75%|25%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-year donut model shares");
+        AssertEqual(
+            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.50K{Environment.NewLine}Cost: $15.00{Environment.NewLine}Share: 75%",
+            viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
+            "Codex current-year donut model tooltip");
+        viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "restored Codex token cost row titles");
         AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "restored Codex token cost row values");
@@ -3270,7 +3282,7 @@ internal static class Program
         AssertEqual(10_000L, model.Today.TimedDurationMilliseconds, "paired API duration survives turn deduplication");
         AssertEqual(20m, model.Today.GetOutputTokensPerSecond(), "speed uses summed output over summed durations");
         AssertEqual(20m, model.LastTwentyFourHours.GetOutputTokensPerSecond(), "24-hour speed excludes older timing");
-        foreach (TokenCostSummary summary in new[] { model.LastSevenDays, model.LastThirtyDays, model.CurrentWeek, model.CurrentMonth, model.Lifetime })
+        foreach (TokenCostSummary summary in new[] { model.LastSevenDays, model.LastThirtyDays, model.CurrentWeek, model.CurrentMonth, model.CurrentYear, model.Lifetime })
         {
             AssertEqual(500L, summary.TimedOutputTokens, "longer periods include historical timed output");
             AssertEqual(12_000L, summary.TimedDurationMilliseconds, "longer periods include matching API duration");
@@ -3609,6 +3621,16 @@ internal static class Program
             "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
             "{\"timestamp\":\"2026-05-01T10:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
         ]);
+        File.WriteAllLines(Path.Combine(sessions, "new-year.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            "{\"timestamp\":\"2026-01-01T00:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":25,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
+        ]);
+        File.WriteAllLines(Path.Combine(sessions, "previous-year.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            "{\"timestamp\":\"2025-12-31T23:59:59+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":80,\"cached_input_tokens\":0,\"output_tokens\":0}}}}",
+        ]);
 
         using FileStream activeWriter = new(sessionPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
         TokenCostCollector collector = new(pricingPath);
@@ -3629,8 +3651,10 @@ internal static class Program
         AssertEqual(3520L, statistics.LastSevenDays.TotalTokens, "last 7 days total tokens");
         AssertEqual(3560L, statistics.LastThirtyDays.TotalTokens, "last 30 days total tokens");
         AssertEqual(0.00774m, statistics.LastThirtyDays.CostUsd, "last 30 days API-equivalent cost");
-        AssertEqual(3660L, statistics.Lifetime.TotalTokens, "lifetime tokens");
-        AssertEqual(0.00794m, statistics.Lifetime.CostUsd, "lifetime API-equivalent cost");
+        AssertEqual(3685L, statistics.CurrentYear.TotalTokens, "current-year tokens include January 1 and exclude the previous local year");
+        AssertEqual(0.00799m, statistics.CurrentYear.CostUsd, "current-year API-equivalent cost");
+        AssertEqual(3765L, statistics.Lifetime.TotalTokens, "lifetime tokens");
+        AssertEqual(0.00815m, statistics.Lifetime.CostUsd, "lifetime API-equivalent cost");
         AssertEqual(30, statistics.LastThirtyDaysDaily.Count, "30-day chart slot count");
         AssertEqual(new DateTime(2026, 6, 12), statistics.LastThirtyDaysDaily[0].Date, "30-day chart first date");
         AssertEqual(40L, statistics.LastThirtyDaysDaily[18].Summary.TotalTokens, "30-day chart June token count");
@@ -3650,6 +3674,8 @@ internal static class Program
         AssertEqual(2800L, statistics.Models[0].Today.TotalTokens, "priced model today tokens");
         AssertEqual(3350L, statistics.Models[0].CurrentWeek.TotalTokens, "priced model current-week tokens");
         AssertEqual(3420L, statistics.Models[0].CurrentMonth.TotalTokens, "priced model current-month tokens");
+        AssertEqual(3585L, statistics.Models[0].CurrentYear.TotalTokens, "priced model current-year tokens");
+        AssertEqual(3665L, statistics.Models[0].Lifetime.TotalTokens, "priced model lifetime tokens include the previous local year");
         AssertEqual(100L, statistics.Models[1].Today.TotalTokens, "unknown model today tokens");
         return Task.CompletedTask;
     }
