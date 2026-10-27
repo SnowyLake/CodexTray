@@ -2205,6 +2205,10 @@ internal static class Program
         AssertEqual(2.0m, gpt61SolPricing.GetProperty("input").GetDecimal(), "gpt-6.1-sol input price");
         AssertEqual(0.1m, gpt61SolPricing.GetProperty("cachedInput").GetDecimal(), "gpt-6.1-sol cached input price");
         AssertEqual(10.0m, gpt61SolPricing.GetProperty("output").GetDecimal(), "gpt-6.1-sol output price");
+        JsonElement gpt61TerraPricing = document.RootElement.GetProperty("gpt-6.1-terra");
+        AssertEqual(1.0m, gpt61TerraPricing.GetProperty("input").GetDecimal(), "gpt-6.1-terra input price");
+        AssertEqual(0.05m, gpt61TerraPricing.GetProperty("cachedInput").GetDecimal(), "gpt-6.1-terra cached input price");
+        AssertEqual(5.0m, gpt61TerraPricing.GetProperty("output").GetDecimal(), "gpt-6.1-terra output price");
         JsonElement grokPricing = document.RootElement.GetProperty("grok-4.5");
         AssertEqual(2.0m, grokPricing.GetProperty("input").GetDecimal(), "grok-4.5 input price");
         AssertEqual(0.3m, grokPricing.GetProperty("cachedInput").GetDecimal(), "grok-4.5 cached input price");
