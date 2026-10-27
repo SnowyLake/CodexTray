@@ -12,12 +12,16 @@ public sealed partial class SessionLogListViewModel : ObservableObject
 {
     public const int PageSize = 20;
 
+    /// <summary>
+    /// Segoe MDL2 KnowledgeArticle, a notes page. The button keeps this glyph and only changes color.
+    /// </summary>
+    public const string NotesGlyph = "\uE70B";
+
     private IReadOnlyList<SessionLogEntry> m_Entries = [];
     private int m_Page;
     private bool m_SpeedEstimated;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ToggleGlyph))]
     [NotifyPropertyChangedFor(nameof(ToggleTooltip))]
     public partial bool IsOpen { get; private set; }
 
@@ -42,7 +46,7 @@ public sealed partial class SessionLogListViewModel : ObservableObject
     [ObservableProperty]
     public partial string EmptyText { get; private set; } = "No session logs";
 
-    public string ToggleGlyph => IsOpen ? "\uE72B" : "\uE81C";
+    public string ToggleGlyph => NotesGlyph;
 
     public string ToggleTooltip => IsOpen ? "Back to usage" : "Session logs";
 
@@ -148,8 +152,8 @@ public sealed partial class SessionLogListViewModel : ObservableObject
             return "—";
         }
 
-        string prefix = m_SpeedEstimated ? "~" : string.Empty;
-        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0.0} tok/s");
+        string prefix = m_SpeedEstimated ? "≈" : string.Empty;
+        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0}");
     }
 
     private static string FormatCost(SessionLogEntry entry)

@@ -861,26 +861,32 @@
                         </Grid.RowDefinitions>
                         <Grid Grid.Column="0" Margin="0,0,0,4">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="98" />
+                                <ColumnDefinition Width="80" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="68" />
-                                <ColumnDefinition Width="84" />
+                                <ColumnDefinition Width="54" />
+                                <ColumnDefinition Width="44" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Time"
+                                       VerticalAlignment="Bottom"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="11" />
+                                       FontSize="12" />
                             <TextBlock Grid.Column="1"
                                        Text="Model"
+                                       Margin="2,0,0,0"
+                                       VerticalAlignment="Bottom"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="11" />
+                                       FontSize="12" />
                             <TextBlock Grid.Column="2"
                                        Text="Cost"
+                                       VerticalAlignment="Bottom"
                                        HorizontalAlignment="Right"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="11" />
+                                       FontSize="12" />
                             <TextBlock Grid.Column="3"
-                                       Text="Speed"
-                                       HorizontalAlignment="Right"
+                                       Text="Speed&#x0a;(tok/s)"
+                                       TextAlignment="Right"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Bottom"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                        FontSize="11" />
                         </Grid>
@@ -893,17 +899,17 @@
                         <ItemsControl ItemsSource="{Binding Rows}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Height="28">
+                                    <Grid Height="44">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="1" />
                                         </Grid.RowDefinitions>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="98" />
+                                                <ColumnDefinition Width="80" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="68" />
-                                                <ColumnDefinition Width="84" />
+                                                <ColumnDefinition Width="54" />
+                                                <ColumnDefinition Width="44" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Time}"
                                                        ToolTip="{Binding TimeTooltip}"
@@ -912,28 +918,24 @@
                                                        FontSize="12" />
                                             <TextBlock Grid.Column="1"
                                                        Text="{Binding Model}"
-                                                       ToolTip="{Binding Model}"
-                                                       Margin="8,0,6,0"
+                                                       Margin="2,0,0,0"
                                                        VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis"
                                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                       FontSize="12"
+                                                       FontSize="13"
                                                        FontWeight="Medium" />
                                             <TextBlock Grid.Column="2"
                                                        Text="{Binding Cost}"
                                                        VerticalAlignment="Center"
                                                        HorizontalAlignment="Right"
-                                                       TextTrimming="CharacterEllipsis"
                                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                       FontSize="12" />
+                                                       FontSize="13" />
                                             <TextBlock Grid.Column="3"
                                                        Text="{Binding Speed}"
-                                                       Margin="6,0,0,0"
                                                        VerticalAlignment="Center"
                                                        HorizontalAlignment="Right"
-                                                       TextTrimming="CharacterEllipsis"
                                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                       FontSize="12" />
+                                                       FontSize="13" />
                                         </Grid>
                                         <Border Grid.Row="1"
                                                 Height="1"
@@ -946,7 +948,7 @@
                         <ScrollBar Grid.Row="1"
                                    Grid.Column="1"
                                    Minimum="0"
-                                   SmallChange="28"
+                                   SmallChange="44"
                                    ViewportSize="1"
                                    Visibility="Collapsed"
                                    Scroll="SessionLogBar_Scroll" />

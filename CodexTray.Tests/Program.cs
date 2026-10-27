@@ -79,6 +79,7 @@ internal static class Program
         await RunAsync("formats bounded visible-source tray summaries", TestTrayTooltipAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
         await RunAsync("pages session log rows for the current harness", TestSessionLogPagingAsync);
+        await RunAsync("fits session log model names and keeps the notes glyph", TestSessionLogLayoutAsync);
         await RunAsync("keeps per-call session log rows from Codex and Grok collects", TestSessionLogEntriesAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
         await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
@@ -2349,9 +2350,10 @@ internal static class Program
         viewModel.UpdateTokenCost(new TokenCostStatistics { IsSpeedEstimated = true, SessionLogs = entries });
         SessionLogListViewModel logs = viewModel.CodexSessionLogs;
         AssertEqual(false, logs.IsOpen, "session logs start on the usage panel");
+        AssertEqual(SessionLogListViewModel.NotesGlyph, logs.ToggleGlyph, "session logs uses the notes glyph");
         logs.ToggleCommand.Execute(null);
         AssertEqual(true, logs.IsOpen, "the same button opens session logs");
-        AssertEqual("\uE72B", logs.ToggleGlyph, "open session logs shows the back glyph");
+        AssertEqual(SessionLogListViewModel.NotesGlyph, logs.ToggleGlyph, "opening session logs keeps the notes glyph");
         AssertEqual("Back to usage", logs.ToggleTooltip, "open session logs explains how to return");
         AssertEqual(SessionLogListViewModel.PageSize, logs.Rows.Count, "first page has 20 rows");
         AssertEqual("21 records", logs.Summary, "record count");
@@ -2361,7 +2363,7 @@ internal static class Program
         AssertEqual(newest.ToLocalTime().ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture), logs.Rows[0].Time, "newest row time");
         AssertEqual("gpt-6-astra", logs.Rows[0].Model, "newest row model");
         AssertEqual("$0.1326", logs.Rows[0].Cost, "priced row");
-        AssertEqual("~22.0 tok/s", logs.Rows[0].Speed, "estimated Codex speed");
+        AssertEqual("≈22", logs.Rows[0].Speed, "estimated Codex speed is an integer without a unit");
         AssertEqual("—", logs.Rows[1].Cost, "missing cost stays blank");
         AssertEqual("$0.1326*", logs.Rows[2].Cost, "incomplete cost keeps the star");
         AssertEqual("—", logs.Rows[3].Speed, "missing speed stays blank");
@@ -2387,13 +2389,152 @@ internal static class Program
             IsSpeedEstimated = false,
             SessionLogs = [entries[0]],
         });
-        AssertEqual("22.0 tok/s", viewModel.GrokSessionLogs.Rows[0].Speed, "measured Grok speed has no tilde");
+        AssertEqual("22", viewModel.GrokSessionLogs.Rows[0].Speed, "measured Grok speed is an integer without a unit");
         AssertEqual(0, logs.Rows.Count, "Grok rows do not refill Codex");
         AssertEqual(false, viewModel.GrokSessionLogs.IsOpen, "Grok session logs stay closed");
         logs.ToggleCommand.Execute(null);
         AssertEqual(false, logs.IsOpen, "the same button returns to usage");
-        AssertEqual("\uE81C", logs.ToggleGlyph, "closed session logs shows the list glyph");
+        AssertEqual(SessionLogListViewModel.NotesGlyph, logs.ToggleGlyph, "closing session logs keeps the notes glyph");
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Common model names stay fully visible, and the notes button only changes color.
+    /// </summary>
+    private static Task TestSessionLogLayoutAsync()
+    {
+        Exception? failure = null;
+        Thread thread = new(() =>
+        {
+            try
+            {
+                TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+                string[] models = ["deepseek-v4-flash", "grok-4.5-build", "gpt-5.3-codex", "gpt-6.1-terra"];
+                SessionLogEntry[] entries = Enumerable.Range(0, 21)
+                    .Select(index => new SessionLogEntry
+                    {
+                        Timestamp = new DateTimeOffset(2026, 10, 27, 21, 0, 0, TimeSpan.FromHours(8)).AddMinutes(-index),
+                        Model = models[index % models.Length],
+                        CostUsd = 0.1326m,
+                        HasUnpricedUsage = true,
+                        TimedOutputTokens = 220,
+                        TimedDurationMilliseconds = 10_000,
+                    })
+                    .ToArray();
+                viewModel.UpdateTokenCost(new TokenCostStatistics { IsSpeedEstimated = true, SessionLogs = entries });
+                viewModel.CodexSessionLogs.ToggleCommand.Execute(null);
+                TrayPopupWindow window = new(viewModel);
+                System.Windows.FrameworkElement content = (System.Windows.FrameworkElement)window.Content;
+                void Layout()
+                {
+                    content.Measure(new System.Windows.Size(window.Width, window.Height));
+                    content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                    content.UpdateLayout();
+                }
+
+                Layout();
+                Layout();
+                List<System.Windows.Controls.TextBlock> blocks = [];
+                CollectTextBlocks(content, blocks);
+                System.Windows.Controls.Button notesButton = FindAncestorButton(blocks.First(block => block.Text == SessionLogListViewModel.NotesGlyph));
+                AssertEqual(SessionLogListViewModel.NotesGlyph, notesButton.Content, "notes button content");
+                AssertEqual(System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), ((System.Windows.Media.SolidColorBrush)notesButton.Foreground).Color, "open notes button is green");
+                SessionLogRow sample = viewModel.CodexSessionLogs.Rows[0];
+                AssertFits(blocks, sample.Time);
+                AssertFits(blocks, sample.Cost);
+                AssertFits(blocks, sample.Speed);
+                System.Windows.Controls.TextBlock speedHeader = blocks.First(block => block.Text.Contains("(tok/s)", StringComparison.Ordinal) && block.ActualWidth > 0);
+                AssertTextFits(speedHeader, "(tok/s)");
+                foreach (string model in models)
+                {
+                    System.Windows.Controls.TextBlock row = blocks.First(block => block.Text == model && block.ActualWidth > 0);
+                    System.Windows.Controls.TextBlock probe = new()
+                    {
+                        Text = model,
+                        FontFamily = row.FontFamily,
+                        FontSize = row.FontSize,
+                        FontWeight = row.FontWeight,
+                    };
+                    probe.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+                    AssertTrue(row.ActualWidth + 0.5 >= probe.DesiredSize.Width, $"{model} is fully visible, slot {row.ActualWidth:0.0}, text {probe.DesiredSize.Width:0.0}");
+                    AssertEqual(44d, ((System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(row))).ActualHeight, "session log row height");
+                }
+
+                viewModel.CodexSessionLogs.ToggleCommand.Execute(null);
+                Layout();
+                AssertEqual(SessionLogListViewModel.NotesGlyph, notesButton.Content, "closing session logs keeps the notes glyph");
+                System.Windows.Media.Color closed = ((System.Windows.Media.SolidColorBrush)notesButton.Foreground).Color;
+                AssertTrue(closed != System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), "closed notes button leaves the green state");
+                window.Close();
+
+                void AssertFits(List<System.Windows.Controls.TextBlock> source, string text)
+                {
+                    AssertTextFits(source.First(block => block.Text == text && block.ActualWidth > 0), text);
+                }
+
+                void AssertTextFits(System.Windows.Controls.TextBlock row, string text)
+                {
+                    System.Windows.Controls.TextBlock probe = new()
+                    {
+                        Text = text,
+                        FontFamily = row.FontFamily,
+                        FontSize = row.FontSize,
+                        FontWeight = row.FontWeight,
+                    };
+                    probe.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+                    AssertTrue(row.ActualWidth + 0.5 >= probe.DesiredSize.Width, $"{text} is fully visible, slot {row.ActualWidth:0.0}, text {probe.DesiredSize.Width:0.0}");
+                }
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (failure != null)
+        {
+            throw new InvalidOperationException(failure.ToString(), failure);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Walks up to the button that hosts a glyph text block.
+    /// </summary>
+    private static System.Windows.Controls.Button FindAncestorButton(System.Windows.DependencyObject source)
+    {
+        System.Windows.DependencyObject? current = source;
+        while (current != null)
+        {
+            if (current is System.Windows.Controls.Button button)
+            {
+                return button;
+            }
+
+            current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+        }
+
+        throw new InvalidOperationException("notes button was not found");
+    }
+
+    /// <summary>
+    /// Collects text blocks under a measured popup.
+    /// </summary>
+    private static void CollectTextBlocks(System.Windows.DependencyObject root, List<System.Windows.Controls.TextBlock> blocks)
+    {
+        if (root is System.Windows.Controls.TextBlock block)
+        {
+            blocks.Add(block);
+        }
+
+        int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int index = 0; index < count; index++)
+        {
+            CollectTextBlocks(System.Windows.Media.VisualTreeHelper.GetChild(root, index), blocks);
+        }
     }
 
     /// <summary>
