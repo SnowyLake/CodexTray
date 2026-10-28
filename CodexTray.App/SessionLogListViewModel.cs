@@ -15,7 +15,7 @@ public sealed partial class SessionLogListViewModel : ObservableObject
     /// <summary>
     /// Segoe MDL2 List. The button keeps this glyph and only changes color.
     /// </summary>
-    public const string NotesGlyph = "\uE71D";
+    public const string ListGlyph = "\uE71D";
 
     private IReadOnlyList<SessionLogEntry> m_Entries = [];
     private int m_Page;
@@ -46,8 +46,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
     [ObservableProperty]
     public partial string EmptyText { get; private set; } = "No session logs";
 
-    public string ToggleGlyph => NotesGlyph;
-
     public string ToggleTooltip => IsOpen ? "Back to usage" : "Session logs";
 
     /// <summary>
@@ -70,11 +68,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
         if (m_Page >= pages)
         {
             m_Page = pages - 1;
-        }
-
-        if (m_Page < 0)
-        {
-            m_Page = 0;
         }
 
         EmptyText = statistics == null ? "N/A" : "No session logs";
@@ -134,12 +127,11 @@ public sealed partial class SessionLogListViewModel : ObservableObject
     private SessionLogRow CreateRow(SessionLogEntry entry)
     {
         DateTime local = entry.Timestamp.ToLocalTime().DateTime;
-        string speed = FormatSpeed(entry);
         return new SessionLogRow
         {
             Time = local.ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             Model = entry.Model,
-            Speed = speed,
+            Speed = FormatSpeed(entry),
         };
     }
 

@@ -79,7 +79,7 @@ internal static class Program
         await RunAsync("formats bounded visible-source tray summaries", TestTrayTooltipAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
         await RunAsync("pages session log rows for the current harness", TestSessionLogPagingAsync);
-        await RunAsync("fits session log model names and keeps the notes glyph", TestSessionLogLayoutAsync);
+        await RunAsync("fits session log model names and keeps the list glyph", TestSessionLogLayoutAsync);
         await RunAsync("keeps per-call session log rows from Codex and Grok collects", TestSessionLogEntriesAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
         await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
@@ -2348,11 +2348,9 @@ internal static class Program
         viewModel.UpdateTokenCost(new TokenCostStatistics { IsSpeedEstimated = true, SessionLogs = entries });
         SessionLogListViewModel logs = viewModel.CodexSessionLogs;
         AssertEqual(false, logs.IsOpen, "session logs start on the usage panel");
-        AssertEqual("\uE71D", SessionLogListViewModel.NotesGlyph, "session logs uses the list glyph");
-        AssertEqual(SessionLogListViewModel.NotesGlyph, logs.ToggleGlyph, "session logs uses the list glyph");
+        AssertEqual("\uE71D", SessionLogListViewModel.ListGlyph, "session logs uses the list glyph");
         logs.ToggleCommand.Execute(null);
         AssertEqual(true, logs.IsOpen, "the same button opens session logs");
-        AssertEqual(SessionLogListViewModel.NotesGlyph, logs.ToggleGlyph, "opening session logs keeps the notes glyph");
         AssertEqual("Back to usage", logs.ToggleTooltip, "open session logs explains how to return");
         AssertEqual(SessionLogListViewModel.PageSize, logs.Rows.Count, "first page has 20 rows");
         AssertEqual("21 records", logs.Summary, "record count");
@@ -2390,12 +2388,11 @@ internal static class Program
         AssertEqual(false, viewModel.GrokSessionLogs.IsOpen, "Grok session logs stay closed");
         logs.ToggleCommand.Execute(null);
         AssertEqual(false, logs.IsOpen, "the same button returns to usage");
-        AssertEqual(SessionLogListViewModel.NotesGlyph, logs.ToggleGlyph, "closing session logs keeps the notes glyph");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Common model names stay fully visible, and the notes button only changes color.
+    /// Common model names stay fully visible, and the list button only changes color.
     /// </summary>
     private static Task TestSessionLogLayoutAsync()
     {
@@ -2430,9 +2427,9 @@ internal static class Program
                 Layout();
                 List<System.Windows.Controls.TextBlock> blocks = [];
                 CollectTextBlocks(content, blocks);
-                System.Windows.Controls.Button notesButton = FindAncestorButton(blocks.First(block => block.Text == SessionLogListViewModel.NotesGlyph));
-                AssertEqual(SessionLogListViewModel.NotesGlyph, notesButton.Content, "notes button content");
-                AssertEqual(System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), ((System.Windows.Media.SolidColorBrush)notesButton.Foreground).Color, "open notes button is green");
+                System.Windows.Controls.Button listButton = FindAncestorButton(blocks.First(block => block.Text == SessionLogListViewModel.ListGlyph));
+                AssertEqual(SessionLogListViewModel.ListGlyph, listButton.Content, "list button content");
+                AssertEqual(System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), ((System.Windows.Media.SolidColorBrush)listButton.Foreground).Color, "open list button is green");
                 AssertTrue(blocks.All(block => block.Text != "Cost" || block.ActualWidth <= 0), "session logs omit the cost column");
                 System.Windows.Controls.TextBlock timeHeader = VisibleBlock(blocks, "Time");
                 System.Windows.Controls.TextBlock modelHeader = VisibleBlock(blocks, "Model");
@@ -2459,9 +2456,9 @@ internal static class Program
 
                 viewModel.CodexSessionLogs.ToggleCommand.Execute(null);
                 Layout();
-                AssertEqual(SessionLogListViewModel.NotesGlyph, notesButton.Content, "closing session logs keeps the notes glyph");
-                System.Windows.Media.Color closed = ((System.Windows.Media.SolidColorBrush)notesButton.Foreground).Color;
-                AssertTrue(closed != System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), "closed notes button leaves the green state");
+                AssertEqual(SessionLogListViewModel.ListGlyph, listButton.Content, "closing session logs keeps the list glyph");
+                System.Windows.Media.Color closed = ((System.Windows.Media.SolidColorBrush)listButton.Foreground).Color;
+                AssertTrue(closed != System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), "closed list button leaves the green state");
                 window.Close();
 
                 static System.Windows.Controls.TextBlock VisibleBlock(List<System.Windows.Controls.TextBlock> source, string text)
@@ -2531,7 +2528,7 @@ internal static class Program
             current = System.Windows.Media.VisualTreeHelper.GetParent(current);
         }
 
-        throw new InvalidOperationException("notes button was not found");
+        throw new InvalidOperationException("list button was not found");
     }
 
     /// <summary>
@@ -2574,17 +2571,13 @@ internal static class Program
         AssertEqual(true, first.IsSpeedEstimated, "Codex session log speed is estimated");
         AssertEqual("gpt-fast", first.SessionLogs[0].Model, "newest Codex row is first");
         AssertEqual(fast.AddSeconds(3), first.SessionLogs[0].Timestamp, "Codex row time is the token_count time");
-        AssertEqual(0.00333m, first.SessionLogs[0].CostUsd, "Codex row uses local pricing");
-        AssertEqual(false, first.SessionLogs[0].HasUnpricedUsage, "priced Codex row is complete");
         AssertEqual(2_000L, first.SessionLogs[0].TimedDurationMilliseconds, "Codex row keeps the response window");
         AssertEqual(110m, first.SessionLogs[0].GetOutputTokensPerSecond(), "Codex row speed");
         AssertEqual("gpt-slow", first.SessionLogs[1].Model, "older Codex row is second");
         AssertEqual(0L, first.SessionLogs[1].TimedDurationMilliseconds, "a small Codex output has no speed sample");
-        AssertTrue(first.SessionLogs[1].CostUsd != null, "a small Codex output still has a price");
         TokenCostStatistics cached = collector.CollectCodex(codexRoot, now);
         AssertEqual(first.SessionLogs.Count, cached.SessionLogs.Count, "cached Codex collect keeps session log rows");
         AssertEqual(first.SessionLogs[0].TimedOutputTokens, cached.SessionLogs[0].TimedOutputTokens, "cached Codex row keeps speed tokens");
-        AssertEqual(first.SessionLogs[0].CostUsd, cached.SessionLogs[0].CostUsd, "cached Codex row keeps cost");
 
         string grokSession = Path.Combine(temp.Path, "grok", "sessions", "workspace", "one");
         string archived = Path.Combine(temp.Path, "grok", "archived_sessions", "workspace", "one");
@@ -2600,12 +2593,7 @@ internal static class Program
         AssertEqual(3, grok.SessionLogs.Count, "an archived Grok twin and a later local day are not extra rows");
         AssertEqual(false, grok.IsSpeedEstimated, "Grok speed is measured");
         AssertEqual(now.AddMinutes(-1), grok.SessionLogs[0].Timestamp, "newest Grok row is first");
-        AssertEqual(null, grok.SessionLogs[0].CostUsd, "an unknown model does not invent a row cost");
-        AssertEqual(true, grok.SessionLogs[0].HasUnpricedUsage, "an unknown model row stays unpriced");
         AssertEqual(0L, grok.SessionLogs[0].TimedDurationMilliseconds, "a short Grok call has no speed");
-        AssertEqual(0.2m, grok.SessionLogs[1].CostUsd, "a partial Grok row keeps the reported cost");
-        AssertEqual(true, grok.SessionLogs[1].HasUnpricedUsage, "a partial Grok row stays marked");
-        AssertEqual(0.1326m, grok.SessionLogs[2].CostUsd, "reported Grok ticks become the row cost");
         AssertEqual(20m, grok.SessionLogs[2].GetOutputTokensPerSecond(), "Grok row speed uses the paired duration");
         return Task.CompletedTask;
     }

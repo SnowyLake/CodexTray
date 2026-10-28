@@ -1030,7 +1030,7 @@
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <Button VerticalAlignment="Center"
                                     Command="{Binding CodexSessionLogs.ToggleCommand}"
-                                    Content="{Binding CodexSessionLogs.ToggleGlyph}"
+                                    Content="{x:Static local:SessionLogListViewModel.ListGlyph}"
                                     ToolTip="{Binding CodexSessionLogs.ToggleTooltip}"
                                     AutomationProperties.Name="{Binding CodexSessionLogs.ToggleTooltip}">
                                 <Button.Style>
@@ -1197,7 +1197,7 @@
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <Button VerticalAlignment="Center"
                                     Command="{Binding GrokSessionLogs.ToggleCommand}"
-                                    Content="{Binding GrokSessionLogs.ToggleGlyph}"
+                                    Content="{x:Static local:SessionLogListViewModel.ListGlyph}"
                                     ToolTip="{Binding GrokSessionLogs.ToggleTooltip}"
                                     AutomationProperties.Name="{Binding GrokSessionLogs.ToggleTooltip}">
                                 <Button.Style>

@@ -80,10 +80,6 @@ public sealed class SessionLogEntry
 
     public string Model { get; init; } = string.Empty;
 
-    public decimal? CostUsd { get; init; }
-
-    public bool HasUnpricedUsage { get; init; }
-
     public long TimedOutputTokens { get; init; }
 
     public long TimedDurationMilliseconds { get; init; }
@@ -235,8 +231,6 @@ public sealed class TokenCostCollector
             {
                 Timestamp = usage.Timestamp,
                 Model = usage.Model,
-                CostUsd = usage.CostUsd,
-                HasUnpricedUsage = usage.HasUnpricedUsage,
                 TimedOutputTokens = usage.TimedOutputTokens,
                 TimedDurationMilliseconds = usage.TimedDurationMilliseconds,
             });
@@ -819,7 +813,7 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Copies cached Codex increments into the public session-log list without reparsing the file.
+    /// Adds one session-log row per increment that is not after the collect's local day.
     /// </summary>
     private static void AppendSessionLogs(List<SessionLogEntry> sessionLogs, List<CachedUsageEvent> events, DateTime today)
     {
@@ -834,8 +828,6 @@ public sealed class TokenCostCollector
             {
                 Timestamp = usageEvent.Timestamp,
                 Model = usageEvent.Model,
-                CostUsd = usageEvent.CostUsd,
-                HasUnpricedUsage = usageEvent.CostUsd == null && usageEvent.Tokens > 0,
                 TimedOutputTokens = usageEvent.TimedOutputTokens,
                 TimedDurationMilliseconds = usageEvent.TimedDurationMilliseconds,
             });
