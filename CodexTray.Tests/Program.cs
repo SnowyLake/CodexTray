@@ -2348,7 +2348,8 @@ internal static class Program
         viewModel.UpdateTokenCost(new TokenCostStatistics { IsSpeedEstimated = true, SessionLogs = entries });
         SessionLogListViewModel logs = viewModel.CodexSessionLogs;
         AssertEqual(false, logs.IsOpen, "session logs start on the usage panel");
-        AssertEqual(SessionLogListViewModel.NotesGlyph, logs.ToggleGlyph, "session logs uses the notes glyph");
+        AssertEqual("\uE8FD", SessionLogListViewModel.NotesGlyph, "session logs uses BulletedList");
+        AssertEqual(SessionLogListViewModel.NotesGlyph, logs.ToggleGlyph, "session logs uses the list glyph");
         logs.ToggleCommand.Execute(null);
         AssertEqual(true, logs.IsOpen, "the same button opens session logs");
         AssertEqual(SessionLogListViewModel.NotesGlyph, logs.ToggleGlyph, "opening session logs keeps the notes glyph");

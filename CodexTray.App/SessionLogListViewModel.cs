@@ -13,9 +13,9 @@ public sealed partial class SessionLogListViewModel : ObservableObject
     public const int PageSize = 20;
 
     /// <summary>
-    /// Segoe MDL2 KnowledgeArticle, a notes page. The button keeps this glyph and only changes color.
+    /// Segoe MDL2 BulletedList. The button keeps this glyph and only changes color.
     /// </summary>
-    public const string NotesGlyph = "\uE70B";
+    public const string NotesGlyph = "\uE8FD";
 
     private IReadOnlyList<SessionLogEntry> m_Entries = [];
     private int m_Page;
