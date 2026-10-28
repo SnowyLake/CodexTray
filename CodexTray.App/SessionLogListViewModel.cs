@@ -6,7 +6,7 @@ using System.Globalization;
 namespace CodexTray.App;
 
 /// <summary>
-/// Paged Time / Model / Cost / Speed rows for one harness, without persisting the open page.
+/// Paged Time / Model / Speed rows for one harness, without persisting the open page.
 /// </summary>
 public sealed partial class SessionLogListViewModel : ObservableObject
 {
@@ -140,7 +140,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
             Time = local.ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             TimeTooltip = local.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             Model = entry.Model,
-            Cost = FormatCost(entry),
             Speed = speed,
         };
     }
@@ -153,18 +152,7 @@ public sealed partial class SessionLogListViewModel : ObservableObject
         }
 
         string prefix = m_SpeedEstimated ? "≈" : string.Empty;
-        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0}");
-    }
-
-    private static string FormatCost(SessionLogEntry entry)
-    {
-        if (entry.CostUsd is not decimal cost)
-        {
-            return "—";
-        }
-
-        string text = cost.ToString("$0.0000", CultureInfo.InvariantCulture);
-        return entry.HasUnpricedUsage ? text + "*" : text;
+        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0} tok/s");
     }
 }
 
@@ -178,8 +166,6 @@ public sealed class SessionLogRow
     public string TimeTooltip { get; init; } = string.Empty;
 
     public string Model { get; init; } = string.Empty;
-
-    public string Cost { get; init; } = string.Empty;
 
     public string Speed { get; init; } = string.Empty;
 }

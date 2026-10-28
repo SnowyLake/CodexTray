@@ -2341,8 +2341,6 @@ internal static class Program
             {
                 Timestamp = newest.AddMinutes(-index),
                 Model = index == 0 ? "gpt-6-astra" : "gpt-test",
-                CostUsd = index == 1 ? null : 0.1326m,
-                HasUnpricedUsage = index == 2,
                 TimedOutputTokens = index == 3 ? 0 : 220,
                 TimedDurationMilliseconds = index == 3 ? 0 : 10_000,
             })
@@ -2362,10 +2360,7 @@ internal static class Program
         AssertEqual(false, logs.CanGoPrevious, "first page cannot go back");
         AssertEqual(newest.ToLocalTime().ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture), logs.Rows[0].Time, "newest row time");
         AssertEqual("gpt-6-astra", logs.Rows[0].Model, "newest row model");
-        AssertEqual("$0.1326", logs.Rows[0].Cost, "priced row");
-        AssertEqual("≈22", logs.Rows[0].Speed, "estimated Codex speed is an integer without a unit");
-        AssertEqual("—", logs.Rows[1].Cost, "missing cost stays blank");
-        AssertEqual("$0.1326*", logs.Rows[2].Cost, "incomplete cost keeps the star");
+        AssertEqual("≈22 tok/s", logs.Rows[0].Speed, "estimated Codex speed keeps the unit");
         AssertEqual("—", logs.Rows[3].Speed, "missing speed stays blank");
         logs.NextPageCommand.Execute(null);
         AssertEqual(1, logs.Rows.Count, "second page has the remainder");
@@ -2389,7 +2384,7 @@ internal static class Program
             IsSpeedEstimated = false,
             SessionLogs = [entries[0]],
         });
-        AssertEqual("22", viewModel.GrokSessionLogs.Rows[0].Speed, "measured Grok speed is an integer without a unit");
+        AssertEqual("22 tok/s", viewModel.GrokSessionLogs.Rows[0].Speed, "measured Grok speed keeps the unit");
         AssertEqual(0, logs.Rows.Count, "Grok rows do not refill Codex");
         AssertEqual(false, viewModel.GrokSessionLogs.IsOpen, "Grok session logs stay closed");
         logs.ToggleCommand.Execute(null);
@@ -2415,9 +2410,7 @@ internal static class Program
                     {
                         Timestamp = new DateTimeOffset(2026, 10, 27, 21, 0, 0, TimeSpan.FromHours(8)).AddMinutes(-index),
                         Model = models[index % models.Length],
-                        CostUsd = 0.1326m,
-                        HasUnpricedUsage = true,
-                        TimedOutputTokens = 220,
+                        TimedOutputTokens = 2_200,
                         TimedDurationMilliseconds = 10_000,
                     })
                     .ToArray();
@@ -2441,10 +2434,8 @@ internal static class Program
                 AssertEqual(System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), ((System.Windows.Media.SolidColorBrush)notesButton.Foreground).Color, "open notes button is green");
                 SessionLogRow sample = viewModel.CodexSessionLogs.Rows[0];
                 AssertFits(blocks, sample.Time);
-                AssertFits(blocks, sample.Cost);
                 AssertFits(blocks, sample.Speed);
-                System.Windows.Controls.TextBlock speedHeader = blocks.First(block => block.Text.Contains("(tok/s)", StringComparison.Ordinal) && block.ActualWidth > 0);
-                AssertTextFits(speedHeader, "(tok/s)");
+                AssertTrue(blocks.All(block => block.Text != "Cost" || block.ActualWidth <= 0), "session logs omit the cost column");
                 foreach (string model in models)
                 {
                     System.Windows.Controls.TextBlock row = blocks.First(block => block.Text == model && block.ActualWidth > 0);

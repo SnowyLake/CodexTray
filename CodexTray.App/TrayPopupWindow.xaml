@@ -863,8 +863,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="80" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="54" />
-                                <ColumnDefinition Width="44" />
+                                <ColumnDefinition Width="88" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Time"
                                        VerticalAlignment="Bottom"
@@ -877,18 +876,11 @@
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                        FontSize="12" />
                             <TextBlock Grid.Column="2"
-                                       Text="Cost"
+                                       Text="Speed"
                                        VerticalAlignment="Bottom"
                                        HorizontalAlignment="Right"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                        FontSize="12" />
-                            <TextBlock Grid.Column="3"
-                                       Text="Speed&#x0a;(tok/s)"
-                                       TextAlignment="Right"
-                                       TextWrapping="Wrap"
-                                       VerticalAlignment="Bottom"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="11" />
                         </Grid>
                         <ScrollViewer Grid.Row="1"
                                       Grid.Column="0"
@@ -908,8 +900,7 @@
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="80" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="54" />
-                                                <ColumnDefinition Width="44" />
+                                                <ColumnDefinition Width="88" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Time}"
                                                        ToolTip="{Binding TimeTooltip}"
@@ -925,12 +916,6 @@
                                                        FontSize="13"
                                                        FontWeight="Medium" />
                                             <TextBlock Grid.Column="2"
-                                                       Text="{Binding Cost}"
-                                                       VerticalAlignment="Center"
-                                                       HorizontalAlignment="Right"
-                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                       FontSize="13" />
-                                            <TextBlock Grid.Column="3"
                                                        Text="{Binding Speed}"
                                                        VerticalAlignment="Center"
                                                        HorizontalAlignment="Right"
