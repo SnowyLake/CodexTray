@@ -844,6 +844,21 @@
                 </Grid>
             </DataTemplate>
 
+            <GridLength x:Key="SessionLogTimeColumn">100</GridLength>
+            <GridLength x:Key="SessionLogSpeedColumn">76</GridLength>
+            <Style x:Key="SessionLogHeaderText" TargetType="TextBlock">
+                <Setter Property="VerticalAlignment" Value="Bottom" />
+                <Setter Property="TextAlignment" Value="Left" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+            <Style x:Key="SessionLogCellText" TargetType="TextBlock">
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="TextAlignment" Value="Left" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                <Setter Property="FontSize" Value="13" />
+            </Style>
+
             <DataTemplate x:Key="SessionLogListTemplate">
                 <Grid Margin="0,14,0,0">
                     <Grid.RowDefinitions>
@@ -859,28 +874,15 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <Grid Grid.Column="0" Margin="0,0,0,4">
+                        <Grid Grid.Column="0" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="{StaticResource SessionLogTimeColumn}" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="88" />
+                                <ColumnDefinition Width="{StaticResource SessionLogSpeedColumn}" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Time"
-                                       VerticalAlignment="Bottom"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="12" />
-                            <TextBlock Grid.Column="1"
-                                       Text="Model"
-                                       Margin="2,0,0,0"
-                                       VerticalAlignment="Bottom"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="12" />
-                            <TextBlock Grid.Column="2"
-                                       Text="Speed"
-                                       VerticalAlignment="Bottom"
-                                       HorizontalAlignment="Right"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="12" />
+                            <TextBlock Text="Time" Style="{StaticResource SessionLogHeaderText}" />
+                            <TextBlock Grid.Column="1" Text="Model" Style="{StaticResource SessionLogHeaderText}" />
+                            <TextBlock Grid.Column="2" Text="Speed" Style="{StaticResource SessionLogHeaderText}" />
                         </Grid>
                         <ScrollViewer Grid.Row="1"
                                       Grid.Column="0"
@@ -898,29 +900,21 @@
                                         </Grid.RowDefinitions>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="80" />
+                                                <ColumnDefinition Width="{StaticResource SessionLogTimeColumn}" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="88" />
+                                                <ColumnDefinition Width="{StaticResource SessionLogSpeedColumn}" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Time}"
-                                                       ToolTip="{Binding TimeTooltip}"
-                                                       VerticalAlignment="Center"
                                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                       FontSize="12" />
+                                                       Style="{StaticResource SessionLogCellText}" />
                                             <TextBlock Grid.Column="1"
                                                        Text="{Binding Model}"
-                                                       Margin="2,0,0,0"
-                                                       VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis"
-                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                       FontSize="13"
-                                                       FontWeight="Medium" />
+                                                       FontWeight="Medium"
+                                                       Style="{StaticResource SessionLogCellText}" />
                                             <TextBlock Grid.Column="2"
                                                        Text="{Binding Speed}"
-                                                       VerticalAlignment="Center"
-                                                       HorizontalAlignment="Right"
-                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                       FontSize="13" />
+                                                       Style="{StaticResource SessionLogCellText}" />
                                         </Grid>
                                         <Border Grid.Row="1"
                                                 Height="1"

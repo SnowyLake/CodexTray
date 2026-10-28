@@ -138,7 +138,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
         return new SessionLogRow
         {
             Time = local.ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-            TimeTooltip = local.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             Model = entry.Model,
             Speed = speed,
         };
@@ -162,8 +161,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
 public sealed class SessionLogRow
 {
     public string Time { get; init; } = string.Empty;
-
-    public string TimeTooltip { get; init; } = string.Empty;
 
     public string Model { get; init; } = string.Empty;
 

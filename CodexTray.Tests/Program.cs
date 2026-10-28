@@ -2432,22 +2432,27 @@ internal static class Program
                 System.Windows.Controls.Button notesButton = FindAncestorButton(blocks.First(block => block.Text == SessionLogListViewModel.NotesGlyph));
                 AssertEqual(SessionLogListViewModel.NotesGlyph, notesButton.Content, "notes button content");
                 AssertEqual(System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), ((System.Windows.Media.SolidColorBrush)notesButton.Foreground).Color, "open notes button is green");
-                SessionLogRow sample = viewModel.CodexSessionLogs.Rows[0];
-                AssertFits(blocks, sample.Time);
-                AssertFits(blocks, sample.Speed);
                 AssertTrue(blocks.All(block => block.Text != "Cost" || block.ActualWidth <= 0), "session logs omit the cost column");
+                System.Windows.Controls.TextBlock timeHeader = VisibleBlock(blocks, "Time");
+                System.Windows.Controls.TextBlock modelHeader = VisibleBlock(blocks, "Model");
+                System.Windows.Controls.TextBlock speedHeader = VisibleBlock(blocks, "Speed");
+                SessionLogRow sample = viewModel.CodexSessionLogs.Rows[0];
+                System.Windows.Controls.TextBlock timeCell = VisibleBlock(blocks, sample.Time);
+                System.Windows.Controls.TextBlock speedCell = VisibleBlock(blocks, sample.Speed);
+                AssertTrue(timeCell.ToolTip == null, "session log time has no tooltip");
+                AssertAligned(timeHeader, timeCell, "time");
+                AssertAligned(modelHeader, VisibleBlock(blocks, "deepseek-v4-flash"), "model");
+                AssertAligned(speedHeader, speedCell, "speed");
+                AssertTrue(Math.Abs(timeCell.ActualWidth - 100) < 1, $"time column is fixed, width {timeCell.ActualWidth:0.0}");
+                AssertTrue(Math.Abs(speedCell.ActualWidth - 76) < 1, $"speed column is fixed, width {speedCell.ActualWidth:0.0}");
+                AssertGap(timeCell, VisibleBlock(blocks, "deepseek-v4-flash"), "time and model");
                 foreach (string model in models)
                 {
-                    System.Windows.Controls.TextBlock row = blocks.First(block => block.Text == model && block.ActualWidth > 0);
-                    System.Windows.Controls.TextBlock probe = new()
-                    {
-                        Text = model,
-                        FontFamily = row.FontFamily,
-                        FontSize = row.FontSize,
-                        FontWeight = row.FontWeight,
-                    };
-                    probe.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-                    AssertTrue(row.ActualWidth + 0.5 >= probe.DesiredSize.Width, $"{model} is fully visible, slot {row.ActualWidth:0.0}, text {probe.DesiredSize.Width:0.0}");
+                    System.Windows.Controls.TextBlock row = VisibleBlock(blocks, model);
+                    AssertTrue(row.ToolTip == null, $"{model} has no tooltip");
+                    AssertGap(row, speedCell, model);
+                    double textWidth = TextWidth(row);
+                    AssertTrue(row.ActualWidth + 0.5 >= textWidth, $"{model} is fully visible, slot {row.ActualWidth:0.0}, text {textWidth:0.0}");
                     AssertEqual(44d, ((System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(row))).ActualHeight, "session log row height");
                 }
 
@@ -2458,22 +2463,39 @@ internal static class Program
                 AssertTrue(closed != System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), "closed notes button leaves the green state");
                 window.Close();
 
-                void AssertFits(List<System.Windows.Controls.TextBlock> source, string text)
+                static System.Windows.Controls.TextBlock VisibleBlock(List<System.Windows.Controls.TextBlock> source, string text)
                 {
-                    AssertTextFits(source.First(block => block.Text == text && block.ActualWidth > 0), text);
+                    return source.First(block => block.Text == text && block.ActualWidth > 0);
                 }
 
-                void AssertTextFits(System.Windows.Controls.TextBlock row, string text)
+                static double Left(System.Windows.Controls.TextBlock block, System.Windows.FrameworkElement root)
+                {
+                    return block.TransformToAncestor(root).Transform(new System.Windows.Point(0, 0)).X;
+                }
+
+                static double TextWidth(System.Windows.Controls.TextBlock block)
                 {
                     System.Windows.Controls.TextBlock probe = new()
                     {
-                        Text = text,
-                        FontFamily = row.FontFamily,
-                        FontSize = row.FontSize,
-                        FontWeight = row.FontWeight,
+                        Text = block.Text,
+                        FontFamily = block.FontFamily,
+                        FontSize = block.FontSize,
+                        FontWeight = block.FontWeight,
                     };
                     probe.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-                    AssertTrue(row.ActualWidth + 0.5 >= probe.DesiredSize.Width, $"{text} is fully visible, slot {row.ActualWidth:0.0}, text {probe.DesiredSize.Width:0.0}");
+                    return probe.DesiredSize.Width;
+                }
+
+                void AssertAligned(System.Windows.Controls.TextBlock header, System.Windows.Controls.TextBlock cell, string column)
+                {
+                    double delta = Math.Abs(Left(header, content) - Left(cell, content));
+                    AssertTrue(delta < 1, $"{column} header and cell share a left edge, delta {delta:0.0}");
+                }
+
+                void AssertGap(System.Windows.Controls.TextBlock leading, System.Windows.Controls.TextBlock following, string label)
+                {
+                    double gap = Left(following, content) - (Left(leading, content) + TextWidth(leading));
+                    AssertTrue(gap >= 6, $"{label} keeps a gap, {gap:0.0}");
                 }
             }
             catch (Exception exception)
