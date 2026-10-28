@@ -71,6 +71,28 @@ public sealed class TokenCostModelStatistics
     public TokenCostSummary Lifetime { get; init; } = new();
 }
 
+/// <summary>
+/// One billed Codex increment or one Grok model turn from the same collect pass.
+/// </summary>
+public sealed class SessionLogEntry
+{
+    public DateTimeOffset Timestamp { get; init; }
+
+    public string Model { get; init; } = string.Empty;
+
+    public long TimedOutputTokens { get; init; }
+
+    public long TimedDurationMilliseconds { get; init; }
+
+    /// <summary>
+    /// Returns this row's output speed, or null when the call has no accepted timing sample.
+    /// </summary>
+    public decimal? GetOutputTokensPerSecond()
+    {
+        return TimedDurationMilliseconds > 0 && TimedOutputTokens >= 0 ? TimedOutputTokens * 1000m / TimedDurationMilliseconds : null;
+    }
+}
+
 public sealed class TokenCostStatistics
 {
     public string CostSource { get; init; } = "Provider billing";
@@ -100,6 +122,8 @@ public sealed class TokenCostStatistics
     public IReadOnlyList<TokenCostDailySummary> CurrentMonthDaily { get; init; } = [];
 
     public IReadOnlyList<TokenCostModelStatistics> Models { get; init; } = [];
+
+    public IReadOnlyList<SessionLogEntry> SessionLogs { get; init; } = [];
 }
 
 public sealed class TokenCostCollector
@@ -155,6 +179,7 @@ public sealed class TokenCostCollector
         List<string[]> sessionGroups = GroupCodexSessionFiles(sessionFiles);
         Dictionary<string, IReadOnlyList<string>> rolloutIndex = BuildRolloutIndex(sessionGroups);
         HashSet<string> seenFiles = new(StringComparer.OrdinalIgnoreCase);
+        List<SessionLogEntry> sessionLogs = [];
 
         foreach (string[] paths in sessionGroups)
         {
@@ -164,11 +189,11 @@ public sealed class TokenCostCollector
                 seenFiles.Add(path);
             }
 
-            CollectCodexThread(paths, pricing, rolloutIndex, accumulator, cancellationToken);
+            CollectCodexThread(paths, pricing, rolloutIndex, accumulator, sessionLogs, current.LocalDateTime.Date, cancellationToken);
         }
 
         PruneFileUsageCache(seenFiles);
-        return accumulator.ToStatistics(isSpeedEstimated: true, costSource: "Local pricing · API equivalent");
+        return accumulator.ToStatistics(isSpeedEstimated: true, costSource: "Local pricing · API equivalent", sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
     }
 
     /// <summary>
@@ -190,14 +215,28 @@ public sealed class TokenCostCollector
         }
 
         TokenCostPeriodAccumulator accumulator = new(current);
+        DateTime today = current.LocalDateTime.Date;
+        List<SessionLogEntry> sessionLogs = new(turns.Count);
         foreach (GrokTurnUsage usage in turns.Values)
         {
             cancellationToken.ThrowIfCancellationRequested();
             accumulator.Add(usage.Timestamp, usage.Counts.Total, usage.CostUsd, usage.Model, usage.Counts.CacheReadTokens, usage.Counts.CacheableInputTokens,
                             usage.TimedOutputTokens, usage.TimedDurationMilliseconds, usage.HasUnpricedUsage);
+            if (usage.Timestamp.LocalDateTime.Date > today)
+            {
+                continue;
+            }
+
+            sessionLogs.Add(new SessionLogEntry
+            {
+                Timestamp = usage.Timestamp,
+                Model = usage.Model,
+                TimedOutputTokens = usage.TimedOutputTokens,
+                TimedDurationMilliseconds = usage.TimedDurationMilliseconds,
+            });
         }
 
-        return accumulator.ToStatistics(costSource: "Grok reported cost / local pricing fallback");
+        return accumulator.ToStatistics(costSource: "Grok reported cost / local pricing fallback", sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
     }
 
     /// <summary>
@@ -522,12 +561,15 @@ public sealed class TokenCostCollector
         Dictionary<string, ModelPricing> pricing,
         Dictionary<string, IReadOnlyList<string>> rolloutIndex,
         TokenCostPeriodAccumulator accumulator,
+        List<SessionLogEntry> sessionLogs,
+        DateTime today,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (TryGetCachedThreadUsage(paths, out List<CachedUsageEvent>? cachedEvents))
         {
             AddCachedUsage(cachedEvents, accumulator);
+            AppendSessionLogs(sessionLogs, cachedEvents, today);
             return;
         }
 
@@ -767,6 +809,42 @@ public sealed class TokenCostCollector
         }
 
         StoreCachedThreadUsage(paths, events);
+        AppendSessionLogs(sessionLogs, events, today);
+    }
+
+    /// <summary>
+    /// Adds one session-log row per increment that is not after the collect's local day.
+    /// </summary>
+    private static void AppendSessionLogs(List<SessionLogEntry> sessionLogs, List<CachedUsageEvent> events, DateTime today)
+    {
+        foreach (CachedUsageEvent usageEvent in events)
+        {
+            if (usageEvent.Timestamp.LocalDateTime.Date > today)
+            {
+                continue;
+            }
+
+            sessionLogs.Add(new SessionLogEntry
+            {
+                Timestamp = usageEvent.Timestamp,
+                Model = usageEvent.Model,
+                TimedOutputTokens = usageEvent.TimedOutputTokens,
+                TimedDurationMilliseconds = usageEvent.TimedDurationMilliseconds,
+            });
+        }
+    }
+
+    /// <summary>
+    /// Orders rows newest-first while keeping equal timestamps in collect order.
+    /// </summary>
+    private static SessionLogEntry[] SortSessionLogsNewestFirst(List<SessionLogEntry> entries)
+    {
+        return entries
+            .Select((entry, index) => (entry, index))
+            .OrderByDescending(item => item.entry.Timestamp)
+            .ThenBy(item => item.index)
+            .Select(item => item.entry)
+            .ToArray();
     }
 
     /// <summary>

@@ -78,6 +78,9 @@ internal static class Program
         await RunAsync("tracks asynchronous refresh commands", TestRefreshCommandAsync);
         await RunAsync("formats bounded visible-source tray summaries", TestTrayTooltipAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
+        await RunAsync("pages session log rows for the current harness", TestSessionLogPagingAsync);
+        await RunAsync("fits session log model names and keeps the list glyph", TestSessionLogLayoutAsync);
+        await RunAsync("keeps per-call session log rows from Codex and Grok collects", TestSessionLogEntriesAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
         await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
@@ -2324,6 +2327,275 @@ internal static class Program
                 },
             ],
         };
+    }
+
+    /// <summary>
+    /// Pages Codex and Grok session-log rows without mixing the two harnesses.
+    /// </summary>
+    private static Task TestSessionLogPagingAsync()
+    {
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        DateTimeOffset newest = new(2026, 10, 27, 21, 54, 49, TimeSpan.FromHours(8));
+        SessionLogEntry[] entries = Enumerable.Range(0, 21)
+            .Select(index => new SessionLogEntry
+            {
+                Timestamp = newest.AddMinutes(-index),
+                Model = index == 0 ? "gpt-6-astra" : "gpt-test",
+                TimedOutputTokens = index == 3 ? 0 : 220,
+                TimedDurationMilliseconds = index == 3 ? 0 : 10_000,
+            })
+            .ToArray();
+        viewModel.UpdateTokenCost(new TokenCostStatistics { IsSpeedEstimated = true, SessionLogs = entries });
+        SessionLogListViewModel logs = viewModel.CodexSessionLogs;
+        AssertEqual(false, logs.IsOpen, "session logs start on the usage panel");
+        AssertEqual("\uE71D", SessionLogListViewModel.ListGlyph, "session logs uses the list glyph");
+        logs.ToggleCommand.Execute(null);
+        AssertEqual(true, logs.IsOpen, "the same button opens session logs");
+        AssertEqual("Back to usage", logs.ToggleTooltip, "open session logs explains how to return");
+        AssertEqual(SessionLogListViewModel.PageSize, logs.Rows.Count, "first page has 20 rows");
+        AssertEqual("21 records", logs.Summary, "record count");
+        AssertEqual("1 / 2", logs.PageLabel, "first page label");
+        AssertEqual(true, logs.CanGoNext, "first page can advance");
+        AssertEqual(false, logs.CanGoPrevious, "first page cannot go back");
+        AssertEqual(newest.ToLocalTime().ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture), logs.Rows[0].Time, "newest row time");
+        AssertEqual("gpt-6-astra", logs.Rows[0].Model, "newest row model");
+        AssertEqual("≈22 tok/s", logs.Rows[0].Speed, "estimated Codex speed keeps the unit");
+        AssertEqual("—", logs.Rows[3].Speed, "missing speed stays blank");
+        logs.NextPageCommand.Execute(null);
+        AssertEqual(1, logs.Rows.Count, "second page has the remainder");
+        AssertEqual("2 / 2", logs.PageLabel, "second page label");
+        AssertEqual(false, logs.CanGoNext, "last page cannot advance");
+        logs.NextPageCommand.Execute(null);
+        AssertEqual("2 / 2", logs.PageLabel, "next on the last page stays");
+        logs.PreviousPageCommand.Execute(null);
+        AssertEqual(SessionLogListViewModel.PageSize, logs.Rows.Count, "previous page restores 20 rows");
+        viewModel.UpdateTokenCost(new TokenCostStatistics { IsSpeedEstimated = true, SessionLogs = entries.Take(1).ToArray() });
+        AssertEqual("1 / 1", logs.PageLabel, "page clamps after the list shrinks");
+        AssertEqual(1, logs.Rows.Count, "clamped page shows the remaining row");
+        AssertEqual(true, logs.IsOpen, "a refresh keeps the open list");
+        viewModel.UpdateTokenCost(null, "pricing unavailable");
+        AssertEqual(0, logs.Rows.Count, "a failed collect clears rows");
+        AssertEqual(true, logs.IsEmpty, "a failed collect is empty");
+        AssertEqual("N/A", logs.EmptyText, "a failed collect shows N/A");
+        AssertEqual(true, logs.IsOpen, "a failed collect leaves the list open");
+        viewModel.UpdateGrokTokenCost(new TokenCostStatistics
+        {
+            IsSpeedEstimated = false,
+            SessionLogs = [entries[0]],
+        });
+        AssertEqual("22 tok/s", viewModel.GrokSessionLogs.Rows[0].Speed, "measured Grok speed keeps the unit");
+        AssertEqual(0, logs.Rows.Count, "Grok rows do not refill Codex");
+        AssertEqual(false, viewModel.GrokSessionLogs.IsOpen, "Grok session logs stay closed");
+        logs.ToggleCommand.Execute(null);
+        AssertEqual(false, logs.IsOpen, "the same button returns to usage");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Common model names stay fully visible, and the list button only changes color.
+    /// </summary>
+    private static Task TestSessionLogLayoutAsync()
+    {
+        Exception? failure = null;
+        Thread thread = new(() =>
+        {
+            try
+            {
+                TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+                string[] models = ["deepseek-v4-flash", "grok-4.5-build", "gpt-5.3-codex", "gpt-6.1-terra"];
+                SessionLogEntry[] entries = Enumerable.Range(0, 21)
+                    .Select(index => new SessionLogEntry
+                    {
+                        Timestamp = new DateTimeOffset(2026, 10, 27, 21, 0, 0, TimeSpan.FromHours(8)).AddMinutes(-index),
+                        Model = models[index % models.Length],
+                        TimedOutputTokens = 2_200,
+                        TimedDurationMilliseconds = 10_000,
+                    })
+                    .ToArray();
+                viewModel.UpdateTokenCost(new TokenCostStatistics { IsSpeedEstimated = true, SessionLogs = entries });
+                viewModel.CodexSessionLogs.ToggleCommand.Execute(null);
+                TrayPopupWindow window = new(viewModel);
+                System.Windows.FrameworkElement content = (System.Windows.FrameworkElement)window.Content;
+                void Layout()
+                {
+                    content.Measure(new System.Windows.Size(window.Width, window.Height));
+                    content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                    content.UpdateLayout();
+                }
+
+                Layout();
+                Layout();
+                List<System.Windows.Controls.TextBlock> blocks = [];
+                CollectTextBlocks(content, blocks);
+                System.Windows.Controls.Button listButton = FindAncestorButton(blocks.First(block => block.Text == SessionLogListViewModel.ListGlyph));
+                AssertEqual(SessionLogListViewModel.ListGlyph, listButton.Content, "list button content");
+                AssertEqual(System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), ((System.Windows.Media.SolidColorBrush)listButton.Foreground).Color, "open list button is green");
+                AssertTrue(blocks.All(block => block.Text != "Cost" || block.ActualWidth <= 0), "session logs omit the cost column");
+                System.Windows.Controls.TextBlock timeHeader = VisibleBlock(blocks, "Time");
+                System.Windows.Controls.TextBlock modelHeader = VisibleBlock(blocks, "Model");
+                System.Windows.Controls.TextBlock speedHeader = VisibleBlock(blocks, "Speed");
+                SessionLogRow sample = viewModel.CodexSessionLogs.Rows[0];
+                System.Windows.Controls.TextBlock timeCell = VisibleBlock(blocks, sample.Time);
+                System.Windows.Controls.TextBlock speedCell = VisibleBlock(blocks, sample.Speed);
+                AssertTrue(timeCell.ToolTip == null, "session log time has no tooltip");
+                AssertAligned(timeHeader, timeCell, "time");
+                AssertAligned(modelHeader, VisibleBlock(blocks, "deepseek-v4-flash"), "model");
+                AssertAligned(speedHeader, speedCell, "speed");
+                AssertTrue(Math.Abs(timeCell.ActualWidth - 100) < 1, $"time column is fixed, width {timeCell.ActualWidth:0.0}");
+                AssertTrue(Math.Abs(speedCell.ActualWidth - 76) < 1, $"speed column is fixed, width {speedCell.ActualWidth:0.0}");
+                AssertGap(timeCell, VisibleBlock(blocks, "deepseek-v4-flash"), "time and model");
+                foreach (string model in models)
+                {
+                    System.Windows.Controls.TextBlock row = VisibleBlock(blocks, model);
+                    AssertTrue(row.ToolTip == null, $"{model} has no tooltip");
+                    AssertGap(row, speedCell, model);
+                    double textWidth = TextWidth(row);
+                    AssertTrue(row.ActualWidth + 0.5 >= textWidth, $"{model} is fully visible, slot {row.ActualWidth:0.0}, text {textWidth:0.0}");
+                    AssertEqual(44d, ((System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(row))).ActualHeight, "session log row height");
+                }
+
+                viewModel.CodexSessionLogs.ToggleCommand.Execute(null);
+                Layout();
+                AssertEqual(SessionLogListViewModel.ListGlyph, listButton.Content, "closing session logs keeps the list glyph");
+                System.Windows.Media.Color closed = ((System.Windows.Media.SolidColorBrush)listButton.Foreground).Color;
+                AssertTrue(closed != System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), "closed list button leaves the green state");
+                window.Close();
+
+                static System.Windows.Controls.TextBlock VisibleBlock(List<System.Windows.Controls.TextBlock> source, string text)
+                {
+                    return source.First(block => block.Text == text && block.ActualWidth > 0);
+                }
+
+                static double Left(System.Windows.Controls.TextBlock block, System.Windows.FrameworkElement root)
+                {
+                    return block.TransformToAncestor(root).Transform(new System.Windows.Point(0, 0)).X;
+                }
+
+                static double TextWidth(System.Windows.Controls.TextBlock block)
+                {
+                    System.Windows.Controls.TextBlock probe = new()
+                    {
+                        Text = block.Text,
+                        FontFamily = block.FontFamily,
+                        FontSize = block.FontSize,
+                        FontWeight = block.FontWeight,
+                    };
+                    probe.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+                    return probe.DesiredSize.Width;
+                }
+
+                void AssertAligned(System.Windows.Controls.TextBlock header, System.Windows.Controls.TextBlock cell, string column)
+                {
+                    double delta = Math.Abs(Left(header, content) - Left(cell, content));
+                    AssertTrue(delta < 1, $"{column} header and cell share a left edge, delta {delta:0.0}");
+                }
+
+                void AssertGap(System.Windows.Controls.TextBlock leading, System.Windows.Controls.TextBlock following, string label)
+                {
+                    double gap = Left(following, content) - (Left(leading, content) + TextWidth(leading));
+                    AssertTrue(gap >= 6, $"{label} keeps a gap, {gap:0.0}");
+                }
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (failure != null)
+        {
+            throw new InvalidOperationException(failure.ToString(), failure);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Walks up to the button that hosts a glyph text block.
+    /// </summary>
+    private static System.Windows.Controls.Button FindAncestorButton(System.Windows.DependencyObject source)
+    {
+        System.Windows.DependencyObject? current = source;
+        while (current != null)
+        {
+            if (current is System.Windows.Controls.Button button)
+            {
+                return button;
+            }
+
+            current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+        }
+
+        throw new InvalidOperationException("list button was not found");
+    }
+
+    /// <summary>
+    /// Collects text blocks under a measured popup.
+    /// </summary>
+    private static void CollectTextBlocks(System.Windows.DependencyObject root, List<System.Windows.Controls.TextBlock> blocks)
+    {
+        if (root is System.Windows.Controls.TextBlock block)
+        {
+            blocks.Add(block);
+        }
+
+        int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int index = 0; index < count; index++)
+        {
+            CollectTextBlocks(System.Windows.Media.VisualTreeHelper.GetChild(root, index), blocks);
+        }
+    }
+
+    /// <summary>
+    /// Session-log rows come from the same Codex increments and Grok turns as the period totals.
+    /// </summary>
+    private static Task TestSessionLogEntriesAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, "{\"gpt-fast\":{\"input\":3,\"cachedInput\":0.3,\"output\":15},\"gpt-slow\":{\"input\":3,\"cachedInput\":0.3,\"output\":15}}");
+        string sessions = Path.Combine(temp.Path, "codex", "sessions", "2026", "10", "27");
+        Directory.CreateDirectory(sessions);
+        DateTimeOffset now = new(2026, 10, 27, 22, 0, 0, TimeSpan.FromHours(8));
+        DateTimeOffset fast = now.AddMinutes(-10);
+        DateTimeOffset slow = now.AddMinutes(-30);
+        File.WriteAllLines(Path.Combine(sessions, "fast.jsonl"), CreateCodexSpeedWindow(fast, "gpt-fast", 220, 1, 3, 3));
+        File.WriteAllLines(Path.Combine(sessions, "slow.jsonl"), CreateCodexSpeedWindow(slow, "gpt-slow", 50, 1, 2, 2));
+        File.WriteAllLines(Path.Combine(sessions, "future.jsonl"), CreateCodexSpeedWindow(now.AddDays(1), "gpt-fast", 220, 1, 3, 3));
+        TokenCostCollector collector = new(pricingPath);
+        string codexRoot = Path.Combine(temp.Path, "codex");
+        TokenCostStatistics first = collector.CollectCodex(codexRoot, now);
+        AssertEqual(2, first.SessionLogs.Count, "one row per accepted Codex increment, excluding a later local day");
+        AssertEqual(true, first.IsSpeedEstimated, "Codex session log speed is estimated");
+        AssertEqual("gpt-fast", first.SessionLogs[0].Model, "newest Codex row is first");
+        AssertEqual(fast.AddSeconds(3), first.SessionLogs[0].Timestamp, "Codex row time is the token_count time");
+        AssertEqual(2_000L, first.SessionLogs[0].TimedDurationMilliseconds, "Codex row keeps the response window");
+        AssertEqual(110m, first.SessionLogs[0].GetOutputTokensPerSecond(), "Codex row speed");
+        AssertEqual("gpt-slow", first.SessionLogs[1].Model, "older Codex row is second");
+        AssertEqual(0L, first.SessionLogs[1].TimedDurationMilliseconds, "a small Codex output has no speed sample");
+        TokenCostStatistics cached = collector.CollectCodex(codexRoot, now);
+        AssertEqual(first.SessionLogs.Count, cached.SessionLogs.Count, "cached Codex collect keeps session log rows");
+        AssertEqual(first.SessionLogs[0].TimedOutputTokens, cached.SessionLogs[0].TimedOutputTokens, "cached Codex row keeps speed tokens");
+
+        string grokSession = Path.Combine(temp.Path, "grok", "sessions", "workspace", "one");
+        string archived = Path.Combine(temp.Path, "grok", "archived_sessions", "workspace", "one");
+        Directory.CreateDirectory(grokSession);
+        Directory.CreateDirectory(archived);
+        string fastTurn = CreateGrokTokenUpdate("p1", now.AddMinutes(-5), 10, 0, 200, costUsdTicks: 1_326_000_000, apiDurationMilliseconds: 10_000);
+        string partialTurn = CreateGrokTokenUpdate("p3", now.AddMinutes(-2), 10, 0, 200, costUsdTicks: 2_000_000_000, costIsPartial: true, apiDurationMilliseconds: 10_000);
+        string shortTurn = CreateGrokTokenUpdate("p2", now.AddMinutes(-1), 10, 0, 20, apiDurationMilliseconds: 50);
+        string futureTurn = CreateGrokTokenUpdate("future", now.AddDays(1), 10, 0, 200, costUsdTicks: 5_000_000_000, apiDurationMilliseconds: 10_000);
+        File.WriteAllLines(Path.Combine(grokSession, "updates.jsonl"), [fastTurn, partialTurn, shortTurn, futureTurn]);
+        File.WriteAllLines(Path.Combine(archived, "updates.jsonl"), [fastTurn]);
+        TokenCostStatistics grok = new TokenCostCollector(pricingPath).CollectGrok(Path.Combine(temp.Path, "grok"), now);
+        AssertEqual(3, grok.SessionLogs.Count, "an archived Grok twin and a later local day are not extra rows");
+        AssertEqual(false, grok.IsSpeedEstimated, "Grok speed is measured");
+        AssertEqual(now.AddMinutes(-1), grok.SessionLogs[0].Timestamp, "newest Grok row is first");
+        AssertEqual(0L, grok.SessionLogs[0].TimedDurationMilliseconds, "a short Grok call has no speed");
+        AssertEqual(20m, grok.SessionLogs[2].GetOutputTokensPerSecond(), "Grok row speed uses the paired duration");
+        return Task.CompletedTask;
     }
 
     /// <summary>
