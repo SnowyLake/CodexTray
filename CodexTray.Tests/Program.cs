@@ -2362,7 +2362,8 @@ internal static class Program
         AssertEqual("1 / 2", logs.PageLabel, "first page label");
         AssertEqual(true, logs.CanGoNext, "first page can advance");
         AssertEqual(false, logs.CanGoPrevious, "first page cannot go back");
-        AssertEqual(newest.ToLocalTime().ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture), logs.Rows[0].Time, "newest row time");
+        DateTime newestLocal = newest.ToLocalTime().DateTime;
+        AssertEqual(newestLocal.ToString("yy-MM-dd", CultureInfo.InvariantCulture) + "\n" + newestLocal.ToString("HH:mm:ss", CultureInfo.InvariantCulture), logs.Rows[0].Time, "newest row time");
         AssertEqual("gpt-6-astra", logs.Rows[0].Model, "newest row model");
         AssertEqual("$0.0123", logs.Rows[0].Cost, "row cost uses four decimal places");
         AssertEqual("$0.5000*", logs.Rows[1].Cost, "partial cost keeps the marker");
@@ -2440,7 +2441,7 @@ internal static class Program
                 System.Windows.Controls.Button listButton = FindAncestorButton(blocks.First(block => block.Text == SessionLogListViewModel.ListGlyph));
                 AssertEqual(SessionLogListViewModel.ListGlyph, listButton.Content, "list button content");
                 AssertEqual(System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), ((System.Windows.Media.SolidColorBrush)listButton.Foreground).Color, "open list button is green");
-                AssertTrue(blocks.All(block => block.ActualWidth <= 0 || block.Text != "Time"), "session logs omit a time column header");
+                System.Windows.Controls.TextBlock timeHeader = VisibleBlock(blocks, "Time");
                 System.Windows.Controls.TextBlock modelHeader = VisibleBlock(blocks, "Model");
                 System.Windows.Controls.TextBlock costHeader = VisibleBlock(blocks, "Cost");
                 System.Windows.Controls.TextBlock speedHeader = VisibleBlock(blocks, "Speed");
@@ -2450,53 +2451,59 @@ internal static class Program
                 System.Windows.Controls.TextBlock costCell = VisibleBlock(blocks, sample.Cost);
                 System.Windows.Controls.TextBlock speedCell = VisibleBlock(blocks, sample.Speed);
                 AssertTrue(timeCell.ToolTip == null, "session log time has no tooltip");
+                AssertTrue(sample.Time.Contains('\n'), "time splits the date and clock");
                 AssertEqual(11d, timeCell.FontSize, "time is smaller than the model");
                 AssertEqual(13d, modelCell.FontSize, "model keeps the row text size");
                 AssertEqual(13d, costCell.FontSize, "cost matches the model size");
                 AssertEqual(13d, speedCell.FontSize, "speed matches the model size");
-                AssertEqual(0d, modelHeader.Margin.Left, "model header starts at the row edge");
-                AssertEqual(0d, modelCell.Margin.Left, "model name starts at the row edge");
+                AssertAligned(timeHeader, timeCell, "time");
                 AssertAligned(modelHeader, modelCell, "model");
-                double timeEdge = Math.Abs(Left(timeCell, content) - Left(modelCell, content));
-                AssertTrue(timeEdge < 1, $"time and model share a left edge, delta {timeEdge:0.0}");
-                double timeTop = Top(timeCell, content);
-                double modelTop = Top(modelCell, content);
-                AssertTrue(modelTop >= timeTop + timeCell.ActualHeight - 1, $"time sits above the model, time {timeTop:0.0}, model {modelTop:0.0}");
-                double timeGap = modelTop - (timeTop + timeCell.ActualHeight);
-                AssertTrue(timeGap >= 0 && timeGap <= 4, $"time stays close to the model, gap {timeGap:0.0}");
                 AssertEqual(System.Windows.HorizontalAlignment.Right, costCell.HorizontalAlignment, "cost aligns right");
                 AssertEqual(System.Windows.HorizontalAlignment.Right, speedCell.HorizontalAlignment, "speed aligns right");
                 AssertSameRight(costHeader, costCell, "cost");
                 AssertSameRight(speedHeader, speedCell, "speed");
-                System.Windows.FrameworkElement valueRow = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(modelCell);
-                System.Windows.FrameworkElement item = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(timeCell);
-                AssertTrue(ReferenceEquals(valueRow, System.Windows.Media.VisualTreeHelper.GetParent(costCell)), "cost shares the model row");
-                AssertTrue(ReferenceEquals(valueRow, System.Windows.Media.VisualTreeHelper.GetParent(speedCell)), "speed shares the model row");
-                AssertTrue(Left(modelCell, content) < Left(costCell, content) && Left(costCell, content) < Left(speedCell, content), "model, cost, and speed run left to right");
-                double modelMid = modelTop + modelCell.ActualHeight / 2;
+                System.Windows.Controls.Grid columns = (System.Windows.Controls.Grid)System.Windows.Media.VisualTreeHelper.GetParent(modelCell);
+                System.Windows.FrameworkElement item = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(columns);
+                AssertTrue(ReferenceEquals(columns, System.Windows.Media.VisualTreeHelper.GetParent(timeCell)), "time shares the model row");
+                AssertTrue(ReferenceEquals(columns, System.Windows.Media.VisualTreeHelper.GetParent(costCell)), "cost shares the model row");
+                AssertTrue(ReferenceEquals(columns, System.Windows.Media.VisualTreeHelper.GetParent(speedCell)), "speed shares the model row");
+                AssertTrue(Left(timeCell, content) < Left(modelCell, content) && Left(modelCell, content) < Left(costCell, content) && Left(costCell, content) < Left(speedCell, content),
+                    "time, model, cost, and speed run left to right");
+                double timeMid = Top(timeCell, content) + timeCell.ActualHeight / 2;
+                double modelMid = Top(modelCell, content) + modelCell.ActualHeight / 2;
                 double costMid = Top(costCell, content) + costCell.ActualHeight / 2;
                 double speedMid = Top(speedCell, content) + speedCell.ActualHeight / 2;
-                AssertTrue(Math.Abs(modelMid - costMid) < 2 && Math.Abs(modelMid - speedMid) < 2, "cost and speed share the model line");
-                AssertFlushRight(speedCell, item, "speed");
-                double between = Left(speedCell, content) - (Left(costCell, content) + costCell.ActualWidth);
-                AssertTrue(between >= 6 && between < 10, $"cost and speed keep a gap, {between:0.0}");
-                double costColumn = Left(costCell, content) + costCell.ActualWidth - (Left(modelCell, content) + modelCell.ActualWidth);
+                AssertTrue(Math.Abs(timeMid - modelMid) < 2 && Math.Abs(modelMid - costMid) < 2 && Math.Abs(modelMid - speedMid) < 2, "the four columns share one line");
+                double gapAfterTime = columns.ColumnDefinitions[1].ActualWidth;
+                double gapAfterModel = columns.ColumnDefinitions[3].ActualWidth;
+                double gapAfterCost = columns.ColumnDefinitions[5].ActualWidth;
+                AssertTrue(Math.Abs(gapAfterTime - gapAfterModel) < 1 && Math.Abs(gapAfterModel - gapAfterCost) < 1 && gapAfterTime >= 3,
+                    $"column gaps are equal, {gapAfterTime:0.0} {gapAfterModel:0.0} {gapAfterCost:0.0}");
+                double reservedTime = Math.Max(TextWidth(timeCell, "88-88-88"), TextWidth(timeCell, "88:88:88"));
+                double timeColumn = columns.ColumnDefinitions[0].ActualWidth;
+                double costColumn = columns.ColumnDefinitions[4].ActualWidth;
+                double speedColumn = columns.ColumnDefinitions[6].ActualWidth;
                 double reservedCost = TextWidth(costCell, "$0.0000*");
+                double reservedSpeed = TextWidth(speedCell, "≈999 tok/s");
+                AssertTrue(timeColumn + 0.5 >= reservedTime && timeColumn - reservedTime < 1,
+                    $"time column fits the date, width {timeColumn:0.0}, text {reservedTime:0.0}");
                 AssertTrue(costColumn + 0.5 >= reservedCost && costColumn - reservedCost < 1,
                     $"cost column fits the amount, width {costColumn:0.0}, text {reservedCost:0.0}");
-                double speedColumn = Left(item, content) + item.ActualWidth - (Left(costCell, content) + costCell.ActualWidth);
-                double reservedSpeed = TextWidth(speedCell, "≈999 tok/s") + speedCell.Margin.Left;
                 AssertTrue(speedColumn + 0.5 >= reservedSpeed && speedColumn - reservedSpeed < 1,
                     $"speed column fits three digits, width {speedColumn:0.0}, text {reservedSpeed:0.0}");
+                AssertFlushRight(speedCell, item, "speed");
+                double rowTop = Top(item, content);
+                double contentBottom = rowTop + item.ActualHeight - 1;
+                AssertTrue(Top(timeCell, content) >= rowTop && Top(timeCell, content) + timeCell.ActualHeight <= contentBottom,
+                    $"time fits in the row, top {Top(timeCell, content) - rowTop:0.0}, bottom {contentBottom - (Top(timeCell, content) + timeCell.ActualHeight):0.0}");
                 foreach (string model in models)
                 {
                     System.Windows.Controls.TextBlock row = VisibleBlock(blocks, model);
                     AssertTrue(row.ToolTip == null, $"{model} has no tooltip");
                     double textWidth = TextWidth(row);
                     AssertTrue(row.ActualWidth + 0.5 >= textWidth, $"{model} is fully visible, slot {row.ActualWidth:0.0}, text {textWidth:0.0}");
-                    AssertTrue(row.ActualWidth - textWidth >= 6, $"{model} keeps a gap before cost, {row.ActualWidth - textWidth:0.0}");
                     System.Windows.FrameworkElement rowItem = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(row));
-                    AssertEqual(42d, rowItem.ActualHeight, "session log row height");
+                    AssertEqual(36d, rowItem.ActualHeight, "session log row height");
                 }
 
                 viewModel.CodexSessionLogs.ToggleCommand.Execute(null);

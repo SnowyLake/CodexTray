@@ -6,7 +6,7 @@ using System.Globalization;
 namespace CodexTray.App;
 
 /// <summary>
-/// Paged session rows with a smaller time above the model, then model, cost, and speed on one line, without persisting the open page.
+/// Paged session rows with time, model, cost, and speed in four columns, without persisting the open page.
 /// </summary>
 public sealed partial class SessionLogListViewModel : ObservableObject
 {
@@ -129,7 +129,7 @@ public sealed partial class SessionLogListViewModel : ObservableObject
         DateTime local = entry.Timestamp.ToLocalTime().DateTime;
         return new SessionLogRow
         {
-            Time = local.ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            Time = local.ToString("yy-MM-dd", CultureInfo.InvariantCulture) + "\n" + local.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
             Model = entry.Model,
             Cost = FormatCost(entry),
             Speed = FormatSpeed(entry),
