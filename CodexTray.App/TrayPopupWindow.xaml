@@ -845,8 +845,8 @@
             </DataTemplate>
 
             <GridLength x:Key="SessionLogTimeColumn">100</GridLength>
-            <GridLength x:Key="SessionLogDetailColumn">55</GridLength>
-            <sys:Double x:Key="SessionLogRowHeight">52</sys:Double>
+            <GridLength x:Key="SessionLogDetailColumn">45</GridLength>
+            <sys:Double x:Key="SessionLogRowHeight">44</sys:Double>
             <Thickness x:Key="SessionLogModelIndent" Left="8" />
             <Style x:Key="SessionLogHeaderText" TargetType="TextBlock">
                 <Setter Property="VerticalAlignment" Value="Bottom" />
@@ -921,14 +921,14 @@
                                                 <TextBlock Text="{Binding Cost}"
                                                            HorizontalAlignment="Right"
                                                            Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                           FontSize="13" />
-                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,1,0,0">
+                                                           FontSize="10" />
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                                     <TextBlock Text="{Binding Speed}"
-                                                               FontSize="12"
+                                                               FontSize="9"
                                                                VerticalAlignment="Bottom"
                                                                Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                                                     <TextBlock Text="{Binding SpeedUnit}"
-                                                               FontSize="9"
+                                                               FontSize="8"
                                                                VerticalAlignment="Bottom"
                                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                                                 </StackPanel>

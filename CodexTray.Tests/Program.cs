@@ -2454,10 +2454,11 @@ internal static class Program
                 AssertTrue(timeCell.ToolTip == null, "session log time has no tooltip");
                 AssertAligned(timeHeader, timeCell, "time");
                 AssertAligned(modelHeader, VisibleBlock(blocks, "deepseek-v4-flash"), "model");
-                AssertEqual(13d, costCell.FontSize, "cost keeps the currency size");
+                AssertEqual(13d, timeCell.FontSize, "time stays the row text size");
+                AssertEqual(10d, costCell.FontSize, "cost is scaled down to the short row");
                 AssertEqual(System.Windows.HorizontalAlignment.Right, costCell.HorizontalAlignment, "cost aligns to the row edge");
-                AssertEqual(12d, speedCell.FontSize, "speed value stays compact");
-                AssertEqual(9d, unitCell.FontSize, "speed unit is smaller");
+                AssertEqual(9d, speedCell.FontSize, "speed value is smaller than cost");
+                AssertEqual(8d, unitCell.FontSize, "speed unit is smaller");
                 System.Windows.FrameworkElement speedLine = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(speedCell);
                 AssertTrue(ReferenceEquals(speedLine, System.Windows.Media.VisualTreeHelper.GetParent(unitCell)), "speed value and unit share one line");
                 AssertEqual(System.Windows.HorizontalAlignment.Right, speedLine.HorizontalAlignment, "speed aligns to the row edge");
@@ -2467,6 +2468,8 @@ internal static class Program
                 double costTop = Top(costCell, content);
                 double speedTop = Top(speedCell, content);
                 AssertTrue(speedTop >= costTop + costCell.ActualHeight - 1, $"cost sits above speed, cost {costTop:0.0}, speed {speedTop:0.0}");
+                double lineGap = speedTop - (costTop + costCell.ActualHeight);
+                AssertTrue(lineGap <= 1, $"cost and speed stay tight, gap {lineGap:0.0}");
                 AssertFlushRight(costCell, rowGrid, "cost");
                 AssertFlushRight(unitCell, rowGrid, "speed");
                 double reserved = Math.Max(TextWidth(costCell, "$0.0000*"), TextWidth(speedCell, "≈999") + TextWidth(unitCell, " tok/s"));
@@ -2486,7 +2489,16 @@ internal static class Program
                     double textWidth = TextWidth(row);
                     AssertTrue(row.ActualWidth + 0.5 >= textWidth, $"{model} is fully visible, slot {row.ActualWidth:0.0}, text {textWidth:0.0}");
                     System.Windows.FrameworkElement item = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(row));
-                    AssertEqual(52d, item.ActualHeight, "session log row height");
+                    AssertEqual(44d, item.ActualHeight, "session log row height");
+                    if (model == models[0])
+                    {
+                        double rowTop = Top(item, content);
+                        double contentBottom = rowTop + item.ActualHeight - 1;
+                        double stackTop = Top(costCell, content);
+                        double stackBottom = Top(unitCell, content) + unitCell.ActualHeight;
+                        AssertTrue(stackTop >= rowTop + 2 && stackBottom <= contentBottom - 2,
+                            $"cost and speed fit in the short row, pad top {stackTop - rowTop:0.0}, bottom {contentBottom - stackBottom:0.0}");
+                    }
                 }
 
                 viewModel.CodexSessionLogs.ToggleCommand.Execute(null);
