@@ -2363,12 +2363,12 @@ internal static class Program
         AssertEqual(true, logs.CanGoNext, "first page can advance");
         AssertEqual(false, logs.CanGoPrevious, "first page cannot go back");
         DateTime newestLocal = newest.ToLocalTime().DateTime;
-        AssertEqual(newestLocal.ToString("yy-MM-dd", CultureInfo.InvariantCulture) + "\n" + newestLocal.ToString("HH:mm:ss", CultureInfo.InvariantCulture), logs.Rows[0].Time, "newest row time");
+        AssertEqual(newestLocal.ToString("yy/MM/dd", CultureInfo.InvariantCulture) + "\n" + newestLocal.ToString("HH:mm:ss", CultureInfo.InvariantCulture), logs.Rows[0].Time, "newest row time");
         AssertEqual("gpt-6-astra", logs.Rows[0].Model, "newest row model");
         AssertEqual("$0.0123", logs.Rows[0].Cost, "row cost uses four decimal places");
         AssertEqual("$0.5000*", logs.Rows[1].Cost, "partial cost keeps the marker");
         AssertEqual("—", logs.Rows[2].Cost, "missing cost stays blank");
-        AssertEqual("≈22 tok/s", logs.Rows[0].Speed, "estimated Codex speed keeps the unit");
+        AssertEqual("22 tok/s", logs.Rows[0].Speed, "Codex speed has no estimate mark");
         AssertEqual("—", logs.Rows[3].Speed, "missing speed stays blank");
         logs.NextPageCommand.Execute(null);
         AssertEqual(1, logs.Rows.Count, "second page has the remainder");
@@ -2399,6 +2399,34 @@ internal static class Program
         logs.ToggleCommand.Execute(null);
         AssertEqual(false, logs.IsOpen, "the same button returns to usage");
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Names and aliases published in the pricing table.
+    /// </summary>
+    private static string[] PricingModelNames()
+    {
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Resources", "model-pricing.json")));
+        List<string> names = [];
+        foreach (JsonProperty property in document.RootElement.EnumerateObject())
+        {
+            names.Add(property.Name);
+            if (!property.Value.TryGetProperty("aliases", out JsonElement aliases))
+            {
+                continue;
+            }
+
+            foreach (JsonElement alias in aliases.EnumerateArray())
+            {
+                string? name = alias.GetString();
+                if (!string.IsNullOrEmpty(name))
+                {
+                    names.Add(name);
+                }
+            }
+        }
+
+        return names.ToArray();
     }
 
     /// <summary>
@@ -2479,12 +2507,16 @@ internal static class Program
                 double gapAfterCost = columns.ColumnDefinitions[5].ActualWidth;
                 AssertTrue(Math.Abs(gapAfterTime - gapAfterModel) < 1 && Math.Abs(gapAfterModel - gapAfterCost) < 1 && gapAfterTime >= 3,
                     $"column gaps are equal, {gapAfterTime:0.0} {gapAfterModel:0.0} {gapAfterCost:0.0}");
-                double reservedTime = Math.Max(TextWidth(timeCell, "88-88-88"), TextWidth(timeCell, "88:88:88"));
+                double reservedTime = Math.Max(TextWidth(timeCell, "88/88/88"), TextWidth(timeCell, "88:88:88"));
+                double reservedModel = PricingModelNames().Max(name => TextWidth(modelCell, name));
                 double timeColumn = columns.ColumnDefinitions[0].ActualWidth;
+                double modelColumn = columns.ColumnDefinitions[2].ActualWidth;
                 double costColumn = columns.ColumnDefinitions[4].ActualWidth;
                 double speedColumn = columns.ColumnDefinitions[6].ActualWidth;
                 double reservedCost = TextWidth(costCell, "$0.0000*");
-                double reservedSpeed = TextWidth(speedCell, "≈999 tok/s");
+                double reservedSpeed = TextWidth(speedCell, "999 tok/s");
+                AssertTrue(modelColumn + 0.5 >= reservedModel && modelColumn - reservedModel < 1,
+                    $"model column fits pricing names, width {modelColumn:0.0}, text {reservedModel:0.0}");
                 AssertTrue(timeColumn + 0.5 >= reservedTime && timeColumn - reservedTime < 1,
                     $"time column fits the date, width {timeColumn:0.0}, text {reservedTime:0.0}");
                 AssertTrue(costColumn + 0.5 >= reservedCost && costColumn - reservedCost < 1,

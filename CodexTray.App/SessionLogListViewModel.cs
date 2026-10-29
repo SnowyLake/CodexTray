@@ -19,7 +19,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
 
     private IReadOnlyList<SessionLogEntry> m_Entries = [];
     private int m_Page;
-    private bool m_SpeedEstimated;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ToggleTooltip))]
@@ -63,7 +62,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
     public void Update(TokenCostStatistics? statistics)
     {
         m_Entries = statistics?.SessionLogs ?? [];
-        m_SpeedEstimated = statistics?.IsSpeedEstimated == true;
         int pages = PageCount;
         if (m_Page >= pages)
         {
@@ -129,22 +127,21 @@ public sealed partial class SessionLogListViewModel : ObservableObject
         DateTime local = entry.Timestamp.ToLocalTime().DateTime;
         return new SessionLogRow
         {
-            Time = local.ToString("yy-MM-dd", CultureInfo.InvariantCulture) + "\n" + local.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+            Time = local.ToString("yy/MM/dd", CultureInfo.InvariantCulture) + "\n" + local.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
             Model = entry.Model,
             Cost = FormatCost(entry),
             Speed = FormatSpeed(entry),
         };
     }
 
-    private string FormatSpeed(SessionLogEntry entry)
+    private static string FormatSpeed(SessionLogEntry entry)
     {
         if (entry.GetOutputTokensPerSecond() is not decimal speed)
         {
             return "—";
         }
 
-        string prefix = m_SpeedEstimated ? "≈" : string.Empty;
-        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0} tok/s");
+        return string.Create(CultureInfo.InvariantCulture, $"{speed:0} tok/s");
     }
 
     private static string FormatCost(SessionLogEntry entry)

@@ -844,10 +844,10 @@
                 </Grid>
             </DataTemplate>
 
-            <GridLength x:Key="SessionLogTimeColumn">48</GridLength>
-            <GridLength x:Key="SessionLogColumnGap">4</GridLength>
+            <GridLength x:Key="SessionLogTimeColumn">49</GridLength>
+            <GridLength x:Key="SessionLogModelColumn">115</GridLength>
             <GridLength x:Key="SessionLogCostColumn">55</GridLength>
-            <GridLength x:Key="SessionLogSpeedColumn">68</GridLength>
+            <GridLength x:Key="SessionLogSpeedColumn">58</GridLength>
             <sys:Double x:Key="SessionLogRowHeight">36</sys:Double>
             <Style x:Key="SessionLogHeaderText" TargetType="TextBlock">
                 <Setter Property="VerticalAlignment" Value="Bottom" />
@@ -880,11 +880,11 @@
                         <Grid Grid.Column="0" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="{StaticResource SessionLogTimeColumn}" />
-                                <ColumnDefinition Width="{StaticResource SessionLogColumnGap}" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="{StaticResource SessionLogColumnGap}" />
+                                <ColumnDefinition Width="{StaticResource SessionLogModelColumn}" />
+                                <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="{StaticResource SessionLogCostColumn}" />
-                                <ColumnDefinition Width="{StaticResource SessionLogColumnGap}" />
+                                <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="{StaticResource SessionLogSpeedColumn}" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Time" Style="{StaticResource SessionLogHeaderText}" />
@@ -915,11 +915,11 @@
                                         <Grid VerticalAlignment="Center">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="{StaticResource SessionLogTimeColumn}" />
-                                                <ColumnDefinition Width="{StaticResource SessionLogColumnGap}" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="{StaticResource SessionLogColumnGap}" />
+                                                <ColumnDefinition Width="{StaticResource SessionLogModelColumn}" />
+                                                <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="{StaticResource SessionLogCostColumn}" />
-                                                <ColumnDefinition Width="{StaticResource SessionLogColumnGap}" />
+                                                <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="{StaticResource SessionLogSpeedColumn}" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Time}"
