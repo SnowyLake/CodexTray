@@ -6,7 +6,7 @@ using System.Globalization;
 namespace CodexTray.App;
 
 /// <summary>
-/// Paged session rows with Time and Model on the left and cost above speed on the right, without persisting the open page.
+/// Paged session rows with a smaller time above the model, then model, cost, and speed on one line, without persisting the open page.
 /// </summary>
 public sealed partial class SessionLogListViewModel : ObservableObject
 {
@@ -133,7 +133,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
             Model = entry.Model,
             Cost = FormatCost(entry),
             Speed = FormatSpeed(entry),
-            SpeedUnit = FormatSpeedUnit(entry),
         };
     }
 
@@ -145,12 +144,7 @@ public sealed partial class SessionLogListViewModel : ObservableObject
         }
 
         string prefix = m_SpeedEstimated ? "≈" : string.Empty;
-        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0}");
-    }
-
-    private static string FormatSpeedUnit(SessionLogEntry entry)
-    {
-        return entry.GetOutputTokensPerSecond() is null ? string.Empty : " tok/s";
+        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0} tok/s");
     }
 
     private static string FormatCost(SessionLogEntry entry)
@@ -177,6 +171,4 @@ public sealed class SessionLogRow
     public string Cost { get; init; } = string.Empty;
 
     public string Speed { get; init; } = string.Empty;
-
-    public string SpeedUnit { get; init; } = string.Empty;
 }
