@@ -845,7 +845,7 @@
             </DataTemplate>
 
             <GridLength x:Key="SessionLogTimeColumn">100</GridLength>
-            <GridLength x:Key="SessionLogSpeedColumn">68</GridLength>
+            <GridLength x:Key="SessionLogDetailColumn">55</GridLength>
             <sys:Double x:Key="SessionLogRowHeight">52</sys:Double>
             <Thickness x:Key="SessionLogModelIndent" Left="8" />
             <Style x:Key="SessionLogHeaderText" TargetType="TextBlock">
@@ -880,16 +880,12 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="{StaticResource SessionLogTimeColumn}" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="{StaticResource SessionLogSpeedColumn}" />
+                                <ColumnDefinition Width="{StaticResource SessionLogDetailColumn}" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Time" Style="{StaticResource SessionLogHeaderText}" />
                             <TextBlock Grid.Column="1"
                                        Text="Model"
                                        Margin="{StaticResource SessionLogModelIndent}"
-                                       Style="{StaticResource SessionLogHeaderText}" />
-                            <TextBlock Grid.Column="2"
-                                       Text="Speed"
-                                       TextAlignment="Right"
                                        Style="{StaticResource SessionLogHeaderText}" />
                         </Grid>
                         <ScrollViewer Grid.Row="1"
@@ -910,7 +906,7 @@
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="{StaticResource SessionLogTimeColumn}" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="{StaticResource SessionLogSpeedColumn}" />
+                                                <ColumnDefinition Width="{StaticResource SessionLogDetailColumn}" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Time}"
                                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
@@ -921,10 +917,22 @@
                                                        TextTrimming="CharacterEllipsis"
                                                        FontWeight="Medium"
                                                        Style="{StaticResource SessionLogCellText}" />
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{Binding Speed}"
-                                                       TextAlignment="Right"
-                                                       Style="{StaticResource SessionLogCellText}" />
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Cost}"
+                                                           HorizontalAlignment="Right"
+                                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                           FontSize="13" />
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,1,0,0">
+                                                    <TextBlock Text="{Binding Speed}"
+                                                               FontSize="12"
+                                                               VerticalAlignment="Bottom"
+                                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                                    <TextBlock Text="{Binding SpeedUnit}"
+                                                               FontSize="9"
+                                                               VerticalAlignment="Bottom"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                            </StackPanel>
                                         </Grid>
                                         <Border Grid.Row="1"
                                                 Height="1"

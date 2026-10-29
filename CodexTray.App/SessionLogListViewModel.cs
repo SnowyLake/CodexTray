@@ -6,7 +6,7 @@ using System.Globalization;
 namespace CodexTray.App;
 
 /// <summary>
-/// Paged Time / Model / Speed rows for one harness, without persisting the open page.
+/// Paged session rows with Time and Model on the left and cost above speed on the right, without persisting the open page.
 /// </summary>
 public sealed partial class SessionLogListViewModel : ObservableObject
 {
@@ -131,7 +131,9 @@ public sealed partial class SessionLogListViewModel : ObservableObject
         {
             Time = local.ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             Model = entry.Model,
+            Cost = FormatCost(entry),
             Speed = FormatSpeed(entry),
+            SpeedUnit = FormatSpeedUnit(entry),
         };
     }
 
@@ -143,7 +145,23 @@ public sealed partial class SessionLogListViewModel : ObservableObject
         }
 
         string prefix = m_SpeedEstimated ? "≈" : string.Empty;
-        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0} tok/s");
+        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0}");
+    }
+
+    private static string FormatSpeedUnit(SessionLogEntry entry)
+    {
+        return entry.GetOutputTokensPerSecond() is null ? string.Empty : " tok/s";
+    }
+
+    private static string FormatCost(SessionLogEntry entry)
+    {
+        if (entry.CostUsd is not decimal cost)
+        {
+            return "—";
+        }
+
+        string text = cost.ToString("$0.0000", CultureInfo.InvariantCulture);
+        return entry.HasUnpricedUsage ? text + "*" : text;
     }
 }
 
@@ -156,5 +174,9 @@ public sealed class SessionLogRow
 
     public string Model { get; init; } = string.Empty;
 
+    public string Cost { get; init; } = string.Empty;
+
     public string Speed { get; init; } = string.Empty;
+
+    public string SpeedUnit { get; init; } = string.Empty;
 }

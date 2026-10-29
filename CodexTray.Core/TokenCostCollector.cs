@@ -80,6 +80,10 @@ public sealed class SessionLogEntry
 
     public string Model { get; init; } = string.Empty;
 
+    public decimal? CostUsd { get; init; }
+
+    public bool HasUnpricedUsage { get; init; }
+
     public long TimedOutputTokens { get; init; }
 
     public long TimedDurationMilliseconds { get; init; }
@@ -232,6 +236,8 @@ public sealed class TokenCostCollector
             {
                 Timestamp = usage.Timestamp,
                 Model = usage.Model,
+                CostUsd = usage.CostUsd,
+                HasUnpricedUsage = usage.HasUnpricedUsage,
                 TimedOutputTokens = usage.TimedOutputTokens,
                 TimedDurationMilliseconds = usage.TimedDurationMilliseconds,
             });
@@ -847,6 +853,8 @@ public sealed class TokenCostCollector
             {
                 Timestamp = usageEvent.Timestamp,
                 Model = usageEvent.Model,
+                CostUsd = usageEvent.CostUsd,
+                HasUnpricedUsage = usageEvent.CostUsd == null && usageEvent.Tokens > 0,
                 TimedOutputTokens = usageEvent.TimedOutputTokens,
                 TimedDurationMilliseconds = usageEvent.TimedDurationMilliseconds,
             });

@@ -2344,6 +2344,8 @@ internal static class Program
             {
                 Timestamp = newest.AddMinutes(-index),
                 Model = index == 0 ? "gpt-6-astra" : "gpt-test",
+                CostUsd = index == 0 ? 0.01234m : index == 1 ? 0.5m : null,
+                HasUnpricedUsage = index == 1,
                 TimedOutputTokens = index == 3 ? 0 : 220,
                 TimedDurationMilliseconds = index == 3 ? 0 : 10_000,
             })
@@ -2362,8 +2364,13 @@ internal static class Program
         AssertEqual(false, logs.CanGoPrevious, "first page cannot go back");
         AssertEqual(newest.ToLocalTime().ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture), logs.Rows[0].Time, "newest row time");
         AssertEqual("gpt-6-astra", logs.Rows[0].Model, "newest row model");
-        AssertEqual("≈22 tok/s", logs.Rows[0].Speed, "estimated Codex speed keeps the unit");
+        AssertEqual("$0.0123", logs.Rows[0].Cost, "row cost uses four decimal places");
+        AssertEqual("$0.5000*", logs.Rows[1].Cost, "partial cost keeps the marker");
+        AssertEqual("—", logs.Rows[2].Cost, "missing cost stays blank");
+        AssertEqual("≈22", logs.Rows[0].Speed, "estimated Codex speed keeps the compact value");
+        AssertEqual(" tok/s", logs.Rows[0].SpeedUnit, "estimated Codex speed keeps the unit");
         AssertEqual("—", logs.Rows[3].Speed, "missing speed stays blank");
+        AssertEqual(string.Empty, logs.Rows[3].SpeedUnit, "missing speed omits the unit");
         logs.NextPageCommand.Execute(null);
         AssertEqual(1, logs.Rows.Count, "second page has the remainder");
         AssertEqual("2 / 2", logs.PageLabel, "second page label");
@@ -2386,7 +2393,9 @@ internal static class Program
             IsSpeedEstimated = false,
             SessionLogs = [entries[0]],
         });
-        AssertEqual("22 tok/s", viewModel.GrokSessionLogs.Rows[0].Speed, "measured Grok speed keeps the unit");
+        AssertEqual("$0.0123", viewModel.GrokSessionLogs.Rows[0].Cost, "Grok row uses the same cost format");
+        AssertEqual("22", viewModel.GrokSessionLogs.Rows[0].Speed, "measured Grok speed keeps the compact value");
+        AssertEqual(" tok/s", viewModel.GrokSessionLogs.Rows[0].SpeedUnit, "measured Grok speed keeps the unit");
         AssertEqual(0, logs.Rows.Count, "Grok rows do not refill Codex");
         AssertEqual(false, viewModel.GrokSessionLogs.IsOpen, "Grok session logs stay closed");
         logs.ToggleCommand.Execute(null);
@@ -2411,6 +2420,7 @@ internal static class Program
                     {
                         Timestamp = new DateTimeOffset(2026, 10, 27, 21, 0, 0, TimeSpan.FromHours(8)).AddMinutes(-index),
                         Model = models[index % models.Length],
+                        CostUsd = 0.0123m,
                         TimedOutputTokens = 2_200,
                         TimedDurationMilliseconds = 10_000,
                     })
@@ -2433,27 +2443,36 @@ internal static class Program
                 System.Windows.Controls.Button listButton = FindAncestorButton(blocks.First(block => block.Text == SessionLogListViewModel.ListGlyph));
                 AssertEqual(SessionLogListViewModel.ListGlyph, listButton.Content, "list button content");
                 AssertEqual(System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), ((System.Windows.Media.SolidColorBrush)listButton.Foreground).Color, "open list button is green");
-                AssertTrue(blocks.All(block => block.Text != "Cost" || block.ActualWidth <= 0), "session logs omit the cost column");
+                AssertTrue(blocks.All(block => block.ActualWidth <= 0 || (block.Text != "Cost" && block.Text != "Speed")), "session logs omit cost and speed headers");
                 System.Windows.Controls.TextBlock timeHeader = VisibleBlock(blocks, "Time");
                 System.Windows.Controls.TextBlock modelHeader = VisibleBlock(blocks, "Model");
-                System.Windows.Controls.TextBlock speedHeader = VisibleBlock(blocks, "Speed");
                 SessionLogRow sample = viewModel.CodexSessionLogs.Rows[0];
                 System.Windows.Controls.TextBlock timeCell = VisibleBlock(blocks, sample.Time);
+                System.Windows.Controls.TextBlock costCell = VisibleBlock(blocks, sample.Cost);
                 System.Windows.Controls.TextBlock speedCell = VisibleBlock(blocks, sample.Speed);
+                System.Windows.Controls.TextBlock unitCell = VisibleBlock(blocks, sample.SpeedUnit);
                 AssertTrue(timeCell.ToolTip == null, "session log time has no tooltip");
                 AssertAligned(timeHeader, timeCell, "time");
                 AssertAligned(modelHeader, VisibleBlock(blocks, "deepseek-v4-flash"), "model");
-                AssertAligned(speedHeader, speedCell, "speed");
-                AssertEqual(System.Windows.TextAlignment.Right, speedHeader.TextAlignment, "speed header aligns to the row edge");
-                AssertEqual(System.Windows.TextAlignment.Right, speedCell.TextAlignment, "speed value aligns to the row edge");
-                System.Windows.FrameworkElement speedRow = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(speedCell));
-                double speedRight = Left(speedCell, content) + speedCell.ActualWidth;
-                double rowRight = Left(speedRow, content) + speedRow.ActualWidth;
-                AssertTrue(Math.Abs(speedRight - rowRight) < 1, $"speed column meets the row edge, delta {speedRight - rowRight:0.0}");
-                double reservedSpeed = TextWidth(speedCell, "≈999 tok/s");
+                AssertEqual(13d, costCell.FontSize, "cost keeps the currency size");
+                AssertEqual(System.Windows.HorizontalAlignment.Right, costCell.HorizontalAlignment, "cost aligns to the row edge");
+                AssertEqual(12d, speedCell.FontSize, "speed value stays compact");
+                AssertEqual(9d, unitCell.FontSize, "speed unit is smaller");
+                System.Windows.FrameworkElement speedLine = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(speedCell);
+                AssertTrue(ReferenceEquals(speedLine, System.Windows.Media.VisualTreeHelper.GetParent(unitCell)), "speed value and unit share one line");
+                AssertEqual(System.Windows.HorizontalAlignment.Right, speedLine.HorizontalAlignment, "speed aligns to the row edge");
+                System.Windows.FrameworkElement detail = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(costCell);
+                System.Windows.FrameworkElement rowGrid = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(detail);
+                AssertTrue(ReferenceEquals(detail, System.Windows.Media.VisualTreeHelper.GetParent(speedLine)), "cost and speed share one row");
+                double costTop = Top(costCell, content);
+                double speedTop = Top(speedCell, content);
+                AssertTrue(speedTop >= costTop + costCell.ActualHeight - 1, $"cost sits above speed, cost {costTop:0.0}, speed {speedTop:0.0}");
+                AssertFlushRight(costCell, rowGrid, "cost");
+                AssertFlushRight(unitCell, rowGrid, "speed");
+                double reserved = Math.Max(TextWidth(costCell, "$0.0000*"), TextWidth(speedCell, "≈999") + TextWidth(unitCell, " tok/s"));
                 AssertTrue(Math.Abs(timeCell.ActualWidth - 100) < 1, $"time column is fixed, width {timeCell.ActualWidth:0.0}");
-                AssertTrue(speedCell.ActualWidth + 0.5 >= reservedSpeed && speedCell.ActualWidth - reservedSpeed < 1,
-                    $"speed column fits three digits, width {speedCell.ActualWidth:0.0}, text {reservedSpeed:0.0}");
+                AssertTrue(detail.ActualWidth + 0.5 >= reserved && detail.ActualWidth - reserved < 1,
+                    $"detail column fits cost and speed, width {detail.ActualWidth:0.0}, text {reserved:0.0}");
                 System.Windows.Controls.TextBlock modelCell = VisibleBlock(blocks, "deepseek-v4-flash");
                 AssertEqual(8d, modelHeader.Margin.Left, "model header starts further right");
                 AssertEqual(8d, modelCell.Margin.Left, "model name starts further right");
@@ -2463,7 +2482,7 @@ internal static class Program
                 {
                     System.Windows.Controls.TextBlock row = VisibleBlock(blocks, model);
                     AssertTrue(row.ToolTip == null, $"{model} has no tooltip");
-                    AssertGap(row, speedCell, model);
+                    AssertGap(row, detail, model);
                     double textWidth = TextWidth(row);
                     AssertTrue(row.ActualWidth + 0.5 >= textWidth, $"{model} is fully visible, slot {row.ActualWidth:0.0}, text {textWidth:0.0}");
                     System.Windows.FrameworkElement item = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(row));
@@ -2487,6 +2506,11 @@ internal static class Program
                     return element.TransformToAncestor(root).Transform(new System.Windows.Point(0, 0)).X;
                 }
 
+                static double Top(System.Windows.FrameworkElement element, System.Windows.FrameworkElement root)
+                {
+                    return element.TransformToAncestor(root).Transform(new System.Windows.Point(0, 0)).Y;
+                }
+
                 static double TextWidth(System.Windows.Controls.TextBlock block, string? text = null)
                 {
                     System.Windows.Controls.TextBlock probe = new()
@@ -2508,7 +2532,13 @@ internal static class Program
                     AssertTrue(delta < 1, $"{column} header and cell share a left edge, delta {delta:0.0}");
                 }
 
-                void AssertGap(System.Windows.Controls.TextBlock leading, System.Windows.Controls.TextBlock following, string label)
+                void AssertFlushRight(System.Windows.FrameworkElement element, System.Windows.FrameworkElement row, string label)
+                {
+                    double delta = Left(element, content) + element.ActualWidth - (Left(row, content) + row.ActualWidth);
+                    AssertTrue(Math.Abs(delta) < 1, $"{label} meets the row edge, delta {delta:0.0}");
+                }
+
+                void AssertGap(System.Windows.Controls.TextBlock leading, System.Windows.FrameworkElement following, string label)
                 {
                     double gap = Left(following, content) - (Left(leading, content) + TextWidth(leading));
                     AssertTrue(gap >= 6, $"{label} keeps a gap, {gap:0.0}");
@@ -2591,11 +2621,15 @@ internal static class Program
         AssertEqual(fast.AddSeconds(3), first.SessionLogs[0].Timestamp, "Codex row time is the token_count time");
         AssertEqual(2_000L, first.SessionLogs[0].TimedDurationMilliseconds, "Codex row keeps the response window");
         AssertEqual(110m, first.SessionLogs[0].GetOutputTokensPerSecond(), "Codex row speed");
+        AssertEqual(0.00333m, first.SessionLogs[0].CostUsd, "Codex row keeps the increment cost");
+        AssertEqual(false, first.SessionLogs[0].HasUnpricedUsage, "priced Codex row is complete");
         AssertEqual("gpt-slow", first.SessionLogs[1].Model, "older Codex row is second");
         AssertEqual(0L, first.SessionLogs[1].TimedDurationMilliseconds, "a small Codex output has no speed sample");
+        AssertEqual(0.00078m, first.SessionLogs[1].CostUsd, "older Codex row keeps its cost");
         TokenCostStatistics cached = collector.CollectCodex(codexRoot, now);
         AssertEqual(first.SessionLogs.Count, cached.SessionLogs.Count, "cached Codex collect keeps session log rows");
         AssertEqual(first.SessionLogs[0].TimedOutputTokens, cached.SessionLogs[0].TimedOutputTokens, "cached Codex row keeps speed tokens");
+        AssertEqual(first.SessionLogs[0].CostUsd, cached.SessionLogs[0].CostUsd, "cached Codex row keeps cost");
 
         string grokSession = Path.Combine(temp.Path, "grok", "sessions", "workspace", "one");
         string archived = Path.Combine(temp.Path, "grok", "archived_sessions", "workspace", "one");
@@ -2612,6 +2646,12 @@ internal static class Program
         AssertEqual(false, grok.IsSpeedEstimated, "Grok speed is measured");
         AssertEqual(now.AddMinutes(-1), grok.SessionLogs[0].Timestamp, "newest Grok row is first");
         AssertEqual(0L, grok.SessionLogs[0].TimedDurationMilliseconds, "a short Grok call has no speed");
+        AssertEqual(null, grok.SessionLogs[0].CostUsd, "a Grok row without ticks has no cost");
+        AssertEqual(true, grok.SessionLogs[0].HasUnpricedUsage, "an unpriced Grok row stays incomplete");
+        AssertEqual(0.2m, grok.SessionLogs[1].CostUsd, "partial Grok reported cost stays on the row");
+        AssertEqual(true, grok.SessionLogs[1].HasUnpricedUsage, "partial Grok row stays incomplete");
+        AssertEqual(0.1326m, grok.SessionLogs[2].CostUsd, "Grok row keeps reported ticks");
+        AssertEqual(false, grok.SessionLogs[2].HasUnpricedUsage, "complete Grok ticks are priced");
         AssertEqual(20m, grok.SessionLogs[2].GetOutputTokensPerSecond(), "Grok row speed uses the paired duration");
         return Task.CompletedTask;
     }
