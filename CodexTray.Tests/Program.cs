@@ -2444,8 +2444,16 @@ internal static class Program
                 AssertAligned(timeHeader, timeCell, "time");
                 AssertAligned(modelHeader, VisibleBlock(blocks, "deepseek-v4-flash"), "model");
                 AssertAligned(speedHeader, speedCell, "speed");
+                AssertEqual(System.Windows.TextAlignment.Right, speedHeader.TextAlignment, "speed header aligns to the row edge");
+                AssertEqual(System.Windows.TextAlignment.Right, speedCell.TextAlignment, "speed value aligns to the row edge");
+                System.Windows.FrameworkElement speedRow = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(speedCell));
+                double speedRight = Left(speedCell, content) + speedCell.ActualWidth;
+                double rowRight = Left(speedRow, content) + speedRow.ActualWidth;
+                AssertTrue(Math.Abs(speedRight - rowRight) < 1, $"speed column meets the row edge, delta {speedRight - rowRight:0.0}");
+                double reservedSpeed = TextWidth(speedCell, "≈999 tok/s");
                 AssertTrue(Math.Abs(timeCell.ActualWidth - 100) < 1, $"time column is fixed, width {timeCell.ActualWidth:0.0}");
-                AssertTrue(Math.Abs(speedCell.ActualWidth - 76) < 1, $"speed column is fixed, width {speedCell.ActualWidth:0.0}");
+                AssertTrue(speedCell.ActualWidth + 0.5 >= reservedSpeed && speedCell.ActualWidth - reservedSpeed < 1,
+                    $"speed column fits three digits, width {speedCell.ActualWidth:0.0}, text {reservedSpeed:0.0}");
                 AssertGap(timeCell, VisibleBlock(blocks, "deepseek-v4-flash"), "time and model");
                 foreach (string model in models)
                 {
@@ -2454,7 +2462,8 @@ internal static class Program
                     AssertGap(row, speedCell, model);
                     double textWidth = TextWidth(row);
                     AssertTrue(row.ActualWidth + 0.5 >= textWidth, $"{model} is fully visible, slot {row.ActualWidth:0.0}, text {textWidth:0.0}");
-                    AssertEqual(44d, ((System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(row))).ActualHeight, "session log row height");
+                    System.Windows.FrameworkElement item = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(row));
+                    AssertEqual(52d, item.ActualHeight, "session log row height");
                 }
 
                 viewModel.CodexSessionLogs.ToggleCommand.Execute(null);
@@ -2469,20 +2478,22 @@ internal static class Program
                     return source.First(block => block.Text == text && block.ActualWidth > 0);
                 }
 
-                static double Left(System.Windows.Controls.TextBlock block, System.Windows.FrameworkElement root)
+                static double Left(System.Windows.FrameworkElement element, System.Windows.FrameworkElement root)
                 {
-                    return block.TransformToAncestor(root).Transform(new System.Windows.Point(0, 0)).X;
+                    return element.TransformToAncestor(root).Transform(new System.Windows.Point(0, 0)).X;
                 }
 
-                static double TextWidth(System.Windows.Controls.TextBlock block)
+                static double TextWidth(System.Windows.Controls.TextBlock block, string? text = null)
                 {
                     System.Windows.Controls.TextBlock probe = new()
                     {
-                        Text = block.Text,
+                        Text = text ?? block.Text,
                         FontFamily = block.FontFamily,
                         FontSize = block.FontSize,
                         FontWeight = block.FontWeight,
+                        FontStyle = block.FontStyle,
                     };
+                    System.Windows.Media.TextOptions.SetTextFormattingMode(probe, System.Windows.Media.TextOptions.GetTextFormattingMode(block));
                     probe.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
                     return probe.DesiredSize.Width;
                 }

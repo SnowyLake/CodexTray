@@ -845,7 +845,8 @@
             </DataTemplate>
 
             <GridLength x:Key="SessionLogTimeColumn">100</GridLength>
-            <GridLength x:Key="SessionLogSpeedColumn">76</GridLength>
+            <GridLength x:Key="SessionLogSpeedColumn">68</GridLength>
+            <sys:Double x:Key="SessionLogRowHeight">52</sys:Double>
             <Style x:Key="SessionLogHeaderText" TargetType="TextBlock">
                 <Setter Property="VerticalAlignment" Value="Bottom" />
                 <Setter Property="TextAlignment" Value="Left" />
@@ -882,7 +883,10 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Time" Style="{StaticResource SessionLogHeaderText}" />
                             <TextBlock Grid.Column="1" Text="Model" Style="{StaticResource SessionLogHeaderText}" />
-                            <TextBlock Grid.Column="2" Text="Speed" Style="{StaticResource SessionLogHeaderText}" />
+                            <TextBlock Grid.Column="2"
+                                       Text="Speed"
+                                       TextAlignment="Right"
+                                       Style="{StaticResource SessionLogHeaderText}" />
                         </Grid>
                         <ScrollViewer Grid.Row="1"
                                       Grid.Column="0"
@@ -893,7 +897,7 @@
                         <ItemsControl ItemsSource="{Binding Rows}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Height="44">
+                                    <Grid Height="{StaticResource SessionLogRowHeight}">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="1" />
@@ -914,6 +918,7 @@
                                                        Style="{StaticResource SessionLogCellText}" />
                                             <TextBlock Grid.Column="2"
                                                        Text="{Binding Speed}"
+                                                       TextAlignment="Right"
                                                        Style="{StaticResource SessionLogCellText}" />
                                         </Grid>
                                         <Border Grid.Row="1"
@@ -927,7 +932,7 @@
                         <ScrollBar Grid.Row="1"
                                    Grid.Column="1"
                                    Minimum="0"
-                                   SmallChange="44"
+                                   SmallChange="{StaticResource SessionLogRowHeight}"
                                    ViewportSize="1"
                                    Visibility="Collapsed"
                                    Scroll="SessionLogBar_Scroll" />
