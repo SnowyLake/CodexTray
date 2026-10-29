@@ -86,7 +86,7 @@ Session Logs 用同一套记录列出每一次用量, 而不是时段合计. 列
 | Codex | 根据本机会话用量和模型价格估算的 API 等价成本, 不代表订阅实际扣费. DeepSeek 按官方高峰和低谷时段计价. |
 | Grok | 优先使用 Grok Build 会话中记录的费用, 记录缺失或不完整时按模型价格估算. DeepSeek 回算同样区分高峰和低谷. |
 
-没有可用费用记录且价格表未收录的模型, 仍统计 token, 成本按 `$0.00` 计入. Token 数量以 K, M, B 分别表示千, 百万和十亿.
+没有可用费用记录且价格表未收录的模型, 仍统计 token, 成本按 `$0.00` 计入. Codex 自动审查模型 `codex-auto-review` 不计入 token, 费用, 模型占比和 Session Logs. Token 数量以 K, M, B 分别表示千, 百万和十亿.
 
 ## Grok 页面
 

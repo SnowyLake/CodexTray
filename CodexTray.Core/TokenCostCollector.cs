@@ -136,6 +136,7 @@ public sealed class TokenCostCollector
     private const long EstimatedSpeedMinDurationMilliseconds = 1000;
     private const long MeasuredSpeedMinOutputTokens = 100;
     private const long MeasuredSpeedMinDurationMilliseconds = 100;
+    private const string k_ExcludedUsageModel = "codex-auto-review";
     private readonly string m_PricingPath;
     private readonly Dictionary<string, CachedFileUsage> m_FileUsageCache = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, ModelPricing>? m_CachedPricing;
@@ -290,13 +291,20 @@ public sealed class TokenCostCollector
                 continue;
             }
 
+            if (IsExcludedUsageModel(property.Name))
+            {
+                continue;
+            }
+
             ModelPricing modelPricing = new(input, cachedInput, output, LoadPricingPeriods(value));
             pricing[property.Name] = modelPricing;
             if (value.TryGetProperty("aliases", out JsonElement aliases) && aliases.ValueKind == JsonValueKind.Array)
             {
                 foreach (JsonElement alias in aliases.EnumerateArray())
                 {
-                    if (alias.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(alias.GetString()))
+                    if (alias.ValueKind == JsonValueKind.String
+                        && !string.IsNullOrWhiteSpace(alias.GetString())
+                        && !IsExcludedUsageModel(alias.GetString()!))
                     {
                         pricing[alias.GetString()!] = modelPricing;
                     }
@@ -502,6 +510,11 @@ public sealed class TokenCostCollector
         Dictionary<string, GrokTurnUsage> turns)
     {
         model = NormalizeModel(model);
+        if (IsExcludedUsageModel(model))
+        {
+            return;
+        }
+
         TokenCounts counts = new(
             Math.Max(0, GetInt64(value, "inputTokens")),
             Math.Max(0, GetInt64(value, "cachedReadTokens")),
@@ -774,6 +787,12 @@ public sealed class TokenCostCollector
                     if (isReplay
                         || !shouldBill
                         || !hasTimestamp)
+                    {
+                        continue;
+                    }
+
+                    // High water is already updated, so a later total-only delta does not absorb this usage.
+                    if (IsExcludedUsageModel(model))
                     {
                         continue;
                     }
@@ -1266,6 +1285,14 @@ public sealed class TokenCostCollector
         string[] suffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh"];
         string? baseModel = suffixes.FirstOrDefault(model.EndsWith) is string suffix ? model[..^suffix.Length] : null;
         return baseModel != null && pricing.TryGetValue(baseModel, out result);
+    }
+
+    /// <summary>
+    /// Returns whether this model is left out of totals, cost, charts, and session logs.
+    /// </summary>
+    private static bool IsExcludedUsageModel(string model)
+    {
+        return string.Equals(NormalizeModel(model), k_ExcludedUsageModel, StringComparison.Ordinal);
     }
 
     /// <summary>

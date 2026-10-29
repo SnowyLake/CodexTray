@@ -95,6 +95,7 @@ internal static class Program
         await RunAsync("deduplicates archived Codex rollouts by thread id", TestCodexArchivedRolloutDedupAsync);
         await RunAsync("reads Codex token totals from zstd compressed history", TestCodexCompressedHistoryAsync);
         await RunAsync("applies model alias pricing", TestModelAliasPricingAsync);
+        await RunAsync("excludes codex-auto-review from cost and session logs", TestCodexAutoReviewExcludedAsync);
         await RunAsync("applies DeepSeek peak and off-peak pricing", TestDeepSeekPeakPricingAsync);
         await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
         await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
@@ -2182,7 +2183,8 @@ internal static class Program
     /// </summary>
     private static Task TestPublishedModelPricingAsync()
     {
-        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Resources", "model-pricing.json")));
+        string pricingText = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Resources", "model-pricing.json"));
+        using JsonDocument document = JsonDocument.Parse(pricingText);
         JsonElement pricing = document.RootElement.GetProperty("gpt-5.3-codex");
         AssertEqual(1.75m, pricing.GetProperty("input").GetDecimal(), "gpt-5.3-codex input price");
         AssertEqual(0.175m, pricing.GetProperty("cachedInput").GetDecimal(), "gpt-5.3-codex cached input price");
@@ -2191,7 +2193,8 @@ internal static class Program
         AssertEqual(0.2m, lunaPricing.GetProperty("input").GetDecimal(), "gpt-5.6-luna input price");
         AssertEqual(0.02m, lunaPricing.GetProperty("cachedInput").GetDecimal(), "gpt-5.6-luna cached input price");
         AssertEqual(1.2m, lunaPricing.GetProperty("output").GetDecimal(), "gpt-5.6-luna output price");
-        AssertEqual("codex-auto-review", string.Join('|', lunaPricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "gpt-5.6-luna aliases");
+        AssertTrue(!lunaPricing.TryGetProperty("aliases", out _), "gpt-5.6-luna has no codex-auto-review alias");
+        AssertTrue(!pricingText.Contains("codex-auto-review", StringComparison.OrdinalIgnoreCase), "published pricing omits codex-auto-review");
         JsonElement astraPricing = document.RootElement.GetProperty("gpt-6-astra");
         AssertEqual(10.0m, astraPricing.GetProperty("input").GetDecimal(), "gpt-6-astra input price");
         AssertEqual(1.0m, astraPricing.GetProperty("cachedInput").GetDecimal(), "gpt-6-astra cached input price");
@@ -4206,6 +4209,75 @@ internal static class Program
             .Today;
         AssertEqual(1_050L, summary.TotalTokens, "alias pricing total tokens");
         AssertEqual(0.00213m, summary.CostUsd, "alias pricing cost");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Verifies codex-auto-review is omitted from totals, charts, model shares, cost, and session logs.
+    /// </summary>
+    private static Task TestCodexAutoReviewExcludedAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = Path.Combine(temp.Path, "pricing.json");
+        File.WriteAllText(pricingPath, JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["gpt-test"] = new { input = 2m, cachedInput = 0.2m, output = 10m },
+            ["gpt-5.6-luna"] = new
+            {
+                input = 0.2m,
+                cachedInput = 0.02m,
+                output = 1.2m,
+                aliases = new[] { "codex-auto-review" },
+            },
+            ["grok-4.5-build"] = new { input = 2m, cachedInput = 0.3m, output = 6m },
+        }));
+        DateTimeOffset now = new(2026, 10, 27, 22, 0, 0, TimeSpan.FromHours(8));
+        string sessions = Path.Combine(temp.Path, "codex", "sessions", "2026", "10", "27");
+        Directory.CreateDirectory(sessions);
+        File.WriteAllLines(Path.Combine(sessions, "mixed.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-10-27T09:00:00+08:00", last: (100, 0, 10), total: (100, 0, 10)),
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"OpenAI/Codex-Auto-Review\"}}",
+            CreateCodexTokenCount("2026-10-27T10:00:00+08:00", last: (5_000, 1_000, 500), total: (5_100, 1_000, 510)),
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
+            CreateCodexTokenCount("2026-10-27T11:00:00+08:00", total: (5_200, 1_000, 530), emptyLast: true),
+        ]);
+        File.WriteAllLines(Path.Combine(sessions, "review-only.jsonl"),
+        [
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"codex-auto-review\"}}",
+            CreateCodexTokenCount("2026-10-27T12:00:00+08:00", last: (999_999, 0, 999_999)),
+        ]);
+
+        TokenCostCollector collector = new(pricingPath);
+        string codexRoot = Path.Combine(temp.Path, "codex");
+        TokenCostStatistics statistics = collector.CollectCodex(codexRoot, now);
+        AssertEqual(230L, statistics.Today.TotalTokens, "auto-review tokens stay out of the total");
+        AssertEqual(0.0007m, statistics.Today.CostUsd, "auto-review is not priced through the luna alias");
+        AssertEqual(false, statistics.Today.HasUnpricedUsage, "excluded usage is not an unpriced remainder");
+        AssertEqual(230L, statistics.LastSevenDaysDaily[^1].Summary.TotalTokens, "daily chart omits auto-review");
+        AssertEqual("gpt-test", string.Join('|', statistics.Models.Select(model => model.Model)), "model breakdown omits auto-review");
+        AssertEqual(230L, statistics.Models[0].Today.TotalTokens, "kept model tokens");
+        AssertEqual(2, statistics.SessionLogs.Count, "session log drops auto-review rows");
+        AssertTrue(statistics.SessionLogs.All(entry => entry.Model == "gpt-test"), "session log models");
+        TokenCostStatistics cached = collector.CollectCodex(codexRoot, now);
+        AssertEqual(statistics.Today.TotalTokens, cached.Today.TotalTokens, "cached collect still excludes auto-review");
+        AssertEqual(statistics.SessionLogs.Count, cached.SessionLogs.Count, "cached session log still excludes auto-review");
+
+        string grokSession = Path.Combine(temp.Path, "grok", "sessions", "workspace", "one");
+        Directory.CreateDirectory(grokSession);
+        File.WriteAllLines(Path.Combine(grokSession, "updates.jsonl"),
+        [
+            CreateGrokTokenUpdate("kept", now.AddMinutes(-5), 10, 0, 20, costUsdTicks: 1_000_000_000),
+            CreateGrokTokenUpdate("review", now.AddMinutes(-4), 1_000_000, 0, 1_000_000, costUsdTicks: 50_000_000_000)
+                .Replace("grok-4.5-build", "codex-auto-review", StringComparison.Ordinal),
+        ]);
+        TokenCostStatistics grok = new TokenCostCollector(pricingPath).CollectGrok(Path.Combine(temp.Path, "grok"), now);
+        AssertEqual(30L, grok.Today.TotalTokens, "Grok totals omit codex-auto-review");
+        AssertEqual(0.1m, grok.Today.CostUsd, "Grok reported cost omits codex-auto-review");
+        AssertEqual("grok-4.5-build", string.Join('|', grok.Models.Select(model => model.Model)), "Grok model share omits codex-auto-review");
+        AssertEqual(1, grok.SessionLogs.Count, "Grok session log drops codex-auto-review");
+        AssertEqual("grok-4.5-build", grok.SessionLogs[0].Model, "kept Grok session log model");
         return Task.CompletedTask;
     }
 
