@@ -847,6 +847,7 @@
             <GridLength x:Key="SessionLogTimeColumn">100</GridLength>
             <GridLength x:Key="SessionLogSpeedColumn">68</GridLength>
             <sys:Double x:Key="SessionLogRowHeight">52</sys:Double>
+            <Thickness x:Key="SessionLogModelIndent" Left="8" />
             <Style x:Key="SessionLogHeaderText" TargetType="TextBlock">
                 <Setter Property="VerticalAlignment" Value="Bottom" />
                 <Setter Property="TextAlignment" Value="Left" />
@@ -882,7 +883,10 @@
                                 <ColumnDefinition Width="{StaticResource SessionLogSpeedColumn}" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Time" Style="{StaticResource SessionLogHeaderText}" />
-                            <TextBlock Grid.Column="1" Text="Model" Style="{StaticResource SessionLogHeaderText}" />
+                            <TextBlock Grid.Column="1"
+                                       Text="Model"
+                                       Margin="{StaticResource SessionLogModelIndent}"
+                                       Style="{StaticResource SessionLogHeaderText}" />
                             <TextBlock Grid.Column="2"
                                        Text="Speed"
                                        TextAlignment="Right"
@@ -913,6 +917,7 @@
                                                        Style="{StaticResource SessionLogCellText}" />
                                             <TextBlock Grid.Column="1"
                                                        Text="{Binding Model}"
+                                                       Margin="{StaticResource SessionLogModelIndent}"
                                                        TextTrimming="CharacterEllipsis"
                                                        FontWeight="Medium"
                                                        Style="{StaticResource SessionLogCellText}" />

@@ -2454,7 +2454,11 @@ internal static class Program
                 AssertTrue(Math.Abs(timeCell.ActualWidth - 100) < 1, $"time column is fixed, width {timeCell.ActualWidth:0.0}");
                 AssertTrue(speedCell.ActualWidth + 0.5 >= reservedSpeed && speedCell.ActualWidth - reservedSpeed < 1,
                     $"speed column fits three digits, width {speedCell.ActualWidth:0.0}, text {reservedSpeed:0.0}");
-                AssertGap(timeCell, VisibleBlock(blocks, "deepseek-v4-flash"), "time and model");
+                System.Windows.Controls.TextBlock modelCell = VisibleBlock(blocks, "deepseek-v4-flash");
+                AssertEqual(8d, modelHeader.Margin.Left, "model header starts further right");
+                AssertEqual(8d, modelCell.Margin.Left, "model name starts further right");
+                double timeModelGap = Left(modelCell, content) - (Left(timeCell, content) + TextWidth(timeCell));
+                AssertTrue(timeModelGap >= 16, $"time and model keep a clear gap, {timeModelGap:0.0}");
                 foreach (string model in models)
                 {
                     System.Windows.Controls.TextBlock row = VisibleBlock(blocks, model);
