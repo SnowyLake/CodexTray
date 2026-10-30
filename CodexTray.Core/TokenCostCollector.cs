@@ -80,6 +80,10 @@ public sealed class SessionLogEntry
 
     public string Model { get; init; } = string.Empty;
 
+    public decimal? CostUsd { get; init; }
+
+    public bool HasUnpricedUsage { get; init; }
+
     public long TimedOutputTokens { get; init; }
 
     public long TimedDurationMilliseconds { get; init; }
@@ -136,6 +140,7 @@ public sealed class TokenCostCollector
     private const long EstimatedSpeedMinDurationMilliseconds = 1000;
     private const long MeasuredSpeedMinOutputTokens = 100;
     private const long MeasuredSpeedMinDurationMilliseconds = 100;
+    private const string k_ExcludedUsageModel = "codex-auto-review";
     private readonly string m_PricingPath;
     private readonly Dictionary<string, CachedFileUsage> m_FileUsageCache = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, ModelPricing>? m_CachedPricing;
@@ -231,6 +236,8 @@ public sealed class TokenCostCollector
             {
                 Timestamp = usage.Timestamp,
                 Model = usage.Model,
+                CostUsd = usage.CostUsd,
+                HasUnpricedUsage = usage.HasUnpricedUsage,
                 TimedOutputTokens = usage.TimedOutputTokens,
                 TimedDurationMilliseconds = usage.TimedDurationMilliseconds,
             });
@@ -290,13 +297,20 @@ public sealed class TokenCostCollector
                 continue;
             }
 
+            if (IsExcludedUsageModel(property.Name))
+            {
+                continue;
+            }
+
             ModelPricing modelPricing = new(input, cachedInput, output, LoadPricingPeriods(value));
             pricing[property.Name] = modelPricing;
             if (value.TryGetProperty("aliases", out JsonElement aliases) && aliases.ValueKind == JsonValueKind.Array)
             {
                 foreach (JsonElement alias in aliases.EnumerateArray())
                 {
-                    if (alias.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(alias.GetString()))
+                    if (alias.ValueKind == JsonValueKind.String
+                        && !string.IsNullOrWhiteSpace(alias.GetString())
+                        && !IsExcludedUsageModel(alias.GetString()!))
                     {
                         pricing[alias.GetString()!] = modelPricing;
                     }
@@ -502,6 +516,11 @@ public sealed class TokenCostCollector
         Dictionary<string, GrokTurnUsage> turns)
     {
         model = NormalizeModel(model);
+        if (IsExcludedUsageModel(model))
+        {
+            return;
+        }
+
         TokenCounts counts = new(
             Math.Max(0, GetInt64(value, "inputTokens")),
             Math.Max(0, GetInt64(value, "cachedReadTokens")),
@@ -778,6 +797,12 @@ public sealed class TokenCostCollector
                         continue;
                     }
 
+                    // High water is already updated, so a later total-only delta does not absorb this usage.
+                    if (IsExcludedUsageModel(model))
+                    {
+                        continue;
+                    }
+
                     decimal? costUsd = CalculateCost(pricing, model, increment, timestamp);
                     bool hasTimedOutput = timedDurationMilliseconds > 0 && timedModel == model && increment.Output > 0
                         && TryGetUsageCounts(info, "last_token_usage", out TokenCounts last) && last == increment;
@@ -828,6 +853,8 @@ public sealed class TokenCostCollector
             {
                 Timestamp = usageEvent.Timestamp,
                 Model = usageEvent.Model,
+                CostUsd = usageEvent.CostUsd,
+                HasUnpricedUsage = usageEvent.CostUsd == null && usageEvent.Tokens > 0,
                 TimedOutputTokens = usageEvent.TimedOutputTokens,
                 TimedDurationMilliseconds = usageEvent.TimedDurationMilliseconds,
             });
@@ -1266,6 +1293,14 @@ public sealed class TokenCostCollector
         string[] suffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh"];
         string? baseModel = suffixes.FirstOrDefault(model.EndsWith) is string suffix ? model[..^suffix.Length] : null;
         return baseModel != null && pricing.TryGetValue(baseModel, out result);
+    }
+
+    /// <summary>
+    /// Returns whether this model is left out of totals, cost, charts, and session logs.
+    /// </summary>
+    private static bool IsExcludedUsageModel(string model)
+    {
+        return string.Equals(NormalizeModel(model), k_ExcludedUsageModel, StringComparison.Ordinal);
     }
 
     /// <summary>

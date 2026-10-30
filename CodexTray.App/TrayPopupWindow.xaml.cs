@@ -195,7 +195,7 @@ internal sealed partial class TrayPopupWindow : Window
         bar.Maximum = Math.Max(0, viewer.ScrollableHeight);
         bar.ViewportSize = Math.Max(0, viewer.ViewportHeight);
         bar.LargeChange = Math.Max(1, viewer.ViewportHeight);
-        bar.Visibility = viewer.ScrollableHeight > 0 ? Visibility.Visible : Visibility.Collapsed;
+        bar.Visibility = viewer.ScrollableHeight > 0 ? Visibility.Visible : Visibility.Hidden;
         if (Math.Abs(bar.Value - viewer.VerticalOffset) > 0.5)
         {
             bar.Value = viewer.VerticalOffset;
