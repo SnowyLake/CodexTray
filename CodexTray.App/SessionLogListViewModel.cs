@@ -6,7 +6,7 @@ using System.Globalization;
 namespace CodexTray.App;
 
 /// <summary>
-/// Paged Time / Model / Speed rows for one harness, without persisting the open page.
+/// Paged session rows with time, model, speed, and cost in four columns, without persisting the open page.
 /// </summary>
 public sealed partial class SessionLogListViewModel : ObservableObject
 {
@@ -19,7 +19,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
 
     private IReadOnlyList<SessionLogEntry> m_Entries = [];
     private int m_Page;
-    private bool m_SpeedEstimated;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ToggleTooltip))]
@@ -63,7 +62,6 @@ public sealed partial class SessionLogListViewModel : ObservableObject
     public void Update(TokenCostStatistics? statistics)
     {
         m_Entries = statistics?.SessionLogs ?? [];
-        m_SpeedEstimated = statistics?.IsSpeedEstimated == true;
         int pages = PageCount;
         if (m_Page >= pages)
         {
@@ -129,21 +127,32 @@ public sealed partial class SessionLogListViewModel : ObservableObject
         DateTime local = entry.Timestamp.ToLocalTime().DateTime;
         return new SessionLogRow
         {
-            Time = local.ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            Time = local.ToString("yy/MM/dd", CultureInfo.InvariantCulture) + "\n" + local.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
             Model = entry.Model,
+            Cost = FormatCost(entry),
             Speed = FormatSpeed(entry),
         };
     }
 
-    private string FormatSpeed(SessionLogEntry entry)
+    private static string FormatSpeed(SessionLogEntry entry)
     {
         if (entry.GetOutputTokensPerSecond() is not decimal speed)
         {
             return "—";
         }
 
-        string prefix = m_SpeedEstimated ? "≈" : string.Empty;
-        return string.Create(CultureInfo.InvariantCulture, $"{prefix}{speed:0} tok/s");
+        return string.Create(CultureInfo.InvariantCulture, $"{speed:0} tok/s");
+    }
+
+    private static string FormatCost(SessionLogEntry entry)
+    {
+        if (entry.CostUsd is not decimal cost)
+        {
+            return "—";
+        }
+
+        string text = cost.ToString("$0.0000", CultureInfo.InvariantCulture);
+        return entry.HasUnpricedUsage ? text + "*" : text;
     }
 }
 
@@ -155,6 +164,8 @@ public sealed class SessionLogRow
     public string Time { get; init; } = string.Empty;
 
     public string Model { get; init; } = string.Empty;
+
+    public string Cost { get; init; } = string.Empty;
 
     public string Speed { get; init; } = string.Empty;
 }
