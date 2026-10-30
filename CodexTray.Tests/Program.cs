@@ -79,7 +79,7 @@ internal static class Program
         await RunAsync("formats bounded visible-source tray summaries", TestTrayTooltipAsync);
         await RunAsync("builds rolling token cost chart", TestTokenCostChartViewModelAsync);
         await RunAsync("pages session log rows for the current harness", TestSessionLogPagingAsync);
-        await RunAsync("fits session log model names and keeps the list glyph", TestSessionLogLayoutAsync);
+        await RunAsync("keeps fixed session log columns without headers", TestSessionLogLayoutAsync);
         await RunAsync("keeps per-call session log rows from Codex and Grok collects", TestSessionLogEntriesAsync);
         await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
         await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
@@ -2402,34 +2402,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// Names and aliases published in the pricing table.
-    /// </summary>
-    private static string[] PricingModelNames()
-    {
-        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Resources", "model-pricing.json")));
-        List<string> names = [];
-        foreach (JsonProperty property in document.RootElement.EnumerateObject())
-        {
-            names.Add(property.Name);
-            if (!property.Value.TryGetProperty("aliases", out JsonElement aliases))
-            {
-                continue;
-            }
-
-            foreach (JsonElement alias in aliases.EnumerateArray())
-            {
-                string? name = alias.GetString();
-                if (!string.IsNullOrEmpty(name))
-                {
-                    names.Add(name);
-                }
-            }
-        }
-
-        return names.ToArray();
-    }
-
-    /// <summary>
     /// Common model names stay fully visible, and the list button only changes color.
     /// </summary>
     private static Task TestSessionLogLayoutAsync()
@@ -2469,10 +2441,6 @@ internal static class Program
                 System.Windows.Controls.Button listButton = FindAncestorButton(blocks.First(block => block.Text == SessionLogListViewModel.ListGlyph));
                 AssertEqual(SessionLogListViewModel.ListGlyph, listButton.Content, "list button content");
                 AssertEqual(System.Windows.Media.Color.FromRgb(0x1A, 0xBC, 0x89), ((System.Windows.Media.SolidColorBrush)listButton.Foreground).Color, "open list button is green");
-                System.Windows.Controls.TextBlock timeHeader = VisibleBlock(blocks, "Time");
-                System.Windows.Controls.TextBlock modelHeader = VisibleBlock(blocks, "Model");
-                System.Windows.Controls.TextBlock costHeader = VisibleBlock(blocks, "Cost");
-                System.Windows.Controls.TextBlock speedHeader = VisibleBlock(blocks, "Speed");
                 SessionLogRow sample = viewModel.CodexSessionLogs.Rows[0];
                 System.Windows.Controls.TextBlock timeCell = VisibleBlock(blocks, sample.Time);
                 System.Windows.Controls.TextBlock modelCell = VisibleBlock(blocks, "deepseek-v4-flash");
@@ -2484,19 +2452,15 @@ internal static class Program
                 AssertEqual(13d, modelCell.FontSize, "model keeps the row text size");
                 AssertEqual(13d, costCell.FontSize, "cost matches the model size");
                 AssertEqual(13d, speedCell.FontSize, "speed matches the model size");
-                AssertAligned(timeHeader, timeCell, "time");
-                AssertAligned(modelHeader, modelCell, "model");
                 AssertEqual(System.Windows.HorizontalAlignment.Right, costCell.HorizontalAlignment, "cost aligns right");
                 AssertEqual(System.Windows.HorizontalAlignment.Right, speedCell.HorizontalAlignment, "speed aligns right");
-                AssertSameRight(costHeader, costCell, "cost");
-                AssertSameRight(speedHeader, speedCell, "speed");
                 System.Windows.Controls.Grid columns = (System.Windows.Controls.Grid)System.Windows.Media.VisualTreeHelper.GetParent(modelCell);
                 System.Windows.FrameworkElement item = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(columns);
                 AssertTrue(ReferenceEquals(columns, System.Windows.Media.VisualTreeHelper.GetParent(timeCell)), "time shares the model row");
                 AssertTrue(ReferenceEquals(columns, System.Windows.Media.VisualTreeHelper.GetParent(costCell)), "cost shares the model row");
                 AssertTrue(ReferenceEquals(columns, System.Windows.Media.VisualTreeHelper.GetParent(speedCell)), "speed shares the model row");
-                AssertTrue(Left(timeCell, content) < Left(modelCell, content) && Left(modelCell, content) < Left(costCell, content) && Left(costCell, content) < Left(speedCell, content),
-                    "time, model, cost, and speed run left to right");
+                AssertTrue(Left(timeCell, content) < Left(modelCell, content) && Left(modelCell, content) < Left(speedCell, content) && Left(speedCell, content) < Left(costCell, content),
+                    "time, model, speed, and cost run left to right");
                 double timeMid = Top(timeCell, content) + timeCell.ActualHeight / 2;
                 double modelMid = Top(modelCell, content) + modelCell.ActualHeight / 2;
                 double costMid = Top(costCell, content) + costCell.ActualHeight / 2;
@@ -2504,26 +2468,26 @@ internal static class Program
                 AssertTrue(Math.Abs(timeMid - modelMid) < 2 && Math.Abs(modelMid - costMid) < 2 && Math.Abs(modelMid - speedMid) < 2, "the four columns share one line");
                 double gapAfterTime = columns.ColumnDefinitions[1].ActualWidth;
                 double gapAfterModel = columns.ColumnDefinitions[3].ActualWidth;
-                double gapAfterCost = columns.ColumnDefinitions[5].ActualWidth;
-                AssertTrue(Math.Abs(gapAfterTime - gapAfterModel) < 1 && Math.Abs(gapAfterModel - gapAfterCost) < 1 && gapAfterTime >= 3,
-                    $"column gaps are equal, {gapAfterTime:0.0} {gapAfterModel:0.0} {gapAfterCost:0.0}");
+                double gapAfterSpeed = columns.ColumnDefinitions[5].ActualWidth;
+                AssertTrue(Math.Abs(gapAfterTime - gapAfterModel) < 1 && Math.Abs(gapAfterModel - gapAfterSpeed) < 1 && gapAfterTime >= 7,
+                    $"column gaps are equal, {gapAfterTime:0.0} {gapAfterModel:0.0} {gapAfterSpeed:0.0}");
                 double reservedTime = Math.Max(TextWidth(timeCell, "88/88/88"), TextWidth(timeCell, "88:88:88"));
-                double reservedModel = PricingModelNames().Max(name => TextWidth(modelCell, name));
                 double timeColumn = columns.ColumnDefinitions[0].ActualWidth;
                 double modelColumn = columns.ColumnDefinitions[2].ActualWidth;
-                double costColumn = columns.ColumnDefinitions[4].ActualWidth;
-                double speedColumn = columns.ColumnDefinitions[6].ActualWidth;
+                double costColumn = columns.ColumnDefinitions[6].ActualWidth;
+                double speedColumn = columns.ColumnDefinitions[4].ActualWidth;
                 double reservedCost = TextWidth(costCell, "$0.0000*");
                 double reservedSpeed = TextWidth(speedCell, "999 tok/s");
-                AssertTrue(modelColumn + 0.5 >= reservedModel && modelColumn - reservedModel < 1,
-                    $"model column fits pricing names, width {modelColumn:0.0}, text {reservedModel:0.0}");
+                double reservedModel = TextWidth(modelCell, "deepseek-v4-flash");
+                AssertTrue(modelColumn >= reservedModel && modelColumn - reservedModel < 1, "model column just fits deepseek-v4-flash");
+                AssertEqual(System.Windows.TextTrimming.CharacterEllipsis, modelCell.TextTrimming, "longer model names use ellipsis");
                 AssertTrue(timeColumn + 0.5 >= reservedTime && timeColumn - reservedTime < 1,
                     $"time column fits the date, width {timeColumn:0.0}, text {reservedTime:0.0}");
                 AssertTrue(costColumn + 0.5 >= reservedCost && costColumn - reservedCost < 1,
                     $"cost column fits the amount, width {costColumn:0.0}, text {reservedCost:0.0}");
                 AssertTrue(speedColumn + 0.5 >= reservedSpeed && speedColumn - reservedSpeed < 1,
                     $"speed column fits three digits, width {speedColumn:0.0}, text {reservedSpeed:0.0}");
-                AssertFlushRight(speedCell, item, "speed");
+                AssertFlushRight(costCell, item, "cost");
                 double rowTop = Top(item, content);
                 double contentBottom = rowTop + item.ActualHeight - 1;
                 AssertTrue(Top(timeCell, content) >= rowTop && Top(timeCell, content) + timeCell.ActualHeight <= contentBottom,
@@ -2533,10 +2497,20 @@ internal static class Program
                     System.Windows.Controls.TextBlock row = VisibleBlock(blocks, model);
                     AssertTrue(row.ToolTip == null, $"{model} has no tooltip");
                     double textWidth = TextWidth(row);
-                    AssertTrue(row.ActualWidth + 0.5 >= textWidth, $"{model} is fully visible, slot {row.ActualWidth:0.0}, text {textWidth:0.0}");
+                    AssertTrue(row.ActualWidth >= textWidth, $"{model} is fully visible");
                     System.Windows.FrameworkElement rowItem = (System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(System.Windows.Media.VisualTreeHelper.GetParent(row));
                     AssertEqual(36d, rowItem.ActualHeight, "session log row height");
                 }
+
+                viewModel.UpdateTokenCost(new TokenCostStatistics { SessionLogs = entries.Where(entry => entry.Model == "gpt-6.1-terra").ToArray() });
+                Layout();
+                Layout();
+                blocks.Clear();
+                CollectTextBlocks(content, blocks);
+                modelCell = VisibleBlock(blocks, "gpt-6.1-terra");
+                columns = (System.Windows.Controls.Grid)System.Windows.Media.VisualTreeHelper.GetParent(modelCell);
+                AssertEqual(modelColumn, columns.ColumnDefinitions[2].ActualWidth, "short names keep the model column fixed");
+                AssertEqual(gapAfterSpeed, columns.ColumnDefinitions[5].ActualWidth, "changing rows keeps column spacing fixed");
 
                 viewModel.CodexSessionLogs.ToggleCommand.Execute(null);
                 Layout();
@@ -2573,18 +2547,6 @@ internal static class Program
                     System.Windows.Media.TextOptions.SetTextFormattingMode(probe, System.Windows.Media.TextOptions.GetTextFormattingMode(block));
                     probe.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
                     return probe.DesiredSize.Width;
-                }
-
-                void AssertAligned(System.Windows.Controls.TextBlock header, System.Windows.Controls.TextBlock cell, string column)
-                {
-                    double delta = Math.Abs(Left(header, content) - Left(cell, content));
-                    AssertTrue(delta < 1, $"{column} header and cell share a left edge, delta {delta:0.0}");
-                }
-
-                void AssertSameRight(System.Windows.Controls.TextBlock header, System.Windows.Controls.TextBlock cell, string column)
-                {
-                    double delta = Left(header, content) + header.ActualWidth - (Left(cell, content) + cell.ActualWidth);
-                    AssertTrue(Math.Abs(delta) < 1, $"{column} header and cell share a right edge, delta {delta:0.0}");
                 }
 
                 void AssertFlushRight(System.Windows.FrameworkElement element, System.Windows.FrameworkElement row, string label)

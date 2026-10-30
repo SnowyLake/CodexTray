@@ -6,7 +6,7 @@ using System.Globalization;
 namespace CodexTray.App;
 
 /// <summary>
-/// Paged session rows with time, model, cost, and speed in four columns, without persisting the open page.
+/// Paged session rows with time, model, speed, and cost in four columns, without persisting the open page.
 /// </summary>
 public sealed partial class SessionLogListViewModel : ObservableObject
 {
