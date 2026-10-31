@@ -90,7 +90,7 @@ Session Logs 用同一套记录列出每一次用量, 而不是时段合计. 每
 
 ## Grok 页面
 
-在本机 Grok Build 登录后, 打开 Grok 页面可查看订阅名称, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. `SuperGrok` 显示为 `PREMIUM`, `SuperGrok Heavy` 显示为 `ULTRA`, `X Premium` 显示为 `PLUS`, `X Premium+` 显示为 `PREMIUM`; 已经是 `Plus`, `Premium`, `Super` 或 `Ultra` 时保持该名称. Weekly 额度和各产品占比来自额度查询.
+在本机 Grok Build 登录后, 打开 Grok 页面可查看订阅名称, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. `SuperGrok Lite` 显示为 `PLUS`, `SuperGrok` 显示为 `PREMIUM`, `SuperGrok Plus` 显示为 `SUPER`, `SuperGrok Heavy` 显示为 `ULTRA`, `X Premium` 显示为 `PLUS`, `X Premium+` 显示为 `PREMIUM`; 已经是 `Plus`, `Premium`, `Super` 或 `Ultra` 时保持该名称. Weekly 额度和各产品占比来自额度查询.
 
 产品占比默认显示 `Build`, `Bot` 和 `Cursor`. 进度条最多四段, 其余产品合并为 `Others`, 鼠标悬停进度条可查看全部产品占比. 重置时间可以在 Settings 中切换为倒计时或具体时间.
 

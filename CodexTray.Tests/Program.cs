@@ -3568,9 +3568,15 @@ internal static class Program
         (string tier, string display)[] cases =
         [
             ("SuperGrok", "PREMIUM"),
+            ("SuperGrok Lite", "PLUS"),
+            ("supergrok_lite", "PLUS"),
+            ("SuperGrok Plus", "SUPER"),
+            ("supergrok_plus", "SUPER"),
+            ("SuperGrok+", "SUPER"),
             ("SuperGrok Heavy", "ULTRA"),
             ("supergrok_heavy", "ULTRA"),
             ("X Premium", "PLUS"),
+            ("x_premium", "PLUS"),
             ("X Premium+", "PREMIUM"),
             ("x_premium_plus", "PREMIUM"),
             ("premium plus", "PREMIUM"),
@@ -3580,8 +3586,6 @@ internal static class Program
             ("Ultra", "ULTRA"),
             ("Free", "FREE"),
             ("X Basic", "X BASIC"),
-            ("SuperGrok Lite", "SUPERGROK LITE"),
-            ("SuperGrok Plus", "SUPERGROK PLUS"),
             ("Business", "BUSINESS"),
             ("", "UNKNOWN"),
         ];

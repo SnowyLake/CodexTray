@@ -1467,7 +1467,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             return "UNKNOWN";
         }
 
-        // Heavy becomes Ultra on The X Subscription. X Premium+ benefits start at Premium; the separate X Premium tier matches Plus.
+        // Longer legacy names are exact keys, so SuperGrok Plus is not SuperGrok and X Premium+ is not X Premium.
         string key = normalized.Replace("premium plus", "premium+", StringComparison.OrdinalIgnoreCase).ToLowerInvariant();
         return key switch
         {
@@ -1477,7 +1477,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             "super" => "SUPER",
             "ultra" => "ULTRA",
             "x basic" => "X BASIC",
-            "supergrok heavy" => "ULTRA",
+            "supergrok lite" or "supergroklite" => "PLUS",
+            "supergrok plus" or "supergrokplus" or "supergrok+" => "SUPER",
+            "supergrok heavy" or "supergrokheavy" => "ULTRA",
             "supergrok" => "PREMIUM",
             "x premium+" or "premium+" => "PREMIUM",
             "x premium" => "PLUS",
