@@ -689,13 +689,21 @@ public sealed class GrokUsageCollector
     }
 
     /// <summary>
-    /// Identifies subscription tier strings while allowing future xAI tier names to pass through.
+    /// Identifies subscription display names used to backfill the badge from local logs and auth.
     /// </summary>
     private static bool LooksLikeSubscriptionTier(string value)
     {
         string normalized = value.Trim().Replace('_', ' ');
-        return string.Equals(normalized, "Free", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("Premium", StringComparison.OrdinalIgnoreCase) ||
+        // Plus, Super, and Ultra are exact X Subscription display names. A "Super" substring would also match unrelated text.
+        if (string.Equals(normalized, "Free", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Plus", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Super", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Ultra", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return normalized.Contains("Premium", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("SuperGrok", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("Business", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("Enterprise", StringComparison.OrdinalIgnoreCase);
