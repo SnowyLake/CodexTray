@@ -698,7 +698,8 @@ public sealed class GrokUsageCollector
         if (string.Equals(normalized, "Free", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(normalized, "Plus", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(normalized, "Super", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(normalized, "Ultra", StringComparison.OrdinalIgnoreCase))
+            string.Equals(normalized, "Ultra", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "X Basic", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

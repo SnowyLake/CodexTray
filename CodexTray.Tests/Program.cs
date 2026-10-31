@@ -328,7 +328,7 @@ internal static class Program
                 AssertEqual(0d, grokQuotaScrollViewer.ViewportHeight - grokQuotaScrollViewer.ExtentHeight, "Grok quota cards should fill the reserved region");
                 AssertEqual(4, viewModel.GrokTokenCost.Rows.Count, "Grok token cost row count");
                 AssertEqual(30, viewModel.GrokTokenCost.ChartDays.Count, "Grok token cost chart day count");
-                AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
+                AssertEqual("ULTRA", viewModel.GrokPlanDisplay, "Grok subscription badge");
                 AssertTrue(window.FindName("GrokProductUsageTitle") is null, "Grok product usage card should not show a title");
                 AssertEqual("Chat 3%\nBuild 2%\nTasks 1%\nVoice 0.5%\nImagine 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip lists every product");
                 AssertEqual(3, viewModel.GrokProductUsageItems.Count, "Grok product usage legend item count");
@@ -536,7 +536,7 @@ internal static class Program
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage bot percent with one non-zero item");
                 AssertEqual("Imagine 7%\nBuild 0%\nChat 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip with one non-zero item");
 
-                AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok badge uses the billing subscription tier");
+                AssertEqual("ULTRA", viewModel.GrokPlanDisplay, "Grok badge uses the billing subscription tier");
                 AssertEqual("93%", viewModel.GrokWeeklyQuota.PercentText, "billing weekly remaining percent");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(37, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
@@ -598,7 +598,7 @@ internal static class Program
                     string.Empty,
                     DateTimeOffset.Now),
                     CreateTokenCostStatistics(5));
-                AssertEqual("SUPERGROK", viewModel.GrokPlanDisplay, "later billing replaces the subscription tier");
+                AssertEqual("PREMIUM", viewModel.GrokPlanDisplay, "later billing replaces the subscription tier");
                 AssertEqual("95%", viewModel.GrokWeeklyQuota.PercentText, "later billing replaces weekly remaining percent");
 
                 viewModel.ShowApi();
@@ -3567,15 +3567,22 @@ internal static class Program
         TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
         (string tier, string display)[] cases =
         [
-            ("SuperGrok", "SUPERGROK"),
-            ("SuperGrok Heavy", "SUPERGROK HEAVY"),
-            ("X Premium", "X PREMIUM"),
-            ("X Premium+", "X PREMIUM+"),
-            ("premium plus", "PREMIUM+"),
+            ("SuperGrok", "PREMIUM"),
+            ("SuperGrok Heavy", "ULTRA"),
+            ("supergrok_heavy", "ULTRA"),
+            ("X Premium", "PLUS"),
+            ("X Premium+", "PREMIUM"),
+            ("x_premium_plus", "PREMIUM"),
+            ("premium plus", "PREMIUM"),
             ("Premium", "PREMIUM"),
             ("Plus", "PLUS"),
             ("Super", "SUPER"),
             ("Ultra", "ULTRA"),
+            ("Free", "FREE"),
+            ("X Basic", "X BASIC"),
+            ("SuperGrok Lite", "SUPERGROK LITE"),
+            ("SuperGrok Plus", "SUPERGROK PLUS"),
+            ("Business", "BUSINESS"),
             ("", "UNKNOWN"),
         ];
 

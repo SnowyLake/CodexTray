@@ -1453,7 +1453,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Formats a Grok subscription display name while preserving future tier names.
+    /// Formats a Grok subscription badge, mapping known legacy names onto The X Subscription.
     /// </summary>
     private static string FormatGrokPlan(string? subscriptionTier)
     {
@@ -1462,9 +1462,27 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             .Replace('_', ' ')
             .Replace('-', ' ')
             .Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        return string.IsNullOrEmpty(normalized)
-            ? "UNKNOWN"
-            : normalized.Replace("premium plus", "premium+", StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
+        if (normalized.Length == 0)
+        {
+            return "UNKNOWN";
+        }
+
+        // Heavy becomes Ultra on The X Subscription. X Premium+ benefits start at Premium; the separate X Premium tier matches Plus.
+        string key = normalized.Replace("premium plus", "premium+", StringComparison.OrdinalIgnoreCase).ToLowerInvariant();
+        return key switch
+        {
+            "free" => "FREE",
+            "plus" => "PLUS",
+            "premium" => "PREMIUM",
+            "super" => "SUPER",
+            "ultra" => "ULTRA",
+            "x basic" => "X BASIC",
+            "supergrok heavy" => "ULTRA",
+            "supergrok" => "PREMIUM",
+            "x premium+" or "premium+" => "PREMIUM",
+            "x premium" => "PLUS",
+            _ => normalized.ToUpperInvariant(),
+        };
     }
 
     /// <summary>

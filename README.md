@@ -59,7 +59,7 @@
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
 - Codex 页: 查看额度, Resets 和 Token Cost. 点击额度卡片左下角的页点或使用鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示. 标题栏刷新按钮左侧可以打开 Session Logs, 再点一次回到额度与 Token Cost.
-- Grok 页: 查看订阅类型, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. Weekly 额度和各产品占比来自额度查询. Session Logs 按钮与 Codex 页相同, 只显示 Grok 自己的记录.
+- Grok 页: 查看订阅类型, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名, 旧档会显示成对应的 The X Subscription 名称. Weekly 额度和各产品占比来自额度查询. Session Logs 按钮与 Codex 页相同, 只显示 Grok 自己的记录.
 - APIs 页: 添加和查看 DeepSeek, OpenRouter, Vercel AI Gateway, NanoGPT 或 NewAPI 监控卡片.
 - Settings 页: 调整刷新间隔, 主题, 重置时间格式, 自启动和插件设置. 在 `Visible pages` 中隐藏页面后, 对应的后台采集也会停止. 版本号右侧的 `Check for updates` 会检查 GitHub Release. 发现新版本时, 弹窗询问是否安装.
 - About 页: 查看当前版本, 项目主页和许可证信息.
@@ -90,7 +90,7 @@ Session Logs 用同一套记录列出每一次用量, 而不是时段合计. 每
 
 ## Grok 页面
 
-在本机 Grok Build 登录后, 打开 Grok 页面可查看订阅名称, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. Weekly 额度和各产品占比来自额度查询.
+在本机 Grok Build 登录后, 打开 Grok 页面可查看订阅名称, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. `SuperGrok` 显示为 `PREMIUM`, `SuperGrok Heavy` 显示为 `ULTRA`, `X Premium` 显示为 `PLUS`, `X Premium+` 显示为 `PREMIUM`; 已经是 `Plus`, `Premium`, `Super` 或 `Ultra` 时保持该名称. Weekly 额度和各产品占比来自额度查询.
 
 产品占比默认显示 `Build`, `Bot` 和 `Cursor`. 进度条最多四段, 其余产品合并为 `Others`, 鼠标悬停进度条可查看全部产品占比. 重置时间可以在 Settings 中切换为倒计时或具体时间.
 
