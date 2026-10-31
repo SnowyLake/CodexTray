@@ -1435,9 +1435,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             "free" => "FREE",
             "go" => "GO",
             "plus" => "PLUS",
-            "pro_lite" or "prolite" or "pro_5x" or "pro5x" => "PRO 5X",
-            "pro" or "pro_10x" or "pro10x" or "pro_20x" or "pro20x" => "PRO 10X",
-            "promax" or "pro_max" or "pro_25x" or "pro25x" => "PRO 25X",
+            "pro_lite" or "prolite" or "pro_5x" or "pro5x" => "PRO 100",
+            "pro" or "pro_10x" or "pro10x" or "pro_20x" or "pro20x" => "PRO 200",
+            "promax" or "pro_max" or "pro_25x" or "pro25x" => "PRO 500",
             "chatgpt" => "PLUS",
             _ => "UNKNOWN",
         };
@@ -1453,7 +1453,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Formats a Grok subscription display name while preserving future tier names.
+    /// Formats a Grok subscription badge, mapping known legacy names onto The X Subscription.
     /// </summary>
     private static string FormatGrokPlan(string? subscriptionTier)
     {
@@ -1462,9 +1462,29 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             .Replace('_', ' ')
             .Replace('-', ' ')
             .Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        return string.IsNullOrEmpty(normalized)
-            ? "UNKNOWN"
-            : normalized.Replace("premium plus", "premium+", StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
+        if (normalized.Length == 0)
+        {
+            return "UNKNOWN";
+        }
+
+        // Longer legacy names are exact keys, so SuperGrok Plus is not SuperGrok and X Premium+ is not X Premium.
+        string key = normalized.Replace("premium plus", "premium+", StringComparison.OrdinalIgnoreCase).ToLowerInvariant();
+        return key switch
+        {
+            "free" => "FREE",
+            "plus" => "PLUS",
+            "premium" => "PREMIUM",
+            "super" => "SUPER",
+            "ultra" => "ULTRA",
+            "x basic" => "X BASIC",
+            "supergrok lite" or "supergroklite" => "PLUS",
+            "supergrok plus" or "supergrokplus" or "supergrok+" => "SUPER",
+            "supergrok heavy" or "supergrokheavy" => "ULTRA",
+            "supergrok" => "PREMIUM",
+            "x premium+" or "premium+" => "PREMIUM",
+            "x premium" => "PLUS",
+            _ => normalized.ToUpperInvariant(),
+        };
     }
 
     /// <summary>

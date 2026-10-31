@@ -41,6 +41,7 @@ internal static class Program
         await RunAsync("collects Codex reset credits", TestResetCreditsAsync);
         await RunAsync("applies quota and reset credit color states", TestQuotaAndResetCreditColorStatesAsync);
         await RunAsync("formats Codex subscription badges", TestCodexPlanDisplayAsync);
+        await RunAsync("formats Grok subscription badges", TestGrokPlanDisplayAsync);
         await RunAsync("keeps plugin displays percentage-only", TestPluginDisplayPercentOnlyAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
@@ -327,7 +328,7 @@ internal static class Program
                 AssertEqual(0d, grokQuotaScrollViewer.ViewportHeight - grokQuotaScrollViewer.ExtentHeight, "Grok quota cards should fill the reserved region");
                 AssertEqual(4, viewModel.GrokTokenCost.Rows.Count, "Grok token cost row count");
                 AssertEqual(30, viewModel.GrokTokenCost.ChartDays.Count, "Grok token cost chart day count");
-                AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok subscription badge");
+                AssertEqual("ULTRA", viewModel.GrokPlanDisplay, "Grok subscription badge");
                 AssertTrue(window.FindName("GrokProductUsageTitle") is null, "Grok product usage card should not show a title");
                 AssertEqual("Chat 3%\nBuild 2%\nTasks 1%\nVoice 0.5%\nImagine 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip lists every product");
                 AssertEqual(3, viewModel.GrokProductUsageItems.Count, "Grok product usage legend item count");
@@ -535,7 +536,7 @@ internal static class Program
                 AssertEqual("0%", viewModel.GrokProductUsageItems[2].PercentText, "Grok product usage bot percent with one non-zero item");
                 AssertEqual("Imagine 7%\nBuild 0%\nChat 0%", viewModel.GrokProductUsageBarTooltip, "Grok product usage bar tooltip with one non-zero item");
 
-                AssertEqual("SUPERGROK HEAVY", viewModel.GrokPlanDisplay, "Grok badge uses the billing subscription tier");
+                AssertEqual("ULTRA", viewModel.GrokPlanDisplay, "Grok badge uses the billing subscription tier");
                 AssertEqual("93%", viewModel.GrokWeeklyQuota.PercentText, "billing weekly remaining percent");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(37, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
@@ -597,7 +598,7 @@ internal static class Program
                     string.Empty,
                     DateTimeOffset.Now),
                     CreateTokenCostStatistics(5));
-                AssertEqual("SUPERGROK", viewModel.GrokPlanDisplay, "later billing replaces the subscription tier");
+                AssertEqual("PREMIUM", viewModel.GrokPlanDisplay, "later billing replaces the subscription tier");
                 AssertEqual("95%", viewModel.GrokWeeklyQuota.PercentText, "later billing replaces weekly remaining percent");
 
                 viewModel.ShowApi();
@@ -2002,6 +2003,10 @@ internal static class Program
             "X Premium",
             GrokUsageCollector.ParseSettingsSubscriptionTier("{\"subscription_tier_display\":null,\"subscription_tier\":\" X Premium \"}"),
             "empty settings display falls back to subscription_tier");
+        AssertEqual(
+            "Premium",
+            GrokUsageCollector.ParseSettingsSubscriptionTier("{\"subscription_tier_display\":\"Premium\",\"subscription_tier\":\"SuperGrok\"}"),
+            "new settings display name is not rewritten from a legacy subscription_tier");
         AssertEqual(string.Empty, GrokUsageCollector.ParseSettingsSubscriptionTier("{}"), "missing settings tier stays empty");
         return Task.CompletedTask;
     }
@@ -2119,6 +2124,21 @@ internal static class Program
 
             GrokUsageSnapshot invalid = await CollectGrokSettingsAsync("not-json");
             AssertEqual("SuperGrok Heavy", invalid.SubscriptionTier, "invalid settings JSON uses the local log");
+
+            foreach ((string loggedTier, string label) in new (string, string)[] { ("Plus", "Plus"), ("Super", "Super"), ("Ultra", "Ultra") })
+            {
+                File.WriteAllText(
+                    Path.Combine(logsDirectory, "unified.jsonl"),
+                    "{\"msg\":\"billing: fetched credits config\",\"ctx\":{\"subscriptionTier\":\"" + loggedTier + "\"}}");
+                GrokUsageSnapshot xSubscription = await CollectGrokSettingsAsync("not-json", HttpStatusCode.NotFound);
+                AssertEqual(loggedTier, xSubscription.SubscriptionTier, $"{label} local log is accepted as a subscription display name");
+            }
+
+            File.WriteAllText(
+                Path.Combine(logsDirectory, "unified.jsonl"),
+                "{\"msg\":\"billing: fetched credits config\",\"ctx\":{\"subscriptionTier\":\"NotATier\"}}");
+            GrokUsageSnapshot rejected = await CollectGrokSettingsAsync("not-json", HttpStatusCode.NotFound);
+            AssertEqual("Free", rejected.SubscriptionTier, "unrecognized local log tier falls back to the auth entry");
         }
         finally
         {
@@ -3505,7 +3525,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Maps Codex usage plan_type values onto the current Pro 5x/10x/25x badge labels.
+    /// Maps Codex usage plan_type values onto the Pro 100, Pro 200, and Pro 500 badge labels.
     /// </summary>
     private static Task TestCodexPlanDisplayAsync()
     {
@@ -3517,15 +3537,15 @@ internal static class Program
             ("go", "GO"),
             ("plus", "PLUS"),
             ("chatgpt", "PLUS"),
-            ("prolite", "PRO 5X"),
-            ("pro_lite", "PRO 5X"),
-            ("pro-5x", "PRO 5X"),
-            ("pro", "PRO 10X"),
-            ("pro_10x", "PRO 10X"),
-            ("pro_20x", "PRO 10X"),
-            ("promax", "PRO 25X"),
-            ("pro_max", "PRO 25X"),
-            ("pro_25x", "PRO 25X"),
+            ("prolite", "PRO 100"),
+            ("pro_lite", "PRO 100"),
+            ("pro-5x", "PRO 100"),
+            ("pro", "PRO 200"),
+            ("pro_10x", "PRO 200"),
+            ("pro_20x", "PRO 200"),
+            ("promax", "PRO 500"),
+            ("pro_max", "PRO 500"),
+            ("pro_25x", "PRO 500"),
             ("business", "UNKNOWN"),
         ];
 
@@ -3534,6 +3554,49 @@ internal static class Program
             response.PlanType = planType;
             viewModel.UpdateStatus(isRunning: true, CodexTrayDefaults.Port, response, error: null);
             AssertEqual(display, viewModel.CodexPlanDisplay, $"Codex badge for {planType}");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Shows Grok display names as returned, including new X Subscription names and legacy SuperGrok.
+    /// </summary>
+    private static Task TestGrokPlanDisplayAsync()
+    {
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        (string tier, string display)[] cases =
+        [
+            ("SuperGrok", "PREMIUM"),
+            ("SuperGrok Lite", "PLUS"),
+            ("supergrok_lite", "PLUS"),
+            ("SuperGrok Plus", "SUPER"),
+            ("supergrok_plus", "SUPER"),
+            ("SuperGrok+", "SUPER"),
+            ("SuperGrok Heavy", "ULTRA"),
+            ("supergrok_heavy", "ULTRA"),
+            ("X Premium", "PLUS"),
+            ("x_premium", "PLUS"),
+            ("X Premium+", "PREMIUM"),
+            ("x_premium_plus", "PREMIUM"),
+            ("premium plus", "PREMIUM"),
+            ("Premium", "PREMIUM"),
+            ("Plus", "PLUS"),
+            ("Super", "SUPER"),
+            ("Ultra", "ULTRA"),
+            ("Free", "FREE"),
+            ("X Basic", "X BASIC"),
+            ("Business", "BUSINESS"),
+            ("", "UNKNOWN"),
+        ];
+
+        foreach ((string tier, string display) in cases)
+        {
+            viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
+                new GrokUsageSnapshot(1, 1, tier),
+                string.Empty,
+                DateTimeOffset.UnixEpoch));
+            AssertEqual(display, viewModel.GrokPlanDisplay, $"Grok badge for {tier}");
         }
 
         return Task.CompletedTask;
