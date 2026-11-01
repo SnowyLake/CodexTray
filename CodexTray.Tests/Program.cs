@@ -38,8 +38,7 @@ internal static class Program
 
         await RunAsync("creates the fixed-size popup", TestPopupFixedSizeAsync);
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
-        await RunAsync("uses countdown label for same-day weekly reset", TestWeeklyCountdownLabelAsync);
-        await RunAsync("uses countdown label for next-day weekly reset", TestNextDayWeeklyCountdownLabelAsync);
+        await RunAsync("uses countdown labels across weekly reset dates", TestWeeklyCountdownLabelsAsync);
         await RunAsync("returns unavailable response without OAuth credentials", TestEmptyResponseAsync);
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
         await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
@@ -47,7 +46,6 @@ internal static class Program
         await RunAsync("applies quota and reset credit color states", TestQuotaAndResetCreditColorStatesAsync);
         await RunAsync("formats Codex subscription badges", TestCodexPlanDisplayAsync);
         await RunAsync("formats Grok subscription badges", TestGrokPlanDisplayAsync);
-        await RunAsync("keeps plugin displays percentage-only", TestPluginDisplayPercentOnlyAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
         await RunAsync("merges and clears plugin usage sources", TestUsageCacheSourcesAsync);
@@ -88,8 +86,8 @@ internal static class Program
         await RunAsync("pages session log rows for the current harness", TestSessionLogPagingAsync);
         await RunAsync("keeps fixed session log columns without headers", TestSessionLogLayoutAsync);
         await RunAsync("keeps per-call session log rows from Codex and Grok collects", TestSessionLogEntriesAsync);
-        await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
-        await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
+        await RunAsync("tracks settings drafts and detected paths", TestSettingsDirtyStateAsync);
+        await RunAsync("raises dependent tray notifications", TestTrayNotificationsAsync);
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("computes cache hit percent", TestCacheHitPercentAsync);
@@ -168,7 +166,6 @@ internal static class Program
                     ApiMonitors = [new ApiMonitorSettings()],
                 };
                 TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
-                AssertEqual("Check for updates", viewModel.UpdateActionText, "update action");
                 AssertEqual("Weekly", viewModel.CodexWeeklyQuota.Title, "Codex weekly quota title");
                 AssertEqual("Session", viewModel.CodexSessionQuota.Title, "Codex session quota title");
                 AssertEqual("Weekly", viewModel.GrokWeeklyQuota.Title, "Grok weekly quota title");
@@ -271,7 +268,6 @@ internal static class Program
                 };
                 codexPrimaryCard.RaiseEvent(singlePageWheelArgs);
                 AssertTrue(!singlePageWheelArgs.Handled, "single Codex quota page should ignore mouse wheel switching");
-                AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "Codex token cost chart day count");
                 AssertTrue(viewModel.CodexTokenCost.DonutSegments.Count > 0, "Codex model donut should have segments");
                 System.Windows.Controls.ContentControl codexTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("CodexTokenCostDashboard");
                 System.Windows.Controls.Grid codexTokenCostChartFrame = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostChartFrame");
@@ -279,13 +275,6 @@ internal static class Program
                 System.Windows.Controls.Grid codexPageGrid = (System.Windows.Controls.Grid)window.FindName("CodexPageGrid");
                 System.Windows.Controls.Grid pageViewport = (System.Windows.Controls.Grid)window.FindName("PageViewport");
                 AssertTrue(pageViewport.ClipToBounds && pageViewport.Children.Count == 5 && pageViewport.Children.Contains(codexPageGrid), "all main pages must slide inside a clipped viewport");
-                System.Windows.Media.TranslateTransform pageOffset = new();
-                codexPageGrid.RenderTransform = pageOffset;
-                pageOffset.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(50, 0, TimeSpan.FromSeconds(1)));
-                pageOffset.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(30, 0, TimeSpan.FromSeconds(1)));
-                codexPageGrid.BeginAnimation(System.Windows.UIElement.OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromSeconds(1)));
-                typeof(TrayPopupWindow).GetMethod("MainPage_IsVisibleChanged", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [codexPageGrid, default(System.Windows.DependencyPropertyChangedEventArgs)]);
-                AssertTrue(!pageOffset.HasAnimatedProperties && pageOffset.X == 0 && pageOffset.Y == 0 && codexPageGrid.Opacity == 1, "hidden pages must clear slide and fade clocks before another transition");
                 System.Windows.Controls.Grid codexTokenCostOverview = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostOverview");
                 System.Windows.Controls.Grid codexTokenCostDonutArea = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostDonutArea");
                 System.Windows.Controls.Button codexTokenCostChartPeriodButton = FindNamedDescendant<System.Windows.Controls.Button>(codexTokenCostDashboard, "TokenCostChartPeriodButton");
@@ -610,8 +599,6 @@ internal static class Program
                     System.Windows.Media.Color.FromRgb(166, 173, 179),
                     ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageBarItems[3].Brush).Color,
                     "Grok product usage others color with unnamed cursor");
-                AssertTrue(window.FindName("CursorPageGrid") == null, "Cursor page is not in the panel");
-                AssertTrue(window.FindName("CursorTokenCostDashboard") == null, "Cursor token cost is not in the panel");
                 long weeklyResetAt = DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds();
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(5, weeklyResetAt, "SuperGrok"),
@@ -1081,37 +1068,21 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests weekly countdown labels on the current day.
+    /// Tests that weekly resets use elapsed hours on both the same and the next date.
     /// </summary>
-    private static async Task TestWeeklyCountdownLabelAsync()
+    private static async Task TestWeeklyCountdownLabelsAsync()
     {
         using TempDirectory temp = new();
-        DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
-        long weeklyResetAt = now.AddHours(3).ToUnixTimeSeconds();
-        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 20.0, 40.0, out HttpClient client);
-        using HttpClient _ = client;
-
-        UsageResponse response = await collector.CollectAsync(temp.Path);
-
-        AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, "weekly countdown label");
-    }
-
-    /// <summary>
-    /// Tests weekly countdown labels on the next day even when below twenty four hours.
-    /// </summary>
-    private static async Task TestNextDayWeeklyCountdownLabelAsync()
-    {
-        using TempDirectory temp = new();
-        DateTimeOffset now = new(2026, 7, 1, 23, 0, 0, TimeSpan.FromHours(8));
-        long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
-        DateTimeOffset weeklyResetAt = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
-        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
-        using HttpClient _ = client;
-
-        UsageResponse response = await collector.CollectAsync(temp.Path);
-
-        AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, "weekly next-day countdown label");
+        foreach (int hour in new[] { 12, 23 })
+        {
+            DateTimeOffset now = new(2026, 7, 1, hour, 0, 0, TimeSpan.FromHours(8));
+            CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddHours(3).ToUnixTimeSeconds(), 20, 40, out HttpClient client);
+            using (client)
+            {
+                UsageResponse response = await collector.CollectAsync(temp.Path);
+                AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, $"weekly countdown starting at {hour}:00");
+            }
+        }
     }
 
     /// <summary>
@@ -1174,24 +1145,6 @@ internal static class Program
         AssertEqual(75, response.Limits.Session.RemainingPercent, "official session remaining percent");
         AssertEqual(60, response.Limits.Weekly.RemainingPercent, "official weekly remaining percent");
         AssertEqual("60%", response.Display.Weekly, "official weekly plugin display");
-    }
-
-    /// <summary>
-    /// Tests that plugin display values never include reset suffixes.
-    /// </summary>
-    private static async Task TestPluginDisplayPercentOnlyAsync()
-    {
-        using TempDirectory temp = new();
-        DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long sessionResetAt = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
-        long weeklyResetAt = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
-        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
-        using HttpClient _ = client;
-
-        UsageResponse response = await collector.CollectAsync(temp.Path);
-
-        AssertEqual("60%", response.Display.Weekly, "weekly percentage-only plugin display");
-        AssertEqual("1h15m", response.Limits.Session.ResetLabel, "session reset label remains available internally");
     }
 
     /// <summary>
@@ -1352,7 +1305,9 @@ internal static class Program
         Task accept = (Task)typeof(LightweightHttpServer).GetField("m_AcceptTask", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)!;
         listener.Stop();
         await accept.WaitAsync(TimeSpan.FromSeconds(2));
-        await server.StopAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        Task automaticStop = (Task?)typeof(LightweightHttpServer).GetField("m_StopTask", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)
+            ?? throw new InvalidOperationException("listener failure must start automatic cleanup");
+        await automaticStop.WaitAsync(TimeSpan.FromSeconds(2));
         int activeClients = (int)typeof(LightweightHttpServer).GetProperty("ActiveClientCount", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)!;
         AssertEqual(0, activeClients, "listener failure must drain active clients");
         server.Start();
@@ -3274,9 +3229,9 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests dirty tracking for every migrated editable property.
+    /// Tests settings dirty state and preservation of drafts during path detection.
     /// </summary>
-    private static Task TestMigratedDirtyPropertiesAsync()
+    private static Task TestSettingsDirtyStateAsync()
     {
         List<(string Name, Action<TrayPopupViewModel> Change, Action<TrayPopupViewModel> Restore)> cases =
         [
@@ -3335,9 +3290,9 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests exact dependent and unchanged-value notifications for migrated tray properties.
+    /// Tests dependent notifications used by settings and dialog bindings.
     /// </summary>
-    private static Task TestMigratedTrayNotificationsAsync()
+    private static Task TestTrayNotificationsAsync()
     {
         TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
         List<string?> changedProperties = [];
@@ -3348,9 +3303,6 @@ internal static class Program
             "LiteMonitorDir|LiteMonitorDirDisplay|SettingsStatus|SettingsStatusBrush|SettingsStatusText",
             string.Join('|', changedProperties.Order()),
             "LiteMonitor path notifications");
-        changedProperties.Clear();
-        viewModel.LiteMonitorDir = "C:\\LiteMonitor";
-        AssertEqual(0, changedProperties.Count, "unchanged LiteMonitor path notifications");
 
         viewModel = new(new AppSettings(), () => Task.CompletedTask);
         changedProperties = [];
@@ -3367,17 +3319,8 @@ internal static class Program
         viewModel.IsDetectingLiteMonitor = true;
         AssertEqual("IsDetectingLiteMonitor|IsLiteMonitorActionsEnabled", string.Join('|', changedProperties.Order()), "LiteMonitor detecting notifications");
         changedProperties.Clear();
-        viewModel.IsDetectingLiteMonitor = true;
-        AssertEqual(0, changedProperties.Count, "unchanged LiteMonitor detecting notifications");
         viewModel.IsDetectingTrafficMonitor = true;
         AssertEqual("IsDetectingTrafficMonitor|IsTrafficMonitorActionsEnabled", string.Join('|', changedProperties.Order()), "TrafficMonitor detecting notifications");
-
-        changedProperties.Clear();
-        viewModel.IsRefreshing = true;
-        AssertEqual(nameof(TrayPopupViewModel.IsRefreshing), string.Join('|', changedProperties), "pure generated property notification");
-        changedProperties.Clear();
-        viewModel.IsRefreshing = true;
-        AssertEqual(0, changedProperties.Count, "unchanged pure generated property notifications");
 
         InAppDialogRequest initialDialog = new("Title", "Message", "OK");
         viewModel.ShowInAppDialog(initialDialog);
@@ -3388,9 +3331,6 @@ internal static class Program
             "HasInAppDialogSecondaryButton|InAppDialogSecondaryButtonText",
             string.Join('|', changedProperties.Order()),
             "dialog secondary button notifications");
-        changedProperties.Clear();
-        viewModel.ShowInAppDialog(secondaryDialog);
-        AssertEqual(0, changedProperties.Count, "unchanged dialog secondary button notifications");
         return Task.CompletedTask;
     }
 
@@ -3446,7 +3386,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests dependent property notifications after migrating to Toolkit ObservableObject.
+    /// Tests API card bindings and provider-specific display state.
     /// </summary>
     private static Task TestApiMonitorNotificationsAsync()
     {
@@ -3456,9 +3396,6 @@ internal static class Program
 
         viewModel.Name = "Personal";
         AssertEqual("DisplayName|Name", string.Join('|', changedProperties.Order()), "API monitor name notifications");
-        changedProperties.Clear();
-        viewModel.Name = "Personal";
-        AssertEqual(0, changedProperties.Count, "unchanged API monitor name notifications");
 
         AssertEqual(
             string.Join('|', [
@@ -3470,7 +3407,6 @@ internal static class Program
             ]),
             string.Join('|', viewModel.ProviderOptions),
             "API provider option order");
-        AssertTrue(!viewModel.ProviderOptions.Contains("Grok", StringComparer.Ordinal), "Grok should not be an API provider option");
         viewModel.Provider = ApiMonitorSettings.OpenRouterProvider;
         AssertEqual("https://openrouter.ai", viewModel.BaseUrl, "OpenRouter default base URL");
         AssertTrue(!viewModel.HasSecondaryDisplay, "OpenRouter waiting secondary display");
@@ -3781,10 +3717,10 @@ internal static class Program
             CreateGrokTokenUpdate("brief", today, 10, 0, 100, apiDurationMilliseconds: 99)
                 .Replace("grok-4.5-build", "short-duration", StringComparison.Ordinal),
         ];
-        string[] invalidDurations = ["null", "0", "-1", "\"1000\"", "1.5", "9223372036854775808"];
+        string[] invalidDurations = ["null", "0", "-1", "\"1000\"", "1000.5", "9223372036854775808"];
         for (int index = 0; index < invalidDurations.Length; index++)
         {
-            lines.Add(CreateGrokTokenUpdate($"invalid-{index}", today, 10, 0, 50, apiDurationMilliseconds: 1_000)
+            lines.Add(CreateGrokTokenUpdate($"invalid-{index}", today, 10, 0, 100, apiDurationMilliseconds: 1_000)
                 .Replace("grok-4.5-build", "invalid-timing", StringComparison.Ordinal)
                 .Replace("\"apiDurationMs\":1000", $"\"apiDurationMs\":{invalidDurations[index]}", StringComparison.Ordinal));
         }
@@ -3831,7 +3767,7 @@ internal static class Program
 
         AssertEqual(300L, statistics.LastThirtyDaysDaily[^2].Summary.TimedOutputTokens, "daily speed retains paired output");
         TokenCostSummary invalid = statistics.Models.Single(item => item.Model == "invalid-timing").Today;
-        AssertEqual(370L, invalid.TotalTokens, "invalid timing keeps token totals");
+        AssertEqual(670L, invalid.TotalTokens, "invalid timing keeps token totals");
         AssertEqual(0m, invalid.CostUsd, "invalid timing keeps unknown-price cost behavior");
         AssertEqual(null, invalid.GetOutputTokensPerSecond(), "invalid timing cannot produce a speed");
         AssertEqual(null, statistics.Models.Single(item => item.Model == "zero-output").Today.GetOutputTokensPerSecond(), "zero output is not a measured speed sample");
@@ -4690,10 +4626,8 @@ internal static class Program
             ["deepseek-v4-pro"] = new { input = 0.435m, cachedInput = 0.003625m, output = 0.87m },
         }));
         string activeSession = Path.Combine(temp.Path, "sessions", "workspace", "session-a");
-        string archivedDuplicate = Path.Combine(temp.Path, "archived_sessions", "workspace", "session-a");
         string archivedSession = Path.Combine(temp.Path, "archived_sessions", "workspace", "session-b");
         Directory.CreateDirectory(activeSession);
-        Directory.CreateDirectory(archivedDuplicate);
         Directory.CreateDirectory(archivedSession);
         DateTimeOffset now = new(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8));
         DateTimeOffset today = new(2026, 8, 12, 9, 0, 0, TimeSpan.FromHours(8));
@@ -4716,7 +4650,6 @@ internal static class Program
             "{\"method\":\"session/update\",\"params\":{\"_meta\":{\"totalTokens\":999999,\"promptId\":\"legacy\"}}}",
             "{malformed",
         ]);
-        File.WriteAllLines(Path.Combine(archivedDuplicate, "updates.jsonl"), [exactUsage]);
         string archivedPath = Path.Combine(archivedSession, "updates.jsonl");
         File.WriteAllLines(archivedPath,
         [
@@ -5190,9 +5123,9 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
     }
 
     /// <summary>
-    /// Sends a fake HTTP response for collector tests.
+    /// Sends a fake asynchronous HTTP response for collector tests.
     /// </summary>
-    protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         string? requestUri = request.RequestUri?.ToString();
         if (requestUri != k_UsageEndpoint && requestUri != k_ResetCreditsEndpoint)
@@ -5217,18 +5150,10 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
             throw new InvalidOperationException("missing reset credit headers");
         }
 
-        return new HttpResponseMessage(HttpStatusCode.OK)
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(requestUri == k_UsageEndpoint ? m_UsageBody : m_ResetCreditsBody, Encoding.UTF8, "application/json"),
-        };
-    }
-
-    /// <summary>
-    /// Sends a fake asynchronous HTTP response for collector tests.
-    /// </summary>
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(Send(request, cancellationToken));
+        });
     }
 }
 

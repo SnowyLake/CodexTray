@@ -307,7 +307,7 @@ internal static class AppUpdateTests
         AssertEqual(request.RestartExecutablePath, parsed.RestartExecutablePath, "restart");
         AssertTrue(!AppUpdateArguments.TryParse(["--apply-update", "--source"], out _, out _), "missing value");
         AssertTrue(!AppUpdateArguments.TryParse(["--apply-update", "--wait-pid", "1", "--source", "s", "--target", "t", "--restart", "r"], out _, out _), "missing parent start");
-        AssertTrue(!AppUpdateArguments.TryParse(["--apply-update", "--unexpected", "value", "--wait-pid", "1", "--source", "s", "--target", "t", "--restart", "r"], out _, out _), "unknown option");
+        AssertTrue(!AppUpdateArguments.TryParse([.. args, "--unexpected", "value"], out _, out _), "unknown option");
         AssertTrue(!AppUpdateArguments.IsApplyRequest(["--check"]), "normal launch");
         return Task.CompletedTask;
     }
