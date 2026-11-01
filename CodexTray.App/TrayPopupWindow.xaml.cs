@@ -100,6 +100,15 @@ internal sealed partial class TrayPopupWindow : Window
         base.OnClosed(args);
     }
 
+    private void ToolTip_Loaded(object sender, RoutedEventArgs args)
+    {
+        if (sender is Controls.ToolTip toolTip && toolTip.Template.FindName("Border", toolTip) is Controls.Border border)
+        {
+            // WPF UI hard-codes template padding instead of binding it to ToolTip.Padding.
+            border.Padding = new Thickness(8, 2, 8, 2);
+        }
+    }
+
     private void Page_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
     {
         ApplyPageTransition(sender, Transition.FadeIn, 160);
