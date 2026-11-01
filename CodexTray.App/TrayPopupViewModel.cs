@@ -1807,16 +1807,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         [RelayCommand]
         private void ToggleChartPeriod()
         {
-            TokenCostPeriod previousPeriod = SelectedPeriod;
             m_ChartPeriod = m_ChartPeriod == TokenCostChartPeriod.LastThirtyDays
                 ? TokenCostChartPeriod.CurrentMonth
                 : TokenCostChartPeriod.LastThirtyDays;
             Refresh();
             OnPropertyChanged(nameof(ChartPeriod));
-            if (SelectedPeriod != previousPeriod)
-            {
-                OnPropertyChanged(nameof(SelectedPeriod));
-            }
+            OnPropertyChanged(nameof(SelectedPeriod));
         }
 
         /// <summary>

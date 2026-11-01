@@ -178,14 +178,6 @@ internal static class PageTransitionTests
             CheckChartIdle(donut);
             CheckChartIdle(bars);
 
-            object oldSegment = donut.Items[0];
-            dashboard.Update(ChartStatistics(200));
-            Pump();
-            Check(!ReferenceEquals(oldSegment, donut.Items[0]), "refresh must actually replace chart data");
-            Check(ReferenceEquals(bars, Descendants(region).OfType<ItemsControl>().Single(item => item.Name == bars.Name)), "refresh must retain the entrance container");
-            CheckChartIdle(donut);
-            CheckChartIdle(bars);
-
             dashboard.SelectPeriodCommand.Execute(dashboard.Rows[1]);
             Pump();
             if (animationsEnabled)
@@ -205,8 +197,11 @@ internal static class PageTransitionTests
                 Check(IsFading(donut) && donut.Clip != null, "switching the selected donut period from rolling to calendar must replay its fill too");
             }
             Pump(260);
+            object oldSegment = donut.Items[0];
             dashboard.Update(ChartStatistics(250));
             Pump();
+            Check(!ReferenceEquals(oldSegment, donut.Items[0]), "refresh must actually replace chart data");
+            Check(ReferenceEquals(bars, Descendants(region).OfType<ItemsControl>().Single(item => item.Name == bars.Name)), "refresh must retain the entrance container");
             CheckChartIdle(donut);
             CheckChartIdle(bars);
             dashboard.SelectPeriodCommand.Execute(dashboard.Rows[0]);
