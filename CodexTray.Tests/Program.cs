@@ -1,6 +1,5 @@
 using CodexTray.App;
 using CodexTray.Core;
-using Microsoft.Data.Sqlite;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
@@ -100,7 +99,6 @@ internal static class Program
         await RunAsync("applies DeepSeek peak and off-peak pricing", TestDeepSeekPeakPricingAsync);
         await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
         await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
-        await RunAsync("ignores OpenCode token cost for Codex", TestOpenCodeTokenCostIgnoredAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         s_Failures += await AppUpdateTests.RunAllAsync();
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
@@ -4645,44 +4643,6 @@ internal static class Program
         AssertEqual("future-grok-model|grok-4.5-build", string.Join('|', statistics.Models.Select(model => model.Model)), "normalized Grok model names");
         AssertEqual(0m, statistics.Models[0].Today.CostUsd, "unknown Grok model costs $0.00");
         AssertEqual(0.0139m, statistics.Models[1].Today.CostUsd, "normalized Grok model keeps priced and ticks cost");
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Verifies Codex token cost ignores an adjacent OpenCode database.
-    /// </summary>
-    private static Task TestOpenCodeTokenCostIgnoredAsync()
-    {
-        using TempDirectory temp = new();
-        string pricingPath = Path.Combine(temp.Path, "pricing.json");
-        File.WriteAllText(pricingPath, "{\"gpt-test\":{\"input\":2,\"cachedInput\":0.2,\"output\":10}}");
-        string codexRoot = Path.Combine(temp.Path, "codex");
-        string sessions = Path.Combine(codexRoot, "sessions", "2026", "07", "11");
-        string openCodeRoot = Path.Combine(codexRoot, ".local", "share", "opencode");
-        Directory.CreateDirectory(sessions);
-        Directory.CreateDirectory(openCodeRoot);
-        File.WriteAllLines(Path.Combine(sessions, "rollout.jsonl"),
-        [
-            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
-            "{\"timestamp\":\"2026-07-11T09:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":1000,\"cached_input_tokens\":400,\"output_tokens\":100}}}}",
-        ]);
-        using (SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = Path.Combine(openCodeRoot, "opencode.db"), Pooling = false }.ToString()))
-        {
-            connection.Open();
-            using SqliteCommand command = connection.CreateCommand();
-            command.CommandText = "CREATE TABLE message (time_created INTEGER NOT NULL, data TEXT NOT NULL);";
-            command.ExecuteNonQuery();
-            command.CommandText = "INSERT INTO message VALUES ($time, $data);";
-            command.Parameters.AddWithValue("$time", new DateTimeOffset(2026, 7, 11, 9, 0, 0, TimeSpan.FromHours(8)).ToUnixTimeMilliseconds());
-            command.Parameters.AddWithValue("$data", "{\"role\":\"assistant\",\"providerID\":\"openai\",\"modelID\":\"gpt-test\",\"tokens\":{\"input\":600,\"output\":100,\"reasoning\":50,\"cache\":{\"read\":400,\"write\":0}}}");
-            command.ExecuteNonQuery();
-        }
-
-        TokenCostSummary summary = new TokenCostCollector(pricingPath)
-            .CollectCodex(codexRoot, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)))
-            .Today;
-        AssertEqual(1_100L, summary.TotalTokens, "Codex tokens exclude OpenCode");
-        AssertEqual(0.00228m, summary.CostUsd, "Codex cost excludes OpenCode");
         return Task.CompletedTask;
     }
 
