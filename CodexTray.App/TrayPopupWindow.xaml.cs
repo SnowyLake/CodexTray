@@ -5,6 +5,13 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Shell;
+using Wpf.Ui.Animations;
+using Wpf.Ui.Appearance;
+using Wpf.Ui.Controls;
+using Wpf.Ui.Markup;
+using Binding = System.Windows.Data.Binding;
 using Controls = System.Windows.Controls;
 using Primitives = System.Windows.Controls.Primitives;
 using Drawing = System.Drawing;
@@ -24,6 +31,10 @@ internal sealed partial class TrayPopupWindow : Window
     private const int k_DwmwcpRound = 2;
     private const int k_DwmsbtNone = 1;
     private const int k_DwmsbtMainWindow = 2;
+    private readonly Dictionary<FrameworkElement, Storyboard> m_Transitions = [];
+    private ContentDialog? m_ContentDialog;
+    private int m_CurrentPageIndex = -1;
+    private bool m_IsClosed;
 
     /// <summary>
     /// Creates the WPF tray popup window.
@@ -32,8 +43,10 @@ internal sealed partial class TrayPopupWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
-        ApplyThemeMode(viewModel.ThemeMode);
+        Loaded += (_, _) => m_CurrentPageIndex = PageViewport.Children.IndexOf(PageViewport.Children.OfType<UIElement>().FirstOrDefault(page => page.IsVisible));
+        ApplyThemeMode();
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
 
     /// <summary>
@@ -46,11 +59,21 @@ internal sealed partial class TrayPopupWindow : Window
             switch (args.PropertyName)
             {
                 case nameof(TrayPopupViewModel.ThemeMode):
-                    ApplyThemeMode(viewModel.ThemeMode);
+                    ApplyThemeMode();
                     ApplyBackdrop();
                     break;
                 case nameof(TrayPopupViewModel.MicaEnabled):
                     ApplyBackdrop();
+                    break;
+                case nameof(TrayPopupViewModel.IsInAppDialogOpen):
+                    if (viewModel.IsInAppDialogOpen)
+                    {
+                        ShowInAppDialog(viewModel);
+                    }
+                    else
+                    {
+                        CloseInAppDialog();
+                    }
                     break;
             }
         }
@@ -61,6 +84,13 @@ internal sealed partial class TrayPopupWindow : Window
     /// </summary>
     protected override void OnClosed(EventArgs args)
     {
+        m_IsClosed = true;
+        foreach (FrameworkElement element in m_Transitions.Keys.ToArray())
+        {
+            ApplyPageTransition(element, Transition.None, 200);
+        }
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        CloseInAppDialog();
         if (DataContext is TrayPopupViewModel viewModel)
         {
             viewModel.PropertyChanged -= OnViewModelPropertyChanged;
@@ -68,6 +98,174 @@ internal sealed partial class TrayPopupWindow : Window
         }
 
         base.OnClosed(args);
+    }
+
+    private void Page_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
+    {
+        ApplyPageTransition(sender, Transition.FadeIn, 160);
+    }
+
+    private void SessionRegion_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
+    {
+        if (sender is UIElement { IsVisible: false })
+        {
+            ApplyPageTransition(sender, Transition.None, 200);
+        }
+    }
+
+    private void SessionRegion_TargetUpdated(object sender, System.Windows.Data.DataTransferEventArgs args)
+    {
+        if (args.Property != VisibilityProperty || !ReferenceEquals(args.TargetObject, sender))
+        {
+            return;
+        }
+        double offset = sender is Controls.ContentControl { Content: SessionLogListViewModel } ? 30 : -30;
+        bool pageIsMoving = sender is DependencyObject region && PageViewport.Children.OfType<FrameworkElement>().Any(page => m_Transitions.ContainsKey(page) && page.IsAncestorOf(region));
+        ApplyPageTransition(sender, IsLoaded && !pageIsMoving ? Transition.FadeIn : Transition.None, 200, offset);
+    }
+
+    private void MainPage_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
+    {
+        if (!IsLoaded)
+        {
+            ApplyPageTransition(sender, Transition.None, 200);
+            return;
+        }
+        if (sender is UIElement element)
+        {
+            int pageIndex = PageViewport.Children.IndexOf(element);
+            Transition transition = pageIndex == m_CurrentPageIndex ? Transition.None : pageIndex > m_CurrentPageIndex ? Transition.SlideRight : Transition.SlideLeft;
+            if (element.IsVisible)
+            {
+                m_CurrentPageIndex = pageIndex;
+            }
+            ApplyPageTransition(element, transition, 200);
+        }
+    }
+
+    private void ApplyPageTransition(object sender, Transition transition, int duration, double verticalOffset = 0)
+    {
+        if (sender is FrameworkElement element)
+        {
+            if (m_Transitions.Remove(element, out Storyboard? previous))
+            {
+                previous.Remove(element);
+            }
+            element.BeginAnimation(OpacityProperty, null);
+            if (element.RenderTransform is TranslateTransform transform)
+            {
+                transform.BeginAnimation(TranslateTransform.XProperty, null);
+                transform.BeginAnimation(TranslateTransform.YProperty, null);
+            }
+            if (transition != Transition.None && element.IsVisible && SystemParameters.ClientAreaAnimation
+                && Wpf.Ui.Hardware.HardwareAcceleration.IsSupported(Wpf.Ui.Hardware.RenderingTier.PartialAcceleration))
+            {
+                Storyboard animation = new() { FillBehavior = FillBehavior.Stop };
+                DoubleAnimation fade = new(0, 1, TimeSpan.FromMilliseconds(duration)) { DecelerationRatio = 0.7 };
+                Storyboard.SetTarget(fade, element);
+                Storyboard.SetTargetProperty(fade, new PropertyPath(OpacityProperty));
+                animation.Children.Add(fade);
+                double horizontalOffset = transition == Transition.SlideRight ? 50 : transition == Transition.SlideLeft ? -50 : 0;
+                if (horizontalOffset != 0 || verticalOffset != 0)
+                {
+                    TranslateTransform slide = new();
+                    element.SetCurrentValue(RenderTransformProperty, slide);
+                    DoubleAnimation move = new(horizontalOffset != 0 ? horizontalOffset : verticalOffset, 0, TimeSpan.FromMilliseconds(duration)) { DecelerationRatio = 0.7 };
+                    Storyboard.SetTarget(move, element);
+                    Storyboard.SetTargetProperty(move, new PropertyPath("(0).(1)", RenderTransformProperty, horizontalOffset != 0 ? TranslateTransform.XProperty : TranslateTransform.YProperty));
+                    animation.Children.Add(move);
+                }
+                m_Transitions[element] = animation;
+                animation.Completed += (_, _) =>
+                {
+                    // A queued completion must not remove a replacement transition.
+                    if (m_Transitions.TryGetValue(element, out Storyboard? current) && ReferenceEquals(current, animation))
+                    {
+                        m_Transitions.Remove(element);
+                        animation.Remove(element);
+                    }
+                };
+                animation.Begin(element, HandoffBehavior.SnapshotAndReplace, true);
+            }
+        }
+    }
+
+    private async void ShowInAppDialog(TrayPopupViewModel viewModel)
+    {
+        ContentDialog dialog = new(DialogHost)
+        {
+            DataContext = viewModel,
+            DialogMaxWidth = 300,
+            DialogMaxHeight = 460,
+            DialogMargin = new Thickness(24),
+            Padding = new Thickness(20),
+            Style = (Style)FindResource("InAppDialogStyle"),
+        };
+        dialog.SetBinding(ContentDialog.TitleProperty, new Binding(nameof(TrayPopupViewModel.InAppDialogTitle)));
+        Controls.TextBlock message = new() { TextWrapping = TextWrapping.Wrap, FontSize = 13 };
+        message.SetBinding(Controls.TextBlock.TextProperty, new Binding(nameof(TrayPopupViewModel.InAppDialogMessage)));
+        dialog.Content = message;
+        dialog.Loaded += (_, _) =>
+        {
+            if (dialog.Template.FindName("DialogRootGrid", dialog) is Controls.Grid root)
+            {
+                // The library shadow rasterizes the entire dialog, including its text.
+                foreach (Controls.Border surface in root.Children.OfType<Controls.Border>())
+                {
+                    surface.Effect = null;
+                }
+            }
+            Page_IsVisibleChanged(dialog, default);
+        };
+        // Resolve the action on the click, before an asynchronous close can race a replacement request.
+        dialog.ButtonClicked += (_, args) =>
+        {
+            if (!ReferenceEquals(m_ContentDialog, dialog) || !viewModel.IsInAppDialogOpen)
+            {
+                return;
+            }
+
+            CloseInAppDialog();
+            if (args.Button == ContentDialogButton.Primary || !viewModel.HasInAppDialogSecondaryButton)
+            {
+                viewModel.ConfirmInAppDialogCommand.Execute(null);
+            }
+            else
+            {
+                viewModel.DismissInAppDialog();
+            }
+        };
+        m_ContentDialog = dialog;
+        await dialog.ShowAsync();
+        if (ReferenceEquals(m_ContentDialog, dialog))
+        {
+            m_ContentDialog = null;
+            viewModel.DismissInAppDialog();
+        }
+    }
+
+    private void CloseInAppDialog()
+    {
+        ContentDialog? dialog = m_ContentDialog;
+        m_ContentDialog = null;
+        if (dialog != null)
+        {
+            ApplyPageTransition(dialog, Transition.None, 160);
+        }
+        dialog?.Hide();
+        DialogHost.Content = null;
+    }
+
+    private void OnUserPreferenceChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs args)
+    {
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            if (!m_IsClosed && DataContext is TrayPopupViewModel viewModel)
+            {
+                ApplyThemeMode();
+                ApplyBackdrop();
+            }
+        });
     }
 
     /// <summary>
@@ -165,6 +363,17 @@ internal sealed partial class TrayPopupWindow : Window
         if (args.Key == Input.Key.Escape)
         {
             Hide();
+            args.Handled = true;
+        }
+    }
+
+    protected override void OnPreviewKeyDown(Input.KeyEventArgs args)
+    {
+        base.OnPreviewKeyDown(args);
+        // The library's single Close button also serves as OK; Esc must always cancel pending actions.
+        if (args.Key == Input.Key.Escape && DataContext is TrayPopupViewModel { IsInAppDialogOpen: true } viewModel)
+        {
+            viewModel.DismissInAppDialog();
             args.Handled = true;
         }
     }
@@ -473,20 +682,29 @@ internal sealed partial class TrayPopupWindow : Window
         }
 
         bool micaSupported = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
-        if (!micaSupported || DataContext is not TrayPopupViewModel viewModel)
+        if (micaSupported)
         {
-            RootBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "ApplicationBackgroundBrush");
-            return;
+            DisableMica(handle);
         }
 
-        DisableMica(handle);
-        bool applied = viewModel.MicaEnabled && TryEnableMica(handle);
+        bool applied = micaSupported && !SystemParameters.HighContrast && DataContext is TrayPopupViewModel { MicaEnabled: true } && TryEnableMica(handle);
         if (!applied)
         {
+            WindowChrome.SetWindowChrome(this, null);
+            SetResourceReference(BackgroundProperty, "ApplicationBackgroundBrush");
             RootBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "ApplicationBackgroundBrush");
             return;
         }
 
+        // Without the former WPF Fluent theme, we must expose the DWM backdrop through the composition surface.
+        WindowChrome.SetWindowChrome(this, new WindowChrome
+        {
+            CaptionHeight = 0,
+            ResizeBorderThickness = new Thickness(0),
+            GlassFrameThickness = new Thickness(-1),
+            UseAeroCaptionButtons = false,
+        });
+        WindowBackdrop.RemoveBackground(this);
         RootBorder.Background = System.Windows.Media.Brushes.Transparent;
     }
 
@@ -524,8 +742,9 @@ internal sealed partial class TrayPopupWindow : Window
     /// </summary>
     private bool IsEffectiveDarkTheme()
     {
-        return ThemeMode == System.Windows.ThemeMode.Dark
-            || (ThemeMode == System.Windows.ThemeMode.System && !IsSystemLightTheme());
+        string? themeMode = (DataContext as TrayPopupViewModel)?.ThemeMode;
+        return themeMode == AppSettings.ThemeModeDark
+            || (themeMode == AppSettings.ThemeModeSystem && !IsSystemLightTheme());
     }
 
     /// <summary>
@@ -567,16 +786,38 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
-    /// Applies the selected WPF Fluent theme mode.
+    /// Applies the selected WPF UI theme without enabling the separate WPF Fluent theme manager.
     /// </summary>
-    private void ApplyThemeMode(string themeMode)
+    private void ApplyThemeMode()
     {
-        ThemeMode = themeMode switch
+        ThemesDictionary theme = Resources.MergedDictionaries.OfType<ThemesDictionary>().Single();
+        ApplicationTheme effectiveTheme = IsEffectiveDarkTheme() ? ApplicationTheme.Dark : ApplicationTheme.Light;
+        if (SystemParameters.HighContrast)
         {
-            AppSettings.ThemeModeLight => System.Windows.ThemeMode.Light,
-            AppSettings.ThemeModeDark => System.Windows.ThemeMode.Dark,
-            _ => System.Windows.ThemeMode.System,
-        };
+            SystemThemeManager.UpdateSystemThemeCache();
+            string themeName = ApplicationThemeManager.GetSystemTheme() switch
+            {
+                SystemTheme.HC1 => "HC1",
+                SystemTheme.HC2 => "HC2",
+                SystemTheme.HCBlack => "HCBlack",
+                _ => "HCWhite",
+            };
+            theme.Source = new Uri($"pack://application:,,,/Wpf.Ui;component/Resources/Theme/{themeName}.xaml", UriKind.Absolute);
+        }
+        else
+        {
+            theme.Theme = effectiveTheme;
+        }
+
+        if (System.Windows.Application.Current != null)
+        {
+            ApplicationAccentColorManager.Apply(ApplicationAccentColorManager.GetColorizationColor(), effectiveTheme, systemAccentColor: true);
+            // Window-scoped dictionaries would otherwise shadow the library's application accent resources.
+            foreach (System.Collections.DictionaryEntry resource in Wpf.Ui.UiApplication.Current.Resources)
+            {
+                Resources[resource.Key] = resource.Value;
+            }
+        }
     }
 
     /// <summary>

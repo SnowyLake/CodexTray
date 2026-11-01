@@ -24,7 +24,7 @@
 
 ## 项目概览
 
-`CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 与应用内对话框使用 WPF. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
+`CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 使用 WPF 与 WPF UI (`WPF-UI` 4.3.0), 应用内对话框使用库的 `ContentDialog`. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
 
 `CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务, 插件安装和应用内更新. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Grok 和 API 监控分别采集. Codex Weekly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应. Grok Weekly 与产品占比来自同一次 `https://cli-chat-proxy.grok.com/v1/billing?format=credits` 查询. 订阅名称优先使用 `GET https://cli-chat-proxy.grok.com/v1/settings` 的 `subscription_tier_display`. Token Cost 仅在 Codex 与 Grok 页面显示, 其他 API provider 结果仅显示在主面板.
 
@@ -95,8 +95,10 @@
 - `SettingsStore.LoadError` 非空时禁止全部持久化, 自动插件定位也跳过. 读取与保存均验证 JSON object 和可反序列化字段, 运行期间文件损坏同样阻止覆盖. 主配置已成功解析时, 后续备份或规范化写入失败仍返回该有效配置, 同时报告错误并阻止持久化. `settings.last-good.json` 保存上一份有效配置; 恢复先验证备份, 把当前文件复制为 `settings.damaged-<guid>.json`, 再原子替换主文件. 主配置, 备份和保留副本中的 API 凭据均使用相同明文表示, 不得分享这些文件. 恢复会替换 ViewModel 的共享配置引用并阻止旧配置的在途刷新发布.
 - 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults` (`CodexTray.Core/CodexTrayDefaults.cs`).
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
-- 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.
+- 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景. Mica 启用成功时必须同时设置覆盖客户区的 `WindowChrome.GlassFrameThickness = -1`, 并调用 WPF UI 的 `WindowBackdrop.RemoveBackground` 清除窗口及 `HwndSource.CompositionTarget` 背景; 仅把 RootBorder 设透明会露出默认黑色合成底色. Mica 关闭, 不可用或高对比度模式下, 移除玻璃框架并恢复窗口与 RootBorder 的不透明主题背景. 窗口资源使用 WPF UI 的 `ThemesDictionary` 与 `ControlsDictionary`, 不启用 WPF 内置 `Window.ThemeMode` 或加载 `PresentationFramework.Fluent`, 避免两套主题管理互相覆盖. 系统偏好变化经 Dispatcher 同步主题与 Mica, 强调色由 `ApplicationAccentColorManager` 生成并从库的 `UiApplication` 顶层资源复制到窗口, 避免窗口字典覆盖系统强调色. 高对比度选择库实际提供的 `HC1`, `HC2`, `HCBlack` 或 `HCWhite` 资源; 窗口关闭时取消系统事件订阅.
 - 主面板尺寸固定为 360 x 620.
+- 通用按钮和文本框使用 WPF UI 控件, 图标按钮统一使用透明背景和零边框, 下拉框等使用库的模板; 自启动, 时间格式和 Mica 使用 `ToggleSwitch`, 刷新与插件检测使用 `ProgressRing`. 数值编辑与凭据遮挡继续复用现有控件. 五个主页面进入时使用 WPF 可控 `Storyboard` 播放 200ms 淡入与左右滑动, 按 PageViewport 子项顺序 Codex/Grok/APIs/Settings/About 判断方向, 前进从右侧 50 DIP 滑入, 返回从左侧 50 DIP 滑入; `PageViewport` 裁剪动画内容, 底部导航不参与位移. Session Logs 与统计区域使用 200ms 淡入及垂直位移, 记录从下方 30 DIP 进入, 返回的额度与统计从上方 30 DIP 进入; 内容区域单独裁剪, 不移动页眉. 所有过渡保持与 WPF UI 相同的 0.7 减速比例. 垂直动画 仅在 IsOpen 的 Visibility 绑定更新时触发, 父页面或窗口显隐不触发; 隐藏时仍清除动画. 主页面索引未变的托盘重新显示不触发左右滑动. 对话框保留 160ms FadeIn. 遵循 `SystemParameters.ClientAreaAnimation`, 每个元素只保留一个活动 Storyboard, 完成, 隐藏, 重入或关闭时移除透明度与位移时钟; 完成回调只清理自身登记, 不影响后续动画. 主页面正在滑入时切换记录立即更新内容, 不叠加子区域动画, 主页面自然完成后恢复独立的上下动画. 保留原有即时失焦隐藏和 Esc 行为.
+- `ContentDialogHost` 位于窗口内容最上层, 使用库的焦点约束与输入阻挡. 对话框启用布局取整和 Display 文字格式, 加载时移除库模板外层 Border 的 DropShadowEffect, 避免整块内容离屏栅格化导致文字发虚. 对话框绑定现有 `InAppDialog*` 字段, 双按钮请求使用 Primary/Close, 单按钮请求仅使用带文字的 Close, PreviewKeyDown 优先处理 Esc 取消. 按钮点击时先释放 host, 再同步执行现有确认/取消命令; 旧对话框异步收尾不得关闭后续请求. 程序取消或窗口关闭须立即释放 host 和确认回调. Session Logs 外部滚动条固定为 12 DIP, 避免库默认滚动条尺寸挤压已有列间距.
 - `TrayController.BuildTrayTooltip` 只格式化当前可见来源的插件缓存, 使用 `Codex W`, `Grok W` 和 `DeepSeek` 标签, 总长最多 63 字符. 已停用的页面位不增加托盘行. 额度限制在 0 到 100 的整数, DeepSeek 整元余额超过 11 字符时截短并加省略号; 不回显源错误或凭据. 各来源发布与页面可见性变化后更新托盘 Text. `TrayPopupViewModel.IsPanelPinned` 默认 false, 不写 settings, 开启后 `OnDeactivated` 不隐藏; Esc 与托盘左键仍沿用显式隐藏逻辑, 页脚图钉使用现有绿色表示选中状态. 窗口关闭时保留 ViewModel 的采集状态, 清理应用内对话框及其确认回调, 并取消窗口的 `PropertyChanged` 订阅.
 - Codex, Grok 与 APIs 页面默认可见. `VisiblePages` 为空时不运行定时刷新和本地 HTTP 服务. `PageItem` 保留 `Codex = 1`, `Apis = 4`, `Grok = 8`. 位 1 已停用, 旧配置里的该位在 `Normalize` 时被掩掉. 缺少 `SettingsSchemaVersion` 或版本低于当前值, 且 `VisiblePages` 为 7 (旧版 Codex|Cursor|Apis) 时, 视为当时的全部页面并改为 `Codex|Grok|Apis`.
 - Codex 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Year`. `24H` 从当前时刻精确向前滚动 24 小时. `Week` 从本地当周周一开始, `Month` 从本地当月 1 日开始, `Year` 从本地当年 1 月 1 日开始, 都含起始日, 截止到 `asOf` 的本地日期, 更晚的日期不计入. `Lifetime` 仍累计不晚于该本地日期的全部历史. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.

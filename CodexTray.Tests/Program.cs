@@ -30,6 +30,12 @@ internal static class Program
             return RenderShowcase();
         }
 
+        if (args.SequenceEqual(["--test-transitions"], StringComparer.Ordinal))
+        {
+            await RunAsync("separates page, session-log and window visibility transitions", PageTransitionTests.RunAsync);
+            return s_Failures == 0 ? 0 : 1;
+        }
+
         await RunAsync("creates the fixed-size popup", TestPopupFixedSizeAsync);
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
         await RunAsync("uses countdown label for same-day weekly reset", TestWeeklyCountdownLabelAsync);
@@ -101,6 +107,7 @@ internal static class Program
         await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         s_Failures += await AppUpdateTests.RunAllAsync();
+        await RunAsync("separates page, session-log and window visibility transitions", PageTransitionTests.RunAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
     }
@@ -154,6 +161,7 @@ internal static class Program
         {
             try
             {
+                SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext());
                 AppSettings settings = new AppSettings
                 {
                     ApiMonitors = [new ApiMonitorSettings()],
@@ -195,6 +203,7 @@ internal static class Program
                 });
                 System.Windows.Controls.PasswordBox masked = (System.Windows.Controls.PasswordBox)credential.FindName("MaskedInput");
                 System.Windows.Controls.TextBox revealed = (System.Windows.Controls.TextBox)credential.FindName("RevealedInput");
+                AssertTrue(revealed is Wpf.Ui.Controls.TextBox { ClearButtonEnabled: false }, "credential clear affordance must not overlap the reveal button");
                 System.Windows.Controls.Button revealButton = (System.Windows.Controls.Button)credential.FindName("RevealButton");
                 System.Windows.Shapes.Path hiddenEyeSlash = (System.Windows.Shapes.Path)credential.FindName("HiddenEyeSlash");
                 AssertEqual(System.Windows.Visibility.Collapsed, revealed.Visibility, "credential must begin masked");
@@ -264,6 +273,15 @@ internal static class Program
                 System.Windows.Controls.Grid codexTokenCostChartFrame = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostChartFrame");
                 System.Windows.Controls.Grid codexTokenCostChartPlot = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostChartPlot");
                 System.Windows.Controls.Grid codexPageGrid = (System.Windows.Controls.Grid)window.FindName("CodexPageGrid");
+                System.Windows.Controls.Grid pageViewport = (System.Windows.Controls.Grid)window.FindName("PageViewport");
+                AssertTrue(pageViewport.ClipToBounds && pageViewport.Children.Count == 5 && pageViewport.Children.Contains(codexPageGrid), "all main pages must slide inside a clipped viewport");
+                System.Windows.Media.TranslateTransform pageOffset = new();
+                codexPageGrid.RenderTransform = pageOffset;
+                pageOffset.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(50, 0, TimeSpan.FromSeconds(1)));
+                pageOffset.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(30, 0, TimeSpan.FromSeconds(1)));
+                codexPageGrid.BeginAnimation(System.Windows.UIElement.OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromSeconds(1)));
+                typeof(TrayPopupWindow).GetMethod("MainPage_IsVisibleChanged", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [codexPageGrid, default(System.Windows.DependencyPropertyChangedEventArgs)]);
+                AssertTrue(!pageOffset.HasAnimatedProperties && pageOffset.X == 0 && pageOffset.Y == 0 && codexPageGrid.Opacity == 1, "hidden pages must clear slide and fade clocks before another transition");
                 System.Windows.Controls.Grid codexTokenCostOverview = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostOverview");
                 System.Windows.Controls.Grid codexTokenCostDonutArea = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostDonutArea");
                 System.Windows.Controls.Button codexTokenCostChartPeriodButton = FindNamedDescendant<System.Windows.Controls.Button>(codexTokenCostDashboard, "TokenCostChartPeriodButton");
@@ -671,8 +689,74 @@ internal static class Program
                 AssertEqual(91d, codexPrimaryCard.ActualHeight, "Codex primary card height after Session update");
                 AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex Resets height after Session update");
                 AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"updated Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
-                PropertyInfo themeModeProperty = typeof(System.Windows.Window).GetProperty("ThemeMode")!;
-                object? closedThemeMode = themeModeProperty.GetValue(window);
+                nint backdropHandle = new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+                System.Windows.Interop.HwndSource backdropSource = System.Windows.Interop.HwndSource.FromHwnd(backdropHandle)!;
+                System.Windows.Controls.Border backdropRoot = (System.Windows.Controls.Border)window.Content;
+                foreach (string themeMode in new[] { AppSettings.ThemeModeLight, AppSettings.ThemeModeDark })
+                {
+                    viewModel.ThemeMode = themeMode;
+                    viewModel.MicaEnabled = false;
+                    System.Windows.Media.Color solidColor = ((System.Windows.Media.SolidColorBrush)window.FindResource("ApplicationBackgroundBrush")).Color;
+                    AssertEqual(solidColor, ((System.Windows.Media.SolidColorBrush)backdropRoot.Background).Color, $"{themeMode} without Mica has a solid themed root");
+                    AssertEqual(solidColor, ((System.Windows.Media.SolidColorBrush)window.Background).Color, $"{themeMode} without Mica has a solid themed window");
+                    AssertTrue(System.Windows.Shell.WindowChrome.GetWindowChrome(window) == null, "disabling Mica restores the ordinary client frame");
+                    viewModel.MicaEnabled = true;
+                    if (((System.Windows.Media.SolidColorBrush)backdropRoot.Background).Color.A == 0)
+                    {
+                        AssertEqual((byte)0, backdropSource.CompositionTarget.BackgroundColor.A, $"{themeMode} Mica must not sit behind an opaque black composition surface");
+                        AssertEqual(new System.Windows.Thickness(-1), System.Windows.Shell.WindowChrome.GetWindowChrome(window)?.GlassFrameThickness,
+                            "Mica glass extends across the full client area");
+                    }
+                    else
+                    {
+                        AssertEqual(solidColor, ((System.Windows.Media.SolidColorBrush)backdropRoot.Background).Color, "unavailable Mica falls back to the selected theme");
+                    }
+                }
+                Wpf.Ui.Markup.ThemesDictionary theme = window.Resources.MergedDictionaries.OfType<Wpf.Ui.Markup.ThemesDictionary>().Single();
+                Uri closedTheme = theme.Source;
+                Wpf.Ui.Controls.ContentDialogHost dialogHost = (Wpf.Ui.Controls.ContentDialogHost)window.FindName("DialogHost");
+                int confirmationCount = 0;
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Cancel fixture", "Cancel this action", "Continue", "Cancel", () => confirmationCount++));
+                Wpf.Ui.Controls.ContentDialog cancelDialog = (Wpf.Ui.Controls.ContentDialog)dialogHost.Content!;
+                cancelDialog.ApplyTemplate();
+                cancelDialog.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.LoadedEvent));
+                System.Windows.Controls.Grid dialogRoot = (System.Windows.Controls.Grid)cancelDialog.Template.FindName("DialogRootGrid", cancelDialog);
+                AssertTrue(dialogRoot.Children.OfType<System.Windows.Controls.Border>().Single().Effect == null, "dialog text must not be rasterized by the library shadow");
+                Wpf.Ui.Controls.Button iconButton = new() { Style = (System.Windows.Style)window.FindResource("IconButtonStyle") };
+                AssertEqual(new System.Windows.Thickness(0), iconButton.BorderThickness, "shared icon buttons must remain borderless");
+                AssertEqual("Cancel fixture", cancelDialog.Title, "library dialog title binding");
+                AssertEqual("Cancel", cancelDialog.CloseButtonText, "library dialog cancel label");
+                cancelDialog.TemplateButtonCommand.Execute(Wpf.Ui.Controls.ContentDialogButton.Close);
+                AssertTrue(!viewModel.IsModalOpen && dialogHost.Content == null, "cancel releases modal state and the library host immediately");
+                AssertEqual(0, confirmationCount, "cancel must not run the confirmation action");
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Replace fixture", "Old action", "Continue", PrimaryAction: () => confirmationCount += 100));
+                Wpf.Ui.Controls.ContentDialog confirmDialog = (Wpf.Ui.Controls.ContentDialog)dialogHost.Content!;
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Current fixture", "New action", "OK", PrimaryAction: () =>
+                {
+                    confirmationCount++;
+                    viewModel.ShowInAppDialog(new InAppDialogRequest("Follow-up", "Keep this dialog open", "OK"));
+                }));
+                AssertEqual("Current fixture", confirmDialog.Title, "an open dialog follows replacement requests");
+                confirmDialog.ApplyTemplate();
+                AssertEqual(string.Empty, confirmDialog.PrimaryButtonText, "single-button dialogs do not reserve an empty second button");
+                AssertEqual("OK", confirmDialog.CloseButtonText, "single-button dialogs use the library close slot");
+                AssertTrue(!confirmDialog.IsPrimaryButtonEnabled && !confirmDialog.IsSecondaryButtonEnabled, "only the labeled close slot is enabled");
+                confirmDialog.TemplateButtonCommand.Execute(Wpf.Ui.Controls.ContentDialogButton.Close);
+                confirmDialog.TemplateButtonCommand.Execute(Wpf.Ui.Controls.ContentDialogButton.Close);
+                AssertEqual(1, confirmationCount, "confirm runs the current action exactly once");
+                System.Windows.Threading.DispatcherFrame dialogFrame = new();
+                _ = window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() => dialogFrame.Continue = false));
+                System.Windows.Threading.Dispatcher.PushFrame(dialogFrame);
+                AssertTrue(viewModel.IsModalOpen && dialogHost.Content is Wpf.Ui.Controls.ContentDialog { Title: "Follow-up" }, "old async completion must not dismiss a follow-up dialog");
+                viewModel.DismissInAppDialog();
+                AssertTrue(dialogHost.Content == null, "programmatic dismissal releases the library host");
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Escape fixture", "Do not confirm", "OK", PrimaryAction: () => confirmationCount++));
+                nint dialogHandle = new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+                System.Windows.Input.KeyEventArgs escape = new(System.Windows.Input.Keyboard.PrimaryDevice, System.Windows.Interop.HwndSource.FromHwnd(dialogHandle)!, 0, System.Windows.Input.Key.Escape);
+                escape.RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent;
+                typeof(TrayPopupWindow).GetMethod("OnPreviewKeyDown", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [escape]);
+                AssertTrue(escape.Handled && !viewModel.IsModalOpen && dialogHost.Content == null, "Escape cancels even when the library close slot means OK");
+                AssertEqual(1, confirmationCount, "Escape never executes the confirmation action");
                 bool dialogConfirmed = false;
                 viewModel.ShowInAppDialog(new InAppDialogRequest("Confirm", "Review fixture", "OK", PrimaryAction: () => dialogConfirmed = true));
                 new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
@@ -682,8 +766,8 @@ internal static class Program
                 AssertTrue(!dialogConfirmed, "closing a window must discard its pending confirmation action");
                 TrayPopupWindow reopenedWindow = new(viewModel);
                 viewModel.ThemeMode = viewModel.ThemeMode == AppSettings.ThemeModeDark ? AppSettings.ThemeModeLight : AppSettings.ThemeModeDark;
-                AssertEqual(closedThemeMode, themeModeProperty.GetValue(window), "closed windows must stop receiving view model theme changes");
-                AssertEqual(viewModel.ThemeMode, themeModeProperty.GetValue(reopenedWindow)?.ToString(), "reopened windows must receive view model theme changes");
+                AssertEqual(closedTheme, theme.Source, "closed windows must stop receiving view model theme changes");
+                AssertTrue(reopenedWindow.Resources.MergedDictionaries.OfType<Wpf.Ui.Markup.ThemesDictionary>().Single().Source.OriginalString.EndsWith($"/{viewModel.ThemeMode}.xaml"), "reopened windows must receive view model theme changes");
                 reopenedWindow.Close();
             }
             catch (Exception exception)
@@ -712,6 +796,7 @@ internal static class Program
         {
             try
             {
+                System.Windows.Application application = new() { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
                 AppSettings settings = new AppSettings
                 {
                     ThemeMode = AppSettings.ThemeModeDark,
@@ -897,6 +982,7 @@ internal static class Program
                 using FileStream stream = File.Create(outputPath);
                 encoder.Save(stream);
                 window.Close();
+                application.Shutdown();
                 Console.WriteLine($"Rendered showcase: {outputPath}");
             }
             catch (Exception exception)
