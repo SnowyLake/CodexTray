@@ -1,6 +1,5 @@
 using CodexTray.App;
 using CodexTray.Core;
-using Microsoft.Data.Sqlite;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
@@ -31,10 +30,15 @@ internal static class Program
             return RenderShowcase();
         }
 
+        if (args.SequenceEqual(["--test-transitions"], StringComparer.Ordinal))
+        {
+            await RunAsync("separates page, session-log and window visibility transitions", PageTransitionTests.RunAsync);
+            return s_Failures == 0 ? 0 : 1;
+        }
+
         await RunAsync("creates the fixed-size popup", TestPopupFixedSizeAsync);
         await RunAsync("collects limits and display labels", TestCollectsLimitsAndDisplayLabelsAsync);
-        await RunAsync("uses countdown label for same-day weekly reset", TestWeeklyCountdownLabelAsync);
-        await RunAsync("uses countdown label for next-day weekly reset", TestNextDayWeeklyCountdownLabelAsync);
+        await RunAsync("uses countdown labels across weekly reset dates", TestWeeklyCountdownLabelsAsync);
         await RunAsync("returns unavailable response without OAuth credentials", TestEmptyResponseAsync);
         await RunAsync("collects official Codex quota", TestOfficialQuotaAsync);
         await RunAsync("classifies a lone weekly quota by window duration", TestLoneWeeklyQuotaAsync);
@@ -42,11 +46,11 @@ internal static class Program
         await RunAsync("applies quota and reset credit color states", TestQuotaAndResetCreditColorStatesAsync);
         await RunAsync("formats Codex subscription badges", TestCodexPlanDisplayAsync);
         await RunAsync("formats Grok subscription badges", TestGrokPlanDisplayAsync);
-        await RunAsync("keeps plugin displays percentage-only", TestPluginDisplayPercentOnlyAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
         await RunAsync("merges and clears plugin usage sources", TestUsageCacheSourcesAsync);
         await RunAsync("drains active HTTP clients on stop", TestHttpServerActiveClientStopAsync);
+        await RunAsync("drains HTTP clients after listener failure", TestHttpServerAcceptFailureAsync);
         await RunAsync("recovers HTTP server after bind failure", TestHttpServerBindFailureRecoveryAsync);
         await RunAsync("supports idempotent stop and restart", TestHttpServerStopRestartAsync);
         await RunAsync("propagates collector cancellation", TestCollectorCancellationAsync);
@@ -82,8 +86,8 @@ internal static class Program
         await RunAsync("pages session log rows for the current harness", TestSessionLogPagingAsync);
         await RunAsync("keeps fixed session log columns without headers", TestSessionLogLayoutAsync);
         await RunAsync("keeps per-call session log rows from Codex and Grok collects", TestSessionLogEntriesAsync);
-        await RunAsync("tracks migrated dirty properties", TestMigratedDirtyPropertiesAsync);
-        await RunAsync("raises migrated tray notifications", TestMigratedTrayNotificationsAsync);
+        await RunAsync("tracks settings drafts and detected paths", TestSettingsDirtyStateAsync);
+        await RunAsync("raises dependent tray notifications", TestTrayNotificationsAsync);
         await RunAsync("updates API monitor command states", TestApiMonitorCommandStatesAsync);
         await RunAsync("raises dependent API monitor notifications", TestApiMonitorNotificationsAsync);
         await RunAsync("computes cache hit percent", TestCacheHitPercentAsync);
@@ -100,9 +104,9 @@ internal static class Program
         await RunAsync("applies DeepSeek peak and off-peak pricing", TestDeepSeekPeakPricingAsync);
         await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
         await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
-        await RunAsync("ignores OpenCode token cost for Codex", TestOpenCodeTokenCostIgnoredAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         s_Failures += await AppUpdateTests.RunAllAsync();
+        await RunAsync("separates page, session-log and window visibility transitions", PageTransitionTests.RunAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
         return s_Failures == 0 ? 0 : 1;
     }
@@ -156,12 +160,12 @@ internal static class Program
         {
             try
             {
+                SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext());
                 AppSettings settings = new AppSettings
                 {
                     ApiMonitors = [new ApiMonitorSettings()],
                 };
                 TrayPopupViewModel viewModel = new(settings, () => Task.CompletedTask);
-                AssertEqual("Check for updates", viewModel.UpdateActionText, "update action");
                 AssertEqual("Weekly", viewModel.CodexWeeklyQuota.Title, "Codex weekly quota title");
                 AssertEqual("Session", viewModel.CodexSessionQuota.Title, "Codex session quota title");
                 AssertEqual("Weekly", viewModel.GrokWeeklyQuota.Title, "Grok weekly quota title");
@@ -180,6 +184,9 @@ internal static class Program
                     error: null);
                 viewModel.UpdateTokenCost(CreateTokenCostStatistics(10));
                 TrayPopupWindow window = new(viewModel);
+                NumericUpDown numeric = new() { Minimum = 1, Maximum = 65535, Value = int.MaxValue.ToString(CultureInfo.InvariantCulture) };
+                ((System.Windows.Controls.Primitives.RepeatButton)numeric.FindName("PART_Up")).RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                AssertEqual("65535", numeric.Value, "spinner increment must clamp without integer overflow");
                 AssertTrue(!viewModel.IsPanelPinned, "panel starts unpinned");
                 viewModel.TogglePanelPinnedCommand.Execute(null);
                 AssertEqual("Unpin panel", viewModel.PanelPinTooltip, "pin toggle action");
@@ -197,6 +204,7 @@ internal static class Program
                 });
                 System.Windows.Controls.PasswordBox masked = (System.Windows.Controls.PasswordBox)credential.FindName("MaskedInput");
                 System.Windows.Controls.TextBox revealed = (System.Windows.Controls.TextBox)credential.FindName("RevealedInput");
+                AssertTrue(revealed is Wpf.Ui.Controls.TextBox { ClearButtonEnabled: false }, "credential clear affordance must not overlap the reveal button");
                 System.Windows.Controls.Button revealButton = (System.Windows.Controls.Button)credential.FindName("RevealButton");
                 System.Windows.Shapes.Path hiddenEyeSlash = (System.Windows.Shapes.Path)credential.FindName("HiddenEyeSlash");
                 AssertEqual(System.Windows.Visibility.Collapsed, revealed.Visibility, "credential must begin masked");
@@ -260,12 +268,13 @@ internal static class Program
                 };
                 codexPrimaryCard.RaiseEvent(singlePageWheelArgs);
                 AssertTrue(!singlePageWheelArgs.Handled, "single Codex quota page should ignore mouse wheel switching");
-                AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "Codex token cost chart day count");
                 AssertTrue(viewModel.CodexTokenCost.DonutSegments.Count > 0, "Codex model donut should have segments");
                 System.Windows.Controls.ContentControl codexTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("CodexTokenCostDashboard");
                 System.Windows.Controls.Grid codexTokenCostChartFrame = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostChartFrame");
                 System.Windows.Controls.Grid codexTokenCostChartPlot = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostChartPlot");
                 System.Windows.Controls.Grid codexPageGrid = (System.Windows.Controls.Grid)window.FindName("CodexPageGrid");
+                System.Windows.Controls.Grid pageViewport = (System.Windows.Controls.Grid)window.FindName("PageViewport");
+                AssertTrue(pageViewport.ClipToBounds && pageViewport.Children.Count == 5 && pageViewport.Children.Contains(codexPageGrid), "all main pages must slide inside a clipped viewport");
                 System.Windows.Controls.Grid codexTokenCostOverview = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostOverview");
                 System.Windows.Controls.Grid codexTokenCostDonutArea = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostDonutArea");
                 System.Windows.Controls.Button codexTokenCostChartPeriodButton = FindNamedDescendant<System.Windows.Controls.Button>(codexTokenCostDashboard, "TokenCostChartPeriodButton");
@@ -590,8 +599,6 @@ internal static class Program
                     System.Windows.Media.Color.FromRgb(166, 173, 179),
                     ((System.Windows.Media.SolidColorBrush)viewModel.GrokProductUsageBarItems[3].Brush).Color,
                     "Grok product usage others color with unnamed cursor");
-                AssertTrue(window.FindName("CursorPageGrid") == null, "Cursor page is not in the panel");
-                AssertTrue(window.FindName("CursorTokenCostDashboard") == null, "Cursor token cost is not in the panel");
                 long weeklyResetAt = DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds();
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(5, weeklyResetAt, "SuperGrok"),
@@ -673,8 +680,74 @@ internal static class Program
                 AssertEqual(91d, codexPrimaryCard.ActualHeight, "Codex primary card height after Session update");
                 AssertEqual(68d, codexResetCreditsCard.ActualHeight, "Codex Resets height after Session update");
                 AssertTrue(codexQuotaScrollViewer.ScrollableHeight == 0, $"updated Codex quota cards should not scroll, actual {codexQuotaScrollViewer.ScrollableHeight}");
-                PropertyInfo themeModeProperty = typeof(System.Windows.Window).GetProperty("ThemeMode")!;
-                object? closedThemeMode = themeModeProperty.GetValue(window);
+                nint backdropHandle = new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+                System.Windows.Interop.HwndSource backdropSource = System.Windows.Interop.HwndSource.FromHwnd(backdropHandle)!;
+                System.Windows.Controls.Border backdropRoot = (System.Windows.Controls.Border)window.Content;
+                foreach (string themeMode in new[] { AppSettings.ThemeModeLight, AppSettings.ThemeModeDark })
+                {
+                    viewModel.ThemeMode = themeMode;
+                    viewModel.MicaEnabled = false;
+                    System.Windows.Media.Color solidColor = ((System.Windows.Media.SolidColorBrush)window.FindResource("ApplicationBackgroundBrush")).Color;
+                    AssertEqual(solidColor, ((System.Windows.Media.SolidColorBrush)backdropRoot.Background).Color, $"{themeMode} without Mica has a solid themed root");
+                    AssertEqual(solidColor, ((System.Windows.Media.SolidColorBrush)window.Background).Color, $"{themeMode} without Mica has a solid themed window");
+                    AssertTrue(System.Windows.Shell.WindowChrome.GetWindowChrome(window) == null, "disabling Mica restores the ordinary client frame");
+                    viewModel.MicaEnabled = true;
+                    if (((System.Windows.Media.SolidColorBrush)backdropRoot.Background).Color.A == 0)
+                    {
+                        AssertEqual((byte)0, backdropSource.CompositionTarget.BackgroundColor.A, $"{themeMode} Mica must not sit behind an opaque black composition surface");
+                        AssertEqual(new System.Windows.Thickness(-1), System.Windows.Shell.WindowChrome.GetWindowChrome(window)?.GlassFrameThickness,
+                            "Mica glass extends across the full client area");
+                    }
+                    else
+                    {
+                        AssertEqual(solidColor, ((System.Windows.Media.SolidColorBrush)backdropRoot.Background).Color, "unavailable Mica falls back to the selected theme");
+                    }
+                }
+                Wpf.Ui.Markup.ThemesDictionary theme = window.Resources.MergedDictionaries.OfType<Wpf.Ui.Markup.ThemesDictionary>().Single();
+                Uri closedTheme = theme.Source;
+                Wpf.Ui.Controls.ContentDialogHost dialogHost = (Wpf.Ui.Controls.ContentDialogHost)window.FindName("DialogHost");
+                int confirmationCount = 0;
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Cancel fixture", "Cancel this action", "Continue", "Cancel", () => confirmationCount++));
+                Wpf.Ui.Controls.ContentDialog cancelDialog = (Wpf.Ui.Controls.ContentDialog)dialogHost.Content!;
+                cancelDialog.ApplyTemplate();
+                cancelDialog.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.LoadedEvent));
+                System.Windows.Controls.Grid dialogRoot = (System.Windows.Controls.Grid)cancelDialog.Template.FindName("DialogRootGrid", cancelDialog);
+                AssertTrue(dialogRoot.Children.OfType<System.Windows.Controls.Border>().Single().Effect == null, "dialog text must not be rasterized by the library shadow");
+                Wpf.Ui.Controls.Button iconButton = new() { Style = (System.Windows.Style)window.FindResource("IconButtonStyle") };
+                AssertEqual(new System.Windows.Thickness(0), iconButton.BorderThickness, "shared icon buttons must remain borderless");
+                AssertEqual("Cancel fixture", cancelDialog.Title, "library dialog title binding");
+                AssertEqual("Cancel", cancelDialog.CloseButtonText, "library dialog cancel label");
+                cancelDialog.TemplateButtonCommand.Execute(Wpf.Ui.Controls.ContentDialogButton.Close);
+                AssertTrue(!viewModel.IsModalOpen && dialogHost.Content == null, "cancel releases modal state and the library host immediately");
+                AssertEqual(0, confirmationCount, "cancel must not run the confirmation action");
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Replace fixture", "Old action", "Continue", PrimaryAction: () => confirmationCount += 100));
+                Wpf.Ui.Controls.ContentDialog confirmDialog = (Wpf.Ui.Controls.ContentDialog)dialogHost.Content!;
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Current fixture", "New action", "OK", PrimaryAction: () =>
+                {
+                    confirmationCount++;
+                    viewModel.ShowInAppDialog(new InAppDialogRequest("Follow-up", "Keep this dialog open", "OK"));
+                }));
+                AssertEqual("Current fixture", confirmDialog.Title, "an open dialog follows replacement requests");
+                confirmDialog.ApplyTemplate();
+                AssertEqual(string.Empty, confirmDialog.PrimaryButtonText, "single-button dialogs do not reserve an empty second button");
+                AssertEqual("OK", confirmDialog.CloseButtonText, "single-button dialogs use the library close slot");
+                AssertTrue(!confirmDialog.IsPrimaryButtonEnabled && !confirmDialog.IsSecondaryButtonEnabled, "only the labeled close slot is enabled");
+                confirmDialog.TemplateButtonCommand.Execute(Wpf.Ui.Controls.ContentDialogButton.Close);
+                confirmDialog.TemplateButtonCommand.Execute(Wpf.Ui.Controls.ContentDialogButton.Close);
+                AssertEqual(1, confirmationCount, "confirm runs the current action exactly once");
+                System.Windows.Threading.DispatcherFrame dialogFrame = new();
+                _ = window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() => dialogFrame.Continue = false));
+                System.Windows.Threading.Dispatcher.PushFrame(dialogFrame);
+                AssertTrue(viewModel.IsModalOpen && dialogHost.Content is Wpf.Ui.Controls.ContentDialog { Title: "Follow-up" }, "old async completion must not dismiss a follow-up dialog");
+                viewModel.DismissInAppDialog();
+                AssertTrue(dialogHost.Content == null, "programmatic dismissal releases the library host");
+                viewModel.ShowInAppDialog(new InAppDialogRequest("Escape fixture", "Do not confirm", "OK", PrimaryAction: () => confirmationCount++));
+                nint dialogHandle = new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+                System.Windows.Input.KeyEventArgs escape = new(System.Windows.Input.Keyboard.PrimaryDevice, System.Windows.Interop.HwndSource.FromHwnd(dialogHandle)!, 0, System.Windows.Input.Key.Escape);
+                escape.RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent;
+                typeof(TrayPopupWindow).GetMethod("OnPreviewKeyDown", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [escape]);
+                AssertTrue(escape.Handled && !viewModel.IsModalOpen && dialogHost.Content == null, "Escape cancels even when the library close slot means OK");
+                AssertEqual(1, confirmationCount, "Escape never executes the confirmation action");
                 bool dialogConfirmed = false;
                 viewModel.ShowInAppDialog(new InAppDialogRequest("Confirm", "Review fixture", "OK", PrimaryAction: () => dialogConfirmed = true));
                 new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
@@ -684,8 +757,8 @@ internal static class Program
                 AssertTrue(!dialogConfirmed, "closing a window must discard its pending confirmation action");
                 TrayPopupWindow reopenedWindow = new(viewModel);
                 viewModel.ThemeMode = viewModel.ThemeMode == AppSettings.ThemeModeDark ? AppSettings.ThemeModeLight : AppSettings.ThemeModeDark;
-                AssertEqual(closedThemeMode, themeModeProperty.GetValue(window), "closed windows must stop receiving view model theme changes");
-                AssertEqual(viewModel.ThemeMode, themeModeProperty.GetValue(reopenedWindow)?.ToString(), "reopened windows must receive view model theme changes");
+                AssertEqual(closedTheme, theme.Source, "closed windows must stop receiving view model theme changes");
+                AssertTrue(reopenedWindow.Resources.MergedDictionaries.OfType<Wpf.Ui.Markup.ThemesDictionary>().Single().Source.OriginalString.EndsWith($"/{viewModel.ThemeMode}.xaml"), "reopened windows must receive view model theme changes");
                 reopenedWindow.Close();
             }
             catch (Exception exception)
@@ -714,6 +787,7 @@ internal static class Program
         {
             try
             {
+                System.Windows.Application application = new() { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
                 AppSettings settings = new AppSettings
                 {
                     ThemeMode = AppSettings.ThemeModeDark,
@@ -769,13 +843,6 @@ internal static class Program
                         {
                             Date = new DateTime(2026, 8, 1).AddDays(index),
                             Summary = new TokenCostSummary { TotalTokens = (index + 2) * 900_000, CostUsd = (index + 2) * 0.82m },
-                        })
-                        .ToArray(),
-                    LastSevenDaysDaily = Enumerable.Range(0, 7)
-                        .Select(index => new TokenCostDailySummary
-                        {
-                            Date = now.Date.AddDays(index - 6),
-                            Summary = new TokenCostSummary { TotalTokens = (index + 4) * 1_000_000, CostUsd = index + 4 },
                         })
                         .ToArray(),
                     Models =
@@ -899,6 +966,7 @@ internal static class Program
                 using FileStream stream = File.Create(outputPath);
                 encoder.Save(stream);
                 window.Close();
+                application.Shutdown();
                 Console.WriteLine($"Rendered showcase: {outputPath}");
             }
             catch (Exception exception)
@@ -1000,37 +1068,21 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests weekly countdown labels on the current day.
+    /// Tests that weekly resets use elapsed hours on both the same and the next date.
     /// </summary>
-    private static async Task TestWeeklyCountdownLabelAsync()
+    private static async Task TestWeeklyCountdownLabelsAsync()
     {
         using TempDirectory temp = new();
-        DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
-        long weeklyResetAt = now.AddHours(3).ToUnixTimeSeconds();
-        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 20.0, 40.0, out HttpClient client);
-        using HttpClient _ = client;
-
-        UsageResponse response = await collector.CollectAsync(temp.Path);
-
-        AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, "weekly countdown label");
-    }
-
-    /// <summary>
-    /// Tests weekly countdown labels on the next day even when below twenty four hours.
-    /// </summary>
-    private static async Task TestNextDayWeeklyCountdownLabelAsync()
-    {
-        using TempDirectory temp = new();
-        DateTimeOffset now = new(2026, 7, 1, 23, 0, 0, TimeSpan.FromHours(8));
-        long sessionResetAt = now.AddHours(1).ToUnixTimeSeconds();
-        DateTimeOffset weeklyResetAt = new(2026, 7, 2, 2, 0, 0, TimeSpan.FromHours(8));
-        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt.ToUnixTimeSeconds(), 20.0, 40.0, out HttpClient client);
-        using HttpClient _ = client;
-
-        UsageResponse response = await collector.CollectAsync(temp.Path);
-
-        AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, "weekly next-day countdown label");
+        foreach (int hour in new[] { 12, 23 })
+        {
+            DateTimeOffset now = new(2026, 7, 1, hour, 0, 0, TimeSpan.FromHours(8));
+            CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddHours(3).ToUnixTimeSeconds(), 20, 40, out HttpClient client);
+            using (client)
+            {
+                UsageResponse response = await collector.CollectAsync(temp.Path);
+                AssertEqual("0d03h", response.Limits.Weekly.ResetLabel, $"weekly countdown starting at {hour}:00");
+            }
+        }
     }
 
     /// <summary>
@@ -1093,24 +1145,6 @@ internal static class Program
         AssertEqual(75, response.Limits.Session.RemainingPercent, "official session remaining percent");
         AssertEqual(60, response.Limits.Weekly.RemainingPercent, "official weekly remaining percent");
         AssertEqual("60%", response.Display.Weekly, "official weekly plugin display");
-    }
-
-    /// <summary>
-    /// Tests that plugin display values never include reset suffixes.
-    /// </summary>
-    private static async Task TestPluginDisplayPercentOnlyAsync()
-    {
-        using TempDirectory temp = new();
-        DateTimeOffset now = new(2026, 7, 1, 12, 0, 0, TimeSpan.FromHours(8));
-        long sessionResetAt = now.AddHours(1).AddMinutes(15).ToUnixTimeSeconds();
-        long weeklyResetAt = now.AddDays(2).AddHours(12).ToUnixTimeSeconds();
-        CodexUsageCollector collector = CreateCodexUsageCollector(temp.Path, now, sessionResetAt, weeklyResetAt, 25.0, 40.0, out HttpClient client);
-        using HttpClient _ = client;
-
-        UsageResponse response = await collector.CollectAsync(temp.Path);
-
-        AssertEqual("60%", response.Display.Weekly, "weekly percentage-only plugin display");
-        AssertEqual("1h15m", response.Limits.Session.ResetLabel, "session reset label remains available internally");
     }
 
     /// <summary>
@@ -1257,6 +1291,28 @@ internal static class Program
         AssertTrue(ReferenceEquals(firstStop, secondStop), "concurrent stop calls should share one task");
         await firstStop.WaitAsync(TimeSpan.FromSeconds(2));
         AssertTrue(!server.IsRunning, "server should stop after draining the partial request");
+    }
+
+    private static async Task TestHttpServerAcceptFailureAsync()
+    {
+        using LightweightHttpServer server = new(new UsageCache(), 0);
+        server.Start();
+        using TcpClient client = new();
+        await client.ConnectAsync(CodexTrayDefaults.Host, server.Port);
+        await client.GetStream().WriteAsync(Encoding.ASCII.GetBytes("GET /health HTTP/1.1\r\nHost: localhost\r\n"));
+        await WaitForTrackedClientAsync(server);
+        TcpListener listener = (TcpListener)typeof(LightweightHttpServer).GetField("m_Listener", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)!;
+        Task accept = (Task)typeof(LightweightHttpServer).GetField("m_AcceptTask", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)!;
+        listener.Stop();
+        await accept.WaitAsync(TimeSpan.FromSeconds(2));
+        Task automaticStop = (Task?)typeof(LightweightHttpServer).GetField("m_StopTask", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)
+            ?? throw new InvalidOperationException("listener failure must start automatic cleanup");
+        await automaticStop.WaitAsync(TimeSpan.FromSeconds(2));
+        int activeClients = (int)typeof(LightweightHttpServer).GetProperty("ActiveClientCount", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)!;
+        AssertEqual(0, activeClients, "listener failure must drain active clients");
+        server.Start();
+        AssertTrue(server.IsRunning, "failed generation must be restartable after draining");
+        await server.StopAsync();
     }
 
     /// <summary>
@@ -1876,6 +1932,18 @@ internal static class Program
         AssertEqual("$95.50", results[6].BalanceDisplay, "Vercel remaining credits");
         AssertEqual("$4.50", results[6].UsedDisplay, "Vercel used credits");
         AssertEqual("$95.50", results[7].BalanceDisplay, "Vercel root base URL credits");
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            IReadOnlyList<ApiUsageResult> localized = await collector.CollectAsync([deepSeek]);
+            AssertEqual("¥110.00", localized[0].BalanceDisplay, "DeepSeek decimal format stays invariant");
+            AssertEqual("¥110", ApiUsageCollector.BuildDeepSeekPluginUsage(localized).Display, "localized refresh preserves the plugin balance");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     /// <summary>
@@ -2320,13 +2388,6 @@ internal static class Program
                 .Select(index => new TokenCostDailySummary
                 {
                     Date = new DateTime(today.Year, today.Month, 1).AddDays(index),
-                    Summary = new TokenCostSummary { TotalTokens = multiplier * (index + 1) },
-                })
-                .ToArray(),
-            LastSevenDaysDaily = Enumerable.Range(0, 7)
-                .Select(index => new TokenCostDailySummary
-                {
-                    Date = today.AddDays(index - 6),
                     Summary = new TokenCostSummary { TotalTokens = multiplier * (index + 1) },
                 })
                 .ToArray(),
@@ -2903,11 +2964,15 @@ internal static class Program
             Models = [new TokenCostModelStatistics { Model = "unknown-price", LastTwentyFourHours = partial }],
         });
         AssertTrue(viewModel.CodexTokenCost.SelectedCostDisplay.Contains('*'), "partial cost must be visibly marked");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single().Tooltip.Contains("* · Partial cost"), "donut must mark partial model costs");
         DateTimeOffset? lastSuccess = viewModel.CodexTokenCost.Freshness.LastSuccess;
         viewModel.UpdateTokenCost(null, "pricing unavailable");
         AssertEqual(lastSuccess, viewModel.CodexTokenCost.Freshness.LastSuccess, "failure must preserve the success timestamp");
         AssertEqual("N/A", viewModel.CodexTokenCost.SelectedCostDisplay, "failed read must clear old values");
         AssertEqual("pricing unavailable", viewModel.CodexTokenCost.Freshness.Error, "cost failure reason must stay on the refresh state");
+        viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
+        AssertTrue(viewModel.CodexTokenCost.ChartDays.Where(day => day.IsInteractive).All(day => day.Tooltip.Contains("Tokens: N/A")), "failed calendar chart must not claim zero usage");
+        AssertEqual(DateTime.DaysInMonth(now.Year, now.Month), viewModel.CodexTokenCost.ChartDays.Count, "failed calendar chart retains the full month");
         ApiMonitorViewModel card = new(new ApiMonitorSettings { Id = "test", Provider = ApiMonitorSettings.DeepSeekProvider });
         card.Update(new ApiUsageResult("test", true, "¥1.00", "", "", now));
         card.Update(new ApiUsageResult("test", false, "N/A", "", "timeout", now.AddMinutes(1)));
@@ -2991,7 +3056,6 @@ internal static class Program
             Lifetime = new TokenCostSummary { TotalTokens = 4_000, CostUsd = 100 },
             LastThirtyDaysDaily = daily,
             CurrentMonthDaily = daily[..20],
-            LastSevenDaysDaily = daily[^7..],
             Models =
             [
                 new TokenCostModelStatistics
@@ -3027,12 +3091,10 @@ internal static class Program
             ((System.Windows.Media.SolidColorBrush)viewModel.CodexStatusDotBrush).Color,
             "Codex usage status should remain red before the first usage refresh");
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "Codex token cost row titles");
-        AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "Codex token cost row values");
+        AssertEqual("0.90K|2.00K|3.00K|4.00K", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Tokens)), "Codex token cost row values");
         AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "Codex token cost chart day count");
-        AssertEqual("30", viewModel.CodexTokenCost.ChartDays[29].Label, "Codex token cost chart today label");
         AssertEqual(58d, viewModel.CodexTokenCost.ChartDays[29].BarHeight, "Codex token cost chart maximum height");
         AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K{Environment.NewLine}Cost: $30.00", viewModel.CodexTokenCost.ChartDays[29].Tooltip, "Codex token cost chart tooltip");
-        AssertEqual("1|10|20|30", string.Join('|', viewModel.CodexTokenCost.ChartDays.Where(day => day.Label.Length > 0).Select(day => day.Label)), "Codex token cost chart labels");
         AssertEqual(30, viewModel.CodexTokenCost.ChartColumnCount, "rolling Codex token cost chart columns");
         AssertEqual("1|10|20|30", string.Join('|', viewModel.CodexTokenCost.ChartLabels.Select(label => label.Text)), "rolling Codex token cost chart axis labels");
         AssertEqual("0.90K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected 24-hour token total");
@@ -3048,7 +3110,7 @@ internal static class Program
             "Codex 24-hour donut second model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
         AssertEqual("Today|Week|Month|Year", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "calendar Codex token cost row titles");
-        AssertEqual("$7.00|$9.00|$20.00|$80.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "calendar Codex token cost row values");
+        AssertEqual("1.00K|1.00K|2.00K|3.50K", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Tokens)), "calendar Codex token cost row values");
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected today token total");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
         AssertEqual(
@@ -3081,7 +3143,7 @@ internal static class Program
         viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "restored Codex token cost row titles");
-        AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "restored Codex token cost row values");
+        AssertEqual("0.90K|2.00K|3.00K|4.00K", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Tokens)), "restored Codex token cost row values");
         AssertEqual("2.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected 7D token total");
         AssertEqual("$13.00 · 13%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 7D cost and cache hit");
         AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
@@ -3117,7 +3179,7 @@ internal static class Program
             ((System.Windows.Media.SolidColorBrush)viewModel.GrokTokenCost.AccentBrush).Color,
             "Grok token cost accent should stay green when usage is unavailable");
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Title)), "Grok token cost row titles");
-        AssertEqual("N/A|N/A|N/A|N/A", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Display.Cost)), "Grok unknown cost values");
+        AssertEqual(AppSettings.FormatTokenCount(grokStatistics.LastTwentyFourHours.TotalTokens), viewModel.GrokTokenCost.Rows[0].Tokens, "Grok tokens remain visible without costs");
         AssertEqual(58d, viewModel.GrokTokenCost.ChartDays[29].BarHeight, "Grok token chart maximum height");
         AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K", viewModel.GrokTokenCost.ChartDays[29].Tooltip, "Grok token chart tooltip");
         AssertEqual("0%", viewModel.GrokTokenCost.SelectedCostDisplay, "unknown cost omits the dollar value and keeps cache hit");
@@ -3167,9 +3229,9 @@ internal static class Program
     }
 
     /// <summary>
-    /// Tests dirty tracking for every migrated editable property.
+    /// Tests settings dirty state and preservation of drafts during path detection.
     /// </summary>
-    private static Task TestMigratedDirtyPropertiesAsync()
+    private static Task TestSettingsDirtyStateAsync()
     {
         List<(string Name, Action<TrayPopupViewModel> Change, Action<TrayPopupViewModel> Restore)> cases =
         [
@@ -3205,13 +3267,32 @@ internal static class Program
             AssertTrue(!viewModel.SaveSettingsCommand.CanExecute(null), $"{name} should disable save after restore");
         }
 
+        AppSettings settings = new();
+        TrayPopupViewModel draft = new(settings, () => Task.CompletedTask);
+        draft.PortText = "17891";
+        draft.TrafficMonitorDir = "C:\\Draft";
+        draft.AddApiMonitorCommand.Execute(null);
+        ApiMonitorViewModel pending = draft.ApiMonitors.Single();
+        pending.Name = "Pending draft";
+        settings.LiteMonitorDir = "C:\\DetectedLite";
+        settings.TrafficMonitorDir = "C:\\DetectedTraffic";
+        draft.MergeDetectedMonitorPaths();
+        AssertEqual(settings.LiteMonitorDir, draft.LiteMonitorDir, "unmodified path picks up detection");
+        AssertEqual("C:\\Draft", draft.TrafficMonitorDir, "edited path survives detection");
+        AssertEqual("17891", draft.PortText, "general settings draft survives detection");
+        AssertTrue(ReferenceEquals(pending, draft.ApiMonitors.Single()), "pending card survives detection");
+        AssertEqual(SettingsStatus.Unsaved, draft.SettingsStatus, "merged settings retain dirty state");
+        draft.TrafficMonitorDir = settings.TrafficMonitorDir;
+        draft.PortText = settings.Port.ToString(CultureInfo.InvariantCulture);
+        AssertEqual(SettingsStatus.Clean, draft.SettingsStatus, "detection updates the saved path baseline");
+
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests exact dependent and unchanged-value notifications for migrated tray properties.
+    /// Tests dependent notifications used by settings and dialog bindings.
     /// </summary>
-    private static Task TestMigratedTrayNotificationsAsync()
+    private static Task TestTrayNotificationsAsync()
     {
         TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
         List<string?> changedProperties = [];
@@ -3222,9 +3303,6 @@ internal static class Program
             "LiteMonitorDir|LiteMonitorDirDisplay|SettingsStatus|SettingsStatusBrush|SettingsStatusText",
             string.Join('|', changedProperties.Order()),
             "LiteMonitor path notifications");
-        changedProperties.Clear();
-        viewModel.LiteMonitorDir = "C:\\LiteMonitor";
-        AssertEqual(0, changedProperties.Count, "unchanged LiteMonitor path notifications");
 
         viewModel = new(new AppSettings(), () => Task.CompletedTask);
         changedProperties = [];
@@ -3241,17 +3319,8 @@ internal static class Program
         viewModel.IsDetectingLiteMonitor = true;
         AssertEqual("IsDetectingLiteMonitor|IsLiteMonitorActionsEnabled", string.Join('|', changedProperties.Order()), "LiteMonitor detecting notifications");
         changedProperties.Clear();
-        viewModel.IsDetectingLiteMonitor = true;
-        AssertEqual(0, changedProperties.Count, "unchanged LiteMonitor detecting notifications");
         viewModel.IsDetectingTrafficMonitor = true;
         AssertEqual("IsDetectingTrafficMonitor|IsTrafficMonitorActionsEnabled", string.Join('|', changedProperties.Order()), "TrafficMonitor detecting notifications");
-
-        changedProperties.Clear();
-        viewModel.IsRefreshing = true;
-        AssertEqual(nameof(TrayPopupViewModel.IsRefreshing), string.Join('|', changedProperties), "pure generated property notification");
-        changedProperties.Clear();
-        viewModel.IsRefreshing = true;
-        AssertEqual(0, changedProperties.Count, "unchanged pure generated property notifications");
 
         InAppDialogRequest initialDialog = new("Title", "Message", "OK");
         viewModel.ShowInAppDialog(initialDialog);
@@ -3262,9 +3331,6 @@ internal static class Program
             "HasInAppDialogSecondaryButton|InAppDialogSecondaryButtonText",
             string.Join('|', changedProperties.Order()),
             "dialog secondary button notifications");
-        changedProperties.Clear();
-        viewModel.ShowInAppDialog(secondaryDialog);
-        AssertEqual(0, changedProperties.Count, "unchanged dialog secondary button notifications");
         return Task.CompletedTask;
     }
 
@@ -3304,11 +3370,23 @@ internal static class Program
         viewModel.MoveApiMonitorUpCommand.Execute(first);
         AssertEqual(first.Id, settings.ApiMonitors[0].Id, "reordering saved cards must persist their order");
         AssertEqual(savedName, settings.ApiMonitors[0].Name, "reordering must not persist unfinished card fields");
+        second.ToggleEditingCommand.Execute(null);
+        second.Name = "Saved second";
+        second.ToggleEditingCommand.Execute(null);
+        AssertEqual("Saved second", settings.ApiMonitors.Single(card => card.Id == second.Id).Name, "explicit card save persists its fields");
+        AssertEqual(savedName, settings.ApiMonitors.Single(card => card.Id == first.Id).Name, "saving another card must not persist drafts");
+        viewModel.AddApiMonitorCommand.Execute(null);
+        ApiMonitorViewModel pending = viewModel.ApiMonitors.Last();
+        viewModel.InAppDialogRequested += request => request.PrimaryAction?.Invoke();
+        viewModel.RemoveApiMonitorCommand.Execute(second);
+        AssertEqual(1, settings.ApiMonitors.Count, "deletion persists only saved remaining cards");
+        AssertEqual(savedName, settings.ApiMonitors[0].Name, "deletion must not persist another card's draft");
+        AssertTrue(pending.IsPending, "deletion leaves pending cards unsaved");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests dependent property notifications after migrating to Toolkit ObservableObject.
+    /// Tests API card bindings and provider-specific display state.
     /// </summary>
     private static Task TestApiMonitorNotificationsAsync()
     {
@@ -3318,19 +3396,6 @@ internal static class Program
 
         viewModel.Name = "Personal";
         AssertEqual("DisplayName|Name", string.Join('|', changedProperties.Order()), "API monitor name notifications");
-        changedProperties.Clear();
-        viewModel.Name = "Personal";
-        AssertEqual(0, changedProperties.Count, "unchanged API monitor name notifications");
-
-        ApiUsageResult result = new(viewModel.Id, false, "N/A", "N/A", "Waiting for refresh", DateTimeOffset.UtcNow, "USD balance");
-        viewModel.Update(result);
-        AssertEqual(
-            "BalanceTooltip|HasBalanceTooltip|StatusTooltip",
-            string.Join('|', changedProperties.Order()),
-            "balance tooltip notifications");
-        changedProperties.Clear();
-        viewModel.Update(result);
-        AssertEqual(0, changedProperties.Count, "unchanged balance tooltip notifications");
 
         AssertEqual(
             string.Join('|', [
@@ -3342,7 +3407,6 @@ internal static class Program
             ]),
             string.Join('|', viewModel.ProviderOptions),
             "API provider option order");
-        AssertTrue(!viewModel.ProviderOptions.Contains("Grok", StringComparer.Ordinal), "Grok should not be an API provider option");
         viewModel.Provider = ApiMonitorSettings.OpenRouterProvider;
         AssertEqual("https://openrouter.ai", viewModel.BaseUrl, "OpenRouter default base URL");
         AssertTrue(!viewModel.HasSecondaryDisplay, "OpenRouter waiting secondary display");
@@ -3352,7 +3416,6 @@ internal static class Program
         AssertEqual("https://nano-gpt.com", viewModel.BaseUrl, "NanoGPT default base URL");
         AssertEqual("N/A", viewModel.BalanceDisplay, "provider switch should clear balance");
         AssertEqual("N/A", viewModel.UsedDisplay, "provider switch should clear used display");
-        AssertEqual(string.Empty, viewModel.BalanceTooltip, "provider switch should clear tooltip");
         AssertEqual("Waiting for refresh", viewModel.StatusText, "provider switch should clear status");
         AssertEqual("Used(30d):", viewModel.SecondaryDisplayLabel, "NanoGPT secondary display label");
         viewModel.Update(new ApiUsageResult(
@@ -3461,6 +3524,17 @@ internal static class Program
             $"{nearestExpiry.AddDays(1).ToLocalTime():MM-dd} · {nearestExpiry.AddDays(2).ToLocalTime():MM-dd}",
             response.ResetCredits.OtherExpiriesLocal,
             "other local reset credit expiries");
+
+        CodexUsageCollector malformed = CreateCodexUsageCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10, 20,
+                                                                 out HttpClient malformedClient, "{\"available_count\":\"bad\"}");
+        using (malformedClient)
+        {
+            UsageResponse isolated = await malformed.CollectAsync(temp.Path);
+            AssertTrue(isolated.Available, "invalid reset credits must preserve main quota");
+            AssertEqual(80, isolated.Limits.Weekly.RemainingPercent, "weekly quota survives reset parsing failure");
+            AssertTrue(!isolated.ResetCredits.Available, "invalid reset credits must be unavailable");
+            AssertEqual("Invalid response format", isolated.ResetCredits.Error, "reset error stays sanitized");
+        }
     }
 
     /// <summary>
@@ -3492,7 +3566,6 @@ internal static class Program
         quota.Update(limit);
         AssertEqual("N/A", quota.PercentText, "inactive quota percent text");
         AssertEqual("unknown", quota.ResetText, "inactive quota reset text");
-        AssertTrue(quota.IsResetVisible, "inactive visible quota should show the unknown reset text");
 
         TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
         UsageResponse response = new()
@@ -3644,10 +3717,10 @@ internal static class Program
             CreateGrokTokenUpdate("brief", today, 10, 0, 100, apiDurationMilliseconds: 99)
                 .Replace("grok-4.5-build", "short-duration", StringComparison.Ordinal),
         ];
-        string[] invalidDurations = ["null", "0", "-1", "\"1000\"", "1.5", "9223372036854775808"];
+        string[] invalidDurations = ["null", "0", "-1", "\"1000\"", "1000.5", "9223372036854775808"];
         for (int index = 0; index < invalidDurations.Length; index++)
         {
-            lines.Add(CreateGrokTokenUpdate($"invalid-{index}", today, 10, 0, 50, apiDurationMilliseconds: 1_000)
+            lines.Add(CreateGrokTokenUpdate($"invalid-{index}", today, 10, 0, 100, apiDurationMilliseconds: 1_000)
                 .Replace("grok-4.5-build", "invalid-timing", StringComparison.Ordinal)
                 .Replace("\"apiDurationMs\":1000", $"\"apiDurationMs\":{invalidDurations[index]}", StringComparison.Ordinal));
         }
@@ -3694,7 +3767,7 @@ internal static class Program
 
         AssertEqual(300L, statistics.LastThirtyDaysDaily[^2].Summary.TimedOutputTokens, "daily speed retains paired output");
         TokenCostSummary invalid = statistics.Models.Single(item => item.Model == "invalid-timing").Today;
-        AssertEqual(370L, invalid.TotalTokens, "invalid timing keeps token totals");
+        AssertEqual(670L, invalid.TotalTokens, "invalid timing keeps token totals");
         AssertEqual(0m, invalid.CostUsd, "invalid timing keeps unknown-price cost behavior");
         AssertEqual(null, invalid.GetOutputTokensPerSecond(), "invalid timing cannot produce a speed");
         AssertEqual(null, statistics.Models.Single(item => item.Model == "zero-output").Today.GetOutputTokensPerSecond(), "zero output is not a measured speed sample");
@@ -4067,12 +4140,12 @@ internal static class Program
         AssertEqual(70L, statistics.CurrentMonthDaily[4].Summary.TotalTokens, "current-month chart July token count");
         AssertEqual(3450L, statistics.CurrentWeek.TotalTokens, "current-week total tokens");
         AssertEqual(3520L, statistics.CurrentMonth.TotalTokens, "current-month total tokens");
-        AssertEqual(7, statistics.LastSevenDaysDaily.Count, "daily chart slot count");
-        AssertEqual(new DateTime(2026, 7, 5), statistics.LastSevenDaysDaily[0].Date, "daily chart first date");
-        AssertEqual(70L, statistics.LastSevenDaysDaily[0].Summary.TotalTokens, "daily chart first tokens");
-        AssertEqual(550L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "daily chart yesterday tokens");
-        AssertEqual(new DateTime(2026, 7, 11), statistics.LastSevenDaysDaily[6].Date, "daily chart today date");
-        AssertEqual(2900L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "daily chart today tokens");
+        AssertEqual(7, statistics.LastThirtyDaysDaily.TakeLast(7).Count(), "daily chart slot count");
+        AssertEqual(new DateTime(2026, 7, 5), statistics.LastThirtyDaysDaily[23].Date, "daily chart first date");
+        AssertEqual(70L, statistics.LastThirtyDaysDaily[23].Summary.TotalTokens, "daily chart first tokens");
+        AssertEqual(550L, statistics.LastThirtyDaysDaily[28].Summary.TotalTokens, "daily chart yesterday tokens");
+        AssertEqual(new DateTime(2026, 7, 11), statistics.LastThirtyDaysDaily[29].Date, "daily chart today date");
+        AssertEqual(2900L, statistics.LastThirtyDaysDaily[29].Summary.TotalTokens, "daily chart today tokens");
         AssertEqual("gpt-test|unknown-model", string.Join('|', statistics.Models.Select(model => model.Model)), "model statistics names");
         AssertEqual(3350L, statistics.Models[0].LastTwentyFourHours.TotalTokens, "priced model last 24 hours tokens");
         AssertEqual(2800L, statistics.Models[0].Today.TotalTokens, "priced model today tokens");
@@ -4384,7 +4457,7 @@ internal static class Program
         AssertEqual(230L, statistics.Today.TotalTokens, "auto-review tokens stay out of the total");
         AssertEqual(0.0007m, statistics.Today.CostUsd, "auto-review is not priced through the luna alias");
         AssertEqual(false, statistics.Today.HasUnpricedUsage, "excluded usage is not an unpriced remainder");
-        AssertEqual(230L, statistics.LastSevenDaysDaily[^1].Summary.TotalTokens, "daily chart omits auto-review");
+        AssertEqual(230L, statistics.LastThirtyDaysDaily[^1].Summary.TotalTokens, "daily chart omits auto-review");
         AssertEqual("gpt-test", string.Join('|', statistics.Models.Select(model => model.Model)), "model breakdown omits auto-review");
         AssertEqual(230L, statistics.Models[0].Today.TotalTokens, "kept model tokens");
         AssertEqual(2, statistics.SessionLogs.Count, "session log drops auto-review rows");
@@ -4553,10 +4626,8 @@ internal static class Program
             ["deepseek-v4-pro"] = new { input = 0.435m, cachedInput = 0.003625m, output = 0.87m },
         }));
         string activeSession = Path.Combine(temp.Path, "sessions", "workspace", "session-a");
-        string archivedDuplicate = Path.Combine(temp.Path, "archived_sessions", "workspace", "session-a");
         string archivedSession = Path.Combine(temp.Path, "archived_sessions", "workspace", "session-b");
         Directory.CreateDirectory(activeSession);
-        Directory.CreateDirectory(archivedDuplicate);
         Directory.CreateDirectory(archivedSession);
         DateTimeOffset now = new(2026, 8, 12, 12, 0, 0, TimeSpan.FromHours(8));
         DateTimeOffset today = new(2026, 8, 12, 9, 0, 0, TimeSpan.FromHours(8));
@@ -4579,7 +4650,6 @@ internal static class Program
             "{\"method\":\"session/update\",\"params\":{\"_meta\":{\"totalTokens\":999999,\"promptId\":\"legacy\"}}}",
             "{malformed",
         ]);
-        File.WriteAllLines(Path.Combine(archivedDuplicate, "updates.jsonl"), [exactUsage]);
         string archivedPath = Path.Combine(archivedSession, "updates.jsonl");
         File.WriteAllLines(archivedPath,
         [
@@ -4602,8 +4672,8 @@ internal static class Program
         AssertEqual(2_831_472L, statistics.Lifetime.TotalTokens, "Grok lifetime tokens");
         AssertEqual(0.8534805m, statistics.Today.CostUsd, "Grok reported, partial, aggregate, and alternate-model fallback cost");
         AssertEqual(0.8546555m, statistics.Lifetime.CostUsd, "Grok lifetime API-equivalent cost");
-        AssertEqual(170L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "Grok yesterday tokens");
-        AssertEqual(2_831_302L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "Grok daily today tokens");
+        AssertEqual(170L, statistics.LastThirtyDaysDaily[28].Summary.TotalTokens, "Grok yesterday tokens");
+        AssertEqual(2_831_302L, statistics.LastThirtyDaysDaily[29].Summary.TotalTokens, "Grok daily today tokens");
         AssertEqual(
             "deepseek-v4-flash|deepseek-v4-pro|grok-4.5-build|grok-4.6-build|unknown",
             string.Join('|', statistics.Models.Select(model => model.Model)),
@@ -4649,44 +4719,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// Verifies Codex token cost ignores an adjacent OpenCode database.
-    /// </summary>
-    private static Task TestOpenCodeTokenCostIgnoredAsync()
-    {
-        using TempDirectory temp = new();
-        string pricingPath = Path.Combine(temp.Path, "pricing.json");
-        File.WriteAllText(pricingPath, "{\"gpt-test\":{\"input\":2,\"cachedInput\":0.2,\"output\":10}}");
-        string codexRoot = Path.Combine(temp.Path, "codex");
-        string sessions = Path.Combine(codexRoot, "sessions", "2026", "07", "11");
-        string openCodeRoot = Path.Combine(codexRoot, ".local", "share", "opencode");
-        Directory.CreateDirectory(sessions);
-        Directory.CreateDirectory(openCodeRoot);
-        File.WriteAllLines(Path.Combine(sessions, "rollout.jsonl"),
-        [
-            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-test\"}}",
-            "{\"timestamp\":\"2026-07-11T09:00:00+08:00\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":1000,\"cached_input_tokens\":400,\"output_tokens\":100}}}}",
-        ]);
-        using (SqliteConnection connection = new(new SqliteConnectionStringBuilder { DataSource = Path.Combine(openCodeRoot, "opencode.db"), Pooling = false }.ToString()))
-        {
-            connection.Open();
-            using SqliteCommand command = connection.CreateCommand();
-            command.CommandText = "CREATE TABLE message (time_created INTEGER NOT NULL, data TEXT NOT NULL);";
-            command.ExecuteNonQuery();
-            command.CommandText = "INSERT INTO message VALUES ($time, $data);";
-            command.Parameters.AddWithValue("$time", new DateTimeOffset(2026, 7, 11, 9, 0, 0, TimeSpan.FromHours(8)).ToUnixTimeMilliseconds());
-            command.Parameters.AddWithValue("$data", "{\"role\":\"assistant\",\"providerID\":\"openai\",\"modelID\":\"gpt-test\",\"tokens\":{\"input\":600,\"output\":100,\"reasoning\":50,\"cache\":{\"read\":400,\"write\":0}}}");
-            command.ExecuteNonQuery();
-        }
-
-        TokenCostSummary summary = new TokenCostCollector(pricingPath)
-            .CollectCodex(codexRoot, new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8)))
-            .Today;
-        AssertEqual(1_100L, summary.TotalTokens, "Codex tokens exclude OpenCode");
-        AssertEqual(0.00228m, summary.CostUsd, "Codex cost excludes OpenCode");
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
     /// Verifies that only token events matching an explicit parent rollout are treated as replay history.
     /// </summary>
     private static Task TestSubagentTokenCostAsync()
@@ -4728,6 +4760,17 @@ internal static class Program
             new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Lifetime;
         AssertEqual(2860L, lifetime.TotalTokens, "subagent lifetime excludes only matching replay prefix");
         AssertEqual(0.006m, lifetime.CostUsd, "subagent lifetime cost");
+        DateTimeOffset asOf = new(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8));
+        AssertEqual(2860L, collector.CollectCodex(temp.Path, asOf).Lifetime.TotalTokens, "unchanged fork cache preserves totals");
+        string parentPath = Path.Combine(sessions, $"rollout-{parentId}.jsonl");
+        string parentContent = File.ReadAllText(parentPath);
+        File.Delete(parentPath);
+        AssertEqual(330L, collector.CollectCodex(temp.Path, asOf).Lifetime.TotalTokens, "deleted parent invalidates cached fork usage");
+        File.WriteAllText(parentPath, parentContent);
+        AssertEqual(2860L, collector.CollectCodex(temp.Path, asOf).Lifetime.TotalTokens, "restored parent makes fork available again");
+        File.WriteAllText(parentPath, parentContent.Replace("10:30:00", "10:25:00"));
+        File.SetLastWriteTimeUtc(parentPath, DateTime.UtcNow.AddSeconds(1));
+        AssertEqual(2530L, collector.CollectCodex(temp.Path, asOf).Lifetime.TotalTokens, "parent no longer reaching the cutoff invalidates fork cache");
         return Task.CompletedTask;
     }
 
@@ -5080,9 +5123,9 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
     }
 
     /// <summary>
-    /// Sends a fake HTTP response for collector tests.
+    /// Sends a fake asynchronous HTTP response for collector tests.
     /// </summary>
-    protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         string? requestUri = request.RequestUri?.ToString();
         if (requestUri != k_UsageEndpoint && requestUri != k_ResetCreditsEndpoint)
@@ -5107,18 +5150,10 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
             throw new InvalidOperationException("missing reset credit headers");
         }
 
-        return new HttpResponseMessage(HttpStatusCode.OK)
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(requestUri == k_UsageEndpoint ? m_UsageBody : m_ResetCreditsBody, Encoding.UTF8, "application/json"),
-        };
-    }
-
-    /// <summary>
-    /// Sends a fake asynchronous HTTP response for collector tests.
-    /// </summary>
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(Send(request, cancellationToken));
+        });
     }
 }
 

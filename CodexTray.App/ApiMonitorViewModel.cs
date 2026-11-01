@@ -75,7 +75,6 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             }
 
             BalanceDisplay = "N/A";
-            BalanceTooltip = string.Empty;
             UsedDisplay = "N/A";
             StatusText = "Waiting for refresh";
             StatusDotBrush = s_RedBrush;
@@ -103,7 +102,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     public bool IsNewApi => m_Provider == ApiMonitorSettings.NewApiProvider;
 
     public bool HasSecondaryDisplay => IsNewApi || m_Provider == ApiMonitorSettings.NanoGptProvider ||
-        (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.NanoGptProvider or ApiMonitorSettings.VercelProvider &&
+        (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.VercelProvider &&
          !string.IsNullOrEmpty(UsedDisplay) && UsedDisplay != "N/A");
 
     public string PrimaryDisplayLabel => "Balance:";
@@ -114,12 +113,6 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string BalanceDisplay { get; private set; } = "N/A";
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasBalanceTooltip))]
-    public partial string BalanceTooltip { get; private set; } = string.Empty;
-
-    public bool HasBalanceTooltip => !string.IsNullOrWhiteSpace(BalanceTooltip);
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSecondaryDisplay))]
@@ -202,7 +195,6 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         }
 
         BalanceDisplay = result.BalanceDisplay;
-        BalanceTooltip = result.BalanceTooltip;
         UsedDisplay = result.UsedDisplay;
         BalanceState.Update(result.Available, result.UpdatedAt, result.Error);
         bool hasUsage = !string.IsNullOrEmpty(result.UsedDisplay) && result.UsedDisplay != "N/A";

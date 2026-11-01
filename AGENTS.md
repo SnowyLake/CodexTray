@@ -24,7 +24,7 @@
 
 ## 项目概览
 
-`CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 与应用内对话框使用 WPF. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
+`CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 使用 WPF 与 WPF UI (`WPF-UI` 4.3.0), 应用内对话框使用库的 `ContentDialog`. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
 
 `CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务, 插件安装和应用内更新. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Grok 和 API 监控分别采集. Codex Weekly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应. Grok Weekly 与产品占比来自同一次 `https://cli-chat-proxy.grok.com/v1/billing?format=credits` 查询. 订阅名称优先使用 `GET https://cli-chat-proxy.grok.com/v1/settings` 的 `subscription_tier_display`. Token Cost 仅在 Codex 与 Grok 页面显示, 其他 API provider 结果仅显示在主面板.
 
@@ -37,7 +37,7 @@
 3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
 4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Grok/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
 5. `AppSettings.VisiblePages` 控制 Codex, Grok 与 APIs 页的可见性和后台采集. `VisiblePages` 为空时停止本地 HTTP 服务和定时刷新.
-6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 各来源独立发布结果, Codex/Grok 的额度与本地 Token Cost 分开发布; 每次发布前复核退出状态和页面可见性, 单来源失败不阻止其他来源. 刷新所有发布任务仍统一等待, 保持请求合并与退出排空. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
+6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 各来源独立发布结果, Codex/Grok 的额度与本地 Token Cost 分开发布; 每次发布前复核退出状态和页面可见性, 单来源失败不阻止其他来源. 刷新所有发布任务仍统一等待, 保持请求合并与退出排空. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application. 本地服务监听异常退出时同样复用 `StopAsync` 取消并排空活动连接, 排空完成后才能重启.
 7. `RefreshRequests` 合并待执行的来源位掩码和 API 卡片 ID; 全部 APIs 请求覆盖单卡请求. 当前 owner 排空后才开始下一批, 防止同一采集器并发执行. 页面刷新仅请求该来源; 卡片保存与重试仅请求该卡片. `ApiUsageSnapshots` 合并单卡结果, 按实时配置顺序重建第一页 DeepSeek 插件映射, 配置已修改或卡片已删除时丢弃迟到结果. 隐藏 APIs 时不得重新发布 DeepSeek 缓存.
 8. `UsageHttp` 仅用于只读额度与用量查询 (包括只读 POST), 不用于 OAuth token POST. 网络错误, 非调用方取消的超时, HTTP 429 与 5xx 最多尝试 3 次, 默认等待 500/1000 毫秒; `Retry-After` 支持秒数与日期, 累计等待预算 10 秒, 超出预算直接结束而不缩短服务要求的等待. 每次重新构造请求与内容, 中间响应先释放, 等待可取消. 401/403, 其他 4xx 与解析错误不自动重试, 复用 Grok 原有最多一次强制 OAuth 续期. Grok 额度失败后不改走其他额度端点.
 9. `UsageDiagnostics` 使用固定 HTTP/异常描述和错误类别; 不回显服务器 reason phrase, JSON message 或任意 exception.Message. Grok 自有解析异常保留固定字段描述, 复制诊断只含应用版本, 固定来源/provider 名称, 成功时间与错误类别, 不含 URL, 账号, 卡片 ID/名称, 请求头或响应原文. 复制诊断和恢复备份入口集中在 Settings 的 Advanced 一栏, 复制按钮传入 `PageItem.All` 汇总所有来源.
@@ -77,6 +77,8 @@
 
 ### 本地 Token Cost
 
+- Codex 会话缓存同时校验子会话分页和回放父会话分页的路径、长度及修改时间; 父分页变化或消失时重新校验回放截止点, 不沿用子会话的旧统计. 模型圆环合并同名模型及 `Other` 时传播 `HasUnpricedUsage`; 采集失败时自然月与滚动趋势图均显示 `N/A`.
+
 - `TokenCostSummary.HasUnpricedUsage` 按事件与所选周期传播, 保留已知费用小计; Grok 部分自报费用无法完整回算时同样标记. `RefreshState` 保存每部分最后成功时间和当前错误, 失败时 UI 和插件清空数值为 `N/A`. 部分费用在金额旁显示 `*`. 时段列表, 圆环中心与 Codex, Grok 标题栏更新时间不显示 tooltip. 价格表按内容比较并同步加载, Codex 在价格字典变化后清空已计算费用的会话缓存, 不依赖文件长度或修改时间.
 - `TokenCostCollector.CollectCodex` 读取 `~/.codex/sessions/**/*.jsonl` 与 `*.jsonl.zst`, 以及 `~/.codex/archived_sessions` 根目录下的同类文件. Codex 的「压缩本地聊天记录」对应 `features.local_thread_store_compression`: 超过 7 天的 rollout 被整文件压成 zstd `.jsonl.zst` 并删除明文, 解压后的行与原 JSONL 相同, `token_count` 仍按事件时间分日. 同一路径同时存在明文和 `.zst` 时只读明文. 使用 `Resources/model-pricing.json` 计算 API 等价成本与缓存命中率. 不读取 OpenCode. 同一 thread 的桌面分页文件按文件名顺序拼接后共享累计水位; 父会话未写到 `forked_from` / `parent_thread_id` 截止点的子会话整段不计.
 - `model-pricing.json` 每个模型使用默认一口价 `input`/`cachedInput`/`output`, 可选 `aliases` 与 `periods`. 默认三价覆盖全天. `periods` 按数组顺序命中第一段: 每段可写 `daysUtc` (0=周日到 6=周六), `startUtc`, `endUtc` (UTC `HH:mm`, 含起不含止). 省略星期或起止时间则该段默认全星期或全天. 未命中任何时段时回退默认三价. 分时只影响本地回算, 不拆分 UI, 也不覆盖 Grok 完整自报 `costUsdTicks`.
@@ -92,15 +94,21 @@
 
 ### 设置边界
 
+- API 卡片保存只替换被保存卡片的字段; 保存、排序和删除均按当前顺序保留其他卡片的已保存配置, 不持久化其编辑草稿或 pending 卡片. 启动插件自动定位完成后仅合并未编辑的路径, 并更新路径基线, 不重新加载或替换整个设置与 API 卡片列表.
+
 - `SettingsStore.LoadError` 非空时禁止全部持久化, 自动插件定位也跳过. 读取与保存均验证 JSON object 和可反序列化字段, 运行期间文件损坏同样阻止覆盖. 主配置已成功解析时, 后续备份或规范化写入失败仍返回该有效配置, 同时报告错误并阻止持久化. `settings.last-good.json` 保存上一份有效配置; 恢复先验证备份, 把当前文件复制为 `settings.damaged-<guid>.json`, 再原子替换主文件. 主配置, 备份和保留副本中的 API 凭据均使用相同明文表示, 不得分享这些文件. 恢复会替换 ViewModel 的共享配置引用并阻止旧配置的在途刷新发布.
 - 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults` (`CodexTray.Core/CodexTrayDefaults.cs`).
 - 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
-- 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景.
+- 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景. Mica 启用成功时必须同时设置覆盖客户区的 `WindowChrome.GlassFrameThickness = -1`, 并调用 WPF UI 的 `WindowBackdrop.RemoveBackground` 清除窗口及 `HwndSource.CompositionTarget` 背景; 仅把 RootBorder 设透明会露出默认黑色合成底色. Mica 关闭, 不可用或高对比度模式下, 移除玻璃框架并恢复窗口与 RootBorder 的不透明主题背景. 窗口资源使用 WPF UI 的 `ThemesDictionary` 与 `ControlsDictionary`, 不启用 WPF 内置 `Window.ThemeMode` 或加载 `PresentationFramework.Fluent`, 避免两套主题管理互相覆盖. 系统偏好变化经 Dispatcher 同步主题与 Mica, 强调色由 `ApplicationAccentColorManager` 生成并从库的 `UiApplication` 顶层资源复制到窗口, 避免窗口字典覆盖系统强调色. 高对比度选择库实际提供的 `HC1`, `HC2`, `HCBlack` 或 `HCWhite` 资源; 窗口关闭时取消系统事件订阅.
+- 应用内 `ToolTip` 的窗口级隐式样式继承 WPF UI 的 `DefaultToolTipStyle`, 保留 Segoe UI 字体, 由库的动态主题资源提供背景, 前景和边框. 库模板未绑定 `ToolTip.Padding`, 因此在 Loaded 时将模板 `Border` 的 Padding 设为 `8,2,8,2`, 与内容 Margin 4 合成左右 12, 上下 6 DIP 的留白. 图表, 按钮及自定义控件内的提示共享此样式; 不使用仅设置字体的独立样式覆盖库模板. 托盘图标仍使用 `NotifyIcon.Text` 的系统提示.
 - 主面板尺寸固定为 360 x 620.
+- 通用按钮和文本框使用 WPF UI 控件, 图标按钮统一使用透明背景和零边框, 下拉框等使用库的模板; 自启动, 时间格式和 Mica 使用 `ToggleSwitch`, 刷新与插件检测使用 `ProgressRing`. 数值编辑与凭据遮挡继续复用现有控件. 五个主页面进入时使用 WPF 可控 `Storyboard` 播放 200ms 淡入与左右滑动, 按 PageViewport 子项顺序 Codex/Grok/APIs/Settings/About 判断方向, 前进从右侧 50 DIP 滑入, 返回从左侧 50 DIP 滑入; `PageViewport` 裁剪动画内容, 底部导航不参与位移. Session Logs 与统计区域使用 200ms 淡入及垂直位移, 记录从下方 30 DIP 进入, 返回的额度与统计从上方 30 DIP 进入; 内容区域单独裁剪, 不移动页眉. 所有过渡保持与 WPF UI 相同的 0.7 减速比例. 垂直动画 仅在 IsOpen 的 Visibility 绑定更新时触发, 父页面或窗口显隐不触发; 隐藏时仍清除动画. 主页面索引未变的托盘重新显示不触发左右滑动. 对话框保留 160ms FadeIn. 遵循 `SystemParameters.ClientAreaAnimation`, 每个元素只保留一个活动 Storyboard, 完成, 隐藏, 重入或关闭时移除透明度与位移时钟; 完成回调只清理自身登记, 不影响后续动画. 主页面正在滑入时切换记录立即更新内容, 不叠加子区域动画, 主页面自然完成后恢复独立的上下动画. 保留原有即时失焦隐藏和 Esc 行为.
+- `ContentDialogHost` 位于窗口内容最上层, 使用库的焦点约束与输入阻挡. 对话框启用布局取整和 Display 文字格式, 加载时移除库模板外层 Border 的 DropShadowEffect, 避免整块内容离屏栅格化导致文字发虚. 对话框绑定现有 `InAppDialog*` 字段, 双按钮请求使用 Primary/Close, 单按钮请求仅使用带文字的 Close, PreviewKeyDown 优先处理 Esc 取消. 按钮点击时先释放 host, 再同步执行现有确认/取消命令; 旧对话框异步收尾不得关闭后续请求. 程序取消或窗口关闭须立即释放 host 和确认回调. Session Logs 外部滚动条固定为 12 DIP, 避免库默认滚动条尺寸挤压已有列间距.
 - `TrayController.BuildTrayTooltip` 只格式化当前可见来源的插件缓存, 使用 `Codex W`, `Grok W` 和 `DeepSeek` 标签, 总长最多 63 字符. 已停用的页面位不增加托盘行. 额度限制在 0 到 100 的整数, DeepSeek 整元余额超过 11 字符时截短并加省略号; 不回显源错误或凭据. 各来源发布与页面可见性变化后更新托盘 Text. `TrayPopupViewModel.IsPanelPinned` 默认 false, 不写 settings, 开启后 `OnDeactivated` 不隐藏; Esc 与托盘左键仍沿用显式隐藏逻辑, 页脚图钉使用现有绿色表示选中状态. 窗口关闭时保留 ViewModel 的采集状态, 清理应用内对话框及其确认回调, 并取消窗口的 `PropertyChanged` 订阅.
 - Codex, Grok 与 APIs 页面默认可见. `VisiblePages` 为空时不运行定时刷新和本地 HTTP 服务. `PageItem` 保留 `Codex = 1`, `Apis = 4`, `Grok = 8`. 位 1 已停用, 旧配置里的该位在 `Normalize` 时被掩掉. 缺少 `SettingsSchemaVersion` 或版本低于当前值, 且 `VisiblePages` 为 7 (旧版 Codex|Cursor|Apis) 时, 视为当时的全部页面并改为 `Codex|Grok|Apis`.
 - Codex 和 Grok Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Year`. `24H` 从当前时刻精确向前滚动 24 小时. `Week` 从本地当周周一开始, `Month` 从本地当月 1 日开始, `Year` 从本地当年 1 月 1 日开始, 都含起始日, 截止到 `asOf` 的本地日期, 更晚的日期不计入. `Lifetime` 仍累计不晚于该本地日期的全部历史. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
 - 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). 时段列表与圆环中心不显示 tooltip. Token 数量使用 K, M, B.
+- Codex/Grok 共用图表的入场状态保存在稳定的 `ItemsControl` 上, 每次区域可见期间只播放一次 220ms 动画: 圆环各扇区同时独立逆时针填充并淡入, 柱图从底部 ScaleY 0 到 1 并淡入. 每个圆环分段保留 StartAngle 与 SweepAngle, 使用统一动画进度生成各自的扇形 Clip: 从该段顺时针末端逆时针向起点展开, 同时开始和结束, 不使用整圈扫描. 最终模型顺序与比例不变, 中心文字不参与裁剪; 动画结束或取消时移除 Clip. 首次没有有效图形时等待数据到达; 后台刷新只替换数据, 不清除入场标记. 手动切换圆环或柱状图时段后, ViewModel 在更新数据后通知 SelectedPeriod 或 ChartPeriod, 对应 ItemsControl 的 Tag 绑定更新负责重置并重播动画. 柱图滚动/自然月切换导致选中圆环周期变化时, 圆环同步重播; 重复选择当前时段不触发. 区域隐藏或卸载后重置标记, 因此切回页面, 关闭 Session Logs 或重新打开面板会重新入场. 悬停动画为 120ms: 扇区围绕共同圆心 `(72,72)` 放大到 1.04, 柱形以底部为原点放大到 ScaleX 1.12/ScaleY 1.04. 可视图形不接收命中, 鼠标事件使用固定的原始扇区或整列区域, 中心文字不缩放; 当前扇区的容器提高 ZIndex. 圆环占位底环仅在没有扇区时显示, 避免缩放露出内侧灰弧. 图表禁用自动 ToolTipService, 共用窗口资源 `ChartToolTip`, MouseEnter 同步更新 PlacementTarget, 内容并打开提示和高亮, MouseLeave 仅关闭仍归该项拥有的提示; 无额外延迟或独立显示超时. 提示保留 WPF UI 主题样式且不接收命中, 避免系统 tooltip 矩形安全区延迟相邻扇区的提示切换. 隐藏, 卸载和关闭须关闭提示并释放 owner. 模板冻结的变换在首次动画前克隆为实例. 动画使用 0.7 减速比例, 遵从系统动画与硬件加速开关; 隐藏, 卸载及关闭时移除时钟并恢复尺寸, 完成回调不得清除替代动画.
 - Codex 额度大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示, 只有一个有效页面时隐藏页点. Resets 使用全宽小卡片. Codex 订阅徽章来自 usage 响应的 `plan_type`: `free`/`go`/`plus`/`chatgpt` 显示 `FREE`/`GO`/`PLUS`; `prolite` 及 `pro_lite`/`pro_5x`/`pro5x` 显示 `PRO 100`; `pro` 及 `pro_10x`/`pro10x`/`pro_20x`/`pro20x` 显示 `PRO 200`; `promax` 及 `pro_max`/`pro_25x`/`pro25x` 显示 `PRO 500`; 其他值显示 `UNKNOWN`.
 - Grok 上方使用 Weekly 大卡片和产品占比小卡片, 这是面板上唯一的订阅额度区域. 订阅徽章优先使用 `/v1/settings` 的 `subscription_tier_display`. Weekly 大卡片显示 billing 剩余整数百分比, 重置时间使用账期结束时间. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 进度条最多四段: 最高三项加上 `Others`. 图例固定三项, 全为零时显示 `Build`, `Bot`, `Cursor`; 不足三项时按该默认顺序补齐. 三个及以上非零产品时保留最高三项, 其余仅合并到进度条中的 `Others`. `Others` 不出现在图例中. 鼠标悬停进度条时列出全部返回产品的占比, 包括零值; 没有返回产品时不显示 tooltip. 图例前三项颜色与 Token Cost 圆环前三项一致, `Others` 与圆环第四项一致. 用量不可用时显示 `N/A`. 产品名和占比来自 billing `productUsage`. 显示名去掉 `PRODUCT_GROK_`, `PRODUCT_` 与 `Grok` 前缀, 因此 `PRODUCT_CURSOR` 显示为 `Cursor`. 缺少产品名时按 `Cursor` 计.
 - API provider 的 API key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.
@@ -144,7 +152,7 @@
 - 修改 `VisiblePages` 或刷新调度时, 同步检查页面导航, 定时器, 插件本地 HTTP 服务启停, 缓存清理和各采集器调用条件.
 - 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
 - 本地服务必须保持仅监听 `127.0.0.1`. 除第一张 DeepSeek 卡片的 CNY 余额外, 其他 API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.
-- `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. `Scripts/Restart-App.ps1` 只重启当前发布输出中的程序, 不执行发布.
+- `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. 发布预览和重启脚本仅停止与目标 exe 完整路径一致的进程; 存在其他安装路径或无法读取路径的同名进程时先报错, 不终止任何实例. `Scripts/Restart-App.ps1` 不执行发布.
 - 修改应用内更新的包名, 校验, 保留文件, `--apply-update` 参数或更新对话框时, 同步检查 `AppUpdateRelease`, `AppUpdatePackage`, `AppUpdateInstaller`, `GitHubAppUpdateClient`, `Program.cs`, Settings 页版本行, 对应测试和 README.
 
 ## 构建与输出

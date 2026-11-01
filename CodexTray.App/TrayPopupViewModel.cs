@@ -33,15 +33,13 @@ internal enum SettingsStatus
     Unsaved,
 }
 
-internal sealed record TokenCostDisplay(string Cost, string Tokens);
-
-internal sealed record TokenCostChartDay(DateTime Date, string Label, double BarHeight, string Tooltip, bool IsInteractive);
+internal sealed record TokenCostChartDay(DateTime Date, double BarHeight, string Tooltip, bool IsInteractive);
 
 internal sealed record TokenCostChartLabel(string Text, double Left);
 
-internal sealed record TokenCostDonutSegment(string Label, string Share, Media.Brush Brush, Media.Geometry Geometry, string Tooltip);
+internal sealed record TokenCostDonutSegment(string Label, string Share, Media.Brush Brush, Media.Geometry Geometry, string Tooltip, double StartAngle, double SweepAngle);
 
-internal sealed record TokenCostModelShare(string Label, long Tokens, decimal? CostUsd, long TimedOutputTokens, long TimedDurationMilliseconds);
+internal sealed record TokenCostModelShare(string Label, long Tokens, decimal? CostUsd, long TimedOutputTokens, long TimedDurationMilliseconds, bool HasUnpricedUsage);
 
 internal enum TokenCostPeriod
 {
@@ -106,7 +104,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private static readonly string[] s_ModelEffortSuffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh"];
     private static readonly Media.Brush s_PlanBadgeActiveBrush = s_GreenBrush;
     private static readonly Media.Brush s_PlanBadgeInactiveBrush = CreateFrozenBrush(107, 122, 117);
-    private static readonly TokenCostDisplay s_UnavailableTokenCostDisplay = new("N/A", "N/A");
 
     private AppSettings m_Settings;
     private string m_CurrentPage = k_CodexPageName;
@@ -572,6 +569,32 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Merges persisted startup detection results without replacing settings drafts.
+    /// </summary>
+    internal void MergeDetectedMonitorPaths()
+    {
+        m_SuppressDirtyTracking = true;
+        try
+        {
+            if (LiteMonitorDir == m_SnapshotLiteMonitorDir)
+            {
+                LiteMonitorDir = m_Settings.LiteMonitorDir;
+            }
+            if (TrafficMonitorDir == m_SnapshotTrafficMonitorDir)
+            {
+                TrafficMonitorDir = m_Settings.TrafficMonitorDir;
+            }
+            m_SnapshotLiteMonitorDir = m_Settings.LiteMonitorDir;
+            m_SnapshotTrafficMonitorDir = m_Settings.TrafficMonitorDir;
+        }
+        finally
+        {
+            m_SuppressDirtyTracking = false;
+        }
+        EvaluateDirtyState();
+    }
+
+    /// <summary>
     /// Recomputes dirty state after the LiteMonitor directory changes.
     /// </summary>
     partial void OnLiteMonitorDirChanged(string value) => EvaluateDirtyState();
@@ -817,14 +840,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             string reset = m_Settings.UseAbsoluteResetTime
                 ? UsageLimit.FormatResetDate(usage.ResetsAt, dashboard.UpdatedAt)
                 : UsageLimit.FormatResetLabel(usage.ResetsAt, dashboard.UpdatedAt);
-            GrokWeeklyQuota.UpdateUsedPercent(usage.UsedPercent, reset, showReset: true);
+            GrokWeeklyQuota.UpdateUsedPercent(usage.UsedPercent, reset);
         }
         else
         {
             m_GrokSubscriptionTier = string.Empty;
             ApplyGrokPlanBadge();
             ClearGrokProductUsage();
-            GrokWeeklyQuota.UpdateUnavailable(showReset: true, unavailableResetText: "N/A");
+            GrokWeeklyQuota.UpdateUnavailable(unavailableResetText: "N/A");
         }
 
         if (tokenCost != null)
@@ -1073,9 +1096,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         ApiMonitors.Move(oldIndex, newIndex);
-        m_Settings.ApiMonitors = ApiMonitors.Join(m_Settings.ApiMonitors, card => card.Id, saved => saved.Id, (_, saved) => saved).ToList();
-        NotifyApiMonitorCountChanged();
-        ApiMonitorsChanged?.Invoke(this, EventArgs.Empty);
+        SaveApiMonitors();
     }
 
     /// <summary>
@@ -1083,9 +1104,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     /// </summary>
     private void HandleApiMonitorSaved(object? sender, EventArgs args)
     {
-        SaveApiMonitors();
         if (sender is ApiMonitorViewModel card)
         {
+            SaveApiMonitors(card);
             RetryApiMonitorCommand.Execute(card);
         }
     }
@@ -1163,11 +1184,16 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Copies API monitor cards into application settings and requests persistence.
+    /// Persists card order and only the explicitly saved card's fields.
     /// </summary>
-    private void SaveApiMonitors()
+    private void SaveApiMonitors(ApiMonitorViewModel? changedCard = null)
     {
-        m_Settings.ApiMonitors = ApiMonitors.Where(monitor => !monitor.IsPending).Select(monitor => monitor.ToSettings()).ToList();
+        IEnumerable<ApiMonitorSettings> savedCards = m_Settings.ApiMonitors;
+        if (changedCard != null)
+        {
+            savedCards = savedCards.Where(saved => saved.Id != changedCard.Id).Append(changedCard.ToSettings());
+        }
+        m_Settings.ApiMonitors = ApiMonitors.Join(savedCards, card => card.Id, saved => saved.Id, (_, saved) => saved).ToList();
         NotifyApiMonitorCountChanged();
         ApiMonitorsChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -1699,6 +1725,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
         public IReadOnlyList<TokenCostRowViewModel> Rows { get; } = CreateRows();
 
+        public TokenCostPeriod SelectedPeriod => Rows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.LastTwentyFourHours;
+
+        public TokenCostChartPeriod ChartPeriod => m_ChartPeriod;
+
         [ObservableProperty]
         public partial IReadOnlyList<TokenCostChartDay> ChartDays { get; private set; } = [];
 
@@ -1768,6 +1798,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             }
 
             UpdateDonut();
+            OnPropertyChanged(nameof(SelectedPeriod));
         }
 
         /// <summary>
@@ -1780,6 +1811,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 ? TokenCostChartPeriod.CurrentMonth
                 : TokenCostChartPeriod.LastThirtyDays;
             Refresh();
+            OnPropertyChanged(nameof(ChartPeriod));
+            OnPropertyChanged(nameof(SelectedPeriod));
         }
 
         /// <summary>
@@ -1809,9 +1842,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
             foreach (TokenCostRowViewModel row in Rows)
             {
-                row.Display = m_Statistics == null
-                    ? s_UnavailableTokenCostDisplay
-                    : FormatTokenCost(GetPeriodSummary(m_Statistics, row.Period));
+                row.Tokens = m_Statistics == null
+                    ? "N/A"
+                    : AppSettings.FormatTokenCount(GetPeriodSummary(m_Statistics, row.Period).TotalTokens);
             }
         }
 
@@ -1820,7 +1853,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// </summary>
         private void UpdateDonut()
         {
-            TokenCostPeriod period = Rows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.LastTwentyFourHours;
+            TokenCostPeriod period = SelectedPeriod;
             if (m_Statistics == null)
             {
                 SelectedTokenDisplay = "N/A";
@@ -1841,12 +1874,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 {
                     TokenCostSummary modelSummary = GetPeriodSummary(model, period);
                     return new TokenCostModelShare(FormatModelLabel(model.Model), modelSummary.TotalTokens, modelSummary.CostUsd,
-                                                   modelSummary.TimedOutputTokens, modelSummary.TimedDurationMilliseconds);
+                                                   modelSummary.TimedOutputTokens, modelSummary.TimedDurationMilliseconds, modelSummary.HasUnpricedUsage);
                 })
                 .Where(model => model.Tokens > 0)
                 .GroupBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
                 .Select(group => new TokenCostModelShare(group.Key, group.Sum(model => model.Tokens), SumModelCosts(group),
-                                                        group.Sum(model => model.TimedOutputTokens), group.Sum(model => model.TimedDurationMilliseconds)))
+                                                        group.Sum(model => model.TimedOutputTokens), group.Sum(model => model.TimedDurationMilliseconds), group.Any(model => model.HasUnpricedUsage)))
                 .OrderByDescending(model => model.Tokens)
                 .ThenBy(model => model.Label, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -1863,7 +1896,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             if (otherTokens > 0)
             {
                 displayedShares.Add(new TokenCostModelShare("Other", otherTokens, SumModelCosts(remainingShares),
-                                                            remainingShares.Sum(model => model.TimedOutputTokens), remainingShares.Sum(model => model.TimedDurationMilliseconds)));
+                                                            remainingShares.Sum(model => model.TimedOutputTokens), remainingShares.Sum(model => model.TimedDurationMilliseconds), remainingShares.Any(model => model.HasUnpricedUsage)));
             }
 
             long totalTokens = displayedShares.Sum(model => model.Tokens);
@@ -1884,7 +1917,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 ];
                 if (model.CostUsd is decimal modelCost)
                 {
-                    tooltipLines.Add($"Cost: {modelCost.ToString("$0.00", CultureInfo.InvariantCulture)}");
+                    tooltipLines.Add($"Cost: {modelCost.ToString("$0.00", CultureInfo.InvariantCulture)}{(model.HasUnpricedUsage ? "* · Partial cost" : string.Empty)}");
                 }
 
                 if (m_ShowSpeed && model.TimedDurationMilliseconds > 0)
@@ -1901,7 +1934,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     shareText,
                     s_TokenCostDonutBrushes[index],
                     CreateDonutSegmentGeometry(startAngle, sweepAngle),
-                    tooltip));
+                    tooltip,
+                    startAngle,
+                    sweepAngle));
                 startAngle += sweepAngle;
             }
 
@@ -2130,10 +2165,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     int index = offset + slotCount - 1;
                     DateTime date = DateTime.Today.AddDays(offset);
                     string tooltip = $"{date:yyyy-MM-dd}{Environment.NewLine}Tokens: N/A";
-                    string label = index == 0 || index == slotCount - 1 || (index + 1) % 10 == 0
-                        ? date.Day.ToString(CultureInfo.InvariantCulture)
-                        : string.Empty;
-                    unavailableDays.Add(new TokenCostChartDay(date, label, 0, tooltip, index < interactiveCount));
+                    unavailableDays.Add(new TokenCostChartDay(date, 0, tooltip, index < interactiveCount));
                 }
 
                 return unavailableDays;
@@ -2146,6 +2178,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             for (int index = 0; index < dailySummaries.Count; index++)
             {
                 TokenCostDailySummary day = dailySummaries[index];
+                if (m_Statistics == null)
+                {
+                    days.Add(new TokenCostChartDay(day.Date, 0, $"{day.Date:yyyy-MM-dd}{Environment.NewLine}Tokens: N/A", index < interactiveCount));
+                    continue;
+                }
                 decimal cost = day.Summary.CostUsd ?? 0;
                 double height = chartByCost
                     ? cost <= 0 ? 0 : Math.Max(2, (double)(cost / maximumCost) * k_TokenCostChartMaximumBarHeight)
@@ -2160,22 +2197,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                         + (day.Summary.HasUnpricedUsage ? "* · Partial cost" : string.Empty);
                     tooltip += $"{Environment.NewLine}Cost: {costText}";
                 }
-                string label = index == 0 || index == dailySummaries.Count - 1 || (index + 1) % 10 == 0
-                    ? day.Date.Day.ToString(CultureInfo.InvariantCulture)
-                    : string.Empty;
-                days.Add(new TokenCostChartDay(day.Date, label, height, tooltip, index < interactiveCount));
+                days.Add(new TokenCostChartDay(day.Date, height, tooltip, index < interactiveCount));
             }
 
             return days;
-        }
-
-        /// <summary>
-        /// Formats one token cost period for display.
-        /// </summary>
-        private TokenCostDisplay FormatTokenCost(TokenCostSummary summary)
-        {
-            string cost = (summary.CostUsd?.ToString("$0.00", CultureInfo.InvariantCulture) ?? "N/A") + (summary.HasUnpricedUsage ? "*" : string.Empty);
-            return new TokenCostDisplay(cost, AppSettings.FormatTokenCount(summary.TotalTokens));
         }
     }
 
@@ -2187,7 +2212,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         public TokenCostPeriod Period { get; internal set; }
 
         [ObservableProperty]
-        public partial TokenCostDisplay Display { get; internal set; } = s_UnavailableTokenCostDisplay;
+        public partial string Tokens { get; internal set; } = "N/A";
 
         [ObservableProperty]
         public partial bool IsSelected { get; internal set; }
@@ -2289,9 +2314,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         [ObservableProperty]
         public partial bool IsVisible { get; private set; } = true;
 
-        [ObservableProperty]
-        public partial bool IsResetVisible { get; private set; } = true;
-
         /// <summary>
         /// Creates a quota display model.
         /// </summary>
@@ -2312,29 +2334,28 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 return;
             }
 
-            UpdateRemaining(limit.RemainingPercent, limit.ResetLabel, showReset: true);
+            UpdateRemaining(limit.RemainingPercent, limit.ResetLabel);
         }
 
         /// <summary>
         /// Updates the quota display from used-percent data.
         /// </summary>
-        public void UpdateUsedPercent(double usedPercent, string resetText, bool showReset)
+        public void UpdateUsedPercent(double usedPercent, string resetText)
         {
             int remaining = (int)Math.Round(Math.Clamp(100 - usedPercent, 0, 100), MidpointRounding.AwayFromZero);
-            UpdateRemaining(remaining, resetText, showReset);
+            UpdateRemaining(remaining, resetText);
         }
 
         /// <summary>
         /// Updates the quota display for a failed or unauthorized response.
         /// </summary>
-        public void UpdateUnavailable(bool showReset = true, string unavailableResetText = "unknown")
+        public void UpdateUnavailable(string unavailableResetText = "unknown")
         {
             RemainingPercent = 0;
             PercentText = "N/A";
             ResetText = unavailableResetText;
             AccentBrush = s_RedBrush;
             IsVisible = true;
-            IsResetVisible = showReset;
         }
 
         /// <summary>
@@ -2346,9 +2367,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         }
 
         /// <summary>
-        /// Applies one remaining percentage and optional reset label to the quota display.
+        /// Applies one remaining percentage and reset label to the quota display.
         /// </summary>
-        private void UpdateRemaining(int remainingPercent, string resetText, bool showReset)
+        private void UpdateRemaining(int remainingPercent, string resetText)
         {
             int remaining = Math.Max(0, Math.Min(100, remainingPercent));
             RemainingPercent = remaining;
@@ -2356,7 +2377,6 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             ResetText = string.IsNullOrWhiteSpace(resetText) ? "unknown" : resetText;
             AccentBrush = GetAccentBrush(remaining);
             IsVisible = true;
-            IsResetVisible = showReset;
         }
 
         /// <summary>

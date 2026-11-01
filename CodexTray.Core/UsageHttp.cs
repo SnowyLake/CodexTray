@@ -78,9 +78,8 @@ internal static class UsageHttp
 }
 
 /// <summary>
-/// Carries only a status code and a fixed safe description, never response text or request credentials.
+/// Carries a fixed safe HTTP error description, never response text or request credentials.
 /// </summary>
 internal sealed class UsageHttpException(HttpStatusCode status) : InvalidOperationException(UsageDiagnostics.HttpError(status))
 {
-    internal HttpStatusCode Status { get; } = status;
 }

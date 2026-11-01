@@ -4,6 +4,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:core="clr-namespace:CodexTray.Core;assembly=CodexTray.Core"
         xmlns:local="clr-namespace:CodexTray.App"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Title="{x:Static core:CodexTrayDefaults.AppName}"
         Width="{x:Static core:CodexTrayDefaults.PopupWindowWidth}"
@@ -19,16 +20,30 @@
         Background="Transparent"
         Topmost="True"
         TextOptions.TextFormattingMode="Ideal"
-        TextOptions.TextRenderingMode="ClearType"
-        ThemeMode="System">
+        TextOptions.TextRenderingMode="ClearType">
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.xaml" />
+                <ui:ThemesDictionary Theme="Light" />
+                <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
 
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
             <local:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
+            <Style x:Key="InAppDialogStyle" TargetType="{x:Type ui:ContentDialog}" BasedOn="{StaticResource {x:Type ui:ContentDialog}}">
+                <Setter Property="UseLayoutRounding" Value="True" />
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+                <Setter Property="PrimaryButtonText" Value="{Binding InAppDialogPrimaryButtonText}" />
+                <Setter Property="CloseButtonText" Value="{Binding InAppDialogSecondaryButtonText}" />
+                <Setter Property="DefaultButton" Value="Primary" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding HasInAppDialogSecondaryButton}" Value="False">
+                        <Setter Property="PrimaryButtonText" Value="" />
+                        <Setter Property="CloseButtonText" Value="{Binding InAppDialogPrimaryButtonText}" />
+                        <Setter Property="DefaultButton" Value="Close" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
             <sys:Int32 x:Key="ToolTipInitialShowDelay">120</sys:Int32>
             <sys:Int32 x:Key="ToolTipShowDuration">6000</sys:Int32>
             <sys:Double x:Key="QuotaBarHeight">6</sys:Double>
@@ -36,9 +51,12 @@
             <Geometry x:Key="OpenAiLogoGeometry">M9.205,8.658 V6.398 C9.205,6.208 9.277,6.065 9.443,5.97 L13.986,3.354 C14.605,2.997 15.342,2.831 16.103,2.831 C18.957,2.831 20.765,5.043 20.765,7.397 C20.765,7.564 20.765,7.754 20.741,7.944 L16.031,5.185 C15.746,5.019 15.461,5.019 15.175,5.185 L9.205,8.658 Z M19.814,17.458 V12.06 C19.814,11.727 19.671,11.49 19.385,11.323 L13.415,7.85 L15.365,6.732 C15.532,6.637 15.674,6.637 15.841,6.732 L20.384,9.349 C21.693,10.109 22.573,11.727 22.573,13.298 C22.573,15.106 21.503,16.771 19.814,17.458 Z M7.802,12.703 L5.852,11.561 C5.685,11.466 5.613,11.323 5.613,11.133 V5.899 C5.613,3.354 7.563,1.427 10.204,1.427 C11.204,1.427 12.131,1.76 12.916,2.355 L8.23,5.067 C7.945,5.233 7.802,5.471 7.802,5.804 V12.703 Z M12,15.128 L9.205,13.558 V10.228 L12,8.658 L14.795,10.228 V13.558 L12,15.128 Z M13.796,22.358 C12.796,22.358 11.869,22.026 11.084,21.431 L15.77,18.719 C16.055,18.553 16.198,18.315 16.198,17.982 V11.084 L18.172,12.226 C18.339,12.321 18.41,12.464 18.41,12.654 V17.887 C18.41,20.432 16.436,22.359 13.796,22.359 Z M8.159,17.055 L3.615,14.438 C2.307,13.677 1.427,12.06 1.427,10.49 A4.482,4.482 0 0 1 4.21,6.327 V11.75 C4.21,12.083 4.353,12.321 4.638,12.488 L10.585,15.937 L8.635,17.055 C8.468,17.15 8.326,17.15 8.159,17.055 Z M7.897,20.955 C5.209,20.955 3.235,18.934 3.235,16.436 C3.235,16.246 3.259,16.056 3.282,15.866 L7.968,18.576 C8.254,18.743 8.539,18.743 8.824,18.576 L14.794,15.128 V17.388 C14.794,17.578 14.724,17.721 14.557,17.816 L10.014,20.432 C9.395,20.789 8.658,20.955 7.897,20.955 Z M13.796,23.785 A5.947,5.947 0 0 0 19.623,19.029 C22.287,18.339 24,15.84 24,13.296 C24,11.631 23.287,10.014 22.002,8.848 C22.121,8.348 22.192,7.849 22.192,7.35 C22.192,3.949 19.433,1.403 16.246,1.403 C15.604,1.403 14.986,1.498 14.366,1.713 A5.962,5.962 0 0 0 10.205,0 A5.947,5.947 0 0 0 4.378,4.757 C1.713,5.447 0,7.945 0,10.49 C0,12.156 0.713,13.773 1.998,14.938 C1.879,15.438 1.808,15.937 1.808,16.437 C1.808,19.838 4.567,22.384 7.754,22.384 C8.396,22.384 9.014,22.289 9.634,22.075 A5.96,5.96 0 0 0 13.796,23.788 Z</Geometry>
             <Geometry x:Key="GrokLogoGeometry">M9.27,15.29 l7.978,-5.897 c0.391,-0.29 0.95,-0.177 1.137,0.272 c0.98,2.369 0.542,5.215 -1.41,7.169 c-1.951,1.954 -4.667,2.382 -7.149,1.406 l-2.711,1.257 c3.889,2.661 8.611,2.003 11.562,-0.953 c2.341,-2.344 3.066,-5.539 2.388,-8.42 l0.006,0.007 c-0.983,-4.232 0.242,-5.924 2.75,-9.383 c0.06,-0.082 0.12,-0.164 0.179,-0.248 l-3.301,3.305 v-0.01 L9.267,15.292 M7.623,16.723 c-2.792,-2.67 -2.31,-6.801 0.071,-9.184 c1.761,-1.763 4.647,-2.483 7.166,-1.425 l2.705,-1.25 a7.808,7.808 0 0 0 -1.829,-1 a8.975,8.975 0 0 0 -9.752,1.966 c-2.533,2.536 -3.33,6.436 -1.962,9.764 c1.022,2.487 -0.653,4.246 -2.34,6.022 c-0.599,0.63 -1.199,1.259 -1.682,1.925 l7.62,-6.815</Geometry>
 
-            <Style TargetType="{x:Type ToolTip}">
+            <Style TargetType="{x:Type ToolTip}" BasedOn="{StaticResource DefaultToolTipStyle}">
                 <Setter Property="FontFamily" Value="Segoe UI" />
+                <EventSetter Event="Loaded" Handler="ToolTip_Loaded" />
             </Style>
+            <ToolTip x:Key="ChartToolTip" Style="{StaticResource {x:Type ToolTip}}"
+                     Placement="Mouse" IsHitTestVisible="False" />
 
             <!-- Secondary caption under a settings row title (shared tooltip timing) -->
             <Style x:Key="SettingsRowSubtitleStyle" TargetType="{x:Type TextBlock}">
@@ -49,70 +67,28 @@
                 <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
             </Style>
 
-            <!-- Rotating glyph used while plugin auto detect runs -->
-            <Style x:Key="DetectSpinnerStyle" TargetType="{x:Type TextBlock}" BasedOn="{StaticResource SettingsRowSubtitleStyle}">
-                <Setter Property="Text" Value="&#xE72C;" />
-                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
-                <Setter Property="RenderTransform">
-                    <Setter.Value>
-                        <RotateTransform Angle="0" />
-                    </Setter.Value>
-                </Setter>
-                <Style.Triggers>
-                    <Trigger Property="IsVisible" Value="True">
-                        <Trigger.EnterActions>
-                            <BeginStoryboard Name="SpinStoryboard">
-                                <Storyboard>
-                                    <DoubleAnimation Storyboard.TargetProperty="(TextBlock.RenderTransform).(RotateTransform.Angle)"
-                                                     From="0"
-                                                     To="360"
-                                                     Duration="0:0:0.9"
-                                                     RepeatBehavior="Forever" />
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </Trigger.EnterActions>
-                        <Trigger.ExitActions>
-                            <StopStoryboard BeginStoryboardName="SpinStoryboard" />
-                        </Trigger.ExitActions>
-                    </Trigger>
-                </Style.Triggers>
+            <Style x:Key="BusyRingStyle" TargetType="{x:Type ui:ProgressRing}" BasedOn="{StaticResource {x:Type ui:ProgressRing}}">
+                <Setter Property="Width" Value="16" />
+                <Setter Property="Height" Value="16" />
+                <Setter Property="IsIndeterminate" Value="True" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                <Setter Property="CoverRingVisibility" Value="Collapsed" />
             </Style>
-
-            <!-- Rotating refresh glyph used while home refresh runs -->
-            <Style x:Key="RefreshSpinnerGlyphStyle" TargetType="{x:Type TextBlock}">
-                <Setter Property="Text" Value="&#xE72C;" />
-                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                <Setter Property="FontSize" Value="16" />
-                <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
-                <Setter Property="RenderTransform">
-                    <Setter.Value>
-                        <RotateTransform Angle="0" />
-                    </Setter.Value>
-                </Setter>
-                <Style.Triggers>
-                    <DataTrigger Binding="{Binding IsRefreshing}" Value="True">
-                        <DataTrigger.EnterActions>
-                            <BeginStoryboard Name="RefreshSpinStoryboard">
-                                <Storyboard>
-                                    <DoubleAnimation Storyboard.TargetProperty="(TextBlock.RenderTransform).(RotateTransform.Angle)"
-                                                     From="0"
-                                                     To="360"
-                                                     Duration="0:0:0.9"
-                                                     RepeatBehavior="Forever" />
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </DataTrigger.EnterActions>
-                        <DataTrigger.ExitActions>
-                            <StopStoryboard BeginStoryboardName="RefreshSpinStoryboard" />
-                        </DataTrigger.ExitActions>
-                    </DataTrigger>
-                </Style.Triggers>
-            </Style>
+            <DataTemplate x:Key="RefreshIndicatorTemplate">
+                <Grid>
+                    <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                               Visibility="{Binding IsRefreshing, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                    <ui:ProgressRing Style="{StaticResource BusyRingStyle}"
+                                     Visibility="{Binding IsRefreshing, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                </Grid>
+            </DataTemplate>
 
             <!-- Icon button (shared: home refresh + settings save) -->
             <!-- Subtle icon button: constant Primary glyph, background fills on hover/press -->
-            <Style x:Key="IconButtonStyle" TargetType="{x:Type Button}">
+            <Style x:Key="IconButtonStyle" TargetType="{x:Type ui:Button}" BasedOn="{StaticResource DefaultUiButtonStyle}">
+                <Setter Property="Appearance" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="Width" Value="36" />
                 <Setter Property="Height" Value="36" />
                 <Setter Property="MinWidth" Value="0" />
@@ -122,41 +98,13 @@
                 <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
                 <Setter Property="FontSize" Value="16" />
                 <Setter Property="Cursor" Value="Hand" />
-                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                 <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
                 <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="{x:Type Button}">
-                            <Border x:Name="ButtonChrome"
-                                    Background="{TemplateBinding Background}"
-                                    CornerRadius="8"
-                                    SnapsToDevicePixels="True">
-                                <ContentPresenter HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="ButtonChrome" Property="Background"
-                                            Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
-                                </Trigger>
-                                <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="ButtonChrome" Property="Background"
-                                            Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
-                                </Trigger>
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Foreground"
-                                            Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
             </Style>
 
             <Style x:Key="SessionLogPagerButtonStyle"
                    BasedOn="{StaticResource IconButtonStyle}"
-                   TargetType="{x:Type Button}">
+                   TargetType="{x:Type ui:Button}">
                 <Setter Property="Width" Value="28" />
                 <Setter Property="Height" Value="28" />
                 <Setter Property="FontSize" Value="12" />
@@ -164,13 +112,13 @@
 
             <Style x:Key="QuotaPageIndicatorButtonStyle"
                    BasedOn="{StaticResource IconButtonStyle}"
-                   TargetType="{x:Type Button}">
+                   TargetType="{x:Type ui:Button}">
                 <Setter Property="Width" Value="14" />
                 <Setter Property="Height" Value="14" />
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
                 <Setter Property="Template">
                     <Setter.Value>
-                        <ControlTemplate TargetType="{x:Type Button}">
+                        <ControlTemplate TargetType="{x:Type ui:Button}">
                             <Grid Background="Transparent">
                                 <Ellipse x:Name="PageIndicator"
                                          Width="7"
@@ -184,8 +132,7 @@
                 </Setter>
             </Style>
 
-            <!-- ============ Settings: native Fluent controls ============ -->
-            <!-- Only layout tweaks; templates stay Fluent so inputs work. -->
+            <!-- Settings use WPF UI templates with compact layout overrides. -->
             <Thickness x:Key="SettingsSectionHeaderMargin">0,0,0,10</Thickness>
             <Thickness x:Key="SettingsSectionHeaderSpacedMargin">0,28,0,10</Thickness>
             <Thickness x:Key="SettingsRowMargin">0,0,0,6</Thickness>
@@ -193,8 +140,8 @@
             <Thickness x:Key="SettingsLastRowMargin">0,0,0,8</Thickness>
 
             <Style x:Key="SettingsTextBoxStyle"
-                   BasedOn="{StaticResource {x:Type TextBox}}"
-                   TargetType="{x:Type TextBox}">
+                   BasedOn="{StaticResource {x:Type ui:TextBox}}"
+                   TargetType="{x:Type ui:TextBox}">
                 <Setter Property="Height" Value="34" />
                 <Setter Property="FontSize" Value="13" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -243,7 +190,7 @@
             </Style>
 
             <!-- Segmented nav tab -->
-            <Style x:Key="TabButtonStyle" TargetType="{x:Type Button}">
+            <Style x:Key="TabButtonStyle" TargetType="{x:Type ui:Button}" BasedOn="{StaticResource IconButtonStyle}">
                 <Setter Property="Height" Value="32" />
                 <Setter Property="MinWidth" Value="80" />
                 <Setter Property="Padding" Value="14,0" />
@@ -253,24 +200,10 @@
                 <Setter Property="FontWeight" Value="SemiBold" />
                 <Setter Property="FontSize" Value="13" />
                 <Setter Property="Cursor" Value="Hand" />
-                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                 <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
                 <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="{x:Type Button}">
-                            <Border x:Name="TabChrome"
-                                    Background="{TemplateBinding Background}"
-                                    CornerRadius="11"
-                                    Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center" />
-                            </Border>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
             </Style>
-            <Style x:Key="CodexTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+            <Style x:Key="CodexTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
                 <Setter Property="MinWidth" Value="0" />
                 <Setter Property="Width" Value="36" />
                 <Setter Property="Height" Value="36" />
@@ -292,7 +225,7 @@
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
-            <Style x:Key="GrokTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+            <Style x:Key="GrokTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
                 <Setter Property="MinWidth" Value="0" />
                 <Setter Property="Width" Value="36" />
                 <Setter Property="Height" Value="36" />
@@ -314,7 +247,7 @@
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
-            <Style x:Key="SettingsTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+            <Style x:Key="SettingsTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
                 <Setter Property="MinWidth" Value="0" />
                 <Setter Property="Width" Value="36" />
                 <Setter Property="Height" Value="36" />
@@ -335,7 +268,7 @@
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
-            <Style x:Key="ApiTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type Button}">
+            <Style x:Key="ApiTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
                 <Setter Property="MinWidth" Value="0" />
                 <Setter Property="Width" Value="36" />
                 <Setter Property="Height" Value="36" />
@@ -499,8 +432,7 @@
                                  Style="{StaticResource QuotaProgressBarStyle}" />
                     <StackPanel Orientation="Horizontal"
                                 HorizontalAlignment="Right"
-                                Margin="0,5,0,0"
-                                Visibility="{Binding IsResetVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                Margin="0,5,0,0">
                         <TextBlock Text="&#xE823;"
                                    FontFamily="Segoe MDL2 Assets"
                                    Margin="0,0,4,0"
@@ -542,13 +474,13 @@
                                 VerticalAlignment="Bottom"
                                 Orientation="Horizontal"
                                 Visibility="{Binding HasMultiplePages, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <Button x:Name="FirstPageButton"
+                        <ui:Button x:Name="FirstPageButton"
                                 Command="{Binding SelectQuotaCommand}"
                                 CommandParameter="{Binding FirstQuota}"
                                 ToolTip="{Binding FirstQuota.Title}"
                                 AutomationProperties.Name="{Binding FirstQuota.Title}">
-                            <Button.Style>
-                                <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type Button}">
+                            <ui:Button.Style>
+                                <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type ui:Button}">
                                     <Setter Property="Foreground" Value="{Binding SelectedBrush}" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsSecondSelected}" Value="True">
@@ -556,23 +488,23 @@
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
-                            </Button.Style>
-                        </Button>
-                        <Button x:Name="SecondPageButton"
+                            </ui:Button.Style>
+                        </ui:Button>
+                        <ui:Button x:Name="SecondPageButton"
                                 Command="{Binding SelectQuotaCommand}"
                                 CommandParameter="{Binding SecondQuota}"
                                 ToolTip="{Binding SecondQuota.Title}"
                                 AutomationProperties.Name="{Binding SecondQuota.Title}">
-                            <Button.Style>
-                                <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type Button}">
+                            <ui:Button.Style>
+                                <Style BasedOn="{StaticResource QuotaPageIndicatorButtonStyle}" TargetType="{x:Type ui:Button}">
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsSecondSelected}" Value="True">
                                             <Setter Property="Foreground" Value="{Binding SelectedBrush}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
-                            </Button.Style>
-                        </Button>
+                            </ui:Button.Style>
+                        </ui:Button>
                     </StackPanel>
                 </Grid>
             </DataTemplate>
@@ -603,7 +535,7 @@
             </DataTemplate>
 
             <DataTemplate x:Key="TokenCostPeriodRowDataTemplate">
-                <Button Width="140"
+                <ui:Button Width="140"
                         Height="39"
                         Padding="0"
                         HorizontalContentAlignment="Stretch"
@@ -611,8 +543,8 @@
                         CommandParameter="{Binding}"
                         Cursor="Hand"
                         FocusVisualStyle="{x:Null}">
-                <Button.Template>
-                        <ControlTemplate TargetType="{x:Type Button}">
+                <ui:Button.Template>
+                        <ControlTemplate TargetType="{x:Type ui:Button}">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="*" />
@@ -632,7 +564,7 @@
                                                FontWeight="Medium" />
                                     <TextBlock x:Name="PeriodValue"
                                                Grid.Column="1"
-                                               Text="{Binding Display.Tokens}"
+                                               Text="{Binding Tokens}"
                                                Margin="6,0,0,0"
                                                HorizontalAlignment="Right"
                                                VerticalAlignment="Center"
@@ -663,23 +595,30 @@
                                 </DataTrigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
-                    </Button.Template>
-                </Button>
+                    </ui:Button.Template>
+                </ui:Button>
             </DataTemplate>
 
             <DataTemplate x:Key="TokenCostTrendDayDataTemplate">
                 <Grid Background="Transparent"
                       IsHitTestVisible="{Binding IsInteractive}"
+                      MouseEnter="ChartItem_MouseEnter" MouseLeave="ChartItem_MouseLeave"
+                      IsVisibleChanged="ChartItem_IsVisibleChanged" Unloaded="ChartItem_Unloaded"
                       ToolTip="{Binding Tooltip}"
-                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
+                      ToolTipService.IsEnabled="False">
                     <Border x:Name="TokenCostChartBar"
                             Height="{Binding BarHeight}"
                             Margin="0.75,0"
                             HorizontalAlignment="Stretch"
                             VerticalAlignment="Bottom"
+                            IsHitTestVisible="False"
+                            RenderTransformOrigin="0.5,1"
                             Background="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                            CornerRadius="1,1,0,0" />
+                            CornerRadius="1,1,0,0">
+                        <Border.RenderTransform>
+                            <ScaleTransform />
+                        </Border.RenderTransform>
+                    </Border>
                 </Grid>
             </DataTemplate>
 
@@ -731,13 +670,39 @@
                                       Height="144"
                                       HorizontalAlignment="Center"
                                       VerticalAlignment="Center">
-                                    <Ellipse Width="140"
+                                    <Ellipse x:Name="TokenCostDonutPlaceholder" Width="140"
                                              Height="140"
                                              Stroke="{DynamicResource ControlStrokeColorDefaultBrush}"
-                                             StrokeThickness="15" />
-                                    <ItemsControl Width="144"
+                                             StrokeThickness="15">
+                                        <Ellipse.Style>
+                                            <Style TargetType="{x:Type Ellipse}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding DonutSegments.Count}" Value="0">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Ellipse.Style>
+                                    </Ellipse>
+                                    <ItemsControl x:Name="TokenCostDonutItemsControl" Width="144"
                                                   Height="144"
-                                                  ItemsSource="{Binding DonutSegments}">
+                                                  Loaded="Chart_Loaded" Unloaded="Chart_Unloaded"
+                                                  IsVisibleChanged="Chart_IsVisibleChanged" TargetUpdated="Chart_TargetUpdated"
+                                                  Tag="{Binding SelectedPeriod, NotifyOnTargetUpdated=True}"
+                                                  ItemsSource="{Binding DonutSegments, NotifyOnTargetUpdated=True}">
+                                        <ItemsControl.RenderTransform>
+                                            <ScaleTransform />
+                                        </ItemsControl.RenderTransform>
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="{x:Type ContentPresenter}">
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Panel.ZIndex" Value="1" />
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
                                                 <Grid />
@@ -745,13 +710,20 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Path Data="{Binding Geometry}"
-                                                      Fill="{Binding Brush}"
-                                                      Stroke="{DynamicResource ApplicationBackgroundBrush}"
-                                                      StrokeThickness="0.8"
+                                                <Grid MouseEnter="ChartItem_MouseEnter" MouseLeave="ChartItem_MouseLeave"
+                                                      IsVisibleChanged="ChartItem_IsVisibleChanged" Unloaded="ChartItem_Unloaded"
                                                       ToolTip="{Binding Tooltip}"
-                                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}" />
+                                                      ToolTipService.IsEnabled="False">
+                                                    <Path Data="{Binding Geometry}"
+                                                          Fill="{Binding Brush}"
+                                                          Stroke="{DynamicResource ApplicationBackgroundBrush}"
+                                                          StrokeThickness="0.8" IsHitTestVisible="False">
+                                                        <Path.RenderTransform>
+                                                            <ScaleTransform CenterX="72" CenterY="72" />
+                                                        </Path.RenderTransform>
+                                                    </Path>
+                                                    <Path Data="{Binding Geometry}" Fill="Transparent" />
+                                                </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -770,7 +742,7 @@
                                     </StackPanel>
                                 </Grid>
                             </Grid>
-                            <Button x:Name="TokenCostChartPeriodButton"
+                            <ui:Button x:Name="TokenCostChartPeriodButton"
                                     Grid.Row="0"
                                     Width="28"
                                     Height="22"
@@ -800,8 +772,15 @@
                             <ItemsControl x:Name="TokenCostChartItemsControl"
                                           Margin="10,0"
                                           ClipToBounds="True"
-                                          ItemsSource="{Binding ChartDays}"
+                                          RenderTransformOrigin="0.5,1"
+                                          Loaded="Chart_Loaded" Unloaded="Chart_Unloaded"
+                                          IsVisibleChanged="Chart_IsVisibleChanged" TargetUpdated="Chart_TargetUpdated"
+                                          Tag="{Binding ChartPeriod, NotifyOnTargetUpdated=True}"
+                                          ItemsSource="{Binding ChartDays, NotifyOnTargetUpdated=True}"
                                           ItemTemplate="{StaticResource TokenCostTrendDayDataTemplate}">
+                                <ItemsControl.RenderTransform>
+                                    <ScaleTransform />
+                                </ItemsControl.RenderTransform>
                                 <ItemsControl.ItemContainerStyle>
                                     <Style TargetType="{x:Type ContentPresenter}">
                                         <Setter Property="HorizontalAlignment" Value="Stretch" />
@@ -918,6 +897,7 @@
                         </ScrollViewer>
                         <ScrollBar Grid.Row="1"
                                    Grid.Column="1"
+                                   Width="12"
                                    Minimum="0"
                                    SmallChange="{StaticResource SessionLogRowHeight}"
                                    ViewportSize="1"
@@ -938,7 +918,7 @@
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    FontSize="12" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <Button Content="&#xE76B;"
+                            <ui:Button Content="&#xE76B;"
                                     Command="{Binding PreviousPageCommand}"
                                     IsEnabled="{Binding CanGoPrevious}"
                                     ToolTip="Previous page"
@@ -951,7 +931,7 @@
                                        TextAlignment="Center"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                        FontSize="12" />
-                            <Button Content="&#xE76C;"
+                            <ui:Button Content="&#xE76C;"
                                     Command="{Binding NextPageCommand}"
                                     IsEnabled="{Binding CanGoNext}"
                                     ToolTip="Next page"
@@ -977,1072 +957,1098 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- ===================== CODEX ===================== -->
-            <Grid x:Name="CodexPageGrid"
-                  Grid.Row="0"
-                  Visibility="{Binding IsCodexVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Grid.RowDefinitions>
-                    <!-- Upper region: header and quota cards. -->
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="189" />
-                    <!-- Middle and bottom regions: TokenCostDashboardDataTemplate. -->
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+            <Grid x:Name="PageViewport" Grid.Row="0" ClipToBounds="True">
+                <!-- ===================== CODEX ===================== -->
+                <Grid x:Name="CodexPageGrid"
+                      Grid.Row="0"
+                      Visibility="{Binding IsCodexVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                      IsVisibleChanged="MainPage_IsVisibleChanged">
+                    <Grid.RowDefinitions>
+                        <!-- Upper region: header and quota cards. -->
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="189" />
+                        <!-- Middle and bottom regions: TokenCostDashboardDataTemplate. -->
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
 
-                <!-- Header -->
-                <StackPanel Grid.Row="0">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Codex"
+                    <!-- Header -->
+                    <StackPanel Grid.Row="0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Codex"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                           FontSize="26"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center" />
+                                <Border MinWidth="32"
+                                        Height="16"
+                                        Margin="6,6,0,0"
+                                        VerticalAlignment="Top"
+                                        Padding="6,0"
+                                        CornerRadius="4"
+                                        Background="Transparent"
+                                        BorderBrush="{Binding CodexPlanBadgeBrush}"
+                                        BorderThickness="1">
+                                    <TextBlock Text="{Binding CodexPlanDisplay}"
+                                               Foreground="{Binding CodexPlanBadgeBrush}"
+                                               FontWeight="Normal"
+                                               FontSize="9.5"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Border>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <ui:Button VerticalAlignment="Center"
+                                        Command="{Binding CodexSessionLogs.ToggleCommand}"
+                                        Content="{x:Static local:SessionLogListViewModel.ListGlyph}"
+                                        ToolTip="{Binding CodexSessionLogs.ToggleTooltip}"
+                                        AutomationProperties.Name="{Binding CodexSessionLogs.ToggleTooltip}">
+                                    <ui:Button.Style>
+                                        <Style TargetType="{x:Type ui:Button}" BasedOn="{StaticResource IconButtonStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding CodexSessionLogs.IsOpen}" Value="True">
+                                                    <Setter Property="Foreground" Value="#1ABC89" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ui:Button.Style>
+                                </ui:Button>
+                                <ui:Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
+                                        CommandParameter="{x:Static core:PageItem.Codex}"
+                                        ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
+                                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource RefreshIndicatorTemplate}" />
+                                </ui:Button>
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal"
+                                    Margin="2,6,0,0"
+                                    VerticalAlignment="Center">
+                            <Ellipse Width="7"
+                                     Height="7"
+                                     Margin="0,0,6,0"
+                                     VerticalAlignment="Center"
+                                     Fill="{Binding CodexStatusDotBrush}" />
+                            <TextBlock x:Name="CodexUpdatedAtText"
+                                       Text="{Binding CodexUpdatedAtDisplay}"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="12" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Quota list -->
+                    <Grid Grid.Row="1" Grid.RowSpan="2" ClipToBounds="True">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="189" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <ScrollViewer x:Name="CodexQuotaScrollViewer"
+                                      Grid.Row="0"
+                                      Margin="0,18,-8,0"
+                                      Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
+                                      TargetUpdated="SessionRegion_TargetUpdated"
+                                      IsVisibleChanged="SessionRegion_IsVisibleChanged"
+                                      Padding="0,0,8,0"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Hidden">
+                            <StackPanel VerticalAlignment="Top">
+                                <Border x:Name="CodexPrimaryCard"
+                                        DataContext="{Binding CodexQuotaPager}"
+                                        Margin="0,0,0,12"
+                                        PreviewMouseWheel="QuotaCard_PreviewMouseWheel"
+                                        Style="{StaticResource LargeUsageCardStyle}">
+                                    <ContentControl Content="{Binding}"
+                                                    ContentTemplate="{StaticResource QuotaPagerDataTemplate}"
+                                                    HorizontalContentAlignment="Stretch" />
+                                </Border>
+
+                                <Border x:Name="CodexResetCreditsCard"
+                                        Margin="0"
+                                        Style="{StaticResource SmallUsageCardStyle}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Resets"
+                                                   VerticalAlignment="Top"
+                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                   FontSize="13.5"
+                                                   FontWeight="Medium" />
+                                        <StackPanel Grid.Column="1"
+                                                    HorizontalAlignment="Right">
+                                            <TextBlock Text="{Binding CodexResetCreditsDisplay}"
+                                                       HorizontalAlignment="Right"
+                                                       FontSize="14">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="{x:Type TextBlock}">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding CodexHasResetCredits}" Value="True">
+                                                                <Setter Property="Foreground" Value="{Binding CodexStatusDotBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock x:Name="CodexResetCreditsExpiryDatesText"
+                                                       Text="{Binding CodexResetCreditsExpiryDates}"
+                                                       HorizontalAlignment="Right"
+                                                       Margin="0,5,0,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource UsageCardCaptionTextStyle}">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding CodexResetCreditsExpiryDates}" Value="">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <ContentControl x:Name="CodexTokenCostDashboard"
+                                        Grid.Row="1"
+                                        Content="{Binding CodexTokenCost}"
+                                        ContentTemplate="{StaticResource TokenCostDashboardDataTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        VerticalContentAlignment="Stretch"
+                                        Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
+                                        TargetUpdated="SessionRegion_TargetUpdated"
+                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                        <ContentControl x:Name="CodexSessionLogContent" Grid.Row="0"
+                                        Grid.RowSpan="2"
+                                        Margin="0,4,0,0"
+                                        Content="{Binding CodexSessionLogs}"
+                                        ContentTemplate="{StaticResource SessionLogListTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        VerticalContentAlignment="Stretch"
+                                        Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
+                                        TargetUpdated="SessionRegion_TargetUpdated"
+                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                    </Grid>
+
+                </Grid>
+
+                <!-- ===================== GROK ===================== -->
+                <Grid x:Name="GrokPageGrid"
+                      Grid.Row="0"
+                      Visibility="{Binding IsGrokVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                      IsVisibleChanged="MainPage_IsVisibleChanged">
+                    <Grid.RowDefinitions>
+                        <!-- Upper region: header and quota cards. -->
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="189" />
+                        <!-- Middle and bottom regions: TokenCostDashboardDataTemplate. -->
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Grok"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                           FontSize="26"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center" />
+                                <Border MinWidth="32"
+                                        Height="16"
+                                        Margin="6,6,0,0"
+                                        VerticalAlignment="Top"
+                                        Padding="6,0"
+                                        CornerRadius="4"
+                                        Background="Transparent"
+                                        BorderBrush="{Binding GrokPlanBadgeBrush}"
+                                        BorderThickness="1">
+                                    <TextBlock Text="{Binding GrokPlanDisplay}"
+                                               Foreground="{Binding GrokPlanBadgeBrush}"
+                                               FontWeight="Normal"
+                                               FontSize="9.5"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Border>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <ui:Button VerticalAlignment="Center"
+                                        Command="{Binding GrokSessionLogs.ToggleCommand}"
+                                        Content="{x:Static local:SessionLogListViewModel.ListGlyph}"
+                                        ToolTip="{Binding GrokSessionLogs.ToggleTooltip}"
+                                        AutomationProperties.Name="{Binding GrokSessionLogs.ToggleTooltip}">
+                                    <ui:Button.Style>
+                                        <Style TargetType="{x:Type ui:Button}" BasedOn="{StaticResource IconButtonStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding GrokSessionLogs.IsOpen}" Value="True">
+                                                    <Setter Property="Foreground" Value="#1ABC89" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ui:Button.Style>
+                                </ui:Button>
+                                <ui:Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
+                                        CommandParameter="{x:Static core:PageItem.Grok}"
+                                        ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
+                                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource RefreshIndicatorTemplate}" />
+                                </ui:Button>
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel x:Name="GrokUpdatedStatus"
+                                    Orientation="Horizontal"
+                                    Margin="2,6,0,0"
+                                    VerticalAlignment="Center">
+                            <Ellipse Width="7"
+                                     Height="7"
+                                     Margin="0,0,6,0"
+                                     VerticalAlignment="Center"
+                                     Fill="{Binding GrokStatusDotBrush}" />
+                            <TextBlock Text="{Binding GrokUpdatedAtDisplay}"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="12" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Grid Grid.Row="1" Grid.RowSpan="2" ClipToBounds="True">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="189" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <ScrollViewer x:Name="GrokQuotaScrollViewer"
+                                      Grid.Row="0"
+                                      Margin="0,18,-8,0"
+                                      Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
+                                      TargetUpdated="SessionRegion_TargetUpdated"
+                                      IsVisibleChanged="SessionRegion_IsVisibleChanged"
+                                      Padding="0,0,8,0"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Hidden">
+                            <StackPanel x:Name="GrokQuotaCardPanel"
+                                        VerticalAlignment="Top">
+                                <Border x:Name="GrokWeeklyCard"
+                                        Margin="0,0,0,12"
+                                        Style="{StaticResource LargeUsageCardStyle}">
+                                    <ContentControl Content="{Binding GrokWeeklyQuota}"
+                                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                                    HorizontalContentAlignment="Stretch" />
+                                </Border>
+
+                                <Border x:Name="GrokProductUsageCard"
+                                        Margin="0"
+                                        Padding="14,9"
+                                        Style="{StaticResource SmallUsageCardStyle}">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock x:Name="GrokProductUsageText"
+                                                   Grid.RowSpan="2"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   Text="N/A"
+                                                   FontSize="14"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                   Visibility="{Binding HasGrokProductUsageItems, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                                        <Border x:Name="GrokProductUsageBar"
+                                                VerticalAlignment="Center"
+                                                Height="{StaticResource QuotaBarHeight}"
+                                                CornerRadius="3"
+                                                SnapsToDevicePixels="True"
+                                                Background="{DynamicResource ControlStrongFillColorDefaultBrush}"
+                                                ToolTip="{Binding GrokProductUsageBarTooltip}"
+                                                ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                Visibility="{Binding HasGrokProductUsageItems, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <ItemsControl x:Name="GrokProductUsageBarItems"
+                                                          Height="{StaticResource QuotaBarHeight}"
+                                                          VerticalAlignment="Stretch"
+                                                          HorizontalAlignment="Stretch"
+                                                          ItemsSource="{Binding GrokProductUsageBarItems}"
+                                                          ItemTemplate="{StaticResource GrokProductUsageBarSegmentDataTemplate}"
+                                                          Style="{StaticResource GrokProductUsageItemsControlStyle}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <local:ProportionalStackPanel Gap="3" />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemContainerStyle>
+                                                    <Style TargetType="{x:Type ContentPresenter}">
+                                                        <Setter Property="local:ProportionalStackPanel.Share" Value="{Binding UsedPercent}" />
+                                                        <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                                        <Setter Property="VerticalAlignment" Value="Stretch" />
+                                                    </Style>
+                                                </ItemsControl.ItemContainerStyle>
+                                            </ItemsControl>
+                                        </Border>
+                                        <ItemsControl x:Name="GrokProductUsageLegend"
+                                                      Grid.Row="1"
+                                                      VerticalAlignment="Center"
+                                                      HorizontalAlignment="Stretch"
+                                                      ItemsSource="{Binding GrokProductUsageItems}"
+                                                      ItemTemplate="{StaticResource GrokProductUsageLegendItemDataTemplate}"
+                                                      Style="{StaticResource GrokProductUsageItemsControlStyle}"
+                                                      Visibility="{Binding HasGrokProductUsageItems, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <UniformGrid Columns="3" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemContainerStyle>
+                                                <Style TargetType="{x:Type ContentPresenter}">
+                                                    <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                                </Style>
+                                            </ItemsControl.ItemContainerStyle>
+                                        </ItemsControl>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <ContentControl x:Name="GrokTokenCostDashboard"
+                                        Grid.Row="1"
+                                        Content="{Binding GrokTokenCost}"
+                                        ContentTemplate="{StaticResource TokenCostDashboardDataTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        VerticalContentAlignment="Stretch"
+                                        Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
+                                        TargetUpdated="SessionRegion_TargetUpdated"
+                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                        <ContentControl x:Name="GrokSessionLogContent" Grid.Row="0"
+                                        Grid.RowSpan="2"
+                                        Margin="0,4,0,0"
+                                        Content="{Binding GrokSessionLogs}"
+                                        ContentTemplate="{StaticResource SessionLogListTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        VerticalContentAlignment="Stretch"
+                                        Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
+                                        TargetUpdated="SessionRegion_TargetUpdated"
+                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                    </Grid>
+
+                </Grid>
+
+                <!-- ===================== APIs ===================== -->
+                <Grid Grid.Row="0"
+                      Visibility="{Binding IsApiVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                      IsVisibleChanged="MainPage_IsVisibleChanged">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="APIs"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                        FontSize="26"
                                        FontWeight="Medium"
                                        VerticalAlignment="Center" />
-                            <Border MinWidth="32"
-                                    Height="16"
-                                    Margin="6,6,0,0"
-                                    VerticalAlignment="Top"
-                                    Padding="6,0"
-                                    CornerRadius="4"
-                                    Background="Transparent"
-                                    BorderBrush="{Binding CodexPlanBadgeBrush}"
-                                    BorderThickness="1">
-                                <TextBlock Text="{Binding CodexPlanDisplay}"
-                                           Foreground="{Binding CodexPlanBadgeBrush}"
-                                           FontWeight="Normal"
-                                           FontSize="9.5"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
-                            </Border>
+                            <StackPanel Grid.Column="1"
+                                        Orientation="Horizontal">
+                                <ui:Button VerticalAlignment="Center"
+                                        Command="{Binding AddApiMonitorCommand}"
+                                        Content="&#xE710;"
+                                        ToolTip="Add API"
+                                        Style="{StaticResource IconButtonStyle}" />
+                                <ui:Button VerticalAlignment="Center"
+                                        Command="{Binding RetrySourceCommand}"
+                                        CommandParameter="{x:Static core:PageItem.Apis}"
+                                        ToolTip="Refresh"
+                                        Style="{StaticResource IconButtonStyle}">
+                                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource RefreshIndicatorTemplate}" />
+                                </ui:Button>
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Margin="2,6,0,0"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <Ellipse Width="7"
+                                     Height="7"
+                                     Margin="0,0,6,0"
+                                     VerticalAlignment="Center"
+                                     Fill="{Binding ApiMonitorStatusDotBrush}"
+                                     Visibility="{Binding HasApiMonitorStatus, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Text="{Binding ApiMonitorStatusText}"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="12" />
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <Button VerticalAlignment="Center"
-                                    Command="{Binding CodexSessionLogs.ToggleCommand}"
-                                    Content="{x:Static local:SessionLogListViewModel.ListGlyph}"
-                                    ToolTip="{Binding CodexSessionLogs.ToggleTooltip}"
-                                    AutomationProperties.Name="{Binding CodexSessionLogs.ToggleTooltip}">
-                                <Button.Style>
-                                    <Style TargetType="{x:Type Button}" BasedOn="{StaticResource IconButtonStyle}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding CodexSessionLogs.IsOpen}" Value="True">
-                                                <Setter Property="Foreground" Value="#1ABC89" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
-                            <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
-                                    CommandParameter="{x:Static core:PageItem.Codex}"
-                                    ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
-                                <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                    <StackPanel Orientation="Horizontal"
-                                Margin="2,6,0,0"
-                                VerticalAlignment="Center">
-                        <Ellipse Width="7"
-                                 Height="7"
-                                 Margin="0,0,6,0"
-                                 VerticalAlignment="Center"
-                                 Fill="{Binding CodexStatusDotBrush}" />
-                        <TextBlock x:Name="CodexUpdatedAtText"
-                                   Text="{Binding CodexUpdatedAtDisplay}"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   FontSize="12" />
                     </StackPanel>
-                </StackPanel>
 
-                <!-- Quota list -->
-                <ScrollViewer x:Name="CodexQuotaScrollViewer"
-                              Grid.Row="1"
-                              Margin="0,18,-8,0"
-                              Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
-                              Padding="0,0,8,0"
-                              HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Hidden">
-                    <StackPanel VerticalAlignment="Top">
-                        <Border x:Name="CodexPrimaryCard"
-                                DataContext="{Binding CodexQuotaPager}"
-                                Margin="0,0,0,12"
-                                PreviewMouseWheel="QuotaCard_PreviewMouseWheel"
-                                Style="{StaticResource LargeUsageCardStyle}">
-                            <ContentControl Content="{Binding}"
-                                            ContentTemplate="{StaticResource QuotaPagerDataTemplate}"
-                                            HorizontalContentAlignment="Stretch" />
-                        </Border>
+                    <ScrollViewer Grid.Row="1"
+                                  Margin="0,18,-8,0"
+                                  Padding="0,0,8,0"
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Margin="0,36,0,20"
+                                       Text="No APIs are monitored yet."
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="13"
+                                       Visibility="{Binding IsApiEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
-                        <Border x:Name="CodexResetCreditsCard"
-                                Margin="0"
-                                Style="{StaticResource SmallUsageCardStyle}">
-                            <Grid>
+                            <ItemsControl x:Name="ApiMonitorItemsControl"
+                                          ItemsSource="{Binding ApiMonitors}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border x:Name="ApiMonitorCard"
+                                                MinHeight="91"
+                                                Style="{StaticResource UsageCardStyle}">
+                                            <Grid>
+                                                <StackPanel Visibility="{Binding IsEditing, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto" />
+                                                        </Grid.RowDefinitions>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid Grid.Row="0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Ellipse Width="7"
+                                                                     Height="7"
+                                                                     Margin="0,0,6,0"
+                                                                     VerticalAlignment="Center"
+                                                                     Fill="{Binding StatusDotBrush}"
+                                                                     ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                                     ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                                     ToolTip="{Binding StatusTooltip}" />
+                                                            <TextBlock Grid.Column="1"
+                                                                       Text="{Binding DisplayName}"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       VerticalAlignment="Center"
+                                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                                       FontSize="15"
+                                                                       FontWeight="SemiBold"
+                                                                       ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                                       ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                                       ToolTip="{Binding StatusTooltip}" />
+                                                        </Grid>
+                                                        <StackPanel Grid.Row="0"
+                                                                    Grid.Column="1"
+                                                                    VerticalAlignment="Center"
+                                                                    Orientation="Horizontal">
+                                                            <ui:Button Width="30" Height="30"
+                                                                    Command="{Binding DataContext.RetryApiMonitorCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                    CommandParameter="{Binding}" Content="&#xE72C;" ToolTip="Retry this card"
+                                                                    Style="{StaticResource IconButtonStyle}" />
+                                                            <ui:Button Width="30"
+                                                                    Height="30"
+                                                                    Command="{Binding ToggleEditingCommand}"
+                                                                    Content="&#xE713;"
+                                                                    ToolTip="Settings"
+                                                                    Style="{StaticResource IconButtonStyle}" />
+                                                        </StackPanel>
+                                                    </Grid>
+
+                                                    <Grid Margin="0,14,0,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding PrimaryDisplayLabel}"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                   FontSize="12" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   Margin="8,0,0,0"
+                                                                   Text="{Binding BalanceDisplay}"
+                                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                                   FontSize="13" />
+                                                        <StackPanel Grid.Column="2"
+                                                                    Orientation="Horizontal"
+                                                                    Visibility="{Binding HasSecondaryDisplay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                            <TextBlock Text="{Binding SecondaryDisplayLabel}"
+                                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                       FontSize="12" />
+                                                            <TextBlock Margin="8,0,0,0"
+                                                                       Text="{Binding UsedDisplay}"
+                                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                                       FontSize="13" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </StackPanel>
+
+                                                <StackPanel Visibility="{Binding IsEditing, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="Provider settings"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                                   FontSize="15"
+                                                                   FontWeight="SemiBold" />
+                                                        <StackPanel Grid.Column="1"
+                                                                    Orientation="Horizontal">
+                                                            <ui:Button Width="30"
+                                                                    Height="30"
+                                                                    Command="{Binding DataContext.MoveApiMonitorUpCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Content="&#xE74A;"
+                                                                    ToolTip="Move up"
+                                                                    Style="{StaticResource IconButtonStyle}" />
+                                                            <ui:Button Width="30"
+                                                                    Height="30"
+                                                                    Command="{Binding DataContext.MoveApiMonitorDownCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Content="&#xE74B;"
+                                                                    ToolTip="Move down"
+                                                                    Style="{StaticResource IconButtonStyle}" />
+                                                            <ui:Button Width="30"
+                                                                    Height="30"
+                                                                    Command="{Binding DataContext.RemoveApiMonitorCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Content="&#xE74D;"
+                                                                    Style="{StaticResource IconButtonStyle}" />
+                                                            <ui:Button Width="30"
+                                                                    Height="30"
+                                                                    Command="{Binding ToggleEditingCommand}"
+                                                                    Content="&#xE73E;"
+                                                                    Style="{StaticResource IconButtonStyle}" />
+                                                        </StackPanel>
+                                                    </Grid>
+
+                                                    <TextBlock Margin="0,12,0,5"
+                                                               Text="Provider"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12" />
+                                                    <ComboBox ItemsSource="{Binding ProviderOptions}"
+                                                              SelectedItem="{Binding Provider}"
+                                                              Style="{StaticResource SettingsComboBoxStyle}" />
+
+                                                    <TextBlock Margin="0,10,0,5"
+                                                               Text="Display name"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12" />
+                                                    <ui:TextBox Text="{Binding Name}"
+                                                             Style="{StaticResource SettingsTextBoxStyle}" />
+
+                                                    <StackPanel>
+                                                        <TextBlock Margin="0,12,0,5"
+                                                                   Text="Base URL"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                   FontSize="12" />
+                                                        <ui:TextBox Text="{Binding BaseUrl}"
+                                                                 Style="{StaticResource SettingsTextBoxStyle}" />
+
+                                                        <TextBlock Margin="0,10,0,5"
+                                                                   Text="API key / access token"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                   FontSize="12" />
+                                                        <local:CredentialInput Text="{Binding ApiKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                                                        <StackPanel Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                            <TextBlock Margin="0,10,0,5"
+                                                                       Text="User ID"
+                                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                       FontSize="12" />
+                                                            <local:CredentialInput Text="{Binding UserId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- ===================== SETTINGS ===================== -->
+                <Grid Grid.Row="0"
+                      Visibility="{Binding IsSettingsVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                      IsVisibleChanged="MainPage_IsVisibleChanged">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Header: aligned with Codex (left title + right button) -->
+                    <StackPanel Grid.Row="0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Settings"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                       FontSize="26"
+                                       FontWeight="Medium"
+                                       VerticalAlignment="Center" />
+                            <ui:Button Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding SaveSettingsCommand}"
+                                    Content="&#xE74E;"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    ToolTip="Save"
+                                    Style="{StaticResource IconButtonStyle}" />
+                        </Grid>
+                        <TextBlock Margin="2,6,0,0"
+                                   Text="{Binding SettingsStatusText}"
+                                   Foreground="{Binding SettingsStatusBrush}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1"
+                                  Margin="0,20,-8,0"
+                                  Padding="0,0,8,0"
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <!-- General -->
+                            <TextBlock Text="General"
+                                       Style="{StaticResource SettingsSectionHeaderStyle}" />
+
+                            <Grid ToolTip="Unit: minutes"
+                                  Style="{StaticResource SettingsRowGridStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="140" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Refresh interval"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <local:NumericUpDown Grid.Column="1"
+                                                     VerticalAlignment="Center"
+                                                     ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                     ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                     ToolTip="Unit: minutes"
+                                                     Minimum="{x:Static core:CodexTrayDefaults.MinimumRefreshIntervalMinutes}"
+                                                     Maximum="{x:Static core:CodexTrayDefaults.MaximumRefreshIntervalMinutes}"
+                                                     DefaultValue="{x:Static core:CodexTrayDefaults.RefreshIntervalMinutes}"
+                                                     Value="{Binding RefreshIntervalText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
+                            </Grid>
+
+                            <Grid Style="{StaticResource SettingsRowGridStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="140" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Visible pages"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <ui:Button Grid.Column="1"
+                                        Height="34"
+                                        HorizontalAlignment="Stretch"
+                                        Padding="11,0"
+                                        HorizontalContentAlignment="Stretch"
+                                        Click="OpenSelectionMenu">
+                                    <Grid>
+                                        <TextBlock Text="{Binding VisiblePagesDisplay}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Text="&#xE70D;"
+                                                   HorizontalAlignment="Right"
+                                                   VerticalAlignment="Center"
+                                                   FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="12" />
+                                    </Grid>
+                                    <ui:Button.ContextMenu>
+                                        <ContextMenu MinWidth="140"
+                                                     Placement="Bottom"
+                                                     DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                            <MenuItem Header="Codex"
+                                                      IsCheckable="True"
+                                                      IsChecked="{Binding ShowCodexPage, Mode=TwoWay}"
+                                                      StaysOpenOnClick="True" />
+                                            <MenuItem Header="Grok"
+                                                      IsCheckable="True"
+                                                      IsChecked="{Binding ShowGrokPage, Mode=TwoWay}"
+                                                      StaysOpenOnClick="True" />
+                                            <MenuItem Header="APIs"
+                                                      IsCheckable="True"
+                                                      IsChecked="{Binding ShowApisPage, Mode=TwoWay}"
+                                                      StaysOpenOnClick="True" />
+                                        </ContextMenu>
+                                    </ui:Button.ContextMenu>
+                                </ui:Button>
+                            </Grid>
+
+                            <Grid Style="{StaticResource SettingsRowGridStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="140" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Start with Windows"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <ui:ToggleSwitch Grid.Column="1"
+                                          OffContent="" OnContent=""
+                                          AutomationProperties.Name="{Binding ToolTip, RelativeSource={RelativeSource Self}}"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                          ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                          IsChecked="{Binding StartWithWindows}"
+                                          ToolTip="Start with Windows" />
+                            </Grid>
+
+                            <Grid Margin="{StaticResource SettingsSectionEndMargin}"
+                                  ToolTip="Show Codex and Grok weekly resets as MM-dd instead of a countdown"
+                                  Style="{StaticResource SettingsRowGridStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="140" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Use absolute time"
+                                           ToolTip="Show Codex and Grok weekly resets as MM-dd instead of a countdown"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <ui:ToggleSwitch Grid.Column="1"
+                                          OffContent="" OnContent=""
+                                          AutomationProperties.Name="{Binding ToolTip, RelativeSource={RelativeSource Self}}"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                          ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                          IsChecked="{Binding UseAbsoluteResetTime}"
+                                          ToolTip="Show Codex and Grok weekly resets as MM-dd instead of a countdown" />
+                            </Grid>
+
+                            <!-- Appearance -->
+                            <TextBlock Text="Appearance"
+                                       Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
+
+                            <Grid Style="{StaticResource SettingsRowGridStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="140" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Theme"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <ComboBox Grid.Column="1"
+                                          VerticalAlignment="Center"
+                                          ItemsSource="{Binding ThemeModeOptions}"
+                                          SelectedItem="{Binding ThemeMode, UpdateSourceTrigger=PropertyChanged}"
+                                          Style="{StaticResource SettingsComboBoxStyle}" />
+                            </Grid>
+
+                            <Grid Margin="{StaticResource SettingsSectionEndMargin}"
+                                  Style="{StaticResource SettingsRowGridStyle}"
+                                  Visibility="{Binding IsMicaSupported, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="140" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Mica"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <ui:ToggleSwitch Grid.Column="1"
+                                          OffContent="" OnContent=""
+                                          AutomationProperties.Name="{Binding ToolTip, RelativeSource={RelativeSource Self}}"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          IsChecked="{Binding MicaEnabled}" ToolTip="Mica" />
+                            </Grid>
+
+                            <!-- Plugins -->
+                            <TextBlock Text="Plugins"
+                                       Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
+
+                            <Grid Margin="{StaticResource SettingsRowMargin}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="LiteMonitor"
+                                               Style="{StaticResource SettingsRowTitleStyle}" />
+                                    <Grid Margin="0,2,8,0">
+                                        <TextBlock Text="{Binding LiteMonitorDirDisplay}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding LiteMonitorDirDisplay}"
+                                                   Style="{StaticResource SettingsRowSubtitleStyle}"
+                                                   Visibility="{Binding IsDetectingLiteMonitor, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                                        <StackPanel Orientation="Horizontal"
+                                                    Visibility="{Binding IsDetectingLiteMonitor, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <ui:ProgressRing Style="{StaticResource BusyRingStyle}" />
+                                            <TextBlock Text="{StaticResource PluginDetectingText}"
+                                                       Margin="6,0,0,0"
+                                                       Style="{StaticResource SettingsRowSubtitleStyle}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                                <ui:Button Grid.Column="1"
+                                        Command="{Binding BrowseLiteMonitorCommand}"
+                                        Content="&#xE8B7;"
+                                        ToolTip="Browse"
+                                        Margin="4,0,0,0"
+                                        IsEnabled="{Binding IsLiteMonitorActionsEnabled}"
+                                        Style="{StaticResource IconButtonStyle}" />
+                                <ui:Button Grid.Column="2"
+                                        Command="{Binding AutoDetectLiteMonitorCommand}"
+                                        Content="&#xE721;"
+                                        ToolTip="Auto detect"
+                                        Margin="4,0,0,0"
+                                        IsEnabled="{Binding IsLiteMonitorActionsEnabled}"
+                                        Style="{StaticResource IconButtonStyle}" />
+                                <ui:Button Grid.Column="3"
+                                         Command="{Binding InstallLiteMonitorPluginCommand}"
+                                         Content="&#xE896;"
+                                          ToolTip="Setup"
+                                          Margin="4,0,0,0"
+                                          IsEnabled="{Binding IsLiteMonitorActionsEnabled}"
+                                          Style="{StaticResource IconButtonStyle}" />
+                            </Grid>
+
+                            <Grid Margin="{StaticResource SettingsSectionEndMargin}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="TrafficMonitor"
+                                               Style="{StaticResource SettingsRowTitleStyle}" />
+                                    <Grid Margin="0,2,8,0">
+                                        <TextBlock Text="{Binding TrafficMonitorDirDisplay}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding TrafficMonitorDirDisplay}"
+                                                   Style="{StaticResource SettingsRowSubtitleStyle}"
+                                                   Visibility="{Binding IsDetectingTrafficMonitor, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                                        <StackPanel Orientation="Horizontal"
+                                                    Visibility="{Binding IsDetectingTrafficMonitor, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <ui:ProgressRing Style="{StaticResource BusyRingStyle}" />
+                                            <TextBlock Text="{StaticResource PluginDetectingText}"
+                                                       Margin="6,0,0,0"
+                                                       Style="{StaticResource SettingsRowSubtitleStyle}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                                <ui:Button Grid.Column="1"
+                                        Command="{Binding BrowseTrafficMonitorCommand}"
+                                        Content="&#xE8B7;"
+                                        ToolTip="Browse"
+                                        Margin="4,0,0,0"
+                                        IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
+                                        Style="{StaticResource IconButtonStyle}" />
+                                <ui:Button Grid.Column="2"
+                                        Command="{Binding AutoDetectTrafficMonitorCommand}"
+                                        Content="&#xE721;"
+                                        ToolTip="Auto detect"
+                                        Margin="4,0,0,0"
+                                        IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
+                                        Style="{StaticResource IconButtonStyle}" />
+                                <ui:Button Grid.Column="3"
+                                         Command="{Binding InstallTrafficMonitorPluginCommand}"
+                                         Content="&#xE896;"
+                                          ToolTip="Setup"
+                                          Margin="4,0,0,0"
+                                          IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
+                                          Style="{StaticResource IconButtonStyle}" />
+                            </Grid>
+
+                            <!-- Advanced -->
+                            <TextBlock Text="Advanced"
+                                       Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
+
+                            <Grid ToolTip="{Binding ServiceStatus}"
+                                  Style="{StaticResource SettingsRowGridStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="140" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="HTTP port"
+                                           ToolTip="{Binding ServiceStatus}"
+                                           Style="{StaticResource SettingsRowTitleStyle}" />
+                                <local:NumericUpDown Grid.Column="1"
+                                                     VerticalAlignment="Center"
+                                                     ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
+                                                     ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
+                                                     ToolTip="{Binding ServiceStatus}"
+                                                     Minimum="{x:Static core:CodexTrayDefaults.MinimumPort}"
+                                                     Maximum="{x:Static core:CodexTrayDefaults.MaximumPort}"
+                                                     DefaultValue="{x:Static core:CodexTrayDefaults.Port}"
+                                                     Value="{Binding PortText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
+                            </Grid>
+
+                            <Grid Style="{StaticResource SettingsRowGridStyle}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="Resets"
-                                           VerticalAlignment="Top"
-                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                           FontSize="13.5"
-                                           FontWeight="Medium" />
-                                <StackPanel Grid.Column="1"
-                                            HorizontalAlignment="Right">
-                                    <TextBlock Text="{Binding CodexResetCreditsDisplay}"
-                                               HorizontalAlignment="Right"
-                                               FontSize="14">
-                                        <TextBlock.Style>
-                                            <Style TargetType="{x:Type TextBlock}">
-                                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CodexHasResetCredits}" Value="True">
-                                                        <Setter Property="Foreground" Value="{Binding CodexStatusDotBrush}" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                    <TextBlock x:Name="CodexResetCreditsExpiryDatesText"
-                                               Text="{Binding CodexResetCreditsExpiryDates}"
-                                               HorizontalAlignment="Right"
-                                               Margin="0,5,0,0">
-                                        <TextBlock.Style>
-                                            <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource UsageCardCaptionTextStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CodexResetCreditsExpiryDates}" Value="">
-                                                        <Setter Property="Visibility" Value="Collapsed" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
+                                <TextBlock Text="Copy diagnostics" Style="{StaticResource SettingsRowTitleStyle}" />
+                                <ui:Button Grid.Column="1" Command="{Binding CopyDiagnosticsCommand}"
+                                        CommandParameter="{x:Static core:PageItem.All}"
+                                        Content="&#xE8C8;" ToolTip="Copy diagnostics for all sources"
+                                        Style="{StaticResource IconButtonStyle}" />
+                            </Grid>
+
+                            <Grid Margin="{StaticResource SettingsLastRowMargin}" Style="{StaticResource SettingsRowGridStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Restore last good settings" Style="{StaticResource SettingsRowTitleStyle}" />
+                                <ui:Button Grid.Column="1" Command="{Binding RestoreSettingsBackupCommand}"
+                                        Content="&#xE72C;" ToolTip="Preserves the current file before restoring the backup."
+                                        Style="{StaticResource IconButtonStyle}" />
+                            </Grid>
+
+                            <!-- About -->
+                            <TextBlock Text="About"
+                                       Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
+
+                            <Grid Margin="{StaticResource SettingsLastRowMargin}"
+                                  Style="{StaticResource SettingsRowGridStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding AppVersion, StringFormat=Version {0}}"
+                                               Style="{StaticResource SettingsRowTitleStyle}" />
+                                    <TextBlock Text="New" Margin="8,0,0,0" VerticalAlignment="Center"
+                                               FontWeight="SemiBold" Foreground="{Binding AccentBrush}"
+                                               Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                 </StackPanel>
+                                <ui:Button Grid.Column="1"
+                                        Margin="4,0,0,0"
+                                        Command="{Binding RunUpdateCommand}"
+                                        Content="{Binding UpdateActionIcon}"
+                                        ToolTip="{Binding UpdateActionText}"
+                                        ToolTipService.ShowOnDisabled="True"
+                                        Style="{StaticResource IconButtonStyle}" />
+                                <ui:Button Grid.Column="2"
+                                        Margin="4,0,0,0"
+                                        Command="{Binding ShowAboutCommand}"
+                                        Content="&#xE72A;"
+                                        ToolTip="Open About"
+                                        Style="{StaticResource IconButtonStyle}" />
                             </Grid>
-                        </Border>
-
-                    </StackPanel>
-                </ScrollViewer>
-
-                <ContentControl x:Name="CodexTokenCostDashboard"
-                                Grid.Row="2"
-                                Content="{Binding CodexTokenCost}"
-                                ContentTemplate="{StaticResource TokenCostDashboardDataTemplate}"
-                                HorizontalContentAlignment="Stretch"
-                                VerticalContentAlignment="Stretch"
-                                Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
-                <ContentControl Grid.Row="1"
-                                Grid.RowSpan="2"
-                                Margin="0,4,0,0"
-                                Content="{Binding CodexSessionLogs}"
-                                ContentTemplate="{StaticResource SessionLogListTemplate}"
-                                HorizontalContentAlignment="Stretch"
-                                VerticalContentAlignment="Stretch"
-                                Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
-            </Grid>
-
-            <!-- ===================== GROK ===================== -->
-            <Grid x:Name="GrokPageGrid"
-                  Grid.Row="0"
-                  Visibility="{Binding IsGrokVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Grid.RowDefinitions>
-                    <!-- Upper region: header and quota cards. -->
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="189" />
-                    <!-- Middle and bottom regions: TokenCostDashboardDataTemplate. -->
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <StackPanel Grid.Row="0">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Grok"
-                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                       FontSize="26"
-                                       FontWeight="Medium"
-                                       VerticalAlignment="Center" />
-                            <Border MinWidth="32"
-                                    Height="16"
-                                    Margin="6,6,0,0"
-                                    VerticalAlignment="Top"
-                                    Padding="6,0"
-                                    CornerRadius="4"
-                                    Background="Transparent"
-                                    BorderBrush="{Binding GrokPlanBadgeBrush}"
-                                    BorderThickness="1">
-                                <TextBlock Text="{Binding GrokPlanDisplay}"
-                                           Foreground="{Binding GrokPlanBadgeBrush}"
-                                           FontWeight="Normal"
-                                           FontSize="9.5"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
-                            </Border>
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <Button VerticalAlignment="Center"
-                                    Command="{Binding GrokSessionLogs.ToggleCommand}"
-                                    Content="{x:Static local:SessionLogListViewModel.ListGlyph}"
-                                    ToolTip="{Binding GrokSessionLogs.ToggleTooltip}"
-                                    AutomationProperties.Name="{Binding GrokSessionLogs.ToggleTooltip}">
-                                <Button.Style>
-                                    <Style TargetType="{x:Type Button}" BasedOn="{StaticResource IconButtonStyle}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding GrokSessionLogs.IsOpen}" Value="True">
-                                                <Setter Property="Foreground" Value="#1ABC89" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
-                            <Button VerticalAlignment="Center" Command="{Binding RetrySourceCommand}"
-                                    CommandParameter="{x:Static core:PageItem.Grok}"
-                                    ToolTip="Refresh this source" Style="{StaticResource IconButtonStyle}">
-                                <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                    <StackPanel x:Name="GrokUpdatedStatus"
-                                Orientation="Horizontal"
-                                Margin="2,6,0,0"
-                                VerticalAlignment="Center">
-                        <Ellipse Width="7"
-                                 Height="7"
-                                 Margin="0,0,6,0"
-                                 VerticalAlignment="Center"
-                                 Fill="{Binding GrokStatusDotBrush}" />
-                        <TextBlock Text="{Binding GrokUpdatedAtDisplay}"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   FontSize="12" />
-                    </StackPanel>
-                </StackPanel>
+                    </ScrollViewer>
 
-                <ScrollViewer x:Name="GrokQuotaScrollViewer"
-                              Grid.Row="1"
-                              Margin="0,18,-8,0"
-                              Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
-                              Padding="0,0,8,0"
-                              HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Hidden">
-                    <StackPanel x:Name="GrokQuotaCardPanel"
-                                VerticalAlignment="Top">
-                        <Border x:Name="GrokWeeklyCard"
-                                Margin="0,0,0,12"
-                                Style="{StaticResource LargeUsageCardStyle}">
-                            <ContentControl Content="{Binding GrokWeeklyQuota}"
-                                            ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                            HorizontalContentAlignment="Stretch" />
-                        </Border>
-
-                        <Border x:Name="GrokProductUsageCard"
-                                Margin="0"
-                                Padding="14,9"
-                                Style="{StaticResource SmallUsageCardStyle}">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="*" />
-                                    <RowDefinition Height="*" />
-                                </Grid.RowDefinitions>
-                                <TextBlock x:Name="GrokProductUsageText"
-                                           Grid.RowSpan="2"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Text="N/A"
-                                           FontSize="14"
-                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                           Visibility="{Binding HasGrokProductUsageItems, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
-                                <Border x:Name="GrokProductUsageBar"
-                                        VerticalAlignment="Center"
-                                        Height="{StaticResource QuotaBarHeight}"
-                                        CornerRadius="3"
-                                        SnapsToDevicePixels="True"
-                                        Background="{DynamicResource ControlStrongFillColorDefaultBrush}"
-                                        ToolTip="{Binding GrokProductUsageBarTooltip}"
-                                        ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                        ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                        Visibility="{Binding HasGrokProductUsageItems, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                    <ItemsControl x:Name="GrokProductUsageBarItems"
-                                                  Height="{StaticResource QuotaBarHeight}"
-                                                  VerticalAlignment="Stretch"
-                                                  HorizontalAlignment="Stretch"
-                                                  ItemsSource="{Binding GrokProductUsageBarItems}"
-                                                  ItemTemplate="{StaticResource GrokProductUsageBarSegmentDataTemplate}"
-                                                  Style="{StaticResource GrokProductUsageItemsControlStyle}">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <local:ProportionalStackPanel Gap="3" />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemContainerStyle>
-                                            <Style TargetType="{x:Type ContentPresenter}">
-                                                <Setter Property="local:ProportionalStackPanel.Share" Value="{Binding UsedPercent}" />
-                                                <Setter Property="HorizontalAlignment" Value="Stretch" />
-                                                <Setter Property="VerticalAlignment" Value="Stretch" />
-                                            </Style>
-                                        </ItemsControl.ItemContainerStyle>
-                                    </ItemsControl>
-                                </Border>
-                                <ItemsControl x:Name="GrokProductUsageLegend"
-                                              Grid.Row="1"
-                                              VerticalAlignment="Center"
-                                              HorizontalAlignment="Stretch"
-                                              ItemsSource="{Binding GrokProductUsageItems}"
-                                              ItemTemplate="{StaticResource GrokProductUsageLegendItemDataTemplate}"
-                                              Style="{StaticResource GrokProductUsageItemsControlStyle}"
-                                              Visibility="{Binding HasGrokProductUsageItems, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <UniformGrid Columns="3" />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemContainerStyle>
-                                        <Style TargetType="{x:Type ContentPresenter}">
-                                            <Setter Property="HorizontalAlignment" Value="Stretch" />
-                                            <Setter Property="VerticalAlignment" Value="Center" />
-                                        </Style>
-                                    </ItemsControl.ItemContainerStyle>
-                                </ItemsControl>
-                            </Grid>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
-
-                <ContentControl x:Name="GrokTokenCostDashboard"
-                                Grid.Row="2"
-                                Content="{Binding GrokTokenCost}"
-                                ContentTemplate="{StaticResource TokenCostDashboardDataTemplate}"
-                                HorizontalContentAlignment="Stretch"
-                                VerticalContentAlignment="Stretch"
-                                Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
-                <ContentControl Grid.Row="1"
-                                Grid.RowSpan="2"
-                                Margin="0,4,0,0"
-                                Content="{Binding GrokSessionLogs}"
-                                ContentTemplate="{StaticResource SessionLogListTemplate}"
-                                HorizontalContentAlignment="Stretch"
-                                VerticalContentAlignment="Stretch"
-                                Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}}" />
-            </Grid>
-
-            <!-- ===================== APIs ===================== -->
-            <Grid Grid.Row="0"
-                  Visibility="{Binding IsApiVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <StackPanel Grid.Row="0">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="APIs"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                   FontSize="26"
-                                   FontWeight="Medium"
-                                   VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="1"
-                                    Orientation="Horizontal">
-                            <Button VerticalAlignment="Center"
-                                    Command="{Binding AddApiMonitorCommand}"
-                                    Content="&#xE710;"
-                                    ToolTip="Add API"
-                                    Style="{StaticResource IconButtonStyle}" />
-                            <Button VerticalAlignment="Center"
-                                    Command="{Binding RetrySourceCommand}"
-                                    CommandParameter="{x:Static core:PageItem.Apis}"
-                                    ToolTip="Refresh"
-                                    Style="{StaticResource IconButtonStyle}">
-                                <TextBlock Style="{StaticResource RefreshSpinnerGlyphStyle}" />
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                    <StackPanel Margin="2,6,0,0"
-                                Orientation="Horizontal"
-                                VerticalAlignment="Center">
-                        <Ellipse Width="7"
-                                 Height="7"
-                                 Margin="0,0,6,0"
-                                 VerticalAlignment="Center"
-                                 Fill="{Binding ApiMonitorStatusDotBrush}"
-                                 Visibility="{Binding HasApiMonitorStatus, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <TextBlock Text="{Binding ApiMonitorStatusText}"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   FontSize="12" />
-                    </StackPanel>
-                </StackPanel>
-
-                <ScrollViewer Grid.Row="1"
-                              Margin="0,18,-8,0"
-                              Padding="0,0,8,0"
-                              VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Margin="0,36,0,20"
-                                   Text="No APIs are monitored yet."
-                                   HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   FontSize="13"
-                                   Visibility="{Binding IsApiEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
-                        <ItemsControl x:Name="ApiMonitorItemsControl"
-                                      ItemsSource="{Binding ApiMonitors}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border x:Name="ApiMonitorCard"
-                                            MinHeight="91"
-                                            Style="{StaticResource UsageCardStyle}">
-                                        <Grid>
-                                            <StackPanel Visibility="{Binding IsEditing, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-                                                <Grid>
-                                                    <Grid.RowDefinitions>
-                                                        <RowDefinition Height="Auto" />
-                                                    </Grid.RowDefinitions>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <Grid Grid.Row="0">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto" />
-                                                            <ColumnDefinition Width="*" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <Ellipse Width="7"
-                                                                 Height="7"
-                                                                 Margin="0,0,6,0"
-                                                                 VerticalAlignment="Center"
-                                                                 Fill="{Binding StatusDotBrush}"
-                                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                                 ToolTip="{Binding StatusTooltip}" />
-                                                        <TextBlock Grid.Column="1"
-                                                                   Text="{Binding DisplayName}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   VerticalAlignment="Center"
-                                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                                   FontSize="15"
-                                                                   FontWeight="SemiBold"
-                                                                   ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                                   ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                                   ToolTip="{Binding StatusTooltip}" />
-                                                    </Grid>
-                                                    <StackPanel Grid.Row="0"
-                                                                Grid.Column="1"
-                                                                VerticalAlignment="Center"
-                                                                Orientation="Horizontal">
-                                                        <Button Width="30" Height="30"
-                                                                Command="{Binding DataContext.RetryApiMonitorCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                                                                CommandParameter="{Binding}" Content="&#xE72C;" ToolTip="Retry this card"
-                                                                Style="{StaticResource IconButtonStyle}" />
-                                                        <Button Width="30"
-                                                                Height="30"
-                                                                Command="{Binding ToggleEditingCommand}"
-                                                                Content="&#xE713;"
-                                                                ToolTip="Settings"
-                                                                Style="{StaticResource IconButtonStyle}" />
-                                                    </StackPanel>
-                                                </Grid>
-
-                                                <Grid Margin="0,14,0,0">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="{Binding PrimaryDisplayLabel}"
-                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                               FontSize="12" />
-                                                    <TextBlock Grid.Column="1"
-                                                               Margin="8,0,0,0"
-                                                               Text="{Binding BalanceDisplay}"
-                                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                               FontSize="13"
-                                                               ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                               ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
-                                                        <TextBlock.Style>
-                                                            <Style TargetType="{x:Type TextBlock}">
-                                                                <Setter Property="ToolTip" Value="{x:Null}" />
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding HasBalanceTooltip}" Value="True">
-                                                                        <Setter Property="ToolTip" Value="{Binding BalanceTooltip}" />
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </TextBlock.Style>
-                                                    </TextBlock>
-                                                    <StackPanel Grid.Column="2"
-                                                                Orientation="Horizontal"
-                                                                Visibility="{Binding HasSecondaryDisplay, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                        <TextBlock Text="{Binding SecondaryDisplayLabel}"
-                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                                   FontSize="12" />
-                                                        <TextBlock Margin="8,0,0,0"
-                                                                   Text="{Binding UsedDisplay}"
-                                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                                   FontSize="13" />
-                                                    </StackPanel>
-                                                </Grid>
-                                            </StackPanel>
-
-                                            <StackPanel Visibility="{Binding IsEditing, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="Provider settings"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                               FontSize="15"
-                                                               FontWeight="SemiBold" />
-                                                    <StackPanel Grid.Column="1"
-                                                                Orientation="Horizontal">
-                                                        <Button Width="30"
-                                                                Height="30"
-                                                                Command="{Binding DataContext.MoveApiMonitorUpCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                                                                CommandParameter="{Binding}"
-                                                                Content="&#xE74A;"
-                                                                ToolTip="Move up"
-                                                                Style="{StaticResource IconButtonStyle}" />
-                                                        <Button Width="30"
-                                                                Height="30"
-                                                                Command="{Binding DataContext.MoveApiMonitorDownCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                                                                CommandParameter="{Binding}"
-                                                                Content="&#xE74B;"
-                                                                ToolTip="Move down"
-                                                                Style="{StaticResource IconButtonStyle}" />
-                                                        <Button Width="30"
-                                                                Height="30"
-                                                                Command="{Binding DataContext.RemoveApiMonitorCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                                                                CommandParameter="{Binding}"
-                                                                Content="&#xE74D;"
-                                                                Style="{StaticResource IconButtonStyle}" />
-                                                        <Button Width="30"
-                                                                Height="30"
-                                                                Command="{Binding ToggleEditingCommand}"
-                                                                Content="&#xE73E;"
-                                                                Style="{StaticResource IconButtonStyle}" />
-                                                    </StackPanel>
-                                                </Grid>
-
-                                                <TextBlock Margin="0,12,0,5"
-                                                           Text="Provider"
-                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                           FontSize="12" />
-                                                <ComboBox ItemsSource="{Binding ProviderOptions}"
-                                                          SelectedItem="{Binding Provider}"
-                                                          Style="{StaticResource SettingsComboBoxStyle}" />
-
-                                                <TextBlock Margin="0,10,0,5"
-                                                           Text="Display name"
-                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                           FontSize="12" />
-                                                <TextBox Text="{Binding Name}"
-                                                         Style="{StaticResource SettingsTextBoxStyle}" />
-
-                                                <StackPanel>
-                                                    <TextBlock Margin="0,12,0,5"
-                                                               Text="Base URL"
-                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                               FontSize="12" />
-                                                    <TextBox Text="{Binding BaseUrl}"
-                                                             Style="{StaticResource SettingsTextBoxStyle}" />
-
-                                                    <TextBlock Margin="0,10,0,5"
-                                                               Text="API key / access token"
-                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                               FontSize="12" />
-                                                    <local:CredentialInput Text="{Binding ApiKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-
-                                                    <StackPanel Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                        <TextBlock Margin="0,10,0,5"
-                                                                   Text="User ID"
-                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                                                   FontSize="12" />
-                                                        <local:CredentialInput Text="{Binding UserId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-            </Grid>
-
-            <!-- ===================== SETTINGS ===================== -->
-            <Grid Grid.Row="0"
-                  Visibility="{Binding IsSettingsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <!-- Header: aligned with Codex (left title + right button) -->
-                <StackPanel Grid.Row="0">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Settings"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                   FontSize="26"
-                                   FontWeight="Medium"
-                                   VerticalAlignment="Center" />
-                        <Button Grid.Column="1"
-                                VerticalAlignment="Center"
-                                Command="{Binding SaveSettingsCommand}"
-                                Content="&#xE74E;"
-                                FontFamily="Segoe MDL2 Assets"
-                                ToolTip="Save"
-                                Style="{StaticResource IconButtonStyle}" />
-                    </Grid>
-                    <TextBlock Margin="2,6,0,0"
-                               Text="{Binding SettingsStatusText}"
-                               Foreground="{Binding SettingsStatusBrush}"
-                               FontSize="12"
-                               FontWeight="Medium"
-                               TextWrapping="Wrap" />
-                </StackPanel>
-
-                <ScrollViewer Grid.Row="1"
-                              Margin="0,20,-8,0"
-                              Padding="0,0,8,0"
-                              VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <!-- General -->
-                        <TextBlock Text="General"
-                                   Style="{StaticResource SettingsSectionHeaderStyle}" />
-
-                        <Grid ToolTip="Unit: minutes"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Refresh interval"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <local:NumericUpDown Grid.Column="1"
-                                                 VerticalAlignment="Center"
-                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                 ToolTip="Unit: minutes"
-                                                 Minimum="{x:Static core:CodexTrayDefaults.MinimumRefreshIntervalMinutes}"
-                                                 Maximum="{x:Static core:CodexTrayDefaults.MaximumRefreshIntervalMinutes}"
-                                                 DefaultValue="{x:Static core:CodexTrayDefaults.RefreshIntervalMinutes}"
-                                                 Value="{Binding RefreshIntervalText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
-                        </Grid>
-
-                        <Grid Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Visible pages"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <Button Grid.Column="1"
-                                    Height="34"
-                                    HorizontalAlignment="Stretch"
-                                    Padding="11,0"
-                                    HorizontalContentAlignment="Stretch"
-                                    Click="OpenSelectionMenu">
-                                <Grid>
-                                    <TextBlock Text="{Binding VisiblePagesDisplay}"
-                                               VerticalAlignment="Center" />
-                                    <TextBlock Text="&#xE70D;"
-                                               HorizontalAlignment="Right"
-                                               VerticalAlignment="Center"
-                                               FontFamily="Segoe MDL2 Assets"
-                                               FontSize="12" />
-                                </Grid>
-                                <Button.ContextMenu>
-                                    <ContextMenu MinWidth="140"
-                                                 Placement="Bottom"
-                                                 DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                                        <MenuItem Header="Codex"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowCodexPage, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="Grok"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowGrokPage, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                        <MenuItem Header="APIs"
-                                                  IsCheckable="True"
-                                                  IsChecked="{Binding ShowApisPage, Mode=TwoWay}"
-                                                  StaysOpenOnClick="True" />
-                                    </ContextMenu>
-                                </Button.ContextMenu>
-                            </Button>
-                        </Grid>
-
-                        <Grid Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Start with Windows"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <CheckBox Grid.Column="1"
-                                      HorizontalAlignment="Right"
-                                      VerticalAlignment="Center"
-                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                      IsChecked="{Binding StartWithWindows}"
-                                      ToolTip="Start with Windows" />
-                        </Grid>
-
-                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
-                              ToolTip="Show Codex and Grok weekly resets as MM-dd instead of a countdown"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Use absolute time"
-                                       ToolTip="Show Codex and Grok weekly resets as MM-dd instead of a countdown"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <CheckBox Grid.Column="1"
-                                      HorizontalAlignment="Right"
-                                      VerticalAlignment="Center"
-                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                      IsChecked="{Binding UseAbsoluteResetTime}"
-                                      ToolTip="Show Codex and Grok weekly resets as MM-dd instead of a countdown" />
-                        </Grid>
-
-                        <!-- Appearance -->
-                        <TextBlock Text="Appearance"
-                                   Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
-
-                        <Grid Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Theme"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <ComboBox Grid.Column="1"
-                                      VerticalAlignment="Center"
-                                      ItemsSource="{Binding ThemeModeOptions}"
-                                      SelectedItem="{Binding ThemeMode, UpdateSourceTrigger=PropertyChanged}"
-                                      Style="{StaticResource SettingsComboBoxStyle}" />
-                        </Grid>
-
-                        <Grid Margin="{StaticResource SettingsSectionEndMargin}"
-                              Style="{StaticResource SettingsRowGridStyle}"
-                              Visibility="{Binding IsMicaSupported, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Mica"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <CheckBox Grid.Column="1"
-                                      HorizontalAlignment="Right"
-                                      VerticalAlignment="Center"
-                                      IsChecked="{Binding MicaEnabled}" />
-                        </Grid>
-
-                        <!-- Plugins -->
-                        <TextBlock Text="Plugins"
-                                   Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
-
-                        <Grid Margin="{StaticResource SettingsRowMargin}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="LiteMonitor"
-                                           Style="{StaticResource SettingsRowTitleStyle}" />
-                                <Grid Margin="0,2,8,0">
-                                    <TextBlock Text="{Binding LiteMonitorDirDisplay}"
-                                               TextTrimming="CharacterEllipsis"
-                                               ToolTip="{Binding LiteMonitorDirDisplay}"
-                                               Style="{StaticResource SettingsRowSubtitleStyle}"
-                                               Visibility="{Binding IsDetectingLiteMonitor, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
-                                    <StackPanel Orientation="Horizontal"
-                                                Visibility="{Binding IsDetectingLiteMonitor, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                        <TextBlock Style="{StaticResource DetectSpinnerStyle}" />
-                                        <TextBlock Text="{StaticResource PluginDetectingText}"
-                                                   Margin="6,0,0,0"
-                                                   Style="{StaticResource SettingsRowSubtitleStyle}" />
-                                    </StackPanel>
-                                </Grid>
-                            </StackPanel>
-                            <Button Grid.Column="1"
-                                    Command="{Binding BrowseLiteMonitorCommand}"
-                                    Content="&#xE8B7;"
-                                    ToolTip="Browse"
-                                    Margin="4,0,0,0"
-                                    IsEnabled="{Binding IsLiteMonitorActionsEnabled}"
-                                    Style="{StaticResource IconButtonStyle}" />
-                            <Button Grid.Column="2"
-                                    Command="{Binding AutoDetectLiteMonitorCommand}"
-                                    Content="&#xE721;"
-                                    ToolTip="Auto detect"
-                                    Margin="4,0,0,0"
-                                    IsEnabled="{Binding IsLiteMonitorActionsEnabled}"
-                                    Style="{StaticResource IconButtonStyle}" />
-                            <Button Grid.Column="3"
-                                     Command="{Binding InstallLiteMonitorPluginCommand}"
-                                     Content="&#xE896;"
-                                      ToolTip="Setup"
-                                      Margin="4,0,0,0"
-                                      IsEnabled="{Binding IsLiteMonitorActionsEnabled}"
-                                      Style="{StaticResource IconButtonStyle}" />
-                        </Grid>
-
-                        <Grid Margin="{StaticResource SettingsSectionEndMargin}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="TrafficMonitor"
-                                           Style="{StaticResource SettingsRowTitleStyle}" />
-                                <Grid Margin="0,2,8,0">
-                                    <TextBlock Text="{Binding TrafficMonitorDirDisplay}"
-                                               TextTrimming="CharacterEllipsis"
-                                               ToolTip="{Binding TrafficMonitorDirDisplay}"
-                                               Style="{StaticResource SettingsRowSubtitleStyle}"
-                                               Visibility="{Binding IsDetectingTrafficMonitor, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
-                                    <StackPanel Orientation="Horizontal"
-                                                Visibility="{Binding IsDetectingTrafficMonitor, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                        <TextBlock Style="{StaticResource DetectSpinnerStyle}" />
-                                        <TextBlock Text="{StaticResource PluginDetectingText}"
-                                                   Margin="6,0,0,0"
-                                                   Style="{StaticResource SettingsRowSubtitleStyle}" />
-                                    </StackPanel>
-                                </Grid>
-                            </StackPanel>
-                            <Button Grid.Column="1"
-                                    Command="{Binding BrowseTrafficMonitorCommand}"
-                                    Content="&#xE8B7;"
-                                    ToolTip="Browse"
-                                    Margin="4,0,0,0"
-                                    IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
-                                    Style="{StaticResource IconButtonStyle}" />
-                            <Button Grid.Column="2"
-                                    Command="{Binding AutoDetectTrafficMonitorCommand}"
-                                    Content="&#xE721;"
-                                    ToolTip="Auto detect"
-                                    Margin="4,0,0,0"
-                                    IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
-                                    Style="{StaticResource IconButtonStyle}" />
-                            <Button Grid.Column="3"
-                                     Command="{Binding InstallTrafficMonitorPluginCommand}"
-                                     Content="&#xE896;"
-                                      ToolTip="Setup"
-                                      Margin="4,0,0,0"
-                                      IsEnabled="{Binding IsTrafficMonitorActionsEnabled}"
-                                      Style="{StaticResource IconButtonStyle}" />
-                        </Grid>
-
-                        <!-- Advanced -->
-                        <TextBlock Text="Advanced"
-                                   Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
-
-                        <Grid ToolTip="{Binding ServiceStatus}"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="140" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="HTTP port"
-                                       ToolTip="{Binding ServiceStatus}"
-                                       Style="{StaticResource SettingsRowTitleStyle}" />
-                            <local:NumericUpDown Grid.Column="1"
-                                                 VerticalAlignment="Center"
-                                                 ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                 ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}"
-                                                 ToolTip="{Binding ServiceStatus}"
-                                                 Minimum="{x:Static core:CodexTrayDefaults.MinimumPort}"
-                                                 Maximum="{x:Static core:CodexTrayDefaults.MaximumPort}"
-                                                 DefaultValue="{x:Static core:CodexTrayDefaults.Port}"
-                                                 Value="{Binding PortText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
-                        </Grid>
-
-                        <Grid Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Copy diagnostics" Style="{StaticResource SettingsRowTitleStyle}" />
-                            <Button Grid.Column="1" Command="{Binding CopyDiagnosticsCommand}"
-                                    CommandParameter="{x:Static core:PageItem.All}"
-                                    Content="&#xE8C8;" ToolTip="Copy diagnostics for all sources"
-                                    Style="{StaticResource IconButtonStyle}" />
-                        </Grid>
-
-                        <Grid Margin="{StaticResource SettingsLastRowMargin}" Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Restore last good settings" Style="{StaticResource SettingsRowTitleStyle}" />
-                            <Button Grid.Column="1" Command="{Binding RestoreSettingsBackupCommand}"
-                                    Content="&#xE72C;" ToolTip="Preserves the current file before restoring the backup."
-                                    Style="{StaticResource IconButtonStyle}" />
-                        </Grid>
-
-                        <!-- About -->
-                        <TextBlock Text="About"
-                                   Style="{StaticResource SettingsSectionHeaderSpacedStyle}" />
-
-                        <Grid Margin="{StaticResource SettingsLastRowMargin}"
-                              Style="{StaticResource SettingsRowGridStyle}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding AppVersion, StringFormat=Version {0}}"
-                                           Style="{StaticResource SettingsRowTitleStyle}" />
-                                <TextBlock Text="New" Margin="8,0,0,0" VerticalAlignment="Center"
-                                           FontWeight="SemiBold" Foreground="{Binding AccentBrush}"
-                                           Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                            </StackPanel>
-                            <Button Grid.Column="1"
-                                    Margin="4,0,0,0"
-                                    Command="{Binding RunUpdateCommand}"
-                                    Content="{Binding UpdateActionIcon}"
-                                    ToolTip="{Binding UpdateActionText}"
-                                    ToolTipService.ShowOnDisabled="True"
-                                    Style="{StaticResource IconButtonStyle}" />
-                            <Button Grid.Column="2"
-                                    Margin="4,0,0,0"
-                                    Command="{Binding ShowAboutCommand}"
-                                    Content="&#xE72A;"
-                                    ToolTip="Open About"
-                                    Style="{StaticResource IconButtonStyle}" />
-                        </Grid>
-                    </StackPanel>
-                </ScrollViewer>
-
-            </Grid>
-
-            <!-- ===================== ABOUT ===================== -->
-            <Grid Grid.Row="0"
-                  Visibility="{Binding IsAboutVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="About"
-                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                               FontSize="26"
-                               FontWeight="Medium"
-                               VerticalAlignment="Center" />
-                    <Button Grid.Column="1"
-                            Command="{Binding ShowSettingsCommand}"
-                            Content="&#xE72B;"
-                            ToolTip="Back to Settings"
-                            Style="{StaticResource IconButtonStyle}" />
                 </Grid>
 
-                <Grid Grid.Row="1">
+                <!-- ===================== ABOUT ===================== -->
+                <Grid Grid.Row="0"
+                      Visibility="{Binding IsAboutVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+                      IsVisibleChanged="MainPage_IsVisibleChanged">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <StackPanel Margin="0,30,0,0">
-                        <Border Width="82"
-                                Height="82"
-                                HorizontalAlignment="Center"
-                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1"
-                                CornerRadius="20">
-                            <Image Width="72"
-                                   Height="72"
-                                   RenderOptions.BitmapScalingMode="HighQuality"
-                                   SnapsToDevicePixels="True"
-                                   Source="pack://siteoforigin:,,,/Resources/icon.png" />
-                        </Border>
-                        <TextBlock Margin="0,16,0,0"
-                                   Text="CodexTray"
-                                   HorizontalAlignment="Center"
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="About"
                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                   FontSize="22"
-                                   FontWeight="SemiBold" />
-                        <TextBlock Margin="0,4,0,0"
-                                   Text="{Binding AppVersion, StringFormat=Version {0}}"
-                                   HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   FontSize="13" />
-                        <TextBlock Margin="18,12,18,28"
-                                   Text="A lightweight Windows tray monitor for Codex and other AI services."
-                                   TextAlignment="Center"
-                                   TextWrapping="Wrap"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   FontSize="13" />
+                                   FontSize="26"
+                                   FontWeight="Medium"
+                                   VerticalAlignment="Center" />
+                        <ui:Button Grid.Column="1"
+                                Command="{Binding ShowSettingsCommand}"
+                                Content="&#xE72B;"
+                                ToolTip="Back to Settings"
+                                Style="{StaticResource IconButtonStyle}" />
+                    </Grid>
 
-                        <StackPanel HorizontalAlignment="Center"
-                                    Orientation="Horizontal">
-                            <TextBlock VerticalAlignment="Center"
-                                       FontSize="13">
-                                <Hyperlink Command="{Binding OpenRepositoryCommand}"
-                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                           ToolTip="Open GitHub repository">
-                                    <Hyperlink.TextDecorations>
-                                        <TextDecorationCollection>
-                                            <TextDecoration Location="Underline"
-                                                            PenOffset="2"
-                                                            PenOffsetUnit="Pixel"
-                                                            PenThicknessUnit="Pixel">
-                                                <TextDecoration.Pen>
-                                                    <Pen Brush="{DynamicResource TextFillColorSecondaryBrush}"
-                                                         Thickness="1">
-                                                        <Pen.DashStyle>
-                                                            <DashStyle Dashes="1,2" />
-                                                        </Pen.DashStyle>
-                                                    </Pen>
-                                                </TextDecoration.Pen>
-                                            </TextDecoration>
-                                        </TextDecorationCollection>
-                                    </Hyperlink.TextDecorations>
-                                    <Run Text="GitHub Repository" />
-                                    <Run Text=" &#xE8A7;"
-                                         FontFamily="Segoe MDL2 Assets"
-                                         FontSize="12" />
-                                </Hyperlink>
-                            </TextBlock>
+                    <Grid Grid.Row="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Margin="0,30,0,0">
+                            <Border Width="82"
+                                    Height="82"
+                                    HorizontalAlignment="Center"
+                                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="20">
+                                <Image Width="72"
+                                       Height="72"
+                                       RenderOptions.BitmapScalingMode="HighQuality"
+                                       SnapsToDevicePixels="True"
+                                       Source="pack://siteoforigin:,,,/Resources/icon.png" />
+                            </Border>
+                            <TextBlock Margin="0,16,0,0"
+                                       Text="CodexTray"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                       FontSize="22"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Margin="0,4,0,0"
+                                       Text="{Binding AppVersion, StringFormat=Version {0}}"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="13" />
+                            <TextBlock Margin="18,12,18,28"
+                                       Text="A lightweight Windows tray monitor for Codex and other AI services."
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       FontSize="13" />
+
+                            <StackPanel HorizontalAlignment="Center"
+                                        Orientation="Horizontal">
+                                <TextBlock VerticalAlignment="Center"
+                                           FontSize="13">
+                                    <Hyperlink Command="{Binding OpenRepositoryCommand}"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                               ToolTip="Open GitHub repository">
+                                        <Hyperlink.TextDecorations>
+                                            <TextDecorationCollection>
+                                                <TextDecoration Location="Underline"
+                                                                PenOffset="2"
+                                                                PenOffsetUnit="Pixel"
+                                                                PenThicknessUnit="Pixel">
+                                                    <TextDecoration.Pen>
+                                                        <Pen Brush="{DynamicResource TextFillColorSecondaryBrush}"
+                                                             Thickness="1">
+                                                            <Pen.DashStyle>
+                                                                <DashStyle Dashes="1,2" />
+                                                            </Pen.DashStyle>
+                                                        </Pen>
+                                                    </TextDecoration.Pen>
+                                                </TextDecoration>
+                                            </TextDecorationCollection>
+                                        </Hyperlink.TextDecorations>
+                                        <Run Text="GitHub Repository" />
+                                        <Run Text=" &#xE8A7;"
+                                             FontFamily="Segoe MDL2 Assets"
+                                             FontSize="12" />
+                                    </Hyperlink>
+                                </TextBlock>
+                            </StackPanel>
                         </StackPanel>
-                    </StackPanel>
 
-                    <TextBlock Grid.Row="1"
-                               Text="MIT License · Copyright © 2026 SnowyLake"
-                               HorizontalAlignment="Center"
-                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                               FontSize="11.5" />
+                        <TextBlock Grid.Row="1"
+                                   Text="MIT License · Copyright © 2026 SnowyLake"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                   FontSize="11.5" />
+                    </Grid>
                 </Grid>
+
             </Grid>
 
             <!-- Footer -->
@@ -2053,33 +2059,33 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <Button x:Name="PanelPinButton" HorizontalAlignment="Left"
+                <ui:Button x:Name="PanelPinButton" HorizontalAlignment="Left"
                         Command="{Binding TogglePanelPinnedCommand}"
                         ToolTip="{Binding PanelPinTooltip}" Content="&#xE718;">
-                    <Button.Style>
-                        <Style TargetType="{x:Type Button}" BasedOn="{StaticResource IconButtonStyle}">
+                    <ui:Button.Style>
+                        <Style TargetType="{x:Type ui:Button}" BasedOn="{StaticResource IconButtonStyle}">
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsPanelPinned}" Value="True">
                                     <Setter Property="Foreground" Value="#1ABC89" />
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
-                    </Button.Style>
-                </Button>
+                    </ui:Button.Style>
+                </ui:Button>
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right">
-                    <Button Command="{Binding ShowCodexCommand}"
+                    <ui:Button Command="{Binding ShowCodexCommand}"
                             ToolTip="Codex"
                             Visibility="{Binding ShowCodexPage, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource CodexTabButtonStyle}">
                         <Path Width="18"
                               Height="18"
                               Data="{StaticResource OpenAiLogoGeometry}"
-                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type ui:Button}}}"
                               Stretch="Uniform" />
-                    </Button>
-                    <Button x:Name="GrokTabButton"
+                    </ui:Button>
+                    <ui:Button x:Name="GrokTabButton"
                             Command="{Binding ShowGrokCommand}"
                             ToolTip="Grok"
                             Visibility="{Binding ShowGrokPage, Converter={StaticResource BooleanToVisibilityConverter}}"
@@ -2087,16 +2093,16 @@
                         <Path Width="18"
                               Height="18"
                               Data="{StaticResource GrokLogoGeometry}"
-                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type ui:Button}}}"
                               Stretch="Uniform" />
-                    </Button>
-                    <Button Command="{Binding ShowApiCommand}"
+                    </ui:Button>
+                    <ui:Button Command="{Binding ShowApiCommand}"
                             Content="&#xE774;"
                             ToolTip="APIs"
                             Visibility="{Binding ShowApisPage, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Style="{StaticResource ApiTabButtonStyle}" />
                     <Grid>
-                        <Button Command="{Binding ShowSettingsCommand}"
+                        <ui:Button Command="{Binding ShowSettingsCommand}"
                                 Content="&#xE713;"
                                 ToolTip="Settings"
                                 Style="{StaticResource SettingsTabButtonStyle}" />
@@ -2108,50 +2114,9 @@
                 </StackPanel>
             </Grid>
 
-            <!-- In-window modal -->
-            <Grid Grid.RowSpan="2"
-                  Panel.ZIndex="1"
-                  Visibility="{Binding IsInAppDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Border Margin="-24,-22,-24,-20" Background="#80000000" />
-                <Border Width="300"
-                        MaxHeight="460"
-                        Padding="20"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Background="{DynamicResource ApplicationBackgroundBrush}"
-                        BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
-                        BorderThickness="1"
-                        CornerRadius="10">
-                    <StackPanel>
-                        <TextBlock Text="{Binding InAppDialogTitle}"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
-                                   TextWrapping="Wrap" />
-                        <ScrollViewer MaxHeight="260"
-                                      Margin="0,12,0,0"
-                                      VerticalScrollBarVisibility="Auto">
-                            <TextBlock Text="{Binding InAppDialogMessage}"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       FontSize="13"
-                                       TextWrapping="Wrap" />
-                        </ScrollViewer>
-                        <StackPanel Margin="0,20,0,0"
-                                    HorizontalAlignment="Right"
-                                    Orientation="Horizontal">
-                            <Button Command="{Binding DismissInAppDialogCommand}"
-                                    Content="{Binding InAppDialogSecondaryButtonText}"
-                                    Margin="0,0,8,0"
-                                    MinWidth="76"
-                                    Visibility="{Binding HasInAppDialogSecondaryButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                            <Button Command="{Binding ConfirmInAppDialogCommand}"
-                                    Content="{Binding InAppDialogPrimaryButtonText}"
-                                    IsDefault="True"
-                                    MinWidth="76" />
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-            </Grid>
+            <ui:ContentDialogHost x:Name="DialogHost"
+                                  Grid.RowSpan="2" Panel.ZIndex="1"
+                                  Margin="-24,-22,-24,-20" />
         </Grid>
     </Border>
 </Window>

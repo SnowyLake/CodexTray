@@ -66,7 +66,7 @@
 
 再次运行 `CodexTray.exe` 不会启动第二个实例, 而是通知已有实例打开主面板.
 
-默认每 1 分钟刷新一次, 可在 Settings 中设为 1 到 1440 分钟. 主题支持 `System`, `Light` 和 `Dark`; Windows 11 支持 Mica 背景, Windows 10 使用纯色背景.
+默认每 1 分钟刷新一次, 可在 Settings 中设为 1 到 1440 分钟. 主题支持 `System`, `Light` 和 `Dark`; 应用内悬停提示使用统一的 WPF UI 风格, 随主题切换浅色和深色外观. Windows 11 支持 Mica 背景, Windows 10 使用纯色背景. 主页面按导航顺序左右滑入并淡入, 向右切页从右侧进入, 向左返回从左侧进入, 底部导航保持固定; 仅打开 Session Logs 时从下方滑入并淡入, 返回统计时从上方滑入并淡入; 主页面滑动期间切换记录会立即更新内容, 不叠加上下动画; 托盘显隐不重播页面切换动画; 应用内确认对话框保留淡入效果; 关闭 Windows 客户区动画时, 这些过渡直接显示最终状态. Codex 和 Grok 的图表区域显示时, 圆环各分段同时独立逆时针填充并淡入, 柱形从底部展开; 手动切换图表时段时会播放对应的填充动画, 后台刷新不会重播. 鼠标悬停时当前扇区或柱形轻微放大并同步显示提示, 移到相邻图形时立即切换提示内容, 移开后恢复; 文字和提示保持原尺寸. 刷新和插件检测期间显示进度环, Settings 的自启动, 时间格式与 Mica 使用开关控件.
 
 ## Token Cost
 
@@ -88,6 +88,8 @@ Session Logs 用同一套记录列出每一次用量, 而不是时段合计. 每
 
 没有可用费用记录且价格表未收录的模型, 仍统计 token, 成本按 `$0.00` 计入. Codex 自动审查模型 `codex-auto-review` 不计入 token, 费用, 模型占比和 Session Logs. Token 数量以 K, M, B 分别表示千, 百万和十亿.
 
+费用不完整时保留已知金额, 并加 `*` 标记; 模型圆环中合并的模型和 `Other` 也会保留该标记. 采集失败时, 趋势图中的已到日期显示 `N/A`.
+
 ## Grok 页面
 
 在本机 Grok Build 登录后, 打开 Grok 页面可查看订阅名称, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名. `SuperGrok Lite` 显示为 `PLUS`, `SuperGrok` 显示为 `PREMIUM`, `SuperGrok Plus` 显示为 `SUPER`, `SuperGrok Heavy` 显示为 `ULTRA`, `X Premium` 显示为 `PLUS`, `X Premium+` 显示为 `PREMIUM`; 已经是 `Plus`, `Premium`, `Super` 或 `Ultra` 时保持该名称. Weekly 额度和各产品占比来自额度查询.
@@ -99,6 +101,8 @@ Session Logs 用同一套记录列出每一次用量, 而不是时段合计. 每
 ## API 监控
 
 在 APIs 页点击右上角的添加按钮, 选择 provider 并填写对应信息, 再点击卡片右上角的保存按钮. 卡片设置页中的上下箭头可调整排列顺序, 顺序立即保存. API 监控会按刷新间隔自动更新, 也可以手动刷新. 隐藏 APIs 页后会停止 API 监控采集.
+
+保存只应用于当前卡片. 保存、排序或删除卡片时, 其他卡片尚未保存的字段和新增草稿会保留在编辑状态.
 
 - DeepSeek: 填写 Base URL 和 API key, 默认 Base URL 为 `https://api.deepseek.com`. 卡片显示 CNY 余额, 第一张 DeepSeek 卡片也会显示在 LiteMonitor 和 TrafficMonitor 中.
 - OpenRouter: 填写 Base URL 和 Management Key, 默认 Base URL 为 `https://openrouter.ai`. 卡片显示剩余与已用 credits, 普通 API key 不适用.

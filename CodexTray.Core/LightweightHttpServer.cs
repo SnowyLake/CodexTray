@@ -283,7 +283,9 @@ public sealed class LightweightHttpServer : IDisposable
             start.SetResult();
         }
 
-        ReleaseFailedGeneration(listener);
+        // Let Start publish the accept task before the shared stop path captures it.
+        await Task.Yield();
+        _ = ObserveStopAsync(StopAsync());
     }
 
     /// <summary>
@@ -346,37 +348,6 @@ public sealed class LightweightHttpServer : IDisposable
                 m_IsRunning = false;
                 m_LastError = error;
             }
-        }
-    }
-
-    /// <summary>
-    /// Releases a failed accept-loop generation without waiting for StopAsync.
-    /// </summary>
-    private void ReleaseFailedGeneration(TcpListener listener)
-    {
-        lock (m_LifecycleLock)
-        {
-            if (!ReferenceEquals(m_Listener, listener) || m_StopTask != null)
-            {
-                return;
-            }
-
-            m_IsRunning = false;
-            try
-            {
-                listener.Stop();
-            }
-            catch (SocketException)
-            {
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-
-            m_Cancellation?.Dispose();
-            m_Cancellation = null;
-            m_Listener = null;
-            m_AcceptTask = null;
         }
     }
 

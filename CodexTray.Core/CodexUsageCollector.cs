@@ -95,7 +95,7 @@ public sealed class CodexUsageCollector
         {
             throw;
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException or InvalidOperationException)
         {
             return CreateEmptyResponse(codexDirectory, now, UsageDiagnostics.Error(exception));
         }
@@ -175,7 +175,7 @@ public sealed class CodexUsageCollector
         {
             throw;
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException)
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException or InvalidOperationException)
         {
             return new ResetCredits { Error = UsageDiagnostics.Error(exception) };
         }

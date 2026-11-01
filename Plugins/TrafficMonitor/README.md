@@ -29,7 +29,7 @@ Plugins\TrafficMonitor\Builds\x64\Release\CodexTray.dll
 
 ## 安装
 
-启动 `CodexTray.exe`, 在设置窗口选择 TrafficMonitor 文件夹, 然后点击 `Install TrafficMonitor Plugin`. 托盘右键菜单里也有同名安装入口.
+启动 `CodexTray.exe`, 在 Settings 页选择 TrafficMonitor 文件夹, 然后点击对应的插件安装按钮.
 
 安装器会把 `CodexTray.dll` 复制到 TrafficMonitor 主程序目录的 `plugins` 文件夹, 并基于模板写入 `CodexTray.ini`.
 

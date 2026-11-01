@@ -99,8 +99,6 @@ public sealed class SessionLogEntry
 
 public sealed class TokenCostStatistics
 {
-    public string CostSource { get; init; } = "Provider billing";
-
     public bool IsSpeedEstimated { get; init; }
 
     public TokenCostSummary LastTwentyFourHours { get; init; } = new();
@@ -118,8 +116,6 @@ public sealed class TokenCostStatistics
     public TokenCostSummary CurrentYear { get; init; } = new();
 
     public TokenCostSummary Lifetime { get; init; } = new();
-
-    public IReadOnlyList<TokenCostDailySummary> LastSevenDaysDaily { get; init; } = [];
 
     public IReadOnlyList<TokenCostDailySummary> LastThirtyDaysDaily { get; init; } = [];
 
@@ -198,7 +194,7 @@ public sealed class TokenCostCollector
         }
 
         PruneFileUsageCache(seenFiles);
-        return accumulator.ToStatistics(isSpeedEstimated: true, costSource: "Local pricing · API equivalent", sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
+        return accumulator.ToStatistics(isSpeedEstimated: true, sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
     }
 
     /// <summary>
@@ -243,7 +239,7 @@ public sealed class TokenCostCollector
             });
         }
 
-        return accumulator.ToStatistics(costSource: "Grok reported cost / local pricing fallback", sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
+        return accumulator.ToStatistics(sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
     }
 
     /// <summary>
@@ -533,7 +529,7 @@ public sealed class TokenCostCollector
         }
 
         bool costIsPartial = eventCostIsPartial || GetBoolean(value, "costIsPartial");
-        decimal? localCost = counts.HasUsage ? CalculateCost(pricing, model, counts, timestamp) : null;
+        decimal? localCost = counts.HasUsage && (!reportedCost.HasValue || costIsPartial) ? CalculateCost(pricing, model, counts, timestamp) : null;
         decimal? cost = !counts.HasUsage
             ? reportedCost
             : reportedCost.HasValue && !costIsPartial ? reportedCost : localCost ?? reportedCost;
@@ -585,7 +581,7 @@ public sealed class TokenCostCollector
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (TryGetCachedThreadUsage(paths, out List<CachedUsageEvent>? cachedEvents))
+        if (TryGetCachedThreadUsage(paths, rolloutIndex, out List<CachedUsageEvent>? cachedEvents))
         {
             AddCachedUsage(cachedEvents, accumulator);
             AppendSessionLogs(sessionLogs, cachedEvents, today);
@@ -594,9 +590,10 @@ public sealed class TokenCostCollector
 
         ReplayContext? context = ReadReplayContext(paths[0], cancellationToken);
         IReadOnlyList<TokenUsageSignature>? parentSignatures = null;
+        IReadOnlyList<string> parentPaths = [];
         if (context != null)
         {
-            if (!rolloutIndex.TryGetValue(context.Value.ParentId, out IReadOnlyList<string>? parentPaths)
+            if (!rolloutIndex.TryGetValue(context.Value.ParentId, out parentPaths!)
                 || !TryLoadParentSignatures(parentPaths, context.Value.Cutoff, out parentSignatures, cancellationToken))
             {
                 return;
@@ -833,7 +830,7 @@ public sealed class TokenCostCollector
             }
         }
 
-        StoreCachedThreadUsage(paths, events);
+        StoreCachedThreadUsage([.. paths, .. parentPaths], context?.ParentId, events);
         AppendSessionLogs(sessionLogs, events, today);
     }
 
@@ -866,12 +863,7 @@ public sealed class TokenCostCollector
     /// </summary>
     private static SessionLogEntry[] SortSessionLogsNewestFirst(List<SessionLogEntry> entries)
     {
-        return entries
-            .Select((entry, index) => (entry, index))
-            .OrderByDescending(item => item.entry.Timestamp)
-            .ThenBy(item => item.index)
-            .Select(item => item.entry)
-            .ToArray();
+        return entries.OrderByDescending(entry => entry.Timestamp).ToArray();
     }
 
     /// <summary>
@@ -1017,7 +1009,7 @@ public sealed class TokenCostCollector
     /// </summary>
     private static List<string[]> GroupCodexSessionFiles(string[] paths)
     {
-        Dictionary<string, List<(string Path, string RolloutId)>> threads = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<string>> threads = new(StringComparer.OrdinalIgnoreCase);
         HashSet<string> seenRollouts = new(StringComparer.OrdinalIgnoreCase);
         List<string[]> groups = [];
         foreach (string path in paths)
@@ -1033,18 +1025,18 @@ public sealed class TokenCostCollector
                 continue;
             }
 
-            if (!threads.TryGetValue(threadId, out List<(string Path, string RolloutId)>? pages))
+            if (!threads.TryGetValue(threadId, out List<string>? pages))
             {
                 pages = [];
                 threads[threadId] = pages;
             }
 
-            pages.Add((path, rolloutId));
+            pages.Add(path);
         }
 
-        foreach (List<(string Path, string RolloutId)> pages in threads.Values)
+        foreach (List<string> pages in threads.Values)
         {
-            groups.Add([.. pages.OrderBy(page => Path.GetFileName(page.Path), StringComparer.OrdinalIgnoreCase).Select(page => page.Path)]);
+            groups.Add([.. pages.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)]);
         }
 
         return groups;
@@ -1512,13 +1504,25 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Returns cached usage when every stitched page still matches its stored fingerprint.
+    /// Returns cached usage when the thread and its replay parent still match their stored fingerprints.
     /// </summary>
-    private bool TryGetCachedThreadUsage(string[] paths, [NotNullWhen(true)] out List<CachedUsageEvent>? events)
+    private bool TryGetCachedThreadUsage(string[] paths, Dictionary<string, IReadOnlyList<string>> rolloutIndex, [NotNullWhen(true)] out List<CachedUsageEvent>? events)
     {
         events = null;
-        if (!m_FileUsageCache.TryGetValue(paths[0], out CachedFileUsage? cached)
-            || cached.Files.Length != paths.Length)
+        if (!m_FileUsageCache.TryGetValue(paths[0], out CachedFileUsage? cached))
+        {
+            return false;
+        }
+
+        if (cached.ParentId != null)
+        {
+            if (!rolloutIndex.TryGetValue(cached.ParentId, out IReadOnlyList<string>? parentPaths))
+            {
+                return false;
+            }
+            paths = [.. paths, .. parentPaths];
+        }
+        if (cached.Files.Length != paths.Length)
         {
             return false;
         }
@@ -1542,7 +1546,7 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Stores parsed usage for the current fingerprints of every stitched page.
     /// </summary>
-    private void StoreCachedThreadUsage(string[] paths, List<CachedUsageEvent> events)
+    private void StoreCachedThreadUsage(string[] paths, string? parentId, List<CachedUsageEvent> events)
     {
         FileFingerprint[] files = new FileFingerprint[paths.Length];
         for (int index = 0; index < paths.Length; index++)
@@ -1558,6 +1562,7 @@ public sealed class TokenCostCollector
         m_FileUsageCache[paths[0]] = new CachedFileUsage
         {
             Files = files,
+            ParentId = parentId,
             Events = events,
         };
     }
@@ -1624,6 +1629,8 @@ public sealed class TokenCostCollector
     private sealed class CachedFileUsage
     {
         public required FileFingerprint[] Files { get; init; }
+
+        public string? ParentId { get; init; }
 
         public required List<CachedUsageEvent> Events { get; init; }
     }

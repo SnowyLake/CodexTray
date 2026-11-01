@@ -103,7 +103,7 @@ internal sealed partial class NumericUpDown : UserControl
         int current = int.TryParse(Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
             ? parsed
             : DefaultValue;
-        int next = Math.Clamp(current + delta, Minimum, Maximum);
+        long next = Math.Clamp((long)current + delta, Minimum, Maximum);
         Value = next.ToString(CultureInfo.InvariantCulture);
     }
 

@@ -17,7 +17,7 @@ try {
         throw "Published executable not found: $appPath"
     }
 
-    Stop-CodexTrayApp
+    Stop-CodexTrayApp -AppPath $appPath
     Start-CodexTrayApp -AppPath $appPath
 }
 catch {
