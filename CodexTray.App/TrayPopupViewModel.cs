@@ -37,7 +37,7 @@ internal sealed record TokenCostChartDay(DateTime Date, double BarHeight, string
 
 internal sealed record TokenCostChartLabel(string Text, double Left);
 
-internal sealed record TokenCostDonutSegment(string Label, string Share, Media.Brush Brush, Media.Geometry Geometry, string Tooltip);
+internal sealed record TokenCostDonutSegment(string Label, string Share, Media.Brush Brush, Media.Geometry Geometry, string Tooltip, double StartAngle, double SweepAngle);
 
 internal sealed record TokenCostModelShare(string Label, long Tokens, decimal? CostUsd, long TimedOutputTokens, long TimedDurationMilliseconds, bool HasUnpricedUsage);
 
@@ -1725,6 +1725,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
         public IReadOnlyList<TokenCostRowViewModel> Rows { get; } = CreateRows();
 
+        public TokenCostPeriod SelectedPeriod => Rows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.LastTwentyFourHours;
+
+        public TokenCostChartPeriod ChartPeriod => m_ChartPeriod;
+
         [ObservableProperty]
         public partial IReadOnlyList<TokenCostChartDay> ChartDays { get; private set; } = [];
 
@@ -1794,6 +1798,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             }
 
             UpdateDonut();
+            OnPropertyChanged(nameof(SelectedPeriod));
         }
 
         /// <summary>
@@ -1802,10 +1807,16 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         [RelayCommand]
         private void ToggleChartPeriod()
         {
+            TokenCostPeriod previousPeriod = SelectedPeriod;
             m_ChartPeriod = m_ChartPeriod == TokenCostChartPeriod.LastThirtyDays
                 ? TokenCostChartPeriod.CurrentMonth
                 : TokenCostChartPeriod.LastThirtyDays;
             Refresh();
+            OnPropertyChanged(nameof(ChartPeriod));
+            if (SelectedPeriod != previousPeriod)
+            {
+                OnPropertyChanged(nameof(SelectedPeriod));
+            }
         }
 
         /// <summary>
@@ -1846,7 +1857,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// </summary>
         private void UpdateDonut()
         {
-            TokenCostPeriod period = Rows.FirstOrDefault(row => row.IsSelected)?.Period ?? TokenCostPeriod.LastTwentyFourHours;
+            TokenCostPeriod period = SelectedPeriod;
             if (m_Statistics == null)
             {
                 SelectedTokenDisplay = "N/A";
@@ -1927,7 +1938,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                     shareText,
                     s_TokenCostDonutBrushes[index],
                     CreateDonutSegmentGeometry(startAngle, sweepAngle),
-                    tooltip));
+                    tooltip,
+                    startAngle,
+                    sweepAngle));
                 startAngle += sweepAngle;
             }
 

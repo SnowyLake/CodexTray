@@ -55,6 +55,8 @@
                 <Setter Property="FontFamily" Value="Segoe UI" />
                 <EventSetter Event="Loaded" Handler="ToolTip_Loaded" />
             </Style>
+            <ToolTip x:Key="ChartToolTip" Style="{StaticResource {x:Type ToolTip}}"
+                     Placement="Mouse" IsHitTestVisible="False" />
 
             <!-- Secondary caption under a settings row title (shared tooltip timing) -->
             <Style x:Key="SettingsRowSubtitleStyle" TargetType="{x:Type TextBlock}">
@@ -600,16 +602,23 @@
             <DataTemplate x:Key="TokenCostTrendDayDataTemplate">
                 <Grid Background="Transparent"
                       IsHitTestVisible="{Binding IsInteractive}"
+                      MouseEnter="ChartItem_MouseEnter" MouseLeave="ChartItem_MouseLeave"
+                      IsVisibleChanged="ChartItem_IsVisibleChanged" Unloaded="ChartItem_Unloaded"
                       ToolTip="{Binding Tooltip}"
-                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
+                      ToolTipService.IsEnabled="False">
                     <Border x:Name="TokenCostChartBar"
                             Height="{Binding BarHeight}"
                             Margin="0.75,0"
                             HorizontalAlignment="Stretch"
                             VerticalAlignment="Bottom"
+                            IsHitTestVisible="False"
+                            RenderTransformOrigin="0.5,1"
                             Background="{Binding DataContext.AccentBrush, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
-                            CornerRadius="1,1,0,0" />
+                            CornerRadius="1,1,0,0">
+                        <Border.RenderTransform>
+                            <ScaleTransform />
+                        </Border.RenderTransform>
+                    </Border>
                 </Grid>
             </DataTemplate>
 
@@ -661,13 +670,39 @@
                                       Height="144"
                                       HorizontalAlignment="Center"
                                       VerticalAlignment="Center">
-                                    <Ellipse Width="140"
+                                    <Ellipse x:Name="TokenCostDonutPlaceholder" Width="140"
                                              Height="140"
                                              Stroke="{DynamicResource ControlStrokeColorDefaultBrush}"
-                                             StrokeThickness="15" />
-                                    <ItemsControl Width="144"
+                                             StrokeThickness="15">
+                                        <Ellipse.Style>
+                                            <Style TargetType="{x:Type Ellipse}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding DonutSegments.Count}" Value="0">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Ellipse.Style>
+                                    </Ellipse>
+                                    <ItemsControl x:Name="TokenCostDonutItemsControl" Width="144"
                                                   Height="144"
-                                                  ItemsSource="{Binding DonutSegments}">
+                                                  Loaded="Chart_Loaded" Unloaded="Chart_Unloaded"
+                                                  IsVisibleChanged="Chart_IsVisibleChanged" TargetUpdated="Chart_TargetUpdated"
+                                                  Tag="{Binding SelectedPeriod, NotifyOnTargetUpdated=True}"
+                                                  ItemsSource="{Binding DonutSegments, NotifyOnTargetUpdated=True}">
+                                        <ItemsControl.RenderTransform>
+                                            <ScaleTransform />
+                                        </ItemsControl.RenderTransform>
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="{x:Type ContentPresenter}">
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Panel.ZIndex" Value="1" />
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
                                                 <Grid />
@@ -675,13 +710,20 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Path Data="{Binding Geometry}"
-                                                      Fill="{Binding Brush}"
-                                                      Stroke="{DynamicResource ApplicationBackgroundBrush}"
-                                                      StrokeThickness="0.8"
+                                                <Grid MouseEnter="ChartItem_MouseEnter" MouseLeave="ChartItem_MouseLeave"
+                                                      IsVisibleChanged="ChartItem_IsVisibleChanged" Unloaded="ChartItem_Unloaded"
                                                       ToolTip="{Binding Tooltip}"
-                                                      ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                      ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}" />
+                                                      ToolTipService.IsEnabled="False">
+                                                    <Path Data="{Binding Geometry}"
+                                                          Fill="{Binding Brush}"
+                                                          Stroke="{DynamicResource ApplicationBackgroundBrush}"
+                                                          StrokeThickness="0.8" IsHitTestVisible="False">
+                                                        <Path.RenderTransform>
+                                                            <ScaleTransform CenterX="72" CenterY="72" />
+                                                        </Path.RenderTransform>
+                                                    </Path>
+                                                    <Path Data="{Binding Geometry}" Fill="Transparent" />
+                                                </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -730,8 +772,15 @@
                             <ItemsControl x:Name="TokenCostChartItemsControl"
                                           Margin="10,0"
                                           ClipToBounds="True"
-                                          ItemsSource="{Binding ChartDays}"
+                                          RenderTransformOrigin="0.5,1"
+                                          Loaded="Chart_Loaded" Unloaded="Chart_Unloaded"
+                                          IsVisibleChanged="Chart_IsVisibleChanged" TargetUpdated="Chart_TargetUpdated"
+                                          Tag="{Binding ChartPeriod, NotifyOnTargetUpdated=True}"
+                                          ItemsSource="{Binding ChartDays, NotifyOnTargetUpdated=True}"
                                           ItemTemplate="{StaticResource TokenCostTrendDayDataTemplate}">
+                                <ItemsControl.RenderTransform>
+                                    <ScaleTransform />
+                                </ItemsControl.RenderTransform>
                                 <ItemsControl.ItemContainerStyle>
                                     <Style TargetType="{x:Type ContentPresenter}">
                                         <Setter Property="HorizontalAlignment" Value="Stretch" />

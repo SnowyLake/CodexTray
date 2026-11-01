@@ -31,7 +31,11 @@ internal sealed partial class TrayPopupWindow : Window
     private const int k_DwmwcpRound = 2;
     private const int k_DwmsbtNone = 1;
     private const int k_DwmsbtMainWindow = 2;
+    private static readonly DependencyProperty s_DonutRevealProgressProperty = DependencyProperty.RegisterAttached("DonutRevealProgress", typeof(double), typeof(TrayPopupWindow),
+                                                                                                                new PropertyMetadata(1d, OnDonutRevealProgressChanged));
     private readonly Dictionary<FrameworkElement, Storyboard> m_Transitions = [];
+    private readonly Dictionary<FrameworkElement, Storyboard> m_ChartAnimations = [];
+    private readonly HashSet<Controls.ItemsControl> m_EnteredCharts = [];
     private ContentDialog? m_ContentDialog;
     private int m_CurrentPageIndex = -1;
     private bool m_IsClosed;
@@ -89,6 +93,12 @@ internal sealed partial class TrayPopupWindow : Window
         {
             ApplyPageTransition(element, Transition.None, 200);
         }
+        foreach (FrameworkElement element in m_ChartAnimations.Keys.ToArray())
+        {
+            ResetChartAnimation(element);
+        }
+        m_EnteredCharts.Clear();
+        CloseChartToolTip();
         Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         CloseInAppDialog();
         if (DataContext is TrayPopupViewModel viewModel)
@@ -107,6 +117,218 @@ internal sealed partial class TrayPopupWindow : Window
             // WPF UI hard-codes template padding instead of binding it to ToolTip.Padding.
             border.Padding = new Thickness(8, 2, 8, 2);
         }
+    }
+
+    private void Chart_Loaded(object sender, RoutedEventArgs args) => EnterChart((Controls.ItemsControl)sender);
+
+    private void Chart_TargetUpdated(object sender, System.Windows.Data.DataTransferEventArgs args)
+    {
+        if (!ReferenceEquals(args.TargetObject, sender))
+        {
+            return;
+        }
+        Controls.ItemsControl chart = (Controls.ItemsControl)sender;
+        if (args.Property == TagProperty)
+        {
+            m_EnteredCharts.Remove(chart);
+            ResetChartAnimation(chart);
+        }
+        if (args.Property == Controls.ItemsControl.ItemsSourceProperty || args.Property == TagProperty)
+        {
+            EnterChart(chart);
+        }
+    }
+
+    private void Chart_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
+    {
+        if (sender is Controls.ItemsControl chart)
+        {
+            if (chart.IsVisible)
+            {
+                EnterChart(chart);
+            }
+            else
+            {
+                Chart_Unloaded(chart, new RoutedEventArgs());
+            }
+        }
+    }
+
+    private void Chart_Unloaded(object sender, RoutedEventArgs args)
+    {
+        Controls.ItemsControl chart = (Controls.ItemsControl)sender;
+        m_EnteredCharts.Remove(chart);
+        ResetChartAnimation(chart);
+    }
+
+    private void EnterChart(Controls.ItemsControl chart)
+    {
+        // Keep entry state on the container: refreshes replace its items, including their Loaded events.
+        bool hasData = chart.Items.OfType<TokenCostDonutSegment>().Any() || chart.Items.OfType<TokenCostChartDay>().Any(day => day.BarHeight > 0);
+        if (!m_IsClosed && chart.IsLoaded && chart.IsVisible && hasData && m_EnteredCharts.Add(chart))
+        {
+            AnimateChart(chart, 1, 1, entrance: true);
+        }
+    }
+
+    private void ChartItem_MouseEnter(object sender, Input.MouseEventArgs args)
+    {
+        Controls.Grid item = (Controls.Grid)sender;
+        Controls.ToolTip toolTip = (Controls.ToolTip)Resources["ChartToolTip"];
+        if (toolTip.PlacementTarget is Controls.Grid previous && !ReferenceEquals(previous, item))
+        {
+            AnimateChart((FrameworkElement)previous.Children[0], 1, 1);
+        }
+        // WPF's tooltip safe area spans overlapping segment bounds and can retain the previous owner's text.
+        toolTip.IsOpen = false;
+        toolTip.PlacementTarget = item;
+        toolTip.Content = item.ToolTip;
+        toolTip.IsOpen = true;
+        FrameworkElement visual = (FrameworkElement)item.Children[0];
+        AnimateChart(visual, visual is Controls.Border ? 1.12 : 1.04, 1.04);
+    }
+
+    private void ChartItem_MouseLeave(object sender, Input.MouseEventArgs args)
+    {
+        Controls.Grid item = (Controls.Grid)sender;
+        CloseChartToolTip(item);
+        AnimateChart((FrameworkElement)item.Children[0], 1, 1);
+    }
+
+    private void CloseChartToolTip(Controls.Grid? item = null)
+    {
+        Controls.ToolTip toolTip = (Controls.ToolTip)Resources["ChartToolTip"];
+        if (item == null || ReferenceEquals(toolTip.PlacementTarget, item))
+        {
+            toolTip.IsOpen = false;
+            toolTip.PlacementTarget = null;
+            toolTip.Content = null;
+        }
+    }
+
+    private void ChartItem_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
+    {
+        if (sender is Controls.Grid { IsVisible: false } item)
+        {
+            CloseChartToolTip(item);
+            ResetChartAnimation((FrameworkElement)item.Children[0]);
+        }
+    }
+
+    private void ChartItem_Unloaded(object sender, RoutedEventArgs args)
+    {
+        Controls.Grid item = (Controls.Grid)sender;
+        CloseChartToolTip(item);
+        ResetChartAnimation((FrameworkElement)item.Children[0]);
+    }
+
+    private void ResetChartAnimation(FrameworkElement element)
+    {
+        if (m_ChartAnimations.Remove(element, out Storyboard? animation))
+        {
+            animation.Remove(element);
+        }
+        if (element.RenderTransform is ScaleTransform { IsFrozen: false } scale)
+        {
+            scale.ScaleX = 1;
+            scale.ScaleY = 1;
+        }
+    }
+
+    private void AnimateChart(FrameworkElement element, double targetX, double targetY, bool entrance = false)
+    {
+        ScaleTransform scale = (ScaleTransform)element.RenderTransform;
+        if (scale.IsFrozen)
+        {
+            scale = scale.Clone();
+            element.RenderTransform = scale;
+        }
+        double fromX = scale.ScaleX;
+        double fromY = entrance && element.Name == "TokenCostChartItemsControl" ? 0 : scale.ScaleY;
+        ResetChartAnimation(element);
+        scale.ScaleX = targetX;
+        scale.ScaleY = targetY;
+        if (m_IsClosed || !element.IsVisible || !SystemParameters.ClientAreaAnimation
+            || !Wpf.Ui.Hardware.HardwareAcceleration.IsSupported(Wpf.Ui.Hardware.RenderingTier.PartialAcceleration))
+        {
+            return;
+        }
+
+        TimeSpan duration = TimeSpan.FromMilliseconds(entrance ? 220 : 120);
+        Storyboard animation = new() { FillBehavior = FillBehavior.Stop };
+        foreach ((DependencyProperty property, double from, double to) in new[] { (ScaleTransform.ScaleXProperty, fromX, targetX), (ScaleTransform.ScaleYProperty, fromY, targetY) })
+        {
+            if (from != to)
+            {
+                DoubleAnimation resize = new(from, to, duration) { DecelerationRatio = 0.7 };
+                Storyboard.SetTarget(resize, element);
+                Storyboard.SetTargetProperty(resize, new PropertyPath("(0).(1)", RenderTransformProperty, property));
+                animation.Children.Add(resize);
+            }
+        }
+        if (entrance)
+        {
+            DoubleAnimation fade = new(0, 1, duration) { DecelerationRatio = 0.7 };
+            Storyboard.SetTarget(fade, element);
+            Storyboard.SetTargetProperty(fade, new PropertyPath(OpacityProperty));
+            animation.Children.Add(fade);
+            if (element.Name == "TokenCostDonutItemsControl")
+            {
+                DoubleAnimation reveal = new(0, 1, duration) { DecelerationRatio = 0.7 };
+                Storyboard.SetTarget(reveal, element);
+                Storyboard.SetTargetProperty(reveal, new PropertyPath(s_DonutRevealProgressProperty));
+                animation.Children.Add(reveal);
+            }
+        }
+        if (animation.Children.Count == 0)
+        {
+            return;
+        }
+        m_ChartAnimations[element] = animation;
+        animation.Completed += (_, _) =>
+        {
+            if (m_ChartAnimations.TryGetValue(element, out Storyboard? current) && ReferenceEquals(current, animation))
+            {
+                m_ChartAnimations.Remove(element);
+                animation.Remove(element);
+            }
+        };
+        animation.Begin(element, HandoffBehavior.SnapshotAndReplace, true);
+    }
+
+    private static void OnDonutRevealProgressChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
+    {
+        Controls.ItemsControl chart = (Controls.ItemsControl)sender;
+        double progress = (double)args.NewValue;
+        if (progress >= 1)
+        {
+            chart.Clip = null;
+            return;
+        }
+        if (progress <= 0)
+        {
+            chart.Clip = Geometry.Empty;
+            return;
+        }
+
+        const double center = 72;
+        const double radius = 104;
+        StreamGeometry clip = new();
+        using (StreamGeometryContext context = clip.Open())
+        {
+            foreach (TokenCostDonutSegment segment in chart.Items)
+            {
+                double start = (segment.StartAngle + segment.SweepAngle) * Math.PI / 180;
+                double sweep = segment.SweepAngle * progress;
+                double end = start - sweep * Math.PI / 180;
+                context.BeginFigure(new System.Windows.Point(center, center), isFilled: true, isClosed: true);
+                context.LineTo(new System.Windows.Point(center + radius * Math.Cos(start), center + radius * Math.Sin(start)), isStroked: false, isSmoothJoin: false);
+                context.ArcTo(new System.Windows.Point(center + radius * Math.Cos(end), center + radius * Math.Sin(end)), new System.Windows.Size(radius, radius), 0,
+                              sweep > 180, SweepDirection.Counterclockwise, isStroked: false, isSmoothJoin: false);
+            }
+        }
+        clip.Freeze();
+        chart.Clip = clip;
     }
 
     private void Page_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
