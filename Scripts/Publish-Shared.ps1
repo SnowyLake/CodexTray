@@ -73,12 +73,24 @@ function Remove-PathWithRetry {
 }
 
 function Stop-CodexTrayApp {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AppPath
+    )
+
+    $targetPath = [IO.Path]::GetFullPath($AppPath)
     $processes = foreach ($appProcessName in @("CodexTray", "CodexTray.App")) {
         Get-Process -Name $appProcessName -ErrorAction SilentlyContinue
     }
     if (-not $processes) {
         Write-Host "No running CodexTray process found."
         return
+    }
+
+    foreach ($process in $processes) {
+        if (-not [string]::Equals($process.Path, $targetPath, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Another CodexTray installation is running (PID $($process.Id)). Close it before starting this preview."
+        }
     }
 
     foreach ($process in $processes) {

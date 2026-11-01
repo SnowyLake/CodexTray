@@ -86,8 +86,8 @@ public static class AppUpdatePackage
             throw new AppUpdateException("The update package contains an unsafe path.");
         }
 
-        string normalized = entryName.Replace('\\', '/').TrimStart('/');
-        if (normalized.Length == 0 || normalized.Split('/').Contains(".."))
+        string normalized = entryName.Replace('\\', '/');
+        if (normalized.StartsWith('/') || normalized.Split('/').Contains(".."))
         {
             throw new AppUpdateException("The update package contains an unsafe path.");
         }

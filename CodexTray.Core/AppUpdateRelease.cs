@@ -110,11 +110,7 @@ public static partial class AppUpdateVersion
             return false;
         }
 
-        version = new Version(
-            int.Parse(match.Groups["major"].Value, CultureInfo.InvariantCulture),
-            int.Parse(match.Groups["minor"].Value, CultureInfo.InvariantCulture),
-            int.Parse(match.Groups["patch"].Value, CultureInfo.InvariantCulture));
-        return true;
+        return Version.TryParse(match.Value, out version);
     }
 
     [GeneratedRegex(@"^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$", RegexOptions.CultureInvariant)]

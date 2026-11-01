@@ -52,6 +52,7 @@ internal static class Program
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
         await RunAsync("merges and clears plugin usage sources", TestUsageCacheSourcesAsync);
         await RunAsync("drains active HTTP clients on stop", TestHttpServerActiveClientStopAsync);
+        await RunAsync("drains HTTP clients after listener failure", TestHttpServerAcceptFailureAsync);
         await RunAsync("recovers HTTP server after bind failure", TestHttpServerBindFailureRecoveryAsync);
         await RunAsync("supports idempotent stop and restart", TestHttpServerStopRestartAsync);
         await RunAsync("propagates collector cancellation", TestCollectorCancellationAsync);
@@ -186,6 +187,9 @@ internal static class Program
                     error: null);
                 viewModel.UpdateTokenCost(CreateTokenCostStatistics(10));
                 TrayPopupWindow window = new(viewModel);
+                NumericUpDown numeric = new() { Minimum = 1, Maximum = 65535, Value = int.MaxValue.ToString(CultureInfo.InvariantCulture) };
+                ((System.Windows.Controls.Primitives.RepeatButton)numeric.FindName("PART_Up")).RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                AssertEqual("65535", numeric.Value, "spinner increment must clamp without integer overflow");
                 AssertTrue(!viewModel.IsPanelPinned, "panel starts unpinned");
                 viewModel.TogglePanelPinnedCommand.Execute(null);
                 AssertEqual("Unpin panel", viewModel.PanelPinTooltip, "pin toggle action");
@@ -854,13 +858,6 @@ internal static class Program
                             Summary = new TokenCostSummary { TotalTokens = (index + 2) * 900_000, CostUsd = (index + 2) * 0.82m },
                         })
                         .ToArray(),
-                    LastSevenDaysDaily = Enumerable.Range(0, 7)
-                        .Select(index => new TokenCostDailySummary
-                        {
-                            Date = now.Date.AddDays(index - 6),
-                            Summary = new TokenCostSummary { TotalTokens = (index + 4) * 1_000_000, CostUsd = index + 4 },
-                        })
-                        .ToArray(),
                     Models =
                     [
                         new TokenCostModelStatistics
@@ -1341,6 +1338,26 @@ internal static class Program
         AssertTrue(ReferenceEquals(firstStop, secondStop), "concurrent stop calls should share one task");
         await firstStop.WaitAsync(TimeSpan.FromSeconds(2));
         AssertTrue(!server.IsRunning, "server should stop after draining the partial request");
+    }
+
+    private static async Task TestHttpServerAcceptFailureAsync()
+    {
+        using LightweightHttpServer server = new(new UsageCache(), 0);
+        server.Start();
+        using TcpClient client = new();
+        await client.ConnectAsync(CodexTrayDefaults.Host, server.Port);
+        await client.GetStream().WriteAsync(Encoding.ASCII.GetBytes("GET /health HTTP/1.1\r\nHost: localhost\r\n"));
+        await WaitForTrackedClientAsync(server);
+        TcpListener listener = (TcpListener)typeof(LightweightHttpServer).GetField("m_Listener", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)!;
+        Task accept = (Task)typeof(LightweightHttpServer).GetField("m_AcceptTask", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)!;
+        listener.Stop();
+        await accept.WaitAsync(TimeSpan.FromSeconds(2));
+        await server.StopAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        int activeClients = (int)typeof(LightweightHttpServer).GetProperty("ActiveClientCount", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)!;
+        AssertEqual(0, activeClients, "listener failure must drain active clients");
+        server.Start();
+        AssertTrue(server.IsRunning, "failed generation must be restartable after draining");
+        await server.StopAsync();
     }
 
     /// <summary>
@@ -1960,6 +1977,18 @@ internal static class Program
         AssertEqual("$95.50", results[6].BalanceDisplay, "Vercel remaining credits");
         AssertEqual("$4.50", results[6].UsedDisplay, "Vercel used credits");
         AssertEqual("$95.50", results[7].BalanceDisplay, "Vercel root base URL credits");
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            IReadOnlyList<ApiUsageResult> localized = await collector.CollectAsync([deepSeek]);
+            AssertEqual("¥110.00", localized[0].BalanceDisplay, "DeepSeek decimal format stays invariant");
+            AssertEqual("¥110", ApiUsageCollector.BuildDeepSeekPluginUsage(localized).Display, "localized refresh preserves the plugin balance");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     /// <summary>
@@ -2404,13 +2433,6 @@ internal static class Program
                 .Select(index => new TokenCostDailySummary
                 {
                     Date = new DateTime(today.Year, today.Month, 1).AddDays(index),
-                    Summary = new TokenCostSummary { TotalTokens = multiplier * (index + 1) },
-                })
-                .ToArray(),
-            LastSevenDaysDaily = Enumerable.Range(0, 7)
-                .Select(index => new TokenCostDailySummary
-                {
-                    Date = today.AddDays(index - 6),
                     Summary = new TokenCostSummary { TotalTokens = multiplier * (index + 1) },
                 })
                 .ToArray(),
@@ -2987,11 +3009,15 @@ internal static class Program
             Models = [new TokenCostModelStatistics { Model = "unknown-price", LastTwentyFourHours = partial }],
         });
         AssertTrue(viewModel.CodexTokenCost.SelectedCostDisplay.Contains('*'), "partial cost must be visibly marked");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single().Tooltip.Contains("* · Partial cost"), "donut must mark partial model costs");
         DateTimeOffset? lastSuccess = viewModel.CodexTokenCost.Freshness.LastSuccess;
         viewModel.UpdateTokenCost(null, "pricing unavailable");
         AssertEqual(lastSuccess, viewModel.CodexTokenCost.Freshness.LastSuccess, "failure must preserve the success timestamp");
         AssertEqual("N/A", viewModel.CodexTokenCost.SelectedCostDisplay, "failed read must clear old values");
         AssertEqual("pricing unavailable", viewModel.CodexTokenCost.Freshness.Error, "cost failure reason must stay on the refresh state");
+        viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
+        AssertTrue(viewModel.CodexTokenCost.ChartDays.Where(day => day.IsInteractive).All(day => day.Tooltip.Contains("Tokens: N/A")), "failed calendar chart must not claim zero usage");
+        AssertEqual(DateTime.DaysInMonth(now.Year, now.Month), viewModel.CodexTokenCost.ChartDays.Count, "failed calendar chart retains the full month");
         ApiMonitorViewModel card = new(new ApiMonitorSettings { Id = "test", Provider = ApiMonitorSettings.DeepSeekProvider });
         card.Update(new ApiUsageResult("test", true, "¥1.00", "", "", now));
         card.Update(new ApiUsageResult("test", false, "N/A", "", "timeout", now.AddMinutes(1)));
@@ -3075,7 +3101,6 @@ internal static class Program
             Lifetime = new TokenCostSummary { TotalTokens = 4_000, CostUsd = 100 },
             LastThirtyDaysDaily = daily,
             CurrentMonthDaily = daily[..20],
-            LastSevenDaysDaily = daily[^7..],
             Models =
             [
                 new TokenCostModelStatistics
@@ -3111,12 +3136,10 @@ internal static class Program
             ((System.Windows.Media.SolidColorBrush)viewModel.CodexStatusDotBrush).Color,
             "Codex usage status should remain red before the first usage refresh");
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "Codex token cost row titles");
-        AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "Codex token cost row values");
+        AssertEqual("0.90K|2.00K|3.00K|4.00K", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Tokens)), "Codex token cost row values");
         AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "Codex token cost chart day count");
-        AssertEqual("30", viewModel.CodexTokenCost.ChartDays[29].Label, "Codex token cost chart today label");
         AssertEqual(58d, viewModel.CodexTokenCost.ChartDays[29].BarHeight, "Codex token cost chart maximum height");
         AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K{Environment.NewLine}Cost: $30.00", viewModel.CodexTokenCost.ChartDays[29].Tooltip, "Codex token cost chart tooltip");
-        AssertEqual("1|10|20|30", string.Join('|', viewModel.CodexTokenCost.ChartDays.Where(day => day.Label.Length > 0).Select(day => day.Label)), "Codex token cost chart labels");
         AssertEqual(30, viewModel.CodexTokenCost.ChartColumnCount, "rolling Codex token cost chart columns");
         AssertEqual("1|10|20|30", string.Join('|', viewModel.CodexTokenCost.ChartLabels.Select(label => label.Text)), "rolling Codex token cost chart axis labels");
         AssertEqual("0.90K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected 24-hour token total");
@@ -3132,7 +3155,7 @@ internal static class Program
             "Codex 24-hour donut second model tooltip");
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
         AssertEqual("Today|Week|Month|Year", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "calendar Codex token cost row titles");
-        AssertEqual("$7.00|$9.00|$20.00|$80.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "calendar Codex token cost row values");
+        AssertEqual("1.00K|1.00K|2.00K|3.50K", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Tokens)), "calendar Codex token cost row values");
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected today token total");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
         AssertEqual(
@@ -3165,7 +3188,7 @@ internal static class Program
         viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
         viewModel.CodexTokenCost.ToggleChartPeriodCommand.Execute(null);
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Title)), "restored Codex token cost row titles");
-        AssertEqual("$6.00|$13.00|$30.00|$100.00", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Display.Cost)), "restored Codex token cost row values");
+        AssertEqual("0.90K|2.00K|3.00K|4.00K", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Tokens)), "restored Codex token cost row values");
         AssertEqual("2.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected 7D token total");
         AssertEqual("$13.00 · 13%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 7D cost and cache hit");
         AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
@@ -3201,7 +3224,7 @@ internal static class Program
             ((System.Windows.Media.SolidColorBrush)viewModel.GrokTokenCost.AccentBrush).Color,
             "Grok token cost accent should stay green when usage is unavailable");
         AssertEqual("24H|7D|30D|Lifetime", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Title)), "Grok token cost row titles");
-        AssertEqual("N/A|N/A|N/A|N/A", string.Join('|', viewModel.GrokTokenCost.Rows.Select(row => row.Display.Cost)), "Grok unknown cost values");
+        AssertEqual(AppSettings.FormatTokenCount(grokStatistics.LastTwentyFourHours.TotalTokens), viewModel.GrokTokenCost.Rows[0].Tokens, "Grok tokens remain visible without costs");
         AssertEqual(58d, viewModel.GrokTokenCost.ChartDays[29].BarHeight, "Grok token chart maximum height");
         AssertEqual($"2026-08-30{Environment.NewLine}Tokens: 3.00K", viewModel.GrokTokenCost.ChartDays[29].Tooltip, "Grok token chart tooltip");
         AssertEqual("0%", viewModel.GrokTokenCost.SelectedCostDisplay, "unknown cost omits the dollar value and keeps cache hit");
@@ -3288,6 +3311,25 @@ internal static class Program
             AssertEqual(SettingsStatus.Clean, viewModel.SettingsStatus, $"{name} should restore clean status");
             AssertTrue(!viewModel.SaveSettingsCommand.CanExecute(null), $"{name} should disable save after restore");
         }
+
+        AppSettings settings = new();
+        TrayPopupViewModel draft = new(settings, () => Task.CompletedTask);
+        draft.PortText = "17891";
+        draft.TrafficMonitorDir = "C:\\Draft";
+        draft.AddApiMonitorCommand.Execute(null);
+        ApiMonitorViewModel pending = draft.ApiMonitors.Single();
+        pending.Name = "Pending draft";
+        settings.LiteMonitorDir = "C:\\DetectedLite";
+        settings.TrafficMonitorDir = "C:\\DetectedTraffic";
+        draft.MergeDetectedMonitorPaths();
+        AssertEqual(settings.LiteMonitorDir, draft.LiteMonitorDir, "unmodified path picks up detection");
+        AssertEqual("C:\\Draft", draft.TrafficMonitorDir, "edited path survives detection");
+        AssertEqual("17891", draft.PortText, "general settings draft survives detection");
+        AssertTrue(ReferenceEquals(pending, draft.ApiMonitors.Single()), "pending card survives detection");
+        AssertEqual(SettingsStatus.Unsaved, draft.SettingsStatus, "merged settings retain dirty state");
+        draft.TrafficMonitorDir = settings.TrafficMonitorDir;
+        draft.PortText = settings.Port.ToString(CultureInfo.InvariantCulture);
+        AssertEqual(SettingsStatus.Clean, draft.SettingsStatus, "detection updates the saved path baseline");
 
         return Task.CompletedTask;
     }
@@ -3388,6 +3430,18 @@ internal static class Program
         viewModel.MoveApiMonitorUpCommand.Execute(first);
         AssertEqual(first.Id, settings.ApiMonitors[0].Id, "reordering saved cards must persist their order");
         AssertEqual(savedName, settings.ApiMonitors[0].Name, "reordering must not persist unfinished card fields");
+        second.ToggleEditingCommand.Execute(null);
+        second.Name = "Saved second";
+        second.ToggleEditingCommand.Execute(null);
+        AssertEqual("Saved second", settings.ApiMonitors.Single(card => card.Id == second.Id).Name, "explicit card save persists its fields");
+        AssertEqual(savedName, settings.ApiMonitors.Single(card => card.Id == first.Id).Name, "saving another card must not persist drafts");
+        viewModel.AddApiMonitorCommand.Execute(null);
+        ApiMonitorViewModel pending = viewModel.ApiMonitors.Last();
+        viewModel.InAppDialogRequested += request => request.PrimaryAction?.Invoke();
+        viewModel.RemoveApiMonitorCommand.Execute(second);
+        AssertEqual(1, settings.ApiMonitors.Count, "deletion persists only saved remaining cards");
+        AssertEqual(savedName, settings.ApiMonitors[0].Name, "deletion must not persist another card's draft");
+        AssertTrue(pending.IsPending, "deletion leaves pending cards unsaved");
         return Task.CompletedTask;
     }
 
@@ -3405,16 +3459,6 @@ internal static class Program
         changedProperties.Clear();
         viewModel.Name = "Personal";
         AssertEqual(0, changedProperties.Count, "unchanged API monitor name notifications");
-
-        ApiUsageResult result = new(viewModel.Id, false, "N/A", "N/A", "Waiting for refresh", DateTimeOffset.UtcNow, "USD balance");
-        viewModel.Update(result);
-        AssertEqual(
-            "BalanceTooltip|HasBalanceTooltip|StatusTooltip",
-            string.Join('|', changedProperties.Order()),
-            "balance tooltip notifications");
-        changedProperties.Clear();
-        viewModel.Update(result);
-        AssertEqual(0, changedProperties.Count, "unchanged balance tooltip notifications");
 
         AssertEqual(
             string.Join('|', [
@@ -3436,7 +3480,6 @@ internal static class Program
         AssertEqual("https://nano-gpt.com", viewModel.BaseUrl, "NanoGPT default base URL");
         AssertEqual("N/A", viewModel.BalanceDisplay, "provider switch should clear balance");
         AssertEqual("N/A", viewModel.UsedDisplay, "provider switch should clear used display");
-        AssertEqual(string.Empty, viewModel.BalanceTooltip, "provider switch should clear tooltip");
         AssertEqual("Waiting for refresh", viewModel.StatusText, "provider switch should clear status");
         AssertEqual("Used(30d):", viewModel.SecondaryDisplayLabel, "NanoGPT secondary display label");
         viewModel.Update(new ApiUsageResult(
@@ -3545,6 +3588,17 @@ internal static class Program
             $"{nearestExpiry.AddDays(1).ToLocalTime():MM-dd} · {nearestExpiry.AddDays(2).ToLocalTime():MM-dd}",
             response.ResetCredits.OtherExpiriesLocal,
             "other local reset credit expiries");
+
+        CodexUsageCollector malformed = CreateCodexUsageCollector(temp.Path, now, now.AddHours(1).ToUnixTimeSeconds(), now.AddDays(2).ToUnixTimeSeconds(), 10, 20,
+                                                                 out HttpClient malformedClient, "{\"available_count\":\"bad\"}");
+        using (malformedClient)
+        {
+            UsageResponse isolated = await malformed.CollectAsync(temp.Path);
+            AssertTrue(isolated.Available, "invalid reset credits must preserve main quota");
+            AssertEqual(80, isolated.Limits.Weekly.RemainingPercent, "weekly quota survives reset parsing failure");
+            AssertTrue(!isolated.ResetCredits.Available, "invalid reset credits must be unavailable");
+            AssertEqual("Invalid response format", isolated.ResetCredits.Error, "reset error stays sanitized");
+        }
     }
 
     /// <summary>
@@ -3576,7 +3630,6 @@ internal static class Program
         quota.Update(limit);
         AssertEqual("N/A", quota.PercentText, "inactive quota percent text");
         AssertEqual("unknown", quota.ResetText, "inactive quota reset text");
-        AssertTrue(quota.IsResetVisible, "inactive visible quota should show the unknown reset text");
 
         TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
         UsageResponse response = new()
@@ -4151,12 +4204,12 @@ internal static class Program
         AssertEqual(70L, statistics.CurrentMonthDaily[4].Summary.TotalTokens, "current-month chart July token count");
         AssertEqual(3450L, statistics.CurrentWeek.TotalTokens, "current-week total tokens");
         AssertEqual(3520L, statistics.CurrentMonth.TotalTokens, "current-month total tokens");
-        AssertEqual(7, statistics.LastSevenDaysDaily.Count, "daily chart slot count");
-        AssertEqual(new DateTime(2026, 7, 5), statistics.LastSevenDaysDaily[0].Date, "daily chart first date");
-        AssertEqual(70L, statistics.LastSevenDaysDaily[0].Summary.TotalTokens, "daily chart first tokens");
-        AssertEqual(550L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "daily chart yesterday tokens");
-        AssertEqual(new DateTime(2026, 7, 11), statistics.LastSevenDaysDaily[6].Date, "daily chart today date");
-        AssertEqual(2900L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "daily chart today tokens");
+        AssertEqual(7, statistics.LastThirtyDaysDaily.TakeLast(7).Count(), "daily chart slot count");
+        AssertEqual(new DateTime(2026, 7, 5), statistics.LastThirtyDaysDaily[23].Date, "daily chart first date");
+        AssertEqual(70L, statistics.LastThirtyDaysDaily[23].Summary.TotalTokens, "daily chart first tokens");
+        AssertEqual(550L, statistics.LastThirtyDaysDaily[28].Summary.TotalTokens, "daily chart yesterday tokens");
+        AssertEqual(new DateTime(2026, 7, 11), statistics.LastThirtyDaysDaily[29].Date, "daily chart today date");
+        AssertEqual(2900L, statistics.LastThirtyDaysDaily[29].Summary.TotalTokens, "daily chart today tokens");
         AssertEqual("gpt-test|unknown-model", string.Join('|', statistics.Models.Select(model => model.Model)), "model statistics names");
         AssertEqual(3350L, statistics.Models[0].LastTwentyFourHours.TotalTokens, "priced model last 24 hours tokens");
         AssertEqual(2800L, statistics.Models[0].Today.TotalTokens, "priced model today tokens");
@@ -4468,7 +4521,7 @@ internal static class Program
         AssertEqual(230L, statistics.Today.TotalTokens, "auto-review tokens stay out of the total");
         AssertEqual(0.0007m, statistics.Today.CostUsd, "auto-review is not priced through the luna alias");
         AssertEqual(false, statistics.Today.HasUnpricedUsage, "excluded usage is not an unpriced remainder");
-        AssertEqual(230L, statistics.LastSevenDaysDaily[^1].Summary.TotalTokens, "daily chart omits auto-review");
+        AssertEqual(230L, statistics.LastThirtyDaysDaily[^1].Summary.TotalTokens, "daily chart omits auto-review");
         AssertEqual("gpt-test", string.Join('|', statistics.Models.Select(model => model.Model)), "model breakdown omits auto-review");
         AssertEqual(230L, statistics.Models[0].Today.TotalTokens, "kept model tokens");
         AssertEqual(2, statistics.SessionLogs.Count, "session log drops auto-review rows");
@@ -4686,8 +4739,8 @@ internal static class Program
         AssertEqual(2_831_472L, statistics.Lifetime.TotalTokens, "Grok lifetime tokens");
         AssertEqual(0.8534805m, statistics.Today.CostUsd, "Grok reported, partial, aggregate, and alternate-model fallback cost");
         AssertEqual(0.8546555m, statistics.Lifetime.CostUsd, "Grok lifetime API-equivalent cost");
-        AssertEqual(170L, statistics.LastSevenDaysDaily[5].Summary.TotalTokens, "Grok yesterday tokens");
-        AssertEqual(2_831_302L, statistics.LastSevenDaysDaily[6].Summary.TotalTokens, "Grok daily today tokens");
+        AssertEqual(170L, statistics.LastThirtyDaysDaily[28].Summary.TotalTokens, "Grok yesterday tokens");
+        AssertEqual(2_831_302L, statistics.LastThirtyDaysDaily[29].Summary.TotalTokens, "Grok daily today tokens");
         AssertEqual(
             "deepseek-v4-flash|deepseek-v4-pro|grok-4.5-build|grok-4.6-build|unknown",
             string.Join('|', statistics.Models.Select(model => model.Model)),
@@ -4774,6 +4827,17 @@ internal static class Program
             new DateTimeOffset(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8))).Lifetime;
         AssertEqual(2860L, lifetime.TotalTokens, "subagent lifetime excludes only matching replay prefix");
         AssertEqual(0.006m, lifetime.CostUsd, "subagent lifetime cost");
+        DateTimeOffset asOf = new(2026, 7, 11, 12, 0, 0, TimeSpan.FromHours(8));
+        AssertEqual(2860L, collector.CollectCodex(temp.Path, asOf).Lifetime.TotalTokens, "unchanged fork cache preserves totals");
+        string parentPath = Path.Combine(sessions, $"rollout-{parentId}.jsonl");
+        string parentContent = File.ReadAllText(parentPath);
+        File.Delete(parentPath);
+        AssertEqual(330L, collector.CollectCodex(temp.Path, asOf).Lifetime.TotalTokens, "deleted parent invalidates cached fork usage");
+        File.WriteAllText(parentPath, parentContent);
+        AssertEqual(2860L, collector.CollectCodex(temp.Path, asOf).Lifetime.TotalTokens, "restored parent makes fork available again");
+        File.WriteAllText(parentPath, parentContent.Replace("10:30:00", "10:25:00"));
+        File.SetLastWriteTimeUtc(parentPath, DateTime.UtcNow.AddSeconds(1));
+        AssertEqual(2530L, collector.CollectCodex(temp.Path, asOf).Lifetime.TotalTokens, "parent no longer reaching the cutoff invalidates fork cache");
         return Task.CompletedTask;
     }
 

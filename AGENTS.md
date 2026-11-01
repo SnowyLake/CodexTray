@@ -37,7 +37,7 @@
 3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
 4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Grok/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
 5. `AppSettings.VisiblePages` 控制 Codex, Grok 与 APIs 页的可见性和后台采集. `VisiblePages` 为空时停止本地 HTTP 服务和定时刷新.
-6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 各来源独立发布结果, Codex/Grok 的额度与本地 Token Cost 分开发布; 每次发布前复核退出状态和页面可见性, 单来源失败不阻止其他来源. 刷新所有发布任务仍统一等待, 保持请求合并与退出排空. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application.
+6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 各来源独立发布结果, Codex/Grok 的额度与本地 Token Cost 分开发布; 每次发布前复核退出状态和页面可见性, 单来源失败不阻止其他来源. 刷新所有发布任务仍统一等待, 保持请求合并与退出排空. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application. 本地服务监听异常退出时同样复用 `StopAsync` 取消并排空活动连接, 排空完成后才能重启.
 7. `RefreshRequests` 合并待执行的来源位掩码和 API 卡片 ID; 全部 APIs 请求覆盖单卡请求. 当前 owner 排空后才开始下一批, 防止同一采集器并发执行. 页面刷新仅请求该来源; 卡片保存与重试仅请求该卡片. `ApiUsageSnapshots` 合并单卡结果, 按实时配置顺序重建第一页 DeepSeek 插件映射, 配置已修改或卡片已删除时丢弃迟到结果. 隐藏 APIs 时不得重新发布 DeepSeek 缓存.
 8. `UsageHttp` 仅用于只读额度与用量查询 (包括只读 POST), 不用于 OAuth token POST. 网络错误, 非调用方取消的超时, HTTP 429 与 5xx 最多尝试 3 次, 默认等待 500/1000 毫秒; `Retry-After` 支持秒数与日期, 累计等待预算 10 秒, 超出预算直接结束而不缩短服务要求的等待. 每次重新构造请求与内容, 中间响应先释放, 等待可取消. 401/403, 其他 4xx 与解析错误不自动重试, 复用 Grok 原有最多一次强制 OAuth 续期. Grok 额度失败后不改走其他额度端点.
 9. `UsageDiagnostics` 使用固定 HTTP/异常描述和错误类别; 不回显服务器 reason phrase, JSON message 或任意 exception.Message. Grok 自有解析异常保留固定字段描述, 复制诊断只含应用版本, 固定来源/provider 名称, 成功时间与错误类别, 不含 URL, 账号, 卡片 ID/名称, 请求头或响应原文. 复制诊断和恢复备份入口集中在 Settings 的 Advanced 一栏, 复制按钮传入 `PageItem.All` 汇总所有来源.
@@ -77,6 +77,8 @@
 
 ### 本地 Token Cost
 
+- Codex 会话缓存同时校验子会话分页和回放父会话分页的路径、长度及修改时间; 父分页变化或消失时重新校验回放截止点, 不沿用子会话的旧统计. 模型圆环合并同名模型及 `Other` 时传播 `HasUnpricedUsage`; 采集失败时自然月与滚动趋势图均显示 `N/A`.
+
 - `TokenCostSummary.HasUnpricedUsage` 按事件与所选周期传播, 保留已知费用小计; Grok 部分自报费用无法完整回算时同样标记. `RefreshState` 保存每部分最后成功时间和当前错误, 失败时 UI 和插件清空数值为 `N/A`. 部分费用在金额旁显示 `*`. 时段列表, 圆环中心与 Codex, Grok 标题栏更新时间不显示 tooltip. 价格表按内容比较并同步加载, Codex 在价格字典变化后清空已计算费用的会话缓存, 不依赖文件长度或修改时间.
 - `TokenCostCollector.CollectCodex` 读取 `~/.codex/sessions/**/*.jsonl` 与 `*.jsonl.zst`, 以及 `~/.codex/archived_sessions` 根目录下的同类文件. Codex 的「压缩本地聊天记录」对应 `features.local_thread_store_compression`: 超过 7 天的 rollout 被整文件压成 zstd `.jsonl.zst` 并删除明文, 解压后的行与原 JSONL 相同, `token_count` 仍按事件时间分日. 同一路径同时存在明文和 `.zst` 时只读明文. 使用 `Resources/model-pricing.json` 计算 API 等价成本与缓存命中率. 不读取 OpenCode. 同一 thread 的桌面分页文件按文件名顺序拼接后共享累计水位; 父会话未写到 `forked_from` / `parent_thread_id` 截止点的子会话整段不计.
 - `model-pricing.json` 每个模型使用默认一口价 `input`/`cachedInput`/`output`, 可选 `aliases` 与 `periods`. 默认三价覆盖全天. `periods` 按数组顺序命中第一段: 每段可写 `daysUtc` (0=周日到 6=周六), `startUtc`, `endUtc` (UTC `HH:mm`, 含起不含止). 省略星期或起止时间则该段默认全星期或全天. 未命中任何时段时回退默认三价. 分时只影响本地回算, 不拆分 UI, 也不覆盖 Grok 完整自报 `costUsdTicks`.
@@ -91,6 +93,8 @@
 - `TokenCostStatistics.SessionLogs` 在同一次采集中保留明细, 按时间从新到旧. 本地日期晚于本次采集日的事件不进入列表, 与周期合计相同. Codex 一行是一次计入费用的 `token_count` 增量, Grok 一行是去重后的一次 `turn_completed` 模型用量. 行内速度沿用已配对的 `TimedOutputTokens` 与 `TimedDurationMilliseconds`, 未达门槛则速度为空. Codex 缓存命中时从已缓存事件生成这些行. 该列表不进入插件响应. `SessionLogListViewModel` 每页 20 行. Codex 与 Grok 标题栏刷新按钮左侧使用固定的列表图标切换中间区域, 打开时只把前景改为 `#1ABC89`, 不更换字形. 页眉, 页脚和开关状态不写入 settings; 两个来源各自独立. 再点一次按钮回到额度与 Token Cost. 列表滚到边缘后滚轮翻页. 四列从左到右是 Time, Model, 速度和费用. Time 字号 11, 左对齐, 上行为 `yy/MM/dd`, 下行为 `HH:mm:ss`, 列宽 49. Model 列宽固定为 115, 刚好容纳 `deepseek-v4-flash`, 更长名称显示省略号, 字号 13. 列表不显示列标题. 费用列宽 55, 速度列宽 58, 字号同样是 13, 两者右对齐, 费用贴齐行的右缘. 三道列间距等分剩余宽度, 当前面板上约为 7; 列宽和间距不随模型名或翻页改变, 不需要滚动时仍保留滚动条占位. 费用为 `$0.0000`, 不完整时加 `*`, 缺失为 `—`. 速度为四舍五入整数加 ` tok/s`, 没有样本时为 `—`. 列表行高 36.
 
 ### 设置边界
+
+- API 卡片保存只替换被保存卡片的字段; 保存、排序和删除均按当前顺序保留其他卡片的已保存配置, 不持久化其编辑草稿或 pending 卡片. 启动插件自动定位完成后仅合并未编辑的路径, 并更新路径基线, 不重新加载或替换整个设置与 API 卡片列表.
 
 - `SettingsStore.LoadError` 非空时禁止全部持久化, 自动插件定位也跳过. 读取与保存均验证 JSON object 和可反序列化字段, 运行期间文件损坏同样阻止覆盖. 主配置已成功解析时, 后续备份或规范化写入失败仍返回该有效配置, 同时报告错误并阻止持久化. `settings.last-good.json` 保存上一份有效配置; 恢复先验证备份, 把当前文件复制为 `settings.damaged-<guid>.json`, 再原子替换主文件. 主配置, 备份和保留副本中的 API 凭据均使用相同明文表示, 不得分享这些文件. 恢复会替换 ViewModel 的共享配置引用并阻止旧配置的在途刷新发布.
 - 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults` (`CodexTray.Core/CodexTrayDefaults.cs`).
@@ -146,7 +150,7 @@
 - 修改 `VisiblePages` 或刷新调度时, 同步检查页面导航, 定时器, 插件本地 HTTP 服务启停, 缓存清理和各采集器调用条件.
 - 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
 - 本地服务必须保持仅监听 `127.0.0.1`. 除第一张 DeepSeek 卡片的 CNY 余额外, 其他 API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.
-- `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. `Scripts/Restart-App.ps1` 只重启当前发布输出中的程序, 不执行发布.
+- `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. 发布预览和重启脚本仅停止与目标 exe 完整路径一致的进程; 存在其他安装路径或无法读取路径的同名进程时先报错, 不终止任何实例. `Scripts/Restart-App.ps1` 不执行发布.
 - 修改应用内更新的包名, 校验, 保留文件, `--apply-update` 参数或更新对话框时, 同步检查 `AppUpdateRelease`, `AppUpdatePackage`, `AppUpdateInstaller`, `GitHubAppUpdateClient`, `Program.cs`, Settings 页版本行, 对应测试和 README.
 
 ## 构建与输出

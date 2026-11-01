@@ -14,7 +14,7 @@ $appPath = Join-Path $publishDir "CodexTray.exe"
 
 $exitCode = 0
 try {
-    Stop-CodexTrayApp
+    Stop-CodexTrayApp -AppPath $appPath
     Invoke-CodexTrayPublish -RepoRoot $repoRoot -ProjectPath $projectPath -OutputPath $publishDir -Clean
     Start-CodexTrayApp -AppPath $appPath
     Write-Host ""

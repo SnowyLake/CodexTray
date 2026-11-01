@@ -11,7 +11,6 @@ public sealed record ApiUsageResult(
     string UsedDisplay,
     string Error,
     DateTimeOffset UpdatedAt,
-    string BalanceTooltip = "",
     string Provider = "",
     string UsedError = "");
 
@@ -140,7 +139,7 @@ public sealed class ApiUsageCollector
         if (balanceDisplay.StartsWith("¥", StringComparison.Ordinal) &&
             decimal.TryParse(balanceDisplay.AsSpan(1), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value))
         {
-            return $"¥{decimal.Round(value, 0, MidpointRounding.AwayFromZero):0}";
+            return string.Create(CultureInfo.InvariantCulture, $"¥{decimal.Round(value, 0, MidpointRounding.AwayFromZero):0}");
         }
 
         return CodexTrayDefaults.UnavailableDisplay;
@@ -320,7 +319,7 @@ public sealed class ApiUsageCollector
                 : string.Empty;
             if (decimal.TryParse(rawValue, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value))
             {
-                return new ApiUsageResult(monitorId, true, $"¥{value:0.00}", string.Empty, string.Empty, now);
+                return new ApiUsageResult(monitorId, true, string.Create(CultureInfo.InvariantCulture, $"¥{value:0.00}"), string.Empty, string.Empty, now);
             }
         }
 

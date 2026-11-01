@@ -194,7 +194,7 @@ internal sealed class TrayController : IDisposable
             if (changed && !IsExiting)
             {
                 TryPersistSettings();
-                m_PopupViewModel?.LoadSettings(m_Settings);
+                m_PopupViewModel?.MergeDetectedMonitorPaths();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -495,6 +495,7 @@ internal sealed class TrayController : IDisposable
         {
             TryPersistSettings();
             PublishApiResults([], []);
+            RefreshPopupStatus();
         };
         m_PopupViewModel.RestoreSettingsBackupRequested += (_, _) => PresentInAppDialog(new InAppDialogRequest(
             "Restore settings", "Restore the last good configuration? The current file will be preserved as a separate copy.", "Restore", "Cancel", RestoreSettingsBackup));
@@ -914,11 +915,6 @@ internal sealed class TrayController : IDisposable
                             m_UsageCache.ClearGrok();
                             m_PopupViewModel?.UpdateGrokDashboard(new(null, error, now));
                             break;
-                        case PageItem.Apis:
-                            m_UsageCache.ClearDeepSeek();
-                            m_PopupViewModel?.UpdateApiUsage(m_Settings.ApiMonitors.Select(monitor =>
-                                new ApiUsageResult(monitor.Id, false, "N/A", "N/A", error, now, Provider: monitor.Provider)).ToArray());
-                            break;
                     }
 
                     RefreshPopupStatus();
@@ -941,7 +937,6 @@ internal sealed class TrayController : IDisposable
         {
             m_UsageCache.ClearDeepSeek();
         }
-        RefreshPopupStatus();
     }
 
     /// <summary>

@@ -110,6 +110,7 @@ internal static class AppUpdateTests
         AssertTrue(AppUpdateVersion.TryParseTag("v5.1.1", out Version? tag) && tag == new Version(5, 1, 1), "tag parse");
         AssertTrue(!AppUpdateVersion.TryParseTag("5.1.1", out _), "tag requires v");
         AssertTrue(!AppUpdateVersion.TryParseTag("v5.1.1-beta", out _), "tag rejects prerelease");
+        AssertTrue(!AppUpdateVersion.TryParseTag("v999999999999.1.1", out _), "tag rejects overflowing components without throwing");
         AssertTrue(AppUpdateVersion.TryParseAssemblyVersion("5.1.1", out Version? assembly) && assembly == new Version(5, 1, 1), "assembly parse");
         AssertTrue(!AppUpdateVersion.TryParseAssemblyVersion("5.1.1+commit", out _), "assembly rejects metadata");
         AssertEqual(AppUpdateAvailability.UpdateAvailable, AppUpdateVersion.Compare(new Version(5, 1, 1), new Version(5, 2, 0)), "newer release");
@@ -148,15 +149,16 @@ internal static class AppUpdateTests
     private static Task TestRejectZipSlipAsync()
     {
         using TempDirectory temp = new();
-        string zipPath = Path.Combine(temp.Path, "slip.zip");
-        using (ZipArchive archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
-        {
-            WriteEntry(archive, "../evil.txt", "bad");
-            WriteEntry(archive, "Resources/../../outside.txt", "bad");
-        }
-
         string destination = Path.Combine(temp.Path, "out");
-        AssertThrows(() => AppUpdatePackage.Extract(zipPath, destination), "unsafe path");
+        foreach (string entry in new[] { "../evil.txt", "Resources/../../outside.txt", "/absolute.txt", "\\\\server\\share\\file.txt", "C:\\absolute.txt", "\\rooted.txt" })
+        {
+            string zipPath = Path.Combine(temp.Path, Guid.NewGuid() + ".zip");
+            using (ZipArchive archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+            {
+                WriteEntry(archive, entry, "bad");
+            }
+            AssertThrows(() => AppUpdatePackage.Extract(zipPath, destination), "unsafe path");
+        }
         AssertTrue(!File.Exists(Path.Combine(temp.Path, "evil.txt")), "parent escape");
         AssertTrue(!File.Exists(Path.Combine(temp.Path, "outside.txt")), "nested escape");
         return Task.CompletedTask;

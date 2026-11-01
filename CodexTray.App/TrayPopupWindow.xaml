@@ -429,8 +429,7 @@
                                  Style="{StaticResource QuotaProgressBarStyle}" />
                     <StackPanel Orientation="Horizontal"
                                 HorizontalAlignment="Right"
-                                Margin="0,5,0,0"
-                                Visibility="{Binding IsResetVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                Margin="0,5,0,0">
                         <TextBlock Text="&#xE823;"
                                    FontFamily="Segoe MDL2 Assets"
                                    Margin="0,0,4,0"
@@ -562,7 +561,7 @@
                                                FontWeight="Medium" />
                                     <TextBlock x:Name="PeriodValue"
                                                Grid.Column="1"
-                                               Text="{Binding Display.Tokens}"
+                                               Text="{Binding Tokens}"
                                                Margin="6,0,0,0"
                                                HorizontalAlignment="Right"
                                                VerticalAlignment="Center"
@@ -1426,20 +1425,7 @@
                                                                    Margin="8,0,0,0"
                                                                    Text="{Binding BalanceDisplay}"
                                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                                   FontSize="13"
-                                                                   ToolTipService.InitialShowDelay="{StaticResource ToolTipInitialShowDelay}"
-                                                                   ToolTipService.ShowDuration="{StaticResource ToolTipShowDuration}">
-                                                            <TextBlock.Style>
-                                                                <Style TargetType="{x:Type TextBlock}">
-                                                                    <Setter Property="ToolTip" Value="{x:Null}" />
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding HasBalanceTooltip}" Value="True">
-                                                                            <Setter Property="ToolTip" Value="{Binding BalanceTooltip}" />
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </TextBlock.Style>
-                                                        </TextBlock>
+                                                                   FontSize="13" />
                                                         <StackPanel Grid.Column="2"
                                                                     Orientation="Horizontal"
                                                                     Visibility="{Binding HasSecondaryDisplay, Converter={StaticResource BooleanToVisibilityConverter}}">

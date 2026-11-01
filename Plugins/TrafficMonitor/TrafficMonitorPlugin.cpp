@@ -341,7 +341,6 @@ bool ShowUsageUrlOptionsDialog(HWND owner, std::wstring& url)
 
     OptionsDialogState state{};
     state.currentUrl = url;
-    state.updatedUrl = url;
 
     HWND window = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
@@ -373,8 +372,18 @@ bool ShowUsageUrlOptionsDialog(HWND owner, std::wstring& url)
     SetFocus(state.editControl);
 
     MSG message{};
-    while (!state.completed && GetMessageW(&message, nullptr, 0, 0) > 0)
+    while (!state.completed)
     {
+        const auto result = GetMessageW(&message, nullptr, 0, 0);
+        if (result <= 0)
+        {
+            DestroyWindow(window);
+            if (result == 0)
+            {
+                PostQuitMessage(static_cast<int>(message.wParam));
+            }
+            break;
+        }
         if (!IsDialogMessageW(window, &message))
         {
             TranslateMessage(&message);

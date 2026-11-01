@@ -49,3 +49,29 @@ finally {
         Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
     }
 }
+
+# Mock process commands so path isolation is tested without stopping real applications.
+& {
+    $previewPath = Join-Path $fixtureRoot "CodexTray.exe"
+    $fixtureProcesses = @([pscustomobject]@{ Id = 101; Path = $previewPath })
+    $stopped = [Collections.Generic.List[int]]::new()
+    function Get-Process {
+        param($Name, $ErrorAction)
+        if ($Name -eq "CodexTray") { $fixtureProcesses }
+    }
+    function Stop-Process {
+        param($Id, [switch]$Force, $ErrorAction)
+        $stopped.Add($Id)
+    }
+    function Wait-Process { param($Id, $ErrorAction) }
+
+    Stop-CodexTrayApp -AppPath $previewPath
+    if ($stopped.Count -ne 1 -or $stopped[0] -ne 101) { throw "Preview process was not stopped." }
+    $stopped.Clear()
+    $fixtureProcesses += [pscustomobject]@{ Id = 102; Path = (Join-Path $fixtureRoot "other\CodexTray.exe") }
+    $rejected = $false
+    try { Stop-CodexTrayApp -AppPath $previewPath }
+    catch { $rejected = $_.Exception.Message -like "Another CodexTray installation*" }
+    if (-not $rejected -or $stopped.Count -ne 0) { throw "Other installations must be rejected before stopping any process." }
+    Write-Host "PASS preview restart isolates processes by executable path."
+}

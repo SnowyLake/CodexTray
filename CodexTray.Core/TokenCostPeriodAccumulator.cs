@@ -2,7 +2,6 @@ namespace CodexTray.Core;
 
 internal sealed class TokenCostPeriodAccumulator
 {
-    private readonly bool m_RequireCompleteCosts;
     private readonly DateTimeOffset m_AsOf;
     private readonly DateTimeOffset m_LastTwentyFourHoursStart;
     private readonly DateTime m_Today;
@@ -24,11 +23,10 @@ internal sealed class TokenCostPeriodAccumulator
     private readonly PeriodAccumulator m_LifetimePeriod;
 
     /// <summary>
-    /// Creates rolling and calendar periods relative to one local timestamp with optional complete-cost enforcement.
+    /// Creates rolling and calendar periods relative to one local timestamp.
     /// </summary>
-    public TokenCostPeriodAccumulator(DateTimeOffset asOf, bool requireCompleteCosts = false)
+    public TokenCostPeriodAccumulator(DateTimeOffset asOf)
     {
-        m_RequireCompleteCosts = requireCompleteCosts;
         m_AsOf = asOf;
         m_LastTwentyFourHoursStart = asOf.AddHours(-24);
         m_Today = asOf.LocalDateTime.Date;
@@ -37,16 +35,16 @@ internal sealed class TokenCostPeriodAccumulator
         m_CurrentWeekStart = m_Today.AddDays(-(((int)m_Today.DayOfWeek + 6) % 7));
         m_CurrentMonthStart = new DateTime(m_Today.Year, m_Today.Month, 1);
         m_CurrentYearStart = new DateTime(m_Today.Year, 1, 1);
-        m_LastTwentyFourHoursPeriod = new PeriodAccumulator(requireCompleteCosts);
-        m_TodayPeriod = new PeriodAccumulator(requireCompleteCosts);
-        m_LastSevenDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
-        m_LastThirtyDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
-        m_CurrentWeekPeriod = new PeriodAccumulator(requireCompleteCosts);
-        m_CurrentMonthPeriod = new PeriodAccumulator(requireCompleteCosts);
-        m_CurrentYearPeriod = new PeriodAccumulator(requireCompleteCosts);
-        m_LifetimePeriod = new PeriodAccumulator(requireCompleteCosts);
-        m_LastThirtyDaysDailyPeriods = Enumerable.Range(0, 30).Select(_ => new PeriodAccumulator(requireCompleteCosts)).ToArray();
-        m_CurrentMonthDailyPeriods = Enumerable.Range(0, m_Today.Day).Select(_ => new PeriodAccumulator(requireCompleteCosts)).ToArray();
+        m_LastTwentyFourHoursPeriod = new PeriodAccumulator();
+        m_TodayPeriod = new PeriodAccumulator();
+        m_LastSevenDaysPeriod = new PeriodAccumulator();
+        m_LastThirtyDaysPeriod = new PeriodAccumulator();
+        m_CurrentWeekPeriod = new PeriodAccumulator();
+        m_CurrentMonthPeriod = new PeriodAccumulator();
+        m_CurrentYearPeriod = new PeriodAccumulator();
+        m_LifetimePeriod = new PeriodAccumulator();
+        m_LastThirtyDaysDailyPeriods = Enumerable.Range(0, 30).Select(_ => new PeriodAccumulator()).ToArray();
+        m_CurrentMonthDailyPeriods = Enumerable.Range(0, m_Today.Day).Select(_ => new PeriodAccumulator()).ToArray();
     }
 
     /// <summary>
@@ -117,7 +115,7 @@ internal sealed class TokenCostPeriodAccumulator
         {
             if (!m_ModelPeriods.TryGetValue(model, out ModelPeriodAccumulator? modelPeriods))
             {
-                modelPeriods = new ModelPeriodAccumulator(m_RequireCompleteCosts);
+                modelPeriods = new ModelPeriodAccumulator();
                 m_ModelPeriods.Add(model, modelPeriods);
             }
 
@@ -129,12 +127,11 @@ internal sealed class TokenCostPeriodAccumulator
     /// <summary>
     /// Converts the accumulated periods into statistics with the timing source's estimation status.
     /// </summary>
-    public TokenCostStatistics ToStatistics(bool isSpeedEstimated = false, string costSource = "Provider billing", IReadOnlyList<SessionLogEntry>? sessionLogs = null)
+    public TokenCostStatistics ToStatistics(bool isSpeedEstimated = false, IReadOnlyList<SessionLogEntry>? sessionLogs = null)
     {
         return new TokenCostStatistics
         {
             IsSpeedEstimated = isSpeedEstimated,
-            CostSource = costSource,
             SessionLogs = sessionLogs ?? [],
             LastTwentyFourHours = m_LastTwentyFourHoursPeriod.ToSummary(),
             Today = m_TodayPeriod.ToSummary(),
@@ -144,14 +141,6 @@ internal sealed class TokenCostPeriodAccumulator
             CurrentMonth = m_CurrentMonthPeriod.ToSummary(),
             CurrentYear = m_CurrentYearPeriod.ToSummary(),
             Lifetime = m_LifetimePeriod.ToSummary(),
-            LastSevenDaysDaily = m_LastThirtyDaysDailyPeriods
-                .Skip(23)
-                .Select((period, index) => new TokenCostDailySummary
-                {
-                    Date = m_LastSevenDaysStart.AddDays(index),
-                    Summary = period.ToSummary(),
-                })
-                .ToArray(),
             LastThirtyDaysDaily = m_LastThirtyDaysDailyPeriods
                 .Select((period, index) => new TokenCostDailySummary
                 {
@@ -185,18 +174,18 @@ internal sealed class TokenCostPeriodAccumulator
         private readonly PeriodAccumulator m_LifetimePeriod;
 
         /// <summary>
-        /// Creates model-specific accumulators with the requested missing-cost behavior.
+        /// Creates model-specific rolling and calendar accumulators.
         /// </summary>
-        public ModelPeriodAccumulator(bool requireCompleteCosts)
+        public ModelPeriodAccumulator()
         {
-            m_LastTwentyFourHoursPeriod = new PeriodAccumulator(requireCompleteCosts);
-            m_TodayPeriod = new PeriodAccumulator(requireCompleteCosts);
-            m_LastSevenDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
-            m_LastThirtyDaysPeriod = new PeriodAccumulator(requireCompleteCosts);
-            m_CurrentWeekPeriod = new PeriodAccumulator(requireCompleteCosts);
-            m_CurrentMonthPeriod = new PeriodAccumulator(requireCompleteCosts);
-            m_CurrentYearPeriod = new PeriodAccumulator(requireCompleteCosts);
-            m_LifetimePeriod = new PeriodAccumulator(requireCompleteCosts);
+            m_LastTwentyFourHoursPeriod = new PeriodAccumulator();
+            m_TodayPeriod = new PeriodAccumulator();
+            m_LastSevenDaysPeriod = new PeriodAccumulator();
+            m_LastThirtyDaysPeriod = new PeriodAccumulator();
+            m_CurrentWeekPeriod = new PeriodAccumulator();
+            m_CurrentMonthPeriod = new PeriodAccumulator();
+            m_CurrentYearPeriod = new PeriodAccumulator();
+            m_LifetimePeriod = new PeriodAccumulator();
         }
 
         /// <summary>
@@ -277,7 +266,6 @@ internal sealed class TokenCostPeriodAccumulator
 
     private sealed class PeriodAccumulator
     {
-        private readonly bool m_RequireCompleteCosts;
         private bool m_HasUnpricedUsage;
         private long m_TotalTokens;
         private long m_CacheReadTokens;
@@ -285,14 +273,6 @@ internal sealed class TokenCostPeriodAccumulator
         private long m_TimedOutputTokens;
         private long m_TimedDurationMilliseconds;
         private decimal m_TotalCost;
-
-        /// <summary>
-        /// Creates one period accumulator with the requested missing-cost behavior.
-        /// </summary>
-        public PeriodAccumulator(bool requireCompleteCosts)
-        {
-            m_RequireCompleteCosts = requireCompleteCosts;
-        }
 
         /// <summary>
         /// Adds one usage value and its paired response timing to this period.
@@ -323,7 +303,7 @@ internal sealed class TokenCostPeriodAccumulator
             return new TokenCostSummary
             {
                 TotalTokens = m_TotalTokens,
-                CostUsd = m_RequireCompleteCosts && m_HasUnpricedUsage ? null : m_TotalCost,
+                CostUsd = m_TotalCost,
                 HasUnpricedUsage = m_HasUnpricedUsage,
                 CacheReadTokens = m_CacheReadTokens,
                 CacheableInputTokens = m_CacheableInputTokens,
