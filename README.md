@@ -16,7 +16,7 @@
 
 ## 概览
 
-`CodexTray` 是一个适用于 Windows x64 的托盘应用, 用于查看 Codex 与 Grok 的剩余额度, 重置时间, token 用量与费用, 也支持监控多个 API 账户的余额. Grok 页面显示订阅名称. 点击托盘图标即可查看, 平时无需保持窗口打开.
+`CodexTray` 是一个适用于 Windows x64 的托盘应用, 用于查看 Codex 与 Grok 的剩余额度, 重置时间, token 用量与费用, 也支持监控多个 API 账户的余额或费用. Grok 页面显示订阅名称. 点击托盘图标即可查看, 平时无需保持窗口打开.
 
 配合 LiteMonitor 或 TrafficMonitor, 还可以在监控器中显示 Codex Weekly 和 Grok Weekly 的剩余百分比, 以及第一张 DeepSeek 卡片的 CNY 余额.
 
@@ -31,7 +31,7 @@
 - 查看 Codex 计划状态, Session 与 Weekly 额度, Resets 数量及最近到期时间.
 - 在 Grok 页查看订阅类型, Weekly 额度, 各产品使用占比和 Token Cost.
 - 按时段查看 token 总量, 费用, 缓存命中率, 模型占比和用量趋势.
-- 在 APIs 页添加多个余额监控卡片, 自定义名称, 调整顺序或删除.
+- 在 APIs 页添加多个余额或费用监控卡片, 自定义名称, 调整顺序或删除.
 - 自动刷新并显示刷新状态, 也可以随时手动刷新. Codex, Grok 和 APIs 完成采集后各自立即更新, Codex 与 Grok 的额度和本地 Token Cost 也分别更新, 不必等待其他来源.
 - 各页面的刷新按钮只刷新当前来源, API 卡片的重试按钮只刷新该卡片. Settings 的 Advanced 一栏提供 `Copy diagnostics`, 一次复制所有来源的应用版本, 各部分最后成功时间和错误分类, 便于排查认证, 网络, 超时, 限流或响应格式问题; 不包含卡片名称, 地址或凭据. 暂时故障会有限重试, 服务要求较长等待时请稍后手动重试.
 - 读取失败的数值与插件数据显示 N/A, 不沿用旧值. 费用旁的 `*` 表示部分费用.
@@ -60,7 +60,7 @@
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
 - Codex 页: 查看额度, Resets 和 Token Cost. 点击额度卡片左下角的页点或使用鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示. 标题栏刷新按钮左侧可以打开 Session Logs, 再点一次回到额度与 Token Cost.
 - Grok 页: 查看订阅类型, Weekly 剩余额度, 重置时间, 各产品使用占比和 Token Cost. 订阅名称来自 Grok Build 设置中的显示名, 旧档会显示成对应的 The X Subscription 名称. Weekly 额度和各产品占比来自额度查询. Session Logs 按钮与 Codex 页相同, 只显示 Grok 自己的记录.
-- APIs 页: 添加和查看 DeepSeek, OpenRouter, Vercel AI Gateway, NanoGPT 或 NewAPI 监控卡片.
+- APIs 页: 添加和查看 OpenAI, DeepSeek, OpenRouter, Vercel AI Gateway 或 NewAPI 监控卡片.
 - Settings 页: 调整刷新间隔, 主题, 重置时间格式, 自启动和插件设置. 在 `Visible pages` 中隐藏页面后, 对应的后台采集也会停止. 版本号右侧的 `Check for updates` 会检查 GitHub Release. 发现新版本时, 弹窗询问是否安装.
 - About 页: 查看当前版本, 项目主页和许可证信息.
 
@@ -104,10 +104,10 @@ Session Logs 用同一套记录列出每一次用量, 而不是时段合计. 每
 
 保存只应用于当前卡片. 保存、排序或删除卡片时, 其他卡片尚未保存的字段和新增草稿会保留在编辑状态.
 
+- OpenAI: 填写 Base URL 和组织 Admin key, 默认 Base URL 为 `https://api.openai.com`. 卡片显示当前 UTC 自然月累计费用和当日费用. 官方接口不提供剩余额度, 普通项目 API key 不能查询.
 - DeepSeek: 填写 Base URL 和 API key, 默认 Base URL 为 `https://api.deepseek.com`. 卡片显示 CNY 余额, 第一张 DeepSeek 卡片也会显示在 LiteMonitor 和 TrafficMonitor 中.
 - OpenRouter: 填写 Base URL 和 Management Key, 默认 Base URL 为 `https://openrouter.ai`. 卡片显示剩余与已用 credits, 普通 API key 不适用.
 - Vercel: 填写 Base URL 和 AI Gateway API key, 默认 Base URL 为 `https://ai-gateway.vercel.sh`. 卡片显示团队剩余 credits 和累计已用量, 普通 Vercel 账号 token 不适用.
-- NanoGPT: 填写 Base URL 和 API key, 默认 Base URL 为 `https://nano-gpt.com`. 卡片优先显示 USD 余额, 并在接口可用时显示最近 30 个 UTC 日的已用金额; 用量查询失败不会影响余额显示.
 - NewAPI: 填写实例 Base URL, access token 和 User ID, 查看剩余与已用额度.
 
 卡片支持自定义显示名称, 调整顺序和删除. Grok 使用独立页面, 不作为 API 监控卡片.
@@ -126,7 +126,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 - Codex 与 Grok 的额度使用本机已有登录信息向各自的官方服务查询. Grok 页的订阅名称来自 Grok Build 设置中的显示名, 读不到时使用本机已有的订阅记录.
 - Codex 和 Grok 的 Token Cost 从本机会话日志统计. Codex 开启「压缩本地聊天记录」后, 较早的会话会保存为 `.jsonl.zst`, 这些压缩日志仍按原来的记录时间计入对应日期. Codex 和 Grok 页面不读取 OpenCode 会话.
-- DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
+- OpenAI, DeepSeek, OpenRouter, Vercel 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Admin key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击输入框右侧的眼睛图标可临时显示和编辑, 再次点击或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.
 - Grok 的登录凭据会自动续期并写回本地登录文件, 不会复制到 `settings.json`.
 - 插件连接仅供本机访问, 默认端口为 `17890`, 不向局域网开放. 登录凭据不会写入日志, 插件配置或插件收到的数据.
@@ -145,7 +145,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 ### 为什么 API 卡片显示 N/A
 
-将鼠标悬停在卡片名称或状态圆点上查看错误信息. DeepSeek, OpenRouter, Vercel, NanoGPT 和 NewAPI 需要有效的 Base URL 与凭据, NewAPI 还需要 User ID, OpenRouter 必须使用 Management Key, Vercel 必须使用 AI Gateway API key.
+将鼠标悬停在卡片名称或状态圆点上查看错误信息. OpenAI, DeepSeek, OpenRouter, Vercel 和 NewAPI 需要有效的 Base URL 与凭据. OpenAI 必须使用组织 Admin key, 普通项目 API key 不能查询费用. NewAPI 还需要 User ID, OpenRouter 必须使用 Management Key, Vercel 必须使用 AI Gateway API key.
 
 ### 为什么 Grok 页的订阅名称是 UNKNOWN
 

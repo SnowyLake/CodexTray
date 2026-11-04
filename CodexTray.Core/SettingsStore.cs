@@ -16,13 +16,13 @@ public enum PageItem
 
 public sealed class ApiMonitorSettings
 {
+    public const string OpenAiProvider = "OpenAI";
+
     public const string DeepSeekProvider = "DeepSeek";
 
     public const string NewApiProvider = "NewAPI";
 
     public const string OpenRouterProvider = "OpenRouter";
-
-    public const string NanoGptProvider = "NanoGPT";
 
     public const string VercelProvider = "Vercel";
 
@@ -48,9 +48,9 @@ public sealed class ApiMonitorSettings
         Id = string.IsNullOrWhiteSpace(Id) ? Guid.NewGuid().ToString("N") : Id.Trim();
         Provider = Provider?.Trim() switch
         {
+            string value when string.Equals(value, OpenAiProvider, StringComparison.OrdinalIgnoreCase) => OpenAiProvider,
             string value when string.Equals(value, NewApiProvider, StringComparison.OrdinalIgnoreCase) => NewApiProvider,
             string value when string.Equals(value, OpenRouterProvider, StringComparison.OrdinalIgnoreCase) => OpenRouterProvider,
-            string value when string.Equals(value, NanoGptProvider, StringComparison.OrdinalIgnoreCase) => NanoGptProvider,
             string value when string.Equals(value, VercelProvider, StringComparison.OrdinalIgnoreCase) => VercelProvider,
             string value when string.Equals(value, CursorProvider, StringComparison.OrdinalIgnoreCase) => CursorProvider,
             _ => DeepSeekProvider,
@@ -75,6 +75,9 @@ public sealed class ApiMonitorSettings
 public sealed class AppSettings
 {
     private const string k_LegacyGrokProvider = "Grok";
+
+    // Removed provider. Saved cards are dropped on load instead of being queried.
+    private const string k_LegacyNanoGptProvider = "NanoGPT";
 
     public const int CurrentSettingsSchemaVersion = 1;
 
@@ -165,7 +168,8 @@ public sealed class AppSettings
             monitor != null && string.Equals(monitor.Provider?.Trim(), k_LegacyGrokProvider, StringComparison.OrdinalIgnoreCase));
         ApiMonitors.RemoveAll(monitor => monitor == null ||
             string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(monitor.Provider?.Trim(), k_LegacyGrokProvider, StringComparison.OrdinalIgnoreCase));
+            string.Equals(monitor.Provider?.Trim(), k_LegacyGrokProvider, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(monitor.Provider?.Trim(), k_LegacyNanoGptProvider, StringComparison.OrdinalIgnoreCase));
         if (hadLegacyGrokMonitor)
         {
             VisiblePages |= PageItem.Grok;

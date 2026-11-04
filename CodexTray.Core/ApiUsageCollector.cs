@@ -34,6 +34,7 @@ public sealed class ApiUsageCollector
     };
 
     private readonly HttpClient m_HttpClient;
+    private readonly Func<DateTimeOffset> m_Clock;
 
     /// <summary>
     /// Creates an API usage collector with the shared HTTP client.
@@ -46,9 +47,10 @@ public sealed class ApiUsageCollector
     /// <summary>
     /// Creates an API usage collector with a custom HTTP client.
     /// </summary>
-    public ApiUsageCollector(HttpClient httpClient)
+    public ApiUsageCollector(HttpClient httpClient, Func<DateTimeOffset>? clock = null)
     {
         m_HttpClient = httpClient;
+        m_Clock = clock ?? (() => DateTimeOffset.Now);
     }
 
     /// <summary>
@@ -154,12 +156,12 @@ public sealed class ApiUsageCollector
         DateTimeOffset now = DateTimeOffset.Now;
         if (monitor.ApiKey.Length == 0)
         {
-            return Unavailable(monitor.Id, "Enter an API key", now);
+            return Unavailable(monitor.Id, monitor.Provider == ApiMonitorSettings.OpenAiProvider ? "Enter an Admin API key" : "Enter an API key", now);
         }
 
-        if (monitor.Provider == ApiMonitorSettings.NanoGptProvider)
+        if (monitor.Provider == ApiMonitorSettings.OpenAiProvider)
         {
-            return await CollectNanoGptAsync(monitor, now, cancellationToken).ConfigureAwait(false);
+            return await CollectOpenAiAsync(monitor, now, cancellationToken).ConfigureAwait(false);
         }
 
         string endpointPath = monitor.Provider switch
@@ -216,73 +218,57 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
-    /// Queries NanoGPT balance and optional 30-day usage data.
+    /// Queries OpenAI organization costs for the current UTC month and UTC day.
     /// </summary>
-    private async Task<ApiUsageResult> CollectNanoGptAsync(ApiMonitorSettings monitor, DateTimeOffset now, CancellationToken cancellationToken)
+    private async Task<ApiUsageResult> CollectOpenAiAsync(ApiMonitorSettings monitor, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        if (!TryBuildUri(monitor.BaseUrl, "/api/check-balance", out Uri? balanceUri, stripApiV1: true) ||
-            !TryBuildUri(monitor.BaseUrl, "/api/v1/usage", out Uri? usageUri, stripApiV1: true))
+        DateTimeOffset utcNow = m_Clock().ToUniversalTime();
+        long monthStart = new DateTimeOffset(utcNow.Year, utcNow.Month, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        long todayStart = new DateTimeOffset(utcNow.Year, utcNow.Month, utcNow.Day, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        long rangeEnd = todayStart + 86_400;
+        int limit = utcNow.Day;
+        if (!TryBuildUri(monitor.BaseUrl, "/v1/organization/costs", out Uri? uri))
         {
             return Unavailable(monitor.Id, "Enter a valid HTTP or HTTPS base URL", now);
         }
 
+        decimal monthCost = 0;
+        decimal todayCost = 0;
+        string? page = null;
         try
         {
-            using HttpRequestMessage balanceRequest = new(HttpMethod.Post, balanceUri);
-            balanceRequest.Headers.TryAddWithoutValidation("X-API-Key", monitor.ApiKey);
-            balanceRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            using HttpResponseMessage balanceResponse = await UsageHttp.SendAsync(m_HttpClient, balanceRequest, cancellationToken).ConfigureAwait(false);
-            string balanceBody = await balanceResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (!balanceResponse.IsSuccessStatusCode)
+            for (int pageIndex = 0; pageIndex < 7; pageIndex++)
             {
-                return Unavailable(monitor.Id, UsageDiagnostics.HttpError(balanceResponse.StatusCode), now);
-            }
-
-            using JsonDocument balanceDocument = JsonDocument.Parse(balanceBody);
-            if (!TryGetDecimal(balanceDocument.RootElement, "usd_balance", out decimal balance))
-            {
-                return Unavailable(monitor.Id, "Balance data is missing", now);
-            }
-
-            string usedDisplay = "N/A";
-            string usedError = string.Empty;
-            try
-            {
-                using HttpRequestMessage usageRequest = new(HttpMethod.Get, usageUri);
-                usageRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", monitor.ApiKey);
-                usageRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                using HttpResponseMessage usageResponse = await UsageHttp.SendAsync(m_HttpClient, usageRequest, cancellationToken).ConfigureAwait(false);
-                string usageBody = await usageResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                if (usageResponse.IsSuccessStatusCode)
+                using HttpRequestMessage request = new(HttpMethod.Get, BuildOpenAiCostsUri(uri!, monthStart, rangeEnd, limit, page));
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", monitor.ApiKey);
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
+                string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
                 {
-                    using JsonDocument usageDocument = JsonDocument.Parse(usageBody);
-                    if (usageDocument.RootElement.TryGetProperty("totals", out JsonElement totals) &&
-                        totals.ValueKind == JsonValueKind.Object &&
-                        TryGetDecimal(totals, "netCostUsd", out decimal used))
-                    {
-                        usedDisplay = $"${used:0.00}";
-                    }
-                    else
-                    {
-                        usedError = "Usage data is missing";
-                    }
+                    return Unavailable(monitor.Id, UsageDiagnostics.HttpError(response.StatusCode), now);
                 }
-                else
+
+                using JsonDocument document = JsonDocument.Parse(body);
+                if (!TryAddOpenAiCosts(document.RootElement, monthStart, todayStart, rangeEnd, ref monthCost, ref todayCost, out string? nextPage, out bool hasMore))
                 {
-                    usedError = UsageDiagnostics.HttpError(usageResponse.StatusCode);
+                    return Unavailable(monitor.Id, "Cost data is missing", now);
                 }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException)
-            {
-                usedDisplay = "N/A";
-                usedError = UsageDiagnostics.Error(exception);
+
+                if (!hasMore)
+                {
+                    return new ApiUsageResult(monitor.Id, true, FormatUsd(monthCost), FormatUsd(todayCost), string.Empty, now);
+                }
+
+                if (string.IsNullOrEmpty(nextPage))
+                {
+                    break;
+                }
+
+                page = nextPage;
             }
 
-            return new ApiUsageResult(monitor.Id, true, $"${balance:0.00}", usedDisplay, string.Empty, now, UsedError: usedError);
+            return Unavailable(monitor.Id, "Cost data is incomplete", now);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -292,6 +278,104 @@ public sealed class ApiUsageCollector
         {
             return Unavailable(monitor.Id, UsageDiagnostics.Error(exception), now);
         }
+    }
+
+    /// <summary>
+    /// Adds USD costs from one organization costs page. Non-USD amounts fail the page.
+    /// </summary>
+    private static bool TryAddOpenAiCosts(
+        JsonElement root,
+        long monthStart,
+        long todayStart,
+        long rangeEnd,
+        ref decimal monthCost,
+        ref decimal todayCost,
+        out string? nextPage,
+        out bool hasMore)
+    {
+        nextPage = null;
+        hasMore = false;
+        if (!root.TryGetProperty("data", out JsonElement data) || data.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (JsonElement bucket in data.EnumerateArray())
+        {
+            if (!TryGetDecimal(bucket, "start_time", out decimal startValue) || startValue != decimal.Truncate(startValue))
+            {
+                return false;
+            }
+
+            long start = (long)startValue;
+            if (start < monthStart || start >= rangeEnd)
+            {
+                continue;
+            }
+
+            if (!bucket.TryGetProperty("results", out JsonElement results) || results.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            decimal bucketCost = 0;
+            foreach (JsonElement result in results.EnumerateArray())
+            {
+                if (!result.TryGetProperty("amount", out JsonElement amount) || amount.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                string currency = amount.TryGetProperty("currency", out JsonElement currencyElement) && currencyElement.ValueKind == JsonValueKind.String
+                    ? currencyElement.GetString() ?? string.Empty
+                    : string.Empty;
+                if (currency.Length > 0 && !string.Equals(currency, "usd", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                if (TryGetDecimal(amount, "value", out decimal value))
+                {
+                    bucketCost += value;
+                }
+            }
+
+            monthCost += bucketCost;
+            if (start == todayStart)
+            {
+                todayCost += bucketCost;
+            }
+        }
+
+        hasMore = root.TryGetProperty("has_more", out JsonElement hasMoreElement) && hasMoreElement.ValueKind == JsonValueKind.True;
+        if (root.TryGetProperty("next_page", out JsonElement nextPageElement) && nextPageElement.ValueKind == JsonValueKind.String)
+        {
+            nextPage = nextPageElement.GetString();
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Builds one daily organization costs request, including a pagination cursor when present.
+    /// </summary>
+    private static Uri BuildOpenAiCostsUri(Uri endpoint, long startTime, long endTime, int limit, string? page)
+    {
+        string query = $"start_time={startTime.ToString(CultureInfo.InvariantCulture)}&end_time={endTime.ToString(CultureInfo.InvariantCulture)}&bucket_width=1d&limit={limit.ToString(CultureInfo.InvariantCulture)}";
+        if (!string.IsNullOrEmpty(page))
+        {
+            query += "&page=" + Uri.EscapeDataString(page);
+        }
+
+        return new UriBuilder(endpoint) { Query = query }.Uri;
+    }
+
+    /// <summary>
+    /// Formats a USD amount without using the current culture.
+    /// </summary>
+    private static string FormatUsd(decimal value)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"${value:0.00}");
     }
 
     /// <summary>

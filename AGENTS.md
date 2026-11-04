@@ -63,9 +63,9 @@
 
 ### API 监控链路
 
-1. `AppSettings.ApiMonitors` 保存 API 监控卡片的顺序和 provider 配置. 支持的 provider 及新建卡片下拉顺序为 DeepSeek, OpenRouter, Vercel, NanoGPT 与 NewAPI, 由 `ApiMonitorViewModel.ProviderOptions` 固定. `TrayPopupViewModel` 负责增删, 排序和持久化卡片. 升降箭头仅位于卡片编辑页, 排序立即持久化已有卡片的顺序, 不保存未完成的字段编辑或 pending 卡片. `AppSettings.Normalize` 会移除旧版 Cursor 卡片.
-2. `ApiUsageCollector` 并行刷新所有卡片. DeepSeek 使用 `/user/balance`, OpenRouter 使用 `/api/v1/credits`, Vercel 使用 `/v1/credits`, NanoGPT 使用 `/api/check-balance` 和 `/api/v1/usage`, NewAPI 使用 `/api/user/self` 并发送 `New-Api-User` header.
-3. 请求发送到各卡片配置的 Base URL. OpenRouter 使用 Management Key, 不使用普通 API key 的 `/key` limit 作为账户余额. Vercel 使用 AI Gateway API key, 不使用普通 Vercel 账号 token. NewAPI 还需要 User ID. NanoGPT 用量按最近 30 个 UTC 日查询, 用量失败不影响余额显示.
+1. `AppSettings.ApiMonitors` 保存 API 监控卡片的顺序和 provider 配置. 支持的 provider 及新建卡片下拉顺序为 OpenAI, DeepSeek, OpenRouter, Vercel 与 NewAPI, 由 `ApiMonitorViewModel.ProviderOptions` 固定. `TrayPopupViewModel` 负责增删, 排序和持久化卡片. 升降箭头仅位于卡片编辑页, 排序立即持久化已有卡片的顺序, 不保存未完成的字段编辑或 pending 卡片. `AppSettings.Normalize` 会移除旧版 Cursor 卡片和已保存的 NanoGPT 卡片.
+2. `ApiUsageCollector` 并行刷新所有卡片. OpenAI 使用 `/v1/organization/costs`, DeepSeek 使用 `/user/balance`, OpenRouter 使用 `/api/v1/credits`, Vercel 使用 `/v1/credits`, NewAPI 使用 `/api/user/self` 并发送 `New-Api-User` header.
+3. 请求发送到各卡片配置的 Base URL. OpenAI 需要组织 Admin key, 普通项目 API key 不能读取费用. 查询当前 UTC 自然月: `start_time` 为当月 1 日, `end_time` 为次日 0 点, `bucket_width` 为 `1d`, `limit` 为当月已过天数. 跟随 `next_page`, 最多 7 页; 仍未读完则失败, 不把部分合计显示为完整费用. 非 USD 金额视为失败. 卡片主值是月累计, 次值是当日费用. 官方没有剩余额度接口. OpenRouter 使用 Management Key, 不使用普通 API key 的 `/key` limit 作为账户余额. Vercel 使用 AI Gateway API key, 不使用普通 Vercel 账号 token. NewAPI 还需要 User ID.
 4. `TrayController` 将结果交给 `TrayPopupViewModel` 更新单卡片状态与 APIs 页汇总状态, 并将第一张 DeepSeek 卡片写入 `UsageCache`. 其他 API provider 不进入插件 HTTP 响应. 有多张 DeepSeek 卡片时只使用最靠前的一张, 该卡片不可用时显示 `N/A`, 不回退到后续 DeepSeek 卡片.
 
 ### Grok 页面链路
@@ -111,7 +111,7 @@
 - Codex/Grok 共用图表的入场状态保存在稳定的 `ItemsControl` 上, 每次区域可见期间只播放一次 220ms 动画: 圆环各扇区同时独立逆时针填充并淡入, 柱图从底部 ScaleY 0 到 1 并淡入. 每个圆环分段保留 StartAngle 与 SweepAngle, 使用统一动画进度生成各自的扇形 Clip: 从该段顺时针末端逆时针向起点展开, 同时开始和结束, 不使用整圈扫描. 最终模型顺序与比例不变, 中心文字不参与裁剪; 动画结束或取消时移除 Clip. 首次没有有效图形时等待数据到达; 后台刷新只替换数据, 不清除入场标记. 手动切换圆环或柱状图时段后, ViewModel 在更新数据后通知 SelectedPeriod 或 ChartPeriod, 对应 ItemsControl 的 Tag 绑定更新负责重置并重播动画. 柱图滚动/自然月切换导致选中圆环周期变化时, 圆环同步重播; 重复选择当前时段不触发. 区域隐藏或卸载后重置标记, 因此切回页面, 关闭 Session Logs 或重新打开面板会重新入场. 悬停动画为 120ms: 扇区围绕共同圆心 `(72,72)` 放大到 1.04, 柱形以底部为原点放大到 ScaleX 1.12/ScaleY 1.04. 可视图形不接收命中, 鼠标事件使用固定的原始扇区或整列区域, 中心文字不缩放; 当前扇区的容器提高 ZIndex. 圆环占位底环仅在没有扇区时显示, 避免缩放露出内侧灰弧. 图表禁用自动 ToolTipService, 共用窗口资源 `ChartToolTip`, MouseEnter 同步更新 PlacementTarget, 内容并打开提示和高亮, MouseLeave 仅关闭仍归该项拥有的提示; 无额外延迟或独立显示超时. 提示保留 WPF UI 主题样式且不接收命中, 避免系统 tooltip 矩形安全区延迟相邻扇区的提示切换. 隐藏, 卸载和关闭须关闭提示并释放 owner. 模板冻结的变换在首次动画前克隆为实例. 动画使用 0.7 减速比例, 遵从系统动画与硬件加速开关; 隐藏, 卸载及关闭时移除时钟并恢复尺寸, 完成回调不得清除替代动画.
 - Codex 额度大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示, 只有一个有效页面时隐藏页点. Resets 使用全宽小卡片. Codex 订阅徽章来自 usage 响应的 `plan_type`: `free`/`go`/`plus`/`chatgpt` 显示 `FREE`/`GO`/`PLUS`; `prolite` 及 `pro_lite`/`pro_5x`/`pro5x` 显示 `PRO 100`; `pro` 及 `pro_10x`/`pro10x`/`pro_20x`/`pro20x` 显示 `PRO 200`; `promax` 及 `pro_max`/`pro_25x`/`pro25x` 显示 `PRO 500`; 其他值显示 `UNKNOWN`.
 - Grok 上方使用 Weekly 大卡片和产品占比小卡片, 这是面板上唯一的订阅额度区域. 订阅徽章优先使用 `/v1/settings` 的 `subscription_tier_display`. Weekly 大卡片显示 billing 剩余整数百分比, 重置时间使用账期结束时间. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 进度条最多四段: 最高三项加上 `Others`. 图例固定三项, 全为零时显示 `Build`, `Bot`, `Cursor`; 不足三项时按该默认顺序补齐. 三个及以上非零产品时保留最高三项, 其余仅合并到进度条中的 `Others`. `Others` 不出现在图例中. 鼠标悬停进度条时列出全部返回产品的占比, 包括零值; 没有返回产品时不显示 tooltip. 图例前三项颜色与 Token Cost 圆环前三项一致, `Others` 与圆环第四项一致. 用量不可用时显示 `N/A`. 产品名和占比来自 billing `productUsage`. 显示名去掉 `PRODUCT_GROK_`, `PRODUCT_` 与 `Grok` 前缀, 因此 `PRODUCT_CURSOR` 显示为 `Cursor`. 缺少产品名时按 `Cursor` 计.
-- API provider 的 API key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.
+- API provider 的 API key, Admin key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.
 - API key 与 NewAPI User ID 使用 `CredentialInput` 的原生 WPF `PasswordBox` 双向编辑; 明文显示仅由当前控件右侧眼睛按钮的显示/隐藏状态控制, 图标, tooltip 与无障碍名称随状态同步, 隐藏, 卸载或更换卡片后重置, 不持久化显示状态. 主配置与备份尚未启用 DPAPI, 不得把屏幕遮挡描述为加密存储.
 - `settings.json` 位于 `CodexTray.exe` 同级目录.
 

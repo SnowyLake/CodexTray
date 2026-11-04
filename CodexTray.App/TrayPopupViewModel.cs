@@ -1166,10 +1166,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         void AddApi(ApiMonitorViewModel api)
         {
             string provider = api.ProviderOptions.Contains(api.Provider) ? api.Provider : "Unknown API";
-            Add(provider + " balance", api.BalanceState);
+            Add(provider + (api.IsOpenAi ? " cost" : " balance"), api.BalanceState);
             if (api.HasSecondaryDisplay)
             {
-                Add(provider + " usage", api.UsedState);
+                Add(provider + (api.IsOpenAi ? " today" : " usage"), api.UsedState);
             }
         }
 

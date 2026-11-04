@@ -1555,10 +1555,16 @@
                                                                  Style="{StaticResource SettingsTextBoxStyle}" />
 
                                                         <TextBlock Margin="0,10,0,5"
-                                                                   Text="API key / access token"
+                                                                   Text="{Binding CredentialLabel}"
                                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                    FontSize="12" />
                                                         <local:CredentialInput Text="{Binding ApiKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                        <TextBlock Margin="0,6,0,0"
+                                                                   Text="Organization Admin key. A project API key cannot read costs."
+                                                                   TextWrapping="Wrap"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                   FontSize="11"
+                                                                   Visibility="{Binding IsOpenAi, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                                                         <StackPanel Visibility="{Binding IsNewApi, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                             <TextBlock Margin="0,10,0,5"
