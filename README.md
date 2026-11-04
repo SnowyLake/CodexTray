@@ -104,7 +104,7 @@ Session Logs 用同一套记录列出每一次用量, 而不是时段合计. 每
 
 保存只应用于当前卡片. 保存、排序或删除卡片时, 其他卡片尚未保存的字段和新增草稿会保留在编辑状态.
 
-- OpenAI: 填写 Base URL 和组织 Admin key, 默认 Base URL 为 `https://api.openai.com`. 新建卡片默认就是 OpenAI. 卡片显示当前 UTC 自然月已用金额, 标签为 Used. 官方接口不提供剩余额度, 所以不显示 Balance. 普通项目 API key 不能查询.
+- OpenAI: 填写 Base URL 和组织 Admin key, 默认 Base URL 为 `https://api.openai.com`. 新建卡片默认就是 OpenAI. 卡片显示当前 UTC 自然月已用金额, 标签为 Used. 可以再填写每月起始额度, 单位是 USD, 这是手填数字, 不是 OpenAI 返回的剩余额度. 填写后卡片同时显示 Balance 和 Used, Balance 为起始额度减去当月用量; 用量超过起始额度时 Balance 为负数. 留空则只显示 Used. 普通项目 API key 不能查询.
 - DeepSeek: 填写 Base URL 和 API key, 默认 Base URL 为 `https://api.deepseek.com`. 卡片显示 CNY 余额, 第一张 DeepSeek 卡片也会显示在 LiteMonitor 和 TrafficMonitor 中.
 - OpenRouter: 填写 Base URL 和 Management Key, 默认 Base URL 为 `https://openrouter.ai`. 卡片显示剩余与已用 credits, 普通 API key 不适用.
 - Vercel: 填写 Base URL 和 AI Gateway API key, 默认 Base URL 为 `https://ai-gateway.vercel.sh`. 卡片显示团队剩余 credits 和累计已用量, 普通 Vercel 账号 token 不适用.
@@ -145,7 +145,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 ### 为什么 API 卡片显示 N/A
 
-将鼠标悬停在卡片名称或状态圆点上查看错误信息. OpenAI, DeepSeek, OpenRouter, Vercel 和 NewAPI 需要有效的 Base URL 与凭据. OpenAI 必须使用组织 Admin key, 普通项目 API key 不能查询当月用量. NewAPI 还需要 User ID, OpenRouter 必须使用 Management Key, Vercel 必须使用 AI Gateway API key.
+将鼠标悬停在卡片名称或状态圆点上查看错误信息. OpenAI, DeepSeek, OpenRouter, Vercel 和 NewAPI 需要有效的 Base URL 与凭据. OpenAI 必须使用组织 Admin key, 普通项目 API key 不能查询当月用量. OpenAI 的每月起始额度由用户填写, 用来计算 Balance. NewAPI 还需要 User ID, OpenRouter 必须使用 Management Key, Vercel 必须使用 AI Gateway API key.
 
 ### 为什么 Grok 页的订阅名称是 UNKNOWN
 

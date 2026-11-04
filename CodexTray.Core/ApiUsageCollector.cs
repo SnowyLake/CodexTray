@@ -256,7 +256,7 @@ public sealed class ApiUsageCollector
 
                 if (!hasMore)
                 {
-                    return new ApiUsageResult(monitor.Id, true, FormatUsd(monthCost), string.Empty, string.Empty, now);
+                    return OpenAiUsageResult(monitor, monthCost, now);
                 }
 
                 if (string.IsNullOrEmpty(nextPage))
@@ -277,6 +277,20 @@ public sealed class ApiUsageCollector
         {
             return Unavailable(monitor.Id, UsageDiagnostics.Error(exception), now);
         }
+    }
+
+    /// <summary>
+    /// Builds the OpenAI card values. A starting credit produces Balance and Used; otherwise only Used is shown.
+    /// </summary>
+    private static ApiUsageResult OpenAiUsageResult(ApiMonitorSettings monitor, decimal monthCost, DateTimeOffset now)
+    {
+        string used = FormatUsd(monthCost);
+        if (monitor.MonthlyStartingCredit is not decimal starting || starting < 0)
+        {
+            return new ApiUsageResult(monitor.Id, true, used, string.Empty, string.Empty, now);
+        }
+
+        return new ApiUsageResult(monitor.Id, true, FormatUsd(starting - monthCost), used, string.Empty, now);
     }
 
     /// <summary>
@@ -368,7 +382,8 @@ public sealed class ApiUsageCollector
     /// </summary>
     private static string FormatUsd(decimal value)
     {
-        return string.Create(CultureInfo.InvariantCulture, $"${value:0.00}");
+        string amount = string.Create(CultureInfo.InvariantCulture, $"{decimal.Abs(value):0.00}");
+        return value < 0 ? "-$" + amount : "$" + amount;
     }
 
     /// <summary>

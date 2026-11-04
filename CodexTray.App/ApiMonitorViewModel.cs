@@ -84,6 +84,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
 
             OnPropertyChanged(nameof(IsNewApi));
             OnPropertyChanged(nameof(IsOpenAi));
+            OnPropertyChanged(nameof(HasMonthlyStartingCredit));
             OnPropertyChanged(nameof(HasSecondaryDisplay));
             OnPropertyChanged(nameof(PrimaryDisplayLabel));
             OnPropertyChanged(nameof(SecondaryDisplayLabel));
@@ -101,15 +102,23 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     [ObservableProperty]
     public partial string UserId { get; set; }
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasMonthlyStartingCredit))]
+    [NotifyPropertyChangedFor(nameof(HasSecondaryDisplay))]
+    [NotifyPropertyChangedFor(nameof(PrimaryDisplayLabel))]
+    public partial string MonthlyStartingCredit { get; set; } = string.Empty;
+
     public bool IsNewApi => m_Provider == ApiMonitorSettings.NewApiProvider;
 
     public bool IsOpenAi => m_Provider == ApiMonitorSettings.OpenAiProvider;
 
-    public bool HasSecondaryDisplay => IsNewApi ||
+    public bool HasMonthlyStartingCredit => IsOpenAi && ApiMonitorSettings.ParseMonthlyStartingCredit(MonthlyStartingCredit) != null;
+
+    public bool HasSecondaryDisplay => IsNewApi || HasMonthlyStartingCredit ||
         (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.VercelProvider &&
          !string.IsNullOrEmpty(UsedDisplay) && UsedDisplay != "N/A");
 
-    public string PrimaryDisplayLabel => IsOpenAi ? "Used:" : "Balance:";
+    public string PrimaryDisplayLabel => IsOpenAi && !HasMonthlyStartingCredit ? "Used:" : "Balance:";
 
     public string SecondaryDisplayLabel => "Used:";
 
@@ -147,6 +156,9 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         BaseUrl = settings.BaseUrl;
         ApiKey = settings.ApiKey;
         UserId = settings.UserId;
+        MonthlyStartingCredit = settings.MonthlyStartingCredit is decimal credit
+            ? credit.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty;
         IsEditing = isEditing;
         IsPending = isPending;
     }
@@ -164,6 +176,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             BaseUrl = BaseUrl,
             ApiKey = ApiKey,
             UserId = UserId,
+            MonthlyStartingCredit = ApiMonitorSettings.ParseMonthlyStartingCredit(MonthlyStartingCredit),
         }.Normalize();
     }
 
@@ -205,8 +218,9 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         BalanceState.Update(result.Available, result.UpdatedAt, result.Error);
         bool hasUsage = !string.IsNullOrEmpty(result.UsedDisplay) && result.UsedDisplay != "N/A";
         UsedState.Update(hasUsage, result.UpdatedAt, result.UsedError.Length > 0 ? result.UsedError : result.Error);
+        bool showUsedTooltip = Provider != ApiMonitorSettings.DeepSeekProvider && (!IsOpenAi || HasMonthlyStartingCredit);
         StatusTooltip = $"{PrimaryDisplayLabel} {BalanceState.Tooltip}" +
-            (Provider != ApiMonitorSettings.DeepSeekProvider && !IsOpenAi ? $"\n{SecondaryDisplayLabel} {UsedState.Tooltip}" : string.Empty);
+            (showUsedTooltip ? $"\n{SecondaryDisplayLabel} {UsedState.Tooltip}" : string.Empty);
         StatusText = result.Available
             ? $"Updated {result.UpdatedAt:HH:mm}{(result.UsedError.Length > 0 ? " · Partial" : string.Empty)}"
             : result.Error;

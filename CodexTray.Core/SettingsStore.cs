@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -41,6 +42,27 @@ public sealed class ApiMonitorSettings
     public string UserId { get; set; } = string.Empty;
 
     /// <summary>
+    /// User-entered USD amount for the current month. Null means the OpenAI card shows usage only.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? MonthlyStartingCredit { get; set; }
+
+    /// <summary>
+    /// Parses a non-negative USD starting credit. Empty or invalid text stays unset.
+    /// </summary>
+    public static decimal? ParseMonthlyStartingCredit(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text) ||
+            !decimal.TryParse(text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal amount) ||
+            amount < 0)
+        {
+            return null;
+        }
+
+        return amount;
+    }
+
+    /// <summary>
     /// Normalizes one persisted API monitor configuration.
     /// </summary>
     public ApiMonitorSettings Normalize()
@@ -62,12 +84,18 @@ public sealed class ApiMonitorSettings
             BaseUrl = string.Empty;
             ApiKey = string.Empty;
             UserId = string.Empty;
+            MonthlyStartingCredit = null;
             return this;
         }
 
         BaseUrl = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
         ApiKey = (ApiKey ?? string.Empty).Trim();
         UserId = (UserId ?? string.Empty).Trim();
+        if (Provider != OpenAiProvider || MonthlyStartingCredit is < 0)
+        {
+            MonthlyStartingCredit = null;
+        }
+
         return this;
     }
 }
@@ -120,7 +148,13 @@ public sealed class AppSettings
         AppSettings copy = (AppSettings)MemberwiseClone();
         copy.ApiMonitors = ApiMonitors.Select(monitor => new ApiMonitorSettings
         {
-            Id = monitor.Id, Name = monitor.Name, Provider = monitor.Provider, BaseUrl = monitor.BaseUrl, ApiKey = monitor.ApiKey, UserId = monitor.UserId,
+            Id = monitor.Id,
+            Name = monitor.Name,
+            Provider = monitor.Provider,
+            BaseUrl = monitor.BaseUrl,
+            ApiKey = monitor.ApiKey,
+            UserId = monitor.UserId,
+            MonthlyStartingCredit = monitor.MonthlyStartingCredit,
         }).ToList();
         return copy;
     }

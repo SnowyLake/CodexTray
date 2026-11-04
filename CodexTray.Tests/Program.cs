@@ -1788,6 +1788,7 @@ internal static class Program
                 {
                     Name = "Personal DeepSeek",
                     ApiKey = "deepseek-secret-token",
+                    MonthlyStartingCredit = 9m,
                 },
                 new ApiMonitorSettings
                 {
@@ -1807,6 +1808,7 @@ internal static class Program
                     Provider = "openai",
                     BaseUrl = "https://api.openai.example/",
                     ApiKey = "sk-admin-test",
+                    MonthlyStartingCredit = 25.5m,
                 },
                 new ApiMonitorSettings
                 {
@@ -1847,6 +1849,9 @@ internal static class Program
         AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
         AssertEqual("https://api.openai.example", openAi.BaseUrl, "saved OpenAI base URL");
         AssertEqual("sk-admin-test", openAi.ApiKey, "saved OpenAI admin key");
+        AssertEqual(25.5m, openAi.MonthlyStartingCredit, "saved OpenAI monthly starting credit");
+        AssertEqual(null, deepSeek.MonthlyStartingCredit, "non-OpenAI cards do not keep a starting credit");
+        AssertTrue(!json.Contains("\"MonthlyStartingCredit\": 9", StringComparison.Ordinal), "settings should drop a starting credit from non-OpenAI cards");
         AssertEqual("https://openrouter.example", openRouter.BaseUrl, "saved OpenRouter base URL");
         AssertEqual("openrouter-management-key", openRouter.ApiKey, "saved OpenRouter management key");
         AssertEqual("https://ai-gateway.example", vercel.BaseUrl, "saved Vercel base URL");
@@ -1855,6 +1860,21 @@ internal static class Program
         AssertTrue(!json.Contains("nanogpt-key", StringComparison.Ordinal), "settings should not keep a NanoGPT API key");
         AssertTrue((loaded.VisiblePages & PageItem.Grok) != 0, "legacy Grok API monitor should enable the Grok page");
         AssertTrue(!json.Contains("Local Cursor", StringComparison.Ordinal), "settings should remove Cursor API monitors");
+        File.WriteAllText(store.SettingsPath, """
+            {
+              "ApiMonitors": [
+                {
+                  "Name": "Legacy OpenAI",
+                  "Provider": "OpenAI",
+                  "ApiKey": "sk-admin-legacy"
+                }
+              ]
+            }
+            """);
+        AppSettings legacy = store.Load();
+        ApiMonitorSettings legacyOpenAi = legacy.ApiMonitors.Single();
+        AssertEqual(null, legacyOpenAi.MonthlyStartingCredit, "OpenAI card without a starting credit stays unset");
+        AssertEqual("sk-admin-legacy", legacyOpenAi.ApiKey, "legacy OpenAI card still loads");
         return Task.CompletedTask;
     }
 
@@ -1900,6 +1920,22 @@ internal static class Program
             BaseUrl = "https://api.openai.example/v1",
             ApiKey = "sk-admin-test",
         };
+        ApiMonitorSettings openAiCredit = new()
+        {
+            Id = "openai-credit",
+            Provider = ApiMonitorSettings.OpenAiProvider,
+            BaseUrl = "https://api.openai.example/v1",
+            ApiKey = "sk-admin-test",
+            MonthlyStartingCredit = 10m,
+        };
+        ApiMonitorSettings openAiOver = new()
+        {
+            Id = "openai-over",
+            Provider = ApiMonitorSettings.OpenAiProvider,
+            BaseUrl = "https://api.openai.example/v1",
+            ApiKey = "sk-admin-test",
+            MonthlyStartingCredit = 1m,
+        };
         ApiMonitorSettings openAiCurrency = new()
         {
             Id = "openai-currency",
@@ -1930,7 +1966,7 @@ internal static class Program
         AssertEqual("Enter an Admin API key", missingAdminKey.Error, "OpenAI missing admin key message");
 
         IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync(
-            [deepSeek, newApi, openRouter, openRouterRoot, openAi, openAiCurrency, vercel, vercelRoot]);
+            [deepSeek, newApi, openRouter, openRouterRoot, openAi, openAiCredit, openAiOver, openAiCurrency, vercel, vercelRoot]);
 
         AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
         AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
@@ -1939,12 +1975,16 @@ internal static class Program
         AssertEqual("$25.75", results[2].UsedDisplay, "OpenRouter used credits");
         AssertEqual("$74.75", results[3].BalanceDisplay, "OpenRouter root base URL credits");
         AssertEqual("$3.35", results[4].BalanceDisplay, "OpenAI UTC month usage");
-        AssertEqual(string.Empty, results[4].UsedDisplay, "OpenAI has no remaining-balance value");
-        AssertEqual(false, results[5].Available, "non-USD OpenAI costs are unavailable");
-        AssertEqual("N/A", results[5].BalanceDisplay, "non-USD OpenAI cost display");
-        AssertEqual("$95.50", results[6].BalanceDisplay, "Vercel remaining credits");
-        AssertEqual("$4.50", results[6].UsedDisplay, "Vercel used credits");
-        AssertEqual("$95.50", results[7].BalanceDisplay, "Vercel root base URL credits");
+        AssertEqual(string.Empty, results[4].UsedDisplay, "OpenAI without a starting credit shows usage only");
+        AssertEqual("$6.65", results[5].BalanceDisplay, "OpenAI balance is starting credit minus monthly usage");
+        AssertEqual("$3.35", results[5].UsedDisplay, "OpenAI used stays the monthly spend");
+        AssertEqual("-$2.35", results[6].BalanceDisplay, "OpenAI balance stays negative when usage exceeds the starting credit");
+        AssertEqual("$3.35", results[6].UsedDisplay, "OpenAI overage still reports monthly usage");
+        AssertEqual(false, results[7].Available, "non-USD OpenAI costs are unavailable");
+        AssertEqual("N/A", results[7].BalanceDisplay, "non-USD OpenAI cost display");
+        AssertEqual("$95.50", results[8].BalanceDisplay, "Vercel remaining credits");
+        AssertEqual("$4.50", results[8].UsedDisplay, "Vercel used credits");
+        AssertEqual("$95.50", results[9].BalanceDisplay, "Vercel root base URL credits");
         CultureInfo previousCulture = CultureInfo.CurrentCulture;
         try
         {
@@ -3366,6 +3406,7 @@ internal static class Program
         AssertEqual(ApiMonitorSettings.OpenAiProvider, first.Provider, "new API card defaults to OpenAI");
         AssertEqual(ApiMonitorSettings.OpenAiProvider, first.Name, "new API card name defaults to OpenAI");
         AssertEqual("https://api.openai.com", first.BaseUrl, "new API card uses the OpenAI base URL");
+        AssertEqual(string.Empty, first.MonthlyStartingCredit, "new API card has no starting credit");
 
         AssertTrue(!viewModel.MoveApiMonitorUpCommand.CanExecute(first), "first API monitor should not move up");
         AssertTrue(viewModel.MoveApiMonitorDownCommand.CanExecute(first), "first API monitor should move down");
@@ -3455,6 +3496,28 @@ internal static class Program
             Provider: ApiMonitorSettings.OpenAiProvider));
         AssertTrue(!viewModel.HasSecondaryDisplay, "OpenAI usage display stays on one value");
         AssertEqual("$3.35", viewModel.BalanceDisplay, "current OpenAI result should update month usage");
+        viewModel.MonthlyStartingCredit = "10";
+        AssertEqual("Balance:", viewModel.PrimaryDisplayLabel, "OpenAI balance label uses the entered starting credit");
+        AssertTrue(viewModel.HasSecondaryDisplay, "OpenAI shows used beside the entered balance");
+        viewModel.Update(new ApiUsageResult(
+            viewModel.Id,
+            true,
+            "$6.65",
+            "$3.35",
+            string.Empty,
+            DateTimeOffset.UtcNow,
+            Provider: ApiMonitorSettings.OpenAiProvider));
+        AssertEqual("$6.65", viewModel.BalanceDisplay, "OpenAI balance display");
+        AssertEqual("$3.35", viewModel.UsedDisplay, "OpenAI used display");
+        viewModel.MonthlyStartingCredit = "";
+        AssertEqual("Used:", viewModel.PrimaryDisplayLabel, "clearing the starting credit returns to usage only");
+        AssertTrue(!viewModel.HasSecondaryDisplay, "clearing the starting credit hides the second value");
+        viewModel.MonthlyStartingCredit = "-3";
+        AssertEqual(null, viewModel.ToSettings().MonthlyStartingCredit, "a negative starting credit is not stored");
+        AssertTrue(!viewModel.HasSecondaryDisplay, "a negative starting credit does not invent a balance");
+        viewModel.MonthlyStartingCredit = "10.50";
+        AssertEqual(10.50m, viewModel.ToSettings().MonthlyStartingCredit, "starting credit persists as USD");
+        viewModel.MonthlyStartingCredit = "";
         viewModel.Provider = ApiMonitorSettings.VercelProvider;
         AssertEqual("https://ai-gateway.vercel.sh", viewModel.BaseUrl, "Vercel default base URL");
         AssertTrue(!viewModel.HasSecondaryDisplay, "Vercel waiting secondary display");
@@ -5178,8 +5241,6 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
     /// </summary>
     public static readonly DateTimeOffset OpenAiNow = new(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
 
-    private int m_OpenAiPage;
-
     /// <summary>
     /// Returns fixed account responses for supported API providers.
     /// </summary>
@@ -5253,14 +5314,8 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
             throw new InvalidOperationException($"unexpected OpenAI costs query: {request.RequestUri}");
         }
 
-        int page = m_OpenAiPage++;
-        if (page == 0)
+        if (!query.ContainsKey("page"))
         {
-            if (query.ContainsKey("page"))
-            {
-                throw new InvalidOperationException("unexpected OpenAI costs page");
-            }
-
             long nextDay = monthStart + 86_400;
             return "{\"object\":\"page\",\"has_more\":true,\"next_page\":\"cost-page-2\",\"data\":[" +
                 "{\"start_time\":" + monthStart.ToString(CultureInfo.InvariantCulture) + ",\"results\":[{\"amount\":{\"value\":1.10,\"currency\":\"usd\"}}]}," +
@@ -5268,13 +5323,8 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
                 "]}";
         }
 
-        if (page == 1)
+        if (query.GetValueOrDefault("page") == "cost-page-2")
         {
-            if (query.GetValueOrDefault("page") != "cost-page-2")
-            {
-                throw new InvalidOperationException("missing OpenAI costs page");
-            }
-
             long earlier = monthStart + (9 * 86_400);
             return "{\"object\":\"page\",\"has_more\":false,\"next_page\":null,\"data\":[" +
                 "{\"start_time\":0,\"results\":[{\"amount\":{\"value\":99,\"currency\":\"usd\"}}]}," +

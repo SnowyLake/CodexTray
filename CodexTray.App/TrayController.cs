@@ -1004,6 +1004,7 @@ internal sealed class TrayController : IDisposable
             BaseUrl = monitor.BaseUrl,
             ApiKey = monitor.ApiKey,
             UserId = monitor.UserId,
+            MonthlyStartingCredit = monitor.MonthlyStartingCredit,
         };
     }
 

@@ -86,5 +86,5 @@ internal sealed class ApiUsageSnapshots
     /// Compares the fields that affect an API request without logging credential values.
     /// </summary>
     private static bool Matches(ApiMonitorSettings first, ApiMonitorSettings second) => first.Provider == second.Provider && first.BaseUrl == second.BaseUrl
-        && first.ApiKey == second.ApiKey && first.UserId == second.UserId;
+        && first.ApiKey == second.ApiKey && first.UserId == second.UserId && first.MonthlyStartingCredit == second.MonthlyStartingCredit;
 }
