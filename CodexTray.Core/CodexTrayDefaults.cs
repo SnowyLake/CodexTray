@@ -17,6 +17,7 @@ public static class CodexTrayDefaults
     public const string SettingsBackupFileName = "settings.last-good.json";
     public const string SettingsDamagedFilePrefix = "settings.damaged-";
     public const string ModelPricingFileName = "model-pricing.json";
+    public const string CursorUsageCacheFileName = "cursor-usage-cache.json.gz";
     public const string ResourcesDirectoryName = "Resources";
     public const string StartupRunValueName = "CodexTray";
     public const string PluginFileName = "CodexTray.json";

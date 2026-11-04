@@ -198,9 +198,9 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Collects turn-level token usage and cost from local Grok Build session updates.
+    /// Collects local Grok Build usage and optional Cursor cloud events, keeping session logs local.
     /// </summary>
-    public TokenCostStatistics CollectGrok(string? grokDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
+    public TokenCostStatistics CollectGrok(string? grokDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default, IReadOnlyList<CursorUsageEvent>? cursorUsage = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -237,6 +237,17 @@ public sealed class TokenCostCollector
                 TimedOutputTokens = usage.TimedOutputTokens,
                 TimedDurationMilliseconds = usage.TimedDurationMilliseconds,
             });
+        }
+
+        if (cursorUsage != null)
+        {
+            foreach (CursorUsageEvent usage in cursorUsage)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                TokenCounts counts = new(usage.CacheableInputTokens, usage.CacheReadTokens, usage.TotalTokens - usage.CacheableInputTokens);
+                decimal? cost = CalculateCost(pricing, NormalizeModel(usage.Model), counts, usage.Timestamp);
+                accumulator.Add(usage.Timestamp, usage.TotalTokens, cost, usage.Model + "*", usage.CacheReadTokens, usage.CacheableInputTokens);
+            }
         }
 
         return accumulator.ToStatistics(sessionLogs: SortSessionLogsNewestFirst(sessionLogs));

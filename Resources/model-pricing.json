@@ -13,7 +13,10 @@
   "gpt-6.1-terra": { "input": 1.0, "cachedInput": 0.05, "output": 5.0 },
   "deepseek-v4-flash": { "input": 0.15, "cachedInput": 0.003, "output": 0.6, "periods": [{ "input": 0.3, "cachedInput": 0.006, "output": 1.2, "daysUtc": [1, 2, 3, 4, 5], "startUtc": "01:00", "endUtc": "04:00" }, { "input": 0.3, "cachedInput": 0.006, "output": 1.2, "daysUtc": [1, 2, 3, 4, 5], "startUtc": "06:00", "endUtc": "10:00" }], "aliases": ["deepseek-flash"] },
   "deepseek-v4-pro": { "input": 0.66, "cachedInput": 0.022, "output": 1.98, "periods": [{ "input": 1.32, "cachedInput": 0.044, "output": 3.96, "daysUtc": [1, 2, 3, 4, 5], "startUtc": "01:00", "endUtc": "04:00" }, { "input": 1.32, "cachedInput": 0.044, "output": 3.96, "daysUtc": [1, 2, 3, 4, 5], "startUtc": "06:00", "endUtc": "10:00" }] },
-  "grok-4.5": { "input": 2.0, "cachedInput": 0.3, "output": 6.0, "aliases": ["grok-4.5-latest", "grok-4.5-build"] },
-  "grok-4.6": { "input": 2.0, "cachedInput": 0.5, "output": 6.0, "aliases": ["grok-4.6-latest", "grok-4.6-build"] },
-  "grok-4.7": { "input": 2.0, "cachedInput": 0.5, "output": 6.0, "aliases": ["grok-4.7-latest", "grok-4.7-build"] }
+  "grok-4.5": { "input": 2.0, "cachedInput": 0.3, "output": 6.0, "aliases": ["grok-4.5-latest", "grok-4.5-build", "grok-4.5-low", "grok-4.5-medium", "grok-4.5-high", "cursor-grok-4.5", "cursor-grok-4.5-low", "cursor-grok-4.5-medium", "cursor-grok-4.5-high"] },
+  "grok-4.5-fast": { "input": 4.0, "cachedInput": 1.0, "output": 18.0, "aliases": ["grok-4.5-low-fast", "grok-4.5-medium-fast", "grok-4.5-high-fast", "cursor-grok-4.5-fast", "cursor-grok-4.5-low-fast", "cursor-grok-4.5-medium-fast", "cursor-grok-4.5-high-fast"] },
+  "grok-4.6": { "input": 2.0, "cachedInput": 0.5, "output": 6.0, "aliases": ["grok-4.6-latest", "grok-4.6-build", "cursor-grok-4.6", "cursor-grok-4.6-low", "cursor-grok-4.6-medium", "cursor-grok-4.6-high", "cursor-grok-4.6-xhigh"] },
+  "grok-4.6-fast": { "input": 4.0, "cachedInput": 1.0, "output": 12.0, "aliases": ["cursor-grok-4.6-fast", "cursor-grok-4.6-low-fast", "cursor-grok-4.6-medium-fast", "cursor-grok-4.6-high-fast", "cursor-grok-4.6-xhigh-fast"] },
+  "grok-4.7": { "input": 2.0, "cachedInput": 0.5, "output": 6.0, "aliases": ["grok-4.7-latest", "grok-4.7-build", "grok-4.7-low", "grok-4.7-medium", "grok-4.7-high", "grok-4.7-xhigh"] },
+  "grok-4.7-fast": { "input": 4.0, "cachedInput": 1.0, "output": 12.0, "aliases": ["grok-4.7-low-fast", "grok-4.7-medium-fast", "grok-4.7-high-fast", "grok-4.7-xhigh-fast"] }
 }
