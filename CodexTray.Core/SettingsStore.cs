@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -16,13 +17,13 @@ public enum PageItem
 
 public sealed class ApiMonitorSettings
 {
+    public const string OpenAiProvider = "OpenAI";
+
     public const string DeepSeekProvider = "DeepSeek";
 
     public const string NewApiProvider = "NewAPI";
 
     public const string OpenRouterProvider = "OpenRouter";
-
-    public const string NanoGptProvider = "NanoGPT";
 
     public const string VercelProvider = "Vercel";
 
@@ -41,6 +42,27 @@ public sealed class ApiMonitorSettings
     public string UserId { get; set; } = string.Empty;
 
     /// <summary>
+    /// User-entered USD amount for the current month. Null means the OpenAI card shows usage only.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? MonthlyStartingCredit { get; set; }
+
+    /// <summary>
+    /// Parses a non-negative USD starting credit. Empty or invalid text stays unset.
+    /// </summary>
+    public static decimal? ParseMonthlyStartingCredit(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text) ||
+            !decimal.TryParse(text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal amount) ||
+            amount < 0)
+        {
+            return null;
+        }
+
+        return amount;
+    }
+
+    /// <summary>
     /// Normalizes one persisted API monitor configuration.
     /// </summary>
     public ApiMonitorSettings Normalize()
@@ -48,9 +70,9 @@ public sealed class ApiMonitorSettings
         Id = string.IsNullOrWhiteSpace(Id) ? Guid.NewGuid().ToString("N") : Id.Trim();
         Provider = Provider?.Trim() switch
         {
+            string value when string.Equals(value, OpenAiProvider, StringComparison.OrdinalIgnoreCase) => OpenAiProvider,
             string value when string.Equals(value, NewApiProvider, StringComparison.OrdinalIgnoreCase) => NewApiProvider,
             string value when string.Equals(value, OpenRouterProvider, StringComparison.OrdinalIgnoreCase) => OpenRouterProvider,
-            string value when string.Equals(value, NanoGptProvider, StringComparison.OrdinalIgnoreCase) => NanoGptProvider,
             string value when string.Equals(value, VercelProvider, StringComparison.OrdinalIgnoreCase) => VercelProvider,
             string value when string.Equals(value, CursorProvider, StringComparison.OrdinalIgnoreCase) => CursorProvider,
             _ => DeepSeekProvider,
@@ -62,12 +84,18 @@ public sealed class ApiMonitorSettings
             BaseUrl = string.Empty;
             ApiKey = string.Empty;
             UserId = string.Empty;
+            MonthlyStartingCredit = null;
             return this;
         }
 
         BaseUrl = (BaseUrl ?? string.Empty).Trim().TrimEnd('/');
         ApiKey = (ApiKey ?? string.Empty).Trim();
         UserId = (UserId ?? string.Empty).Trim();
+        if (Provider != OpenAiProvider || MonthlyStartingCredit is < 0)
+        {
+            MonthlyStartingCredit = null;
+        }
+
         return this;
     }
 }
@@ -75,6 +103,9 @@ public sealed class ApiMonitorSettings
 public sealed class AppSettings
 {
     private const string k_LegacyGrokProvider = "Grok";
+
+    // Removed provider. Saved cards are dropped on load instead of being queried.
+    private const string k_LegacyNanoGptProvider = "NanoGPT";
 
     public const int CurrentSettingsSchemaVersion = 1;
 
@@ -117,7 +148,13 @@ public sealed class AppSettings
         AppSettings copy = (AppSettings)MemberwiseClone();
         copy.ApiMonitors = ApiMonitors.Select(monitor => new ApiMonitorSettings
         {
-            Id = monitor.Id, Name = monitor.Name, Provider = monitor.Provider, BaseUrl = monitor.BaseUrl, ApiKey = monitor.ApiKey, UserId = monitor.UserId,
+            Id = monitor.Id,
+            Name = monitor.Name,
+            Provider = monitor.Provider,
+            BaseUrl = monitor.BaseUrl,
+            ApiKey = monitor.ApiKey,
+            UserId = monitor.UserId,
+            MonthlyStartingCredit = monitor.MonthlyStartingCredit,
         }).ToList();
         return copy;
     }
@@ -165,7 +202,8 @@ public sealed class AppSettings
             monitor != null && string.Equals(monitor.Provider?.Trim(), k_LegacyGrokProvider, StringComparison.OrdinalIgnoreCase));
         ApiMonitors.RemoveAll(monitor => monitor == null ||
             string.Equals(monitor.Provider?.Trim(), ApiMonitorSettings.CursorProvider, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(monitor.Provider?.Trim(), k_LegacyGrokProvider, StringComparison.OrdinalIgnoreCase));
+            string.Equals(monitor.Provider?.Trim(), k_LegacyGrokProvider, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(monitor.Provider?.Trim(), k_LegacyNanoGptProvider, StringComparison.OrdinalIgnoreCase));
         if (hadLegacyGrokMonitor)
         {
             VisiblePages |= PageItem.Grok;

@@ -34,10 +34,10 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
 
     public string[] ProviderOptions { get; } =
     [
+        ApiMonitorSettings.OpenAiProvider,
         ApiMonitorSettings.DeepSeekProvider,
         ApiMonitorSettings.OpenRouterProvider,
         ApiMonitorSettings.VercelProvider,
-        ApiMonitorSettings.NanoGptProvider,
         ApiMonitorSettings.NewApiProvider,
     ];
 
@@ -52,9 +52,9 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         {
             string normalized = value switch
             {
+                ApiMonitorSettings.OpenAiProvider => ApiMonitorSettings.OpenAiProvider,
                 ApiMonitorSettings.NewApiProvider => ApiMonitorSettings.NewApiProvider,
                 ApiMonitorSettings.OpenRouterProvider => ApiMonitorSettings.OpenRouterProvider,
-                ApiMonitorSettings.NanoGptProvider => ApiMonitorSettings.NanoGptProvider,
                 ApiMonitorSettings.VercelProvider => ApiMonitorSettings.VercelProvider,
                 _ => ApiMonitorSettings.DeepSeekProvider,
             };
@@ -83,9 +83,12 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             StatusTooltip = string.Empty;
 
             OnPropertyChanged(nameof(IsNewApi));
+            OnPropertyChanged(nameof(IsOpenAi));
+            OnPropertyChanged(nameof(HasMonthlyStartingCredit));
             OnPropertyChanged(nameof(HasSecondaryDisplay));
             OnPropertyChanged(nameof(PrimaryDisplayLabel));
             OnPropertyChanged(nameof(SecondaryDisplayLabel));
+            OnPropertyChanged(nameof(CredentialLabel));
             OnPropertyChanged(nameof(DisplayName));
         }
     }
@@ -99,15 +102,27 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     [ObservableProperty]
     public partial string UserId { get; set; }
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasMonthlyStartingCredit))]
+    [NotifyPropertyChangedFor(nameof(HasSecondaryDisplay))]
+    [NotifyPropertyChangedFor(nameof(PrimaryDisplayLabel))]
+    public partial string MonthlyStartingCredit { get; set; } = string.Empty;
+
     public bool IsNewApi => m_Provider == ApiMonitorSettings.NewApiProvider;
 
-    public bool HasSecondaryDisplay => IsNewApi || m_Provider == ApiMonitorSettings.NanoGptProvider ||
+    public bool IsOpenAi => m_Provider == ApiMonitorSettings.OpenAiProvider;
+
+    public bool HasMonthlyStartingCredit => IsOpenAi && ApiMonitorSettings.ParseMonthlyStartingCredit(MonthlyStartingCredit) != null;
+
+    public bool HasSecondaryDisplay => IsNewApi || HasMonthlyStartingCredit ||
         (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.VercelProvider &&
          !string.IsNullOrEmpty(UsedDisplay) && UsedDisplay != "N/A");
 
-    public string PrimaryDisplayLabel => "Balance:";
+    public string PrimaryDisplayLabel => IsOpenAi && !HasMonthlyStartingCredit ? "Used:" : "Balance:";
 
-    public string SecondaryDisplayLabel => m_Provider == ApiMonitorSettings.NanoGptProvider ? "Used(30d):" : "Used:";
+    public string SecondaryDisplayLabel => "Used:";
+
+    public string CredentialLabel => IsOpenAi ? "Admin API key" : "API key / access token";
 
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? m_Provider : Name.Trim();
 
@@ -141,6 +156,9 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         BaseUrl = settings.BaseUrl;
         ApiKey = settings.ApiKey;
         UserId = settings.UserId;
+        MonthlyStartingCredit = settings.MonthlyStartingCredit is decimal credit
+            ? credit.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty;
         IsEditing = isEditing;
         IsPending = isPending;
     }
@@ -158,6 +176,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             BaseUrl = BaseUrl,
             ApiKey = ApiKey,
             UserId = UserId,
+            MonthlyStartingCredit = ApiMonitorSettings.ParseMonthlyStartingCredit(MonthlyStartingCredit),
         }.Normalize();
     }
 
@@ -168,9 +187,9 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     {
         return provider switch
         {
+            ApiMonitorSettings.OpenAiProvider => "https://api.openai.com",
             ApiMonitorSettings.DeepSeekProvider => "https://api.deepseek.com",
             ApiMonitorSettings.OpenRouterProvider => "https://openrouter.ai",
-            ApiMonitorSettings.NanoGptProvider => "https://nano-gpt.com",
             ApiMonitorSettings.VercelProvider => "https://ai-gateway.vercel.sh",
             _ => string.Empty,
         };
@@ -181,7 +200,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     /// </summary>
     private static bool IsDefaultBaseUrl(string baseUrl)
     {
-        return baseUrl is "https://api.deepseek.com" or "https://openrouter.ai" or "https://nano-gpt.com" or "https://ai-gateway.vercel.sh";
+        return baseUrl is "https://api.openai.com" or "https://api.deepseek.com" or "https://openrouter.ai" or "https://ai-gateway.vercel.sh";
     }
 
     /// <summary>
@@ -199,7 +218,9 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         BalanceState.Update(result.Available, result.UpdatedAt, result.Error);
         bool hasUsage = !string.IsNullOrEmpty(result.UsedDisplay) && result.UsedDisplay != "N/A";
         UsedState.Update(hasUsage, result.UpdatedAt, result.UsedError.Length > 0 ? result.UsedError : result.Error);
-        StatusTooltip = $"Balance: {BalanceState.Tooltip}" + (Provider != ApiMonitorSettings.DeepSeekProvider ? $"\nUsage: {UsedState.Tooltip}" : string.Empty);
+        bool showUsedTooltip = Provider != ApiMonitorSettings.DeepSeekProvider && (!IsOpenAi || HasMonthlyStartingCredit);
+        StatusTooltip = $"{PrimaryDisplayLabel} {BalanceState.Tooltip}" +
+            (showUsedTooltip ? $"\n{SecondaryDisplayLabel} {UsedState.Tooltip}" : string.Empty);
         StatusText = result.Available
             ? $"Updated {result.UpdatedAt:HH:mm}{(result.UsedError.Length > 0 ? " · Partial" : string.Empty)}"
             : result.Error;

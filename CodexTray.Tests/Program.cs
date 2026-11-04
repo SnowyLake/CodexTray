@@ -69,7 +69,7 @@ internal static class Program
         await RunAsync("normalizes settings refresh interval", TestSettingsNormalizeAsync);
         await RunAsync("formats compact token units", TestTokenUnitFormattingAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
-        await RunAsync("collects DeepSeek and NewAPI balances", TestApiUsageCollectorAsync);
+        await RunAsync("collects API balances and OpenAI costs", TestApiUsageCollectorAsync);
         await RunAsync("maps the first DeepSeek card to plugin usage", TestDeepSeekPluginUsageAsync);
         await RunAsync("parses Grok billing responses", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
@@ -1788,6 +1788,7 @@ internal static class Program
                 {
                     Name = "Personal DeepSeek",
                     ApiKey = "deepseek-secret-token",
+                    MonthlyStartingCredit = 9m,
                 },
                 new ApiMonitorSettings
                 {
@@ -1803,7 +1804,15 @@ internal static class Program
                 },
                 new ApiMonitorSettings
                 {
-                    Name = "NanoGPT Balance",
+                    Name = "OpenAI Costs",
+                    Provider = "openai",
+                    BaseUrl = "https://api.openai.example/",
+                    ApiKey = "sk-admin-test",
+                    MonthlyStartingCredit = 25.5m,
+                },
+                new ApiMonitorSettings
+                {
+                    Name = "Removed NanoGPT",
                     Provider = "nanogpt",
                     BaseUrl = "https://nano-gpt.example/",
                     ApiKey = "nanogpt-key",
@@ -1833,30 +1842,49 @@ internal static class Program
         AssertTrue(!json.Contains("Legacy Grok", StringComparison.Ordinal), "settings should remove legacy Grok API monitors");
         AppSettings loaded = store.Load();
         ApiMonitorSettings deepSeek = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.DeepSeekProvider);
+        ApiMonitorSettings openAi = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.OpenAiProvider);
         ApiMonitorSettings openRouter = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.OpenRouterProvider);
-        ApiMonitorSettings nanoGpt = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.NanoGptProvider);
         ApiMonitorSettings vercel = loaded.ApiMonitors.Single(monitor => monitor.Provider == ApiMonitorSettings.VercelProvider);
         AssertEqual("deepseek-secret-token", deepSeek.ApiKey, "saved API key");
         AssertEqual("Personal DeepSeek", deepSeek.Name, "API monitor name");
+        AssertEqual("https://api.openai.example", openAi.BaseUrl, "saved OpenAI base URL");
+        AssertEqual("sk-admin-test", openAi.ApiKey, "saved OpenAI admin key");
+        AssertEqual(25.5m, openAi.MonthlyStartingCredit, "saved OpenAI monthly starting credit");
+        AssertEqual(null, deepSeek.MonthlyStartingCredit, "non-OpenAI cards do not keep a starting credit");
+        AssertTrue(!json.Contains("\"MonthlyStartingCredit\": 9", StringComparison.Ordinal), "settings should drop a starting credit from non-OpenAI cards");
         AssertEqual("https://openrouter.example", openRouter.BaseUrl, "saved OpenRouter base URL");
         AssertEqual("openrouter-management-key", openRouter.ApiKey, "saved OpenRouter management key");
-        AssertEqual("https://nano-gpt.example", nanoGpt.BaseUrl, "saved NanoGPT base URL");
-        AssertEqual("nanogpt-key", nanoGpt.ApiKey, "saved NanoGPT API key");
         AssertEqual("https://ai-gateway.example", vercel.BaseUrl, "saved Vercel base URL");
         AssertEqual("vercel-gateway-key", vercel.ApiKey, "saved Vercel AI Gateway API key");
-        AssertEqual(4, loaded.ApiMonitors.Count, "Cursor and legacy Grok API monitors should be removed");
+        AssertEqual(4, loaded.ApiMonitors.Count, "Cursor, legacy Grok, and NanoGPT monitors should be removed");
+        AssertTrue(!json.Contains("nanogpt-key", StringComparison.Ordinal), "settings should not keep a NanoGPT API key");
         AssertTrue((loaded.VisiblePages & PageItem.Grok) != 0, "legacy Grok API monitor should enable the Grok page");
         AssertTrue(!json.Contains("Local Cursor", StringComparison.Ordinal), "settings should remove Cursor API monitors");
+        File.WriteAllText(store.SettingsPath, """
+            {
+              "ApiMonitors": [
+                {
+                  "Name": "Legacy OpenAI",
+                  "Provider": "OpenAI",
+                  "ApiKey": "sk-admin-legacy"
+                }
+              ]
+            }
+            """);
+        AppSettings legacy = store.Load();
+        ApiMonitorSettings legacyOpenAi = legacy.ApiMonitors.Single();
+        AssertEqual(null, legacyOpenAi.MonthlyStartingCredit, "OpenAI card without a starting credit stays unset");
+        AssertEqual("sk-admin-legacy", legacyOpenAi.ApiKey, "legacy OpenAI card still loads");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Tests supported API provider requests and balance parsing.
+    /// Tests supported API provider requests, balances, and OpenAI costs.
     /// </summary>
     private static async Task TestApiUsageCollectorAsync()
     {
         using HttpClient client = new(new ApiUsageHttpMessageHandler());
-        ApiUsageCollector collector = new(client);
+        ApiUsageCollector collector = new(client, () => ApiUsageHttpMessageHandler.OpenAiNow);
         ApiMonitorSettings deepSeek = new()
         {
             Id = "deepseek",
@@ -1885,19 +1913,35 @@ internal static class Program
             BaseUrl = "https://openrouter.example",
             ApiKey = "openrouter-management-key",
         };
-        ApiMonitorSettings nanoGpt = new()
+        ApiMonitorSettings openAi = new()
         {
-            Id = "nanogpt",
-            Provider = ApiMonitorSettings.NanoGptProvider,
-            BaseUrl = "https://nano-gpt.example/api/v1",
-            ApiKey = "nanogpt-key",
+            Id = "openai",
+            Provider = ApiMonitorSettings.OpenAiProvider,
+            BaseUrl = "https://api.openai.example/v1",
+            ApiKey = "sk-admin-test",
         };
-        ApiMonitorSettings nanoGptUsageFailure = new()
+        ApiMonitorSettings openAiCredit = new()
         {
-            Id = "nanogpt-failure",
-            Provider = ApiMonitorSettings.NanoGptProvider,
-            BaseUrl = "https://nano-gpt-failure.example",
-            ApiKey = "nanogpt-failure-key",
+            Id = "openai-credit",
+            Provider = ApiMonitorSettings.OpenAiProvider,
+            BaseUrl = "https://api.openai.example/v1",
+            ApiKey = "sk-admin-test",
+            MonthlyStartingCredit = 10m,
+        };
+        ApiMonitorSettings openAiOver = new()
+        {
+            Id = "openai-over",
+            Provider = ApiMonitorSettings.OpenAiProvider,
+            BaseUrl = "https://api.openai.example/v1",
+            ApiKey = "sk-admin-test",
+            MonthlyStartingCredit = 1m,
+        };
+        ApiMonitorSettings openAiCurrency = new()
+        {
+            Id = "openai-currency",
+            Provider = ApiMonitorSettings.OpenAiProvider,
+            BaseUrl = "https://api.openai-currency.example",
+            ApiKey = "sk-admin-currency",
         };
         ApiMonitorSettings vercel = new()
         {
@@ -1914,8 +1958,15 @@ internal static class Program
             ApiKey = "vercel-gateway-key",
         };
 
+        ApiUsageResult missingAdminKey = (await collector.CollectAsync(
+        [
+            new ApiMonitorSettings { Id = "openai-missing", Provider = ApiMonitorSettings.OpenAiProvider },
+        ]))[0];
+        AssertEqual(false, missingAdminKey.Available, "OpenAI without an admin key is unavailable");
+        AssertEqual("Enter an Admin API key", missingAdminKey.Error, "OpenAI missing admin key message");
+
         IReadOnlyList<ApiUsageResult> results = await collector.CollectAsync(
-            [deepSeek, newApi, openRouter, openRouterRoot, nanoGpt, nanoGptUsageFailure, vercel, vercelRoot]);
+            [deepSeek, newApi, openRouter, openRouterRoot, openAi, openAiCredit, openAiOver, openAiCurrency, vercel, vercelRoot]);
 
         AssertEqual("¥110.00", results[0].BalanceDisplay, "DeepSeek CNY balance");
         AssertEqual("$10.00", results[1].BalanceDisplay, "NewAPI remaining USD quota");
@@ -1923,15 +1974,17 @@ internal static class Program
         AssertEqual("$74.75", results[2].BalanceDisplay, "OpenRouter remaining credits");
         AssertEqual("$25.75", results[2].UsedDisplay, "OpenRouter used credits");
         AssertEqual("$74.75", results[3].BalanceDisplay, "OpenRouter root base URL credits");
-        AssertEqual("$12.35", results[4].BalanceDisplay, "NanoGPT USD balance");
-        AssertEqual("$3.00", results[4].UsedDisplay, "NanoGPT 30-day usage");
-        AssertTrue(results[5].Available, "NanoGPT balance should remain available when usage fails");
-        AssertEqual("$12.35", results[5].BalanceDisplay, "NanoGPT balance after usage failure");
-        AssertEqual("N/A", results[5].UsedDisplay, "NanoGPT usage failure display");
-        AssertTrue(results[5].UsedError.Length > 0, "NanoGPT usage failure must carry a reason");
-        AssertEqual("$95.50", results[6].BalanceDisplay, "Vercel remaining credits");
-        AssertEqual("$4.50", results[6].UsedDisplay, "Vercel used credits");
-        AssertEqual("$95.50", results[7].BalanceDisplay, "Vercel root base URL credits");
+        AssertEqual("$3.35", results[4].BalanceDisplay, "OpenAI UTC month usage");
+        AssertEqual(string.Empty, results[4].UsedDisplay, "OpenAI without a starting credit shows usage only");
+        AssertEqual("$6.65", results[5].BalanceDisplay, "OpenAI balance is starting credit minus monthly usage");
+        AssertEqual("$3.35", results[5].UsedDisplay, "OpenAI used stays the monthly spend");
+        AssertEqual("-$2.35", results[6].BalanceDisplay, "OpenAI balance stays negative when usage exceeds the starting credit");
+        AssertEqual("$3.35", results[6].UsedDisplay, "OpenAI overage still reports monthly usage");
+        AssertEqual(false, results[7].Available, "non-USD OpenAI costs are unavailable");
+        AssertEqual("N/A", results[7].BalanceDisplay, "non-USD OpenAI cost display");
+        AssertEqual("$95.50", results[8].BalanceDisplay, "Vercel remaining credits");
+        AssertEqual("$4.50", results[8].UsedDisplay, "Vercel used credits");
+        AssertEqual("$95.50", results[9].BalanceDisplay, "Vercel root base URL credits");
         CultureInfo previousCulture = CultureInfo.CurrentCulture;
         try
         {
@@ -2979,12 +3032,12 @@ internal static class Program
         AssertEqual(now, card.BalanceState.LastSuccess, "API failures must not advance success time");
         AssertEqual("N/A", card.BalanceDisplay, "API failure must clear old balance");
         AssertTrue(card.StatusTooltip.Contains("timeout"), "API failure reason must be accessible");
-        ApiUsageResult partialUsage = new("nano", true, "$1.00", "N/A", "", now, Provider: ApiMonitorSettings.NanoGptProvider, UsedError: "Usage timed out");
-        ApiMonitorViewModel nano = new(new ApiMonitorSettings { Id = "nano", Provider = ApiMonitorSettings.NanoGptProvider });
-        nano.Update(partialUsage);
-        AssertTrue(nano.HasSecondaryDisplay && nano.UsedDisplay == "N/A", "failed NanoGPT usage must remain visible as unavailable");
+        ApiUsageResult partialUsage = new("newapi", true, "$1.00", "N/A", "", now, Provider: ApiMonitorSettings.NewApiProvider, UsedError: "Usage timed out");
+        ApiMonitorViewModel newApi = new(new ApiMonitorSettings { Id = "newapi", Provider = ApiMonitorSettings.NewApiProvider });
+        newApi.Update(partialUsage);
+        AssertTrue(newApi.HasSecondaryDisplay && newApi.UsedDisplay == "N/A", "failed NewAPI usage must remain visible as unavailable");
         AssertEqual(ApiUsageRefreshStatus.PartiallyAvailable, ApiUsageCollector.Summarize([partialUsage]).Status, "usage failure must mark API summary partial");
-        AssertEqual(System.Windows.Media.Color.FromRgb(226, 176, 54), ((System.Windows.Media.SolidColorBrush)nano.StatusDotBrush).Color, "partial API card must use yellow status");
+        AssertEqual(System.Windows.Media.Color.FromRgb(226, 176, 54), ((System.Windows.Media.SolidColorBrush)newApi.StatusDotBrush).Color, "partial API card must use yellow status");
         return Task.CompletedTask;
     }
 
@@ -3350,6 +3403,10 @@ internal static class Program
         viewModel.AddApiMonitorCommand.Execute(null);
         ApiMonitorViewModel first = viewModel.ApiMonitors[0];
         ApiMonitorViewModel second = viewModel.ApiMonitors[1];
+        AssertEqual(ApiMonitorSettings.OpenAiProvider, first.Provider, "new API card defaults to OpenAI");
+        AssertEqual(ApiMonitorSettings.OpenAiProvider, first.Name, "new API card name defaults to OpenAI");
+        AssertEqual("https://api.openai.com", first.BaseUrl, "new API card uses the OpenAI base URL");
+        AssertEqual(string.Empty, first.MonthlyStartingCredit, "new API card has no starting credit");
 
         AssertTrue(!viewModel.MoveApiMonitorUpCommand.CanExecute(first), "first API monitor should not move up");
         AssertTrue(viewModel.MoveApiMonitorDownCommand.CanExecute(first), "first API monitor should move down");
@@ -3399,10 +3456,10 @@ internal static class Program
 
         AssertEqual(
             string.Join('|', [
+                ApiMonitorSettings.OpenAiProvider,
                 ApiMonitorSettings.DeepSeekProvider,
                 ApiMonitorSettings.OpenRouterProvider,
                 ApiMonitorSettings.VercelProvider,
-                ApiMonitorSettings.NanoGptProvider,
                 ApiMonitorSettings.NewApiProvider,
             ]),
             string.Join('|', viewModel.ProviderOptions),
@@ -3412,12 +3469,14 @@ internal static class Program
         AssertTrue(!viewModel.HasSecondaryDisplay, "OpenRouter waiting secondary display");
         viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$74.75", "$25.75", string.Empty, DateTimeOffset.UtcNow));
         AssertTrue(viewModel.HasSecondaryDisplay, "OpenRouter secondary display");
-        viewModel.Provider = ApiMonitorSettings.NanoGptProvider;
-        AssertEqual("https://nano-gpt.com", viewModel.BaseUrl, "NanoGPT default base URL");
+        viewModel.Provider = ApiMonitorSettings.OpenAiProvider;
+        AssertEqual("https://api.openai.com", viewModel.BaseUrl, "OpenAI default base URL");
         AssertEqual("N/A", viewModel.BalanceDisplay, "provider switch should clear balance");
         AssertEqual("N/A", viewModel.UsedDisplay, "provider switch should clear used display");
         AssertEqual("Waiting for refresh", viewModel.StatusText, "provider switch should clear status");
-        AssertEqual("Used(30d):", viewModel.SecondaryDisplayLabel, "NanoGPT secondary display label");
+        AssertEqual("Used:", viewModel.PrimaryDisplayLabel, "OpenAI primary display label");
+        AssertEqual("Admin API key", viewModel.CredentialLabel, "OpenAI credential label");
+        AssertTrue(viewModel.IsOpenAi && !viewModel.HasSecondaryDisplay, "OpenAI shows monthly usage only");
         viewModel.Update(new ApiUsageResult(
             viewModel.Id,
             true,
@@ -3430,17 +3489,35 @@ internal static class Program
         viewModel.Update(new ApiUsageResult(
             viewModel.Id,
             true,
-            "$12.35",
-            "$3.00",
+            "$3.35",
+            string.Empty,
             string.Empty,
             DateTimeOffset.UtcNow,
-            Provider: ApiMonitorSettings.NanoGptProvider));
-        AssertTrue(viewModel.HasSecondaryDisplay, "NanoGPT successful usage display");
-        AssertEqual("$12.35", viewModel.BalanceDisplay, "current NanoGPT result should update balance");
-        changedProperties.Clear();
-        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$12.35", "N/A", string.Empty, DateTimeOffset.UtcNow, UsedError: "Usage failed"));
-        AssertTrue(viewModel.HasSecondaryDisplay, "NanoGPT failed usage should retain the unavailable secondary display");
-        AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.HasSecondaryDisplay)), "NanoGPT secondary visibility notification");
+            Provider: ApiMonitorSettings.OpenAiProvider));
+        AssertTrue(!viewModel.HasSecondaryDisplay, "OpenAI usage display stays on one value");
+        AssertEqual("$3.35", viewModel.BalanceDisplay, "current OpenAI result should update month usage");
+        viewModel.MonthlyStartingCredit = "10";
+        AssertEqual("Balance:", viewModel.PrimaryDisplayLabel, "OpenAI balance label uses the entered starting credit");
+        AssertTrue(viewModel.HasSecondaryDisplay, "OpenAI shows used beside the entered balance");
+        viewModel.Update(new ApiUsageResult(
+            viewModel.Id,
+            true,
+            "$6.65",
+            "$3.35",
+            string.Empty,
+            DateTimeOffset.UtcNow,
+            Provider: ApiMonitorSettings.OpenAiProvider));
+        AssertEqual("$6.65", viewModel.BalanceDisplay, "OpenAI balance display");
+        AssertEqual("$3.35", viewModel.UsedDisplay, "OpenAI used display");
+        viewModel.MonthlyStartingCredit = "";
+        AssertEqual("Used:", viewModel.PrimaryDisplayLabel, "clearing the starting credit returns to usage only");
+        AssertTrue(!viewModel.HasSecondaryDisplay, "clearing the starting credit hides the second value");
+        viewModel.MonthlyStartingCredit = "-3";
+        AssertEqual(null, viewModel.ToSettings().MonthlyStartingCredit, "a negative starting credit is not stored");
+        AssertTrue(!viewModel.HasSecondaryDisplay, "a negative starting credit does not invent a balance");
+        viewModel.MonthlyStartingCredit = "10.50";
+        AssertEqual(10.50m, viewModel.ToSettings().MonthlyStartingCredit, "starting credit persists as USD");
+        viewModel.MonthlyStartingCredit = "";
         viewModel.Provider = ApiMonitorSettings.VercelProvider;
         AssertEqual("https://ai-gateway.vercel.sh", viewModel.BaseUrl, "Vercel default base URL");
         AssertTrue(!viewModel.HasSecondaryDisplay, "Vercel waiting secondary display");
@@ -5160,6 +5237,11 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
 internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
 {
     /// <summary>
+    /// Fixed UTC instant used by the OpenAI costs fixture.
+    /// </summary>
+    public static readonly DateTimeOffset OpenAiNow = new(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+
+    /// <summary>
     /// Returns fixed account responses for supported API providers.
     /// </summary>
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -5191,34 +5273,16 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
             AssertBearerRequest(request, HttpMethod.Get, "/v1/credits", "vercel-gateway-key");
             body = "{\"balance\":\"95.50\",\"total_used\":\"4.50\"}";
         }
-        else if (host is "nano-gpt.example" or "nano-gpt-failure.example")
+        else if (host == "api.openai.example")
         {
-            string token = host == "nano-gpt.example" ? "nanogpt-key" : "nanogpt-failure-key";
-            if (request.RequestUri?.AbsolutePath == "/api/check-balance")
-            {
-                if (request.Method != HttpMethod.Post || request.Headers.Authorization != null ||
-                    !request.Headers.TryGetValues("X-API-Key", out IEnumerable<string>? apiKeys) || apiKeys.Single() != token)
-                {
-                    throw new InvalidOperationException("invalid NanoGPT balance request");
-                }
-
-                body = "{\"usd_balance\":\"12.3456\"}";
-            }
-            else
-            {
-                AssertBearerRequest(request, HttpMethod.Get, "/api/v1/usage", token);
-                if (!string.IsNullOrEmpty(request.RequestUri?.Query))
-                {
-                    throw new InvalidOperationException("unexpected NanoGPT usage query");
-                }
-
-                if (host == "nano-gpt-failure.example")
-                {
-                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
-                }
-
-                body = "{\"totals\":{\"netCostUsd\":3.0}}";
-            }
+            body = OpenAiCostsBody(request, "sk-admin-test");
+        }
+        else if (host == "api.openai-currency.example")
+        {
+            AssertBearerRequest(request, HttpMethod.Get, "/v1/organization/costs", "sk-admin-currency");
+            long start = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+            body = "{\"object\":\"page\",\"has_more\":false,\"data\":[{\"start_time\":" + start.ToString(CultureInfo.InvariantCulture) +
+                ",\"results\":[{\"amount\":{\"value\":1,\"currency\":\"eur\"}}]}]}";
         }
         else
         {
@@ -5229,6 +5293,68 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         });
+    }
+
+    /// <summary>
+    /// Returns two OpenAI cost pages and checks the UTC month query.
+    /// </summary>
+    private string OpenAiCostsBody(HttpRequestMessage request, string token)
+    {
+        AssertBearerRequest(request, HttpMethod.Get, "/v1/organization/costs", token);
+        Dictionary<string, string> query = ParseQuery(request.RequestUri ?? throw new InvalidOperationException("missing OpenAI costs URI"));
+        long monthStart = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        long todayStart = new DateTimeOffset(2026, 11, 15, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        long rangeEnd = new DateTimeOffset(2026, 11, 16, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        if (query.GetValueOrDefault("start_time") != monthStart.ToString(CultureInfo.InvariantCulture) ||
+            query.GetValueOrDefault("end_time") != rangeEnd.ToString(CultureInfo.InvariantCulture) ||
+            query.GetValueOrDefault("bucket_width") != "1d" ||
+            query.GetValueOrDefault("limit") != "15" ||
+            query.ContainsKey("group_by"))
+        {
+            throw new InvalidOperationException($"unexpected OpenAI costs query: {request.RequestUri}");
+        }
+
+        if (!query.ContainsKey("page"))
+        {
+            long nextDay = monthStart + 86_400;
+            return "{\"object\":\"page\",\"has_more\":true,\"next_page\":\"cost-page-2\",\"data\":[" +
+                "{\"start_time\":" + monthStart.ToString(CultureInfo.InvariantCulture) + ",\"results\":[{\"amount\":{\"value\":1.10,\"currency\":\"usd\"}}]}," +
+                "{\"start_time\":" + nextDay.ToString(CultureInfo.InvariantCulture) + ",\"results\":[]}" +
+                "]}";
+        }
+
+        if (query.GetValueOrDefault("page") == "cost-page-2")
+        {
+            long earlier = monthStart + (9 * 86_400);
+            return "{\"object\":\"page\",\"has_more\":false,\"next_page\":null,\"data\":[" +
+                "{\"start_time\":0,\"results\":[{\"amount\":{\"value\":99,\"currency\":\"usd\"}}]}," +
+                "{\"start_time\":" + earlier.ToString(CultureInfo.InvariantCulture) + ",\"results\":[{\"amount\":{\"value\":2.00,\"currency\":\"usd\"}}]}," +
+                "{\"start_time\":" + todayStart.ToString(CultureInfo.InvariantCulture) + ",\"results\":[{\"amount\":{\"value\":\"0.25\",\"currency\":\"USD\"}}]}" +
+                "]}";
+        }
+
+        throw new InvalidOperationException("unexpected extra OpenAI costs page");
+    }
+
+    /// <summary>
+    /// Reads a query string into decoded keys and values.
+    /// </summary>
+    private static Dictionary<string, string> ParseQuery(Uri uri)
+    {
+        Dictionary<string, string> query = new(StringComparer.Ordinal);
+        string text = uri.Query.TrimStart('?');
+        if (text.Length == 0)
+        {
+            return query;
+        }
+
+        foreach (string part in text.Split('&'))
+        {
+            string[] pair = part.Split('=', 2);
+            query[Uri.UnescapeDataString(pair[0])] = pair.Length == 2 ? Uri.UnescapeDataString(pair[1]) : string.Empty;
+        }
+
+        return query;
     }
 
     /// <summary>
