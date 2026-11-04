@@ -998,12 +998,17 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Adds a default DeepSeek API monitor card.
+    /// Adds a pending OpenAI API monitor card.
     /// </summary>
     [RelayCommand]
     private void AddApiMonitor()
     {
-        ApiMonitorViewModel monitor = new(new ApiMonitorSettings(), isEditing: true, isPending: true);
+        ApiMonitorViewModel monitor = new(new ApiMonitorSettings
+        {
+            Provider = ApiMonitorSettings.OpenAiProvider,
+            Name = ApiMonitorSettings.OpenAiProvider,
+            BaseUrl = "https://api.openai.com",
+        }, isEditing: true, isPending: true);
         monitor.EditingSaved += HandleApiMonitorSaved;
         ApiMonitors.Add(monitor);
         NotifyApiMonitorCountChanged();
@@ -1166,10 +1171,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         void AddApi(ApiMonitorViewModel api)
         {
             string provider = api.ProviderOptions.Contains(api.Provider) ? api.Provider : "Unknown API";
-            Add(provider + (api.IsOpenAi ? " cost" : " balance"), api.BalanceState);
+            Add(provider + (api.IsOpenAi ? " used" : " balance"), api.BalanceState);
             if (api.HasSecondaryDisplay)
             {
-                Add(provider + (api.IsOpenAi ? " today" : " usage"), api.UsedState);
+                Add(provider + " usage", api.UsedState);
             }
         }
 

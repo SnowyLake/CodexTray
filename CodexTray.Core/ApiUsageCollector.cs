@@ -218,7 +218,7 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
-    /// Queries OpenAI organization costs for the current UTC month and UTC day.
+    /// Queries OpenAI organization costs for the current UTC month.
     /// </summary>
     private async Task<ApiUsageResult> CollectOpenAiAsync(ApiMonitorSettings monitor, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -233,7 +233,6 @@ public sealed class ApiUsageCollector
         }
 
         decimal monthCost = 0;
-        decimal todayCost = 0;
         string? page = null;
         try
         {
@@ -250,14 +249,14 @@ public sealed class ApiUsageCollector
                 }
 
                 using JsonDocument document = JsonDocument.Parse(body);
-                if (!TryAddOpenAiCosts(document.RootElement, monthStart, todayStart, rangeEnd, ref monthCost, ref todayCost, out string? nextPage, out bool hasMore))
+                if (!TryAddOpenAiCosts(document.RootElement, monthStart, rangeEnd, ref monthCost, out string? nextPage, out bool hasMore))
                 {
                     return Unavailable(monitor.Id, "Cost data is missing", now);
                 }
 
                 if (!hasMore)
                 {
-                    return new ApiUsageResult(monitor.Id, true, FormatUsd(monthCost), FormatUsd(todayCost), string.Empty, now);
+                    return new ApiUsageResult(monitor.Id, true, FormatUsd(monthCost), string.Empty, string.Empty, now);
                 }
 
                 if (string.IsNullOrEmpty(nextPage))
@@ -286,10 +285,8 @@ public sealed class ApiUsageCollector
     private static bool TryAddOpenAiCosts(
         JsonElement root,
         long monthStart,
-        long todayStart,
         long rangeEnd,
         ref decimal monthCost,
-        ref decimal todayCost,
         out string? nextPage,
         out bool hasMore)
     {
@@ -341,10 +338,6 @@ public sealed class ApiUsageCollector
             }
 
             monthCost += bucketCost;
-            if (start == todayStart)
-            {
-                todayCost += bucketCost;
-            }
         }
 
         hasMore = root.TryGetProperty("has_more", out JsonElement hasMoreElement) && hasMoreElement.ValueKind == JsonValueKind.True;

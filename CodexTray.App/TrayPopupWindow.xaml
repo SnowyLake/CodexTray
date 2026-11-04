@@ -1560,7 +1560,7 @@
                                                                    FontSize="12" />
                                                         <local:CredentialInput Text="{Binding ApiKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                                         <TextBlock Margin="0,6,0,0"
-                                                                   Text="Organization Admin key. A project API key cannot read costs."
+                                                                   Text="Organization Admin key. A project API key cannot read monthly usage."
                                                                    TextWrapping="Wrap"
                                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                    FontSize="11"

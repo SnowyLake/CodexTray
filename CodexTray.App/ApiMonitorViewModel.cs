@@ -105,13 +105,13 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
 
     public bool IsOpenAi => m_Provider == ApiMonitorSettings.OpenAiProvider;
 
-    public bool HasSecondaryDisplay => IsNewApi || IsOpenAi ||
+    public bool HasSecondaryDisplay => IsNewApi ||
         (m_Provider is ApiMonitorSettings.OpenRouterProvider or ApiMonitorSettings.VercelProvider &&
          !string.IsNullOrEmpty(UsedDisplay) && UsedDisplay != "N/A");
 
-    public string PrimaryDisplayLabel => IsOpenAi ? "Cost:" : "Balance:";
+    public string PrimaryDisplayLabel => IsOpenAi ? "Used:" : "Balance:";
 
-    public string SecondaryDisplayLabel => IsOpenAi ? "Today:" : "Used:";
+    public string SecondaryDisplayLabel => "Used:";
 
     public string CredentialLabel => IsOpenAi ? "Admin API key" : "API key / access token";
 
@@ -206,7 +206,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         bool hasUsage = !string.IsNullOrEmpty(result.UsedDisplay) && result.UsedDisplay != "N/A";
         UsedState.Update(hasUsage, result.UpdatedAt, result.UsedError.Length > 0 ? result.UsedError : result.Error);
         StatusTooltip = $"{PrimaryDisplayLabel} {BalanceState.Tooltip}" +
-            (Provider != ApiMonitorSettings.DeepSeekProvider ? $"\n{SecondaryDisplayLabel} {UsedState.Tooltip}" : string.Empty);
+            (Provider != ApiMonitorSettings.DeepSeekProvider && !IsOpenAi ? $"\n{SecondaryDisplayLabel} {UsedState.Tooltip}" : string.Empty);
         StatusText = result.Available
             ? $"Updated {result.UpdatedAt:HH:mm}{(result.UsedError.Length > 0 ? " · Partial" : string.Empty)}"
             : result.Error;

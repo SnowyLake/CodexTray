@@ -1938,8 +1938,8 @@ internal static class Program
         AssertEqual("$74.75", results[2].BalanceDisplay, "OpenRouter remaining credits");
         AssertEqual("$25.75", results[2].UsedDisplay, "OpenRouter used credits");
         AssertEqual("$74.75", results[3].BalanceDisplay, "OpenRouter root base URL credits");
-        AssertEqual("$3.35", results[4].BalanceDisplay, "OpenAI UTC month cost");
-        AssertEqual("$0.25", results[4].UsedDisplay, "OpenAI UTC day cost");
+        AssertEqual("$3.35", results[4].BalanceDisplay, "OpenAI UTC month usage");
+        AssertEqual(string.Empty, results[4].UsedDisplay, "OpenAI has no remaining-balance value");
         AssertEqual(false, results[5].Available, "non-USD OpenAI costs are unavailable");
         AssertEqual("N/A", results[5].BalanceDisplay, "non-USD OpenAI cost display");
         AssertEqual("$95.50", results[6].BalanceDisplay, "Vercel remaining credits");
@@ -2992,12 +2992,12 @@ internal static class Program
         AssertEqual(now, card.BalanceState.LastSuccess, "API failures must not advance success time");
         AssertEqual("N/A", card.BalanceDisplay, "API failure must clear old balance");
         AssertTrue(card.StatusTooltip.Contains("timeout"), "API failure reason must be accessible");
-        ApiUsageResult partialUsage = new("openai", true, "$1.00", "N/A", "", now, Provider: ApiMonitorSettings.OpenAiProvider, UsedError: "Usage timed out");
-        ApiMonitorViewModel openAi = new(new ApiMonitorSettings { Id = "openai", Provider = ApiMonitorSettings.OpenAiProvider });
-        openAi.Update(partialUsage);
-        AssertTrue(openAi.HasSecondaryDisplay && openAi.UsedDisplay == "N/A", "failed OpenAI today cost must remain visible as unavailable");
+        ApiUsageResult partialUsage = new("newapi", true, "$1.00", "N/A", "", now, Provider: ApiMonitorSettings.NewApiProvider, UsedError: "Usage timed out");
+        ApiMonitorViewModel newApi = new(new ApiMonitorSettings { Id = "newapi", Provider = ApiMonitorSettings.NewApiProvider });
+        newApi.Update(partialUsage);
+        AssertTrue(newApi.HasSecondaryDisplay && newApi.UsedDisplay == "N/A", "failed NewAPI usage must remain visible as unavailable");
         AssertEqual(ApiUsageRefreshStatus.PartiallyAvailable, ApiUsageCollector.Summarize([partialUsage]).Status, "usage failure must mark API summary partial");
-        AssertEqual(System.Windows.Media.Color.FromRgb(226, 176, 54), ((System.Windows.Media.SolidColorBrush)openAi.StatusDotBrush).Color, "partial API card must use yellow status");
+        AssertEqual(System.Windows.Media.Color.FromRgb(226, 176, 54), ((System.Windows.Media.SolidColorBrush)newApi.StatusDotBrush).Color, "partial API card must use yellow status");
         return Task.CompletedTask;
     }
 
@@ -3363,6 +3363,9 @@ internal static class Program
         viewModel.AddApiMonitorCommand.Execute(null);
         ApiMonitorViewModel first = viewModel.ApiMonitors[0];
         ApiMonitorViewModel second = viewModel.ApiMonitors[1];
+        AssertEqual(ApiMonitorSettings.OpenAiProvider, first.Provider, "new API card defaults to OpenAI");
+        AssertEqual(ApiMonitorSettings.OpenAiProvider, first.Name, "new API card name defaults to OpenAI");
+        AssertEqual("https://api.openai.com", first.BaseUrl, "new API card uses the OpenAI base URL");
 
         AssertTrue(!viewModel.MoveApiMonitorUpCommand.CanExecute(first), "first API monitor should not move up");
         AssertTrue(viewModel.MoveApiMonitorDownCommand.CanExecute(first), "first API monitor should move down");
@@ -3430,10 +3433,9 @@ internal static class Program
         AssertEqual("N/A", viewModel.BalanceDisplay, "provider switch should clear balance");
         AssertEqual("N/A", viewModel.UsedDisplay, "provider switch should clear used display");
         AssertEqual("Waiting for refresh", viewModel.StatusText, "provider switch should clear status");
-        AssertEqual("Cost:", viewModel.PrimaryDisplayLabel, "OpenAI primary display label");
-        AssertEqual("Today:", viewModel.SecondaryDisplayLabel, "OpenAI secondary display label");
+        AssertEqual("Used:", viewModel.PrimaryDisplayLabel, "OpenAI primary display label");
         AssertEqual("Admin API key", viewModel.CredentialLabel, "OpenAI credential label");
-        AssertTrue(viewModel.IsOpenAi && viewModel.HasSecondaryDisplay, "OpenAI shows today before refresh");
+        AssertTrue(viewModel.IsOpenAi && !viewModel.HasSecondaryDisplay, "OpenAI shows monthly usage only");
         viewModel.Update(new ApiUsageResult(
             viewModel.Id,
             true,
@@ -3447,16 +3449,12 @@ internal static class Program
             viewModel.Id,
             true,
             "$3.35",
-            "$0.25",
+            string.Empty,
             string.Empty,
             DateTimeOffset.UtcNow,
             Provider: ApiMonitorSettings.OpenAiProvider));
-        AssertTrue(viewModel.HasSecondaryDisplay, "OpenAI cost display");
-        AssertEqual("$3.35", viewModel.BalanceDisplay, "current OpenAI result should update month cost");
-        changedProperties.Clear();
-        viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$3.35", "N/A", string.Empty, DateTimeOffset.UtcNow, UsedError: "Usage failed"));
-        AssertTrue(viewModel.HasSecondaryDisplay, "OpenAI failed today cost should retain the unavailable secondary display");
-        AssertTrue(changedProperties.Contains(nameof(ApiMonitorViewModel.HasSecondaryDisplay)), "OpenAI secondary visibility notification");
+        AssertTrue(!viewModel.HasSecondaryDisplay, "OpenAI usage display stays on one value");
+        AssertEqual("$3.35", viewModel.BalanceDisplay, "current OpenAI result should update month usage");
         viewModel.Provider = ApiMonitorSettings.VercelProvider;
         AssertEqual("https://ai-gateway.vercel.sh", viewModel.BaseUrl, "Vercel default base URL");
         AssertTrue(!viewModel.HasSecondaryDisplay, "Vercel waiting secondary display");
