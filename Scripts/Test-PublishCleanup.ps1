@@ -18,6 +18,8 @@ $settingsFiles = @{
     "settings.json" = "damaged main configuration"
     "settings.last-good.json" = "valid backup configuration"
     "settings.damaged-test.json" = "preserved original configuration"
+    "cursor-usage-cache.json" = "cached Cursor usage"
+    "cursor-usage-cache.json.gz" = "compressed Cursor usage"
 }
 
 try {
@@ -42,7 +44,7 @@ try {
         throw "Publish cleanup retained obsolete application files."
     }
 
-    Write-Host "PASS publish cleanup preserves settings, backups, and preserved originals."
+    Write-Host "PASS publish cleanup preserves settings, backups, preserved originals, and usage cache."
 }
 finally {
     if (Test-Path -LiteralPath $fixtureRoot) {

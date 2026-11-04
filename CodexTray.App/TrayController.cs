@@ -21,6 +21,7 @@ internal sealed class TrayController : IDisposable
     private readonly SettingsStore m_SettingsStore;
     private readonly CodexUsageCollector m_CodexUsageCollector;
     private readonly GrokUsageCollector m_GrokUsageCollector;
+    private readonly CursorUsageCollector m_CursorUsageCollector;
     private readonly ApiUsageCollector m_ApiUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
     private readonly UsageCache m_UsageCache = new();
@@ -59,6 +60,7 @@ internal sealed class TrayController : IDisposable
         m_SettingsStore = new SettingsStore();
         m_CodexUsageCollector = new CodexUsageCollector();
         m_GrokUsageCollector = new GrokUsageCollector();
+        m_CursorUsageCollector = new CursorUsageCollector();
         m_ApiUsageCollector = new ApiUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
         m_AppIcon = LoadApplicationIcon();
@@ -843,7 +845,12 @@ internal sealed class TrayController : IDisposable
                     m_UsageCache.UpdateGrok(GrokUsageCollector.BuildPluginUsage(dashboard));
                     m_PopupViewModel?.UpdateGrokDashboard(dashboard);
                 }));
-                children.Add(PublishAsync(PageItem.Grok, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectGrok(cancellationToken: cancellationToken)), cancellationToken),
+                children.Add(PublishAsync(PageItem.Grok, Task.Run(async () =>
+                {
+                    DateTimeOffset asOf = DateTimeOffset.Now;
+                    IReadOnlyList<CursorUsageEvent> cursorUsage = await m_CursorUsageCollector.CollectAsync(asOf, cancellationToken).ConfigureAwait(false);
+                    return CollectTokenCostSafely(() => m_TokenCostCollector.CollectGrok(now: asOf, cancellationToken: cancellationToken, cursorUsage: cursorUsage));
+                }, cancellationToken),
                     result => m_PopupViewModel?.UpdateGrokTokenCost(result.Statistics, result.Error), localCosts: true));
             }
 

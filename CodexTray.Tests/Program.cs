@@ -103,6 +103,9 @@ internal static class Program
         await RunAsync("excludes codex-auto-review from cost and session logs", TestCodexAutoReviewExcludedAsync);
         await RunAsync("applies DeepSeek peak and off-peak pricing", TestDeepSeekPeakPricingAsync);
         await RunAsync("collects local Grok Build token statistics", TestGrokTokenCostCollectorAsync);
+        await RunAsync("collects complete Cursor cloud usage and falls back on failure", CursorUsageTests.CollectionAsync);
+        await RunAsync("reads plaintext and Windows-encrypted Cursor credentials", CursorUsageTests.CredentialsAsync);
+        await RunAsync("merges Cursor costs with Grok and preserves local session logs", CursorUsageTests.IntegrationAsync);
         await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         s_Failures += await AppUpdateTests.RunAllAsync();
@@ -2360,17 +2363,21 @@ internal static class Program
         AssertEqual(2.0m, grokPricing.GetProperty("input").GetDecimal(), "grok-4.5 input price");
         AssertEqual(0.3m, grokPricing.GetProperty("cachedInput").GetDecimal(), "grok-4.5 cached input price");
         AssertEqual(6.0m, grokPricing.GetProperty("output").GetDecimal(), "grok-4.5 output price");
-        AssertEqual("grok-4.5-latest|grok-4.5-build", string.Join('|', grokPricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.5 aliases");
+        AssertEqual(true, grokPricing.GetProperty("aliases").EnumerateArray().Any(alias => alias.GetString() == "grok-4.5-build"), "grok-4.5 build alias");
+        AssertEqual(false, grokPricing.GetProperty("aliases").EnumerateArray().Any(alias => alias.GetString()!.Contains("xhigh")), "grok-4.5 has no unsupported xhigh alias");
         JsonElement grok46Pricing = document.RootElement.GetProperty("grok-4.6");
         AssertEqual(2.0m, grok46Pricing.GetProperty("input").GetDecimal(), "grok-4.6 input price");
         AssertEqual(0.5m, grok46Pricing.GetProperty("cachedInput").GetDecimal(), "grok-4.6 cached input price");
         AssertEqual(6.0m, grok46Pricing.GetProperty("output").GetDecimal(), "grok-4.6 output price");
-        AssertEqual("grok-4.6-latest|grok-4.6-build", string.Join('|', grok46Pricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.6 aliases");
+        AssertEqual(true, grok46Pricing.GetProperty("aliases").EnumerateArray().Any(alias => alias.GetString() == "grok-4.6-build"), "grok-4.6 build alias");
         JsonElement grok47Pricing = document.RootElement.GetProperty("grok-4.7");
         AssertEqual(2.0m, grok47Pricing.GetProperty("input").GetDecimal(), "grok-4.7 input price");
         AssertEqual(0.5m, grok47Pricing.GetProperty("cachedInput").GetDecimal(), "grok-4.7 cached input price");
         AssertEqual(6.0m, grok47Pricing.GetProperty("output").GetDecimal(), "grok-4.7 output price");
-        AssertEqual("grok-4.7-latest|grok-4.7-build", string.Join('|', grok47Pricing.GetProperty("aliases").EnumerateArray().Select(alias => alias.GetString())), "grok-4.7 aliases");
+        AssertEqual(true, grok47Pricing.GetProperty("aliases").EnumerateArray().Any(alias => alias.GetString() == "grok-4.7-build"), "grok-4.7 build alias");
+        AssertEqual(false, grok47Pricing.GetProperty("aliases").EnumerateArray().Any(alias => alias.GetString()!.StartsWith("cursor-")), "grok-4.7 has no unobserved Cursor prefix");
+        AssertEqual(false, document.RootElement.GetProperty("grok-4.7-fast").GetProperty("aliases").EnumerateArray().Any(alias => alias.GetString()!.StartsWith("cursor-")),
+                    "grok-4.7-fast has no unobserved Cursor prefix");
         JsonElement deepSeekFlashPricing = document.RootElement.GetProperty("deepseek-v4-flash");
         AssertEqual(0.15m, deepSeekFlashPricing.GetProperty("input").GetDecimal(), "deepseek-v4-flash off-peak input price");
         AssertEqual(0.003m, deepSeekFlashPricing.GetProperty("cachedInput").GetDecimal(), "deepseek-v4-flash off-peak cached input price");

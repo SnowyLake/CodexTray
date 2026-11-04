@@ -100,7 +100,7 @@ internal static class OAuthTokenHelpers
     /// <summary>
     /// Decodes a JWT payload JSON object without validating the signature.
     /// </summary>
-    private static bool TryReadJwtPayload(string token, out JsonElement payload)
+    internal static bool TryReadJwtPayload(string token, out JsonElement payload)
     {
         payload = default;
         string[] parts = token.Split('.');

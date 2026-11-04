@@ -2035,21 +2035,36 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// </summary>
         private static string FormatModelLabel(string model)
         {
-            string label = model;
+            bool isCursor = model.EndsWith('*');
+            string label = isCursor ? model[..^1] : model;
+            if (isCursor && label.StartsWith("cursor-grok-", StringComparison.OrdinalIgnoreCase))
+            {
+                label = label[7..];
+            }
+            if (isCursor && label.StartsWith("grok-", StringComparison.OrdinalIgnoreCase) && label.EndsWith("-fast", StringComparison.OrdinalIgnoreCase))
+            {
+                label = label[..^5];
+            }
             string? suffix = s_ModelEffortSuffixes.FirstOrDefault(label.EndsWith);
             if (suffix != null)
             {
                 label = label[..^suffix.Length];
             }
 
-            if (label.Equals("unknown", StringComparison.OrdinalIgnoreCase) || label.Length == 0)
+            if (isCursor && label.StartsWith("grok-", StringComparison.OrdinalIgnoreCase))
             {
-                return "Unknown";
+                return label + "-cursor";
             }
 
-            return label.StartsWith("gpt-", StringComparison.OrdinalIgnoreCase)
+            if (label.Equals("unknown", StringComparison.OrdinalIgnoreCase) || label.Length == 0)
+            {
+                label = "Unknown";
+            }
+
+            label = label.StartsWith("gpt-", StringComparison.OrdinalIgnoreCase)
                 ? $"GPT-{label[4..]}"
                 : label;
+            return isCursor ? label + "*" : label;
         }
 
         /// <summary>
