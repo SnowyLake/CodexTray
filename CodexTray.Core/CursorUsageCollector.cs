@@ -9,10 +9,14 @@ using Microsoft.Data.Sqlite;
 
 namespace CodexTray.Core;
 
-public sealed record CursorUsageEvent(DateTimeOffset Timestamp, string Model, long TotalTokens, long CacheReadTokens, long CacheableInputTokens);
+public sealed record CursorUsageEvent(DateTimeOffset Timestamp, string Model, long TotalTokens, long CacheReadTokens, long CacheableInputTokens)
+{
+    public string Product { get; init; } = "cursor";
+    public long UnpricedTokens { get; init; }
+}
 
 /// <summary>
-/// Reads Cursor product events from the unified billing ledger without modifying its login.
+/// Reads Cursor and Grok API events from the unified billing ledger without modifying its login.
 /// </summary>
 public sealed class CursorUsageCollector
 {
@@ -90,6 +94,10 @@ public sealed class CursorUsageCollector
                     throw new InvalidOperationException("Invalid Cursor account creation time.");
                 }
                 m_HistoryStart = new DateTimeOffset(created.Year, created.Month, 1, 0, 0, 0, TimeSpan.Zero);
+                if (m_Months.Count > 0)
+                {
+                    SaveCache();
+                }
             }
 
             string cookie = "WorkosCursorSessionToken=" + Uri.EscapeDataString(accountId + "::" + accessToken);
@@ -132,7 +140,7 @@ public sealed class CursorUsageCollector
     {
         DateTimeOffset nextMonth = month.AddMonths(1);
         DateTimeOffset end = nextMonth < asOf ? nextMonth : asOf;
-        string bounds = $"?scope=user&product=cursor&pageSize=500&startTime={month.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture)}" +
+        string bounds = $"?scope=user&pageSize=500&startTime={month.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture)}" +
                         $"&endTime={end.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture)}";
         string? cursor = null;
         string? firstPage = null;
@@ -174,7 +182,8 @@ public sealed class CursorUsageCollector
             foreach (JsonElement row in rows.EnumerateArray())
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (row.GetProperty("product").GetString() != "cursor")
+                string? product = row.GetProperty("product").GetString();
+                if (product is not ("cursor" or "grok-api"))
                 {
                     continue;
                 }
@@ -197,20 +206,44 @@ public sealed class CursorUsageCollector
                 {
                     continue;
                 }
-                JsonElement usage = row.GetProperty("usage");
-                long input = ReadCount(usage, "prompt-text-tokens");
-                long output = ReadCount(usage, "completion-text-tokens");
-                long cacheRead = ReadCount(usage, "cached-prompt-text-tokens");
-                long cacheWrite = ReadCount(usage, "cache-write-text-tokens");
-                long cacheableInput = checked(input + cacheRead + cacheWrite);
-                long total = checked(cacheableInput + output);
-                if (total != ReadCount(row, "totalTokens"))
+                row.TryGetProperty("usage", out JsonElement usage);
+                bool isApi = product == "grok-api";
+                row.GetProperty("totalTokens");
+                long total = ReadCount(row, "totalTokens");
+                long cacheRead;
+                long cacheableInput;
+                long knownTotal;
+                try
                 {
-                    throw new InvalidOperationException("Cursor billing token total mismatch.");
+                    long input = ReadCount(usage, isApi ? "Prompt text tokens" : "prompt-text-tokens");
+                    long output = ReadCount(usage, isApi ? "Completion text tokens" : "completion-text-tokens");
+                    cacheRead = ReadCount(usage, isApi ? "Cached prompt text tokens" : "cached-prompt-text-tokens");
+                    long cacheWrite = isApi ? 0 : ReadCount(usage, "cache-write-text-tokens");
+                    if (isApi)
+                    {
+                        input = checked(input + ReadCount(usage, "Prompt image tokens"));
+                        // API ledger reasoning is a separate meter, unlike Grok Build's inclusive output count.
+                        output = checked(output + ReadCount(usage, "Reasoning text tokens"));
+                    }
+                    cacheableInput = checked(input + cacheRead + cacheWrite);
+                    knownTotal = checked(cacheableInput + output);
+                    if (knownTotal > total || (!isApi && knownTotal != total))
+                    {
+                        throw new InvalidOperationException("Cursor billing token total mismatch.");
+                    }
+                }
+                catch (Exception exception) when (isApi && exception is InvalidOperationException or OverflowException)
+                {
+                    // Keep a validated API total when its breakdown changes, without guessing input or output prices.
+                    cacheRead = cacheableInput = knownTotal = 0;
                 }
                 string? model = row.TryGetProperty("displayExtras", out JsonElement extras) && extras.ValueKind != JsonValueKind.Null && extras.TryGetProperty("model", out JsonElement modelValue)
                     ? modelValue.GetString() : null;
-                events.Add(new CursorUsageEvent(timestamp, string.IsNullOrWhiteSpace(model) ? "unknown" : model, total, cacheRead, cacheableInput));
+                events.Add(new CursorUsageEvent(timestamp, string.IsNullOrWhiteSpace(model) ? "unknown" : model, total, cacheRead, cacheableInput)
+                {
+                    Product = product,
+                    UnpricedTokens = total - knownTotal,
+                });
             }
             cursor = hasMore ? nextCursor : null;
         } while (cursor != null);
@@ -238,7 +271,7 @@ public sealed class CursorUsageCollector
                 cache = JsonSerializer.Deserialize<UsageCacheFile>(content);
             }
             string accountHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(m_AccountId!)));
-            if (cache == null || cache.Version != 1 || cache.AccountHash != accountHash || cache.Months == null || cache.HistoryStart == default ||
+            if (cache == null || cache.Version is not (2 or 3) || cache.AccountHash != accountHash || cache.Months == null || cache.HistoryStart == default ||
                 cache.HistoryStart.Offset != TimeSpan.Zero || cache.HistoryStart.Day != 1 || cache.HistoryStart.TimeOfDay != TimeSpan.Zero || cache.HistoryStart > currentMonth)
             {
                 return;
@@ -248,8 +281,10 @@ public sealed class CursorUsageCollector
                 if (month.Offset != TimeSpan.Zero || month.Day != 1 || month.TimeOfDay != TimeSpan.Zero || month < cache.HistoryStart || month > currentMonth ||
                     cached == null || cached.FirstPageHash == null || cached.FirstPageHash.Length != 64 || !cached.FirstPageHash.All(Uri.IsHexDigit) ||
                     cached.Through < month || cached.Through > month.AddMonths(1) || cached.Events == null ||
-                    cached.Events.Any(usage => usage == null || string.IsNullOrWhiteSpace(usage.Model) || usage.Timestamp < month || usage.Timestamp >= month.AddMonths(1) ||
-                                              usage.Timestamp > cached.Through || usage.CacheReadTokens < 0 || usage.CacheableInputTokens < usage.CacheReadTokens || usage.TotalTokens < usage.CacheableInputTokens))
+                    cached.Events.Any(usage => usage == null || usage.Product is not ("cursor" or "grok-api") || string.IsNullOrWhiteSpace(usage.Model) ||
+                                              usage.Timestamp < month || usage.Timestamp >= month.AddMonths(1) ||
+                                              usage.Timestamp > cached.Through || usage.CacheReadTokens < 0 || usage.CacheableInputTokens < usage.CacheReadTokens || usage.TotalTokens < usage.CacheableInputTokens ||
+                                              usage.UnpricedTokens < 0 || usage.UnpricedTokens > usage.TotalTokens - usage.CacheableInputTokens || (usage.Product == "cursor" && usage.UnpricedTokens != 0)))
                 {
                     return;
                 }
@@ -258,8 +293,9 @@ public sealed class CursorUsageCollector
             {
                 m_Months.Add(month, cached);
             }
-            m_HistoryStart = cache.HistoryStart;
-            if (legacy)
+            // A v2 boundary may be an unsupported API meter rather than the end of readable history.
+            m_HistoryStart = cache.Version == 2 ? null : cache.HistoryStart;
+            if (legacy && cache.Version == 3)
             {
                 SaveCache();
             }
@@ -284,7 +320,7 @@ public sealed class CursorUsageCollector
             using (FileStream stream = File.Create(temporary))
             using (GZipStream compressed = new(stream, CompressionLevel.SmallestSize))
             {
-                JsonSerializer.Serialize(compressed, new UsageCacheFile(1, accountHash, m_HistoryStart.Value, m_Months));
+                JsonSerializer.Serialize(compressed, new UsageCacheFile(3, accountHash, m_HistoryStart.Value, m_Months));
             }
             File.Move(temporary, m_CachePath, overwrite: true);
             if (m_LegacyCachePath != null)

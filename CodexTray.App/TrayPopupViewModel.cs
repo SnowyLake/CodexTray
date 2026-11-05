@@ -2035,13 +2035,14 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// </summary>
         private static string FormatModelLabel(string model)
         {
-            bool isCursor = model.EndsWith('*');
-            string label = isCursor ? model[..^1] : model;
-            if (isCursor && label.StartsWith("cursor-grok-", StringComparison.OrdinalIgnoreCase))
+            bool isCloud = model.EndsWith('*');
+            bool isApi = model.EndsWith("-api*", StringComparison.Ordinal);
+            string label = isApi ? model[..^5] : isCloud ? model[..^1] : model;
+            if (isCloud && label.StartsWith("cursor-grok-", StringComparison.OrdinalIgnoreCase))
             {
                 label = label[7..];
             }
-            if (isCursor && label.StartsWith("grok-", StringComparison.OrdinalIgnoreCase) && label.EndsWith("-fast", StringComparison.OrdinalIgnoreCase))
+            if (isCloud && label.StartsWith("grok-", StringComparison.OrdinalIgnoreCase) && label.EndsWith("-fast", StringComparison.OrdinalIgnoreCase))
             {
                 label = label[..^5];
             }
@@ -2051,20 +2052,20 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 label = label[..^suffix.Length];
             }
 
-            if (isCursor && label.StartsWith("grok-", StringComparison.OrdinalIgnoreCase))
-            {
-                return label + "-cursor";
-            }
-
             if (label.Equals("unknown", StringComparison.OrdinalIgnoreCase) || label.Length == 0)
             {
                 label = "Unknown";
             }
 
-            label = label.StartsWith("gpt-", StringComparison.OrdinalIgnoreCase)
-                ? $"GPT-{label[4..]}"
-                : label;
-            return isCursor ? label + "*" : label;
+            bool isCloudGrok = isCloud && label.StartsWith("grok-", StringComparison.OrdinalIgnoreCase);
+            label = string.Join('-', label.Split('-').Select(part => part.ToLowerInvariant() switch
+            {
+                "gpt" => "GPT",
+                "deepseek" => "DeepSeek",
+                "api" => "API",
+                _ => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(part.ToLowerInvariant()),
+            }));
+            return isApi ? label + "-API" : isCloudGrok ? label + "-Cursor" : isCloud ? label + "*" : label;
         }
 
         /// <summary>

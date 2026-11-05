@@ -54,7 +54,7 @@
 
 首次启动时, 应用会保存默认设置并打开主面板. 之后应用常驻 Windows 系统托盘.
 
-使用 Codex 或 Grok 页面前, 请先在本机登录对应的 Codex 或 Grok Build. CodexTray 会使用已有登录信息. 本机已登录 Cursor 时, Grok 的 Token Cost 还会加入 Cursor 云端返回的用量.
+使用 Codex 或 Grok 页面前, 请先在本机登录对应的 Codex 或 Grok Build. CodexTray 会使用已有登录信息. 本机已登录 Cursor 时, Grok 的 Token Cost 还会加入统一账本中 Cursor 和 Grok API 的用量.
 
 - 左键单击托盘图标: 打开或隐藏主面板.
 - 右键单击托盘图标: 使用 `Open Panel`, `Refresh Now` 或 `Exit`.
@@ -77,16 +77,16 @@ Codex 和 Grok 页面都可以按时段查看 token 总量, 费用, 缓存命中
 
 悬停 Codex 或 Grok 圆环中的模型可查看 `Speed`, 显示所选时段内有计时记录的平均输出速度. Codex 根据本机会话的单次模型响应窗口估算, 排除输出完成后的工具执行等待, 显示 `~N.N tok/s`; `~` 表示估算值, 且只统计输出较多, 耗时合理的响应. Grok 使用会话中报告的 API 调用耗时计算, 显示 `N.N tok/s`, 只统计有足够输出和耗时的调用, 部分调用未报告耗时时结果可能偏高. 两种口径都包含首 token 等待等开销, 不代表纯生成阶段的速度. 没有可靠计时或费用时, tooltip 不显示 `Speed` 或 `Cost`.
 
-Session Logs 列出本地日志中的每一次用量, 而不是时段合计; Grok 列表不包含 Cursor 云端记录. 每行从左到右是时间, 模型, 速度和费用, 四列宽度固定, 翻页时位置不变, 列间留白均匀. 列表不显示列标题, 费用和速度数值右对齐; 较长的模型名显示省略号. 时间较小, 上面一行是 `YY/MM/DD`, 下面一行是 `HH:MM:SS`. 模型, 费用和速度与模型名一样大. 新的在前, 每页 20 条. 列表滚到底部后可以用滚轮翻页, 底部也可以直接切换上一页和下一页. 费用为 `$0.0000`, 不完整时末尾加 `*`, 没有费用时为 `—`. 速度为整数加 `tok/s`. 没有可靠速度时为 `—`. 采集失败时列表为 `N/A`. 标题栏的列表图标打开后只变成绿色, 再点一次回到用量面板.
+Session Logs 列出本地日志中的每一次用量, 而不是时段合计; Grok 列表不包含 Cursor 和 Grok API 云端记录. 每行从左到右是时间, 模型, 速度和费用, 四列宽度固定, 翻页时位置不变, 列间留白均匀. 列表不显示列标题, 费用和速度数值右对齐; 较长的模型名显示省略号. 时间较小, 上面一行是 `YY/MM/DD`, 下面一行是 `HH:MM:SS`. 模型, 费用和速度与模型名一样大. 新的在前, 每页 20 条. 列表滚到底部后可以用滚轮翻页, 底部也可以直接切换上一页和下一页. 费用为 `$0.0000`, 不完整时末尾加 `*`, 没有费用时为 `—`. 速度为整数加 `tok/s`. 没有可靠速度时为 `—`. 采集失败时列表为 `N/A`. 标题栏的列表图标打开后只变成绿色, 再点一次回到用量面板.
 
 两个页面的费用来源不同:
 
 | 页面 | 费用含义 |
 | --- | --- |
 | Codex | 根据本机会话用量和模型价格估算的 API 等价成本, 不代表订阅实际扣费. DeepSeek 按官方高峰和低谷时段计价. |
-| Grok | 本地部分优先使用 Grok Build 会话中记录的费用, 记录缺失或不完整时按模型价格估算. DeepSeek 回算同样区分高峰和低谷. Cursor 云端部分按本地价格表估算 API 等价成本, 并与本地费用相加, 不代表订阅实际扣费. |
+| Grok | 本地部分优先使用 Grok Build 会话中记录的费用, 记录缺失或不完整时按模型价格估算. DeepSeek 回算同样区分高峰和低谷. Cursor 和 Grok API 云端部分按本地价格表估算 API 等价成本, 并与本地费用相加, 不代表订阅实际扣费. |
 
-没有可用费用记录且价格表未收录的模型, 仍统计 token, 成本按 `$0.00` 计入. 本地记录中的 Codex 自动审查模型 `codex-auto-review` 不计入 token, 费用, 模型占比和 Session Logs; Cursor 云端记录不按模型筛选. Token 数量以 K, M, B 分别表示千, 百万和十亿.
+没有可用费用记录且价格表未收录的模型, 仍统计 token, 成本按 `$0.00` 计入. 本地记录中的 Codex 自动审查模型 `codex-auto-review` 不计入 token, 费用, 模型占比和 Session Logs; Cursor 和 Grok API 云端记录不按模型筛选. Token 数量以 K, M, B 分别表示千, 百万和十亿.
 
 费用不完整时保留已知金额, 并加 `*` 标记; 模型圆环中合并的模型和 `Other` 也会保留该标记. 采集失败时, 趋势图中的已到日期显示 `N/A`.
 
@@ -96,13 +96,13 @@ Session Logs 列出本地日志中的每一次用量, 而不是时段合计; Gro
 
 产品占比默认显示 `Build`, `Bot` 和 `Cursor`. 进度条最多四段, 其余产品合并为 `Others`, 鼠标悬停进度条可查看全部产品占比. 重置时间可以在 Settings 中切换为倒计时或具体时间.
 
-页面下方的 Token Cost 合计本机 Grok Build 会话和统一账本中明确属于 Cursor 的用量. 云端 Grok Bot, Grok Build, Chat 和 Imagine 不纳入. Cursor 内的模型不按名称筛选, 不要求带 `cursor-` 前缀. 时段列表, 趋势图和圆环中心均使用合计值.
+页面下方的 Token Cost 合计本机 Grok Build 会话和统一账本中明确属于 Cursor 和 Grok API 的用量. 云端 Grok Bot, Grok Build, Chat 和 Imagine 不纳入. 这两种云端来源的模型不按名称筛选, 不要求带 `cursor-` 前缀. 时段列表, 趋势图和圆环中心均使用合计值.
 
-Cursor 云端的 Grok 模型统一显示为 `grok-4.x-cursor`, 同版本的 reasoning 和 Fast 变体合并显示, 与本地 Grok 模型分开计算占比. 其他 Cursor 云端模型名末尾保留 `*`. 圆环仍沿用原有规则: 超过四种模型时保留用量最高的前三种, 其余合并为 `Other`. 模型名后的 `*` 表示云端来源, 金额后的 `*` 仍表示费用不完整. Cursor 云端记录不显示在 Session Logs 中, 也不计算 Speed.
+Cursor 云端的 Grok 模型显示为 `Grok-4.x-Cursor`, Grok API 模型显示为 `Grok-4.x-API`. 每种来源内同版本的 reasoning 和 Fast 变体合并显示, 本地、Cursor 和 API 分开计算占比. 圆环中的模型名按分段首字母大写, 例如 `GPT-6-Astra`、`DeepSeek-Flash` 和 `Grok-4.7-Build`. 其他 Cursor 云端模型名末尾保留 `*`. 圆环仍沿用原有规则: 超过四种模型时保留用量最高的前三种, 其余合并为 `Other`. 模型名后的 `*` 表示云端来源, 金额后的 `*` 仍表示费用不完整. Cursor 和 Grok API 云端记录不显示在 Session Logs 中, 也不计算 Speed.
 
-Cursor 费用使用本地价格表估算, 其中缓存写入按普通输入价格计算. Cursor Grok 4.5、4.6、4.7 的标准与 Fast 变体分别使用对应价格估算, 圆环按版本合并 token 和各自算出的费用; 无法定价时保留 token 和已知费用小计, 金额后加 `*`. Included 记录在账本中显示的零扣费不作为 Token Cost.
+Cursor 和 Grok API 费用使用本地价格表估算, 其中缓存写入及 Grok API 图片输入 token 按普通输入价格计算. Cursor Grok 4.5、4.6、4.7 的标准与 Fast 变体分别使用对应价格估算, 圆环按版本合并 token 和各自算出的费用; 无法定价时保留 token 和已知费用小计, 金额后加 `*`. Included 记录在账本中显示的零扣费不作为 Token Cost. 云端 Token Cost 不包含搜索次数等独立工具收费. Grok API 出现未识别的 token 分类时, 仍保留账本总 token 和圆环占比, 仅估算已知部分的费用并加 `*`; 分类无法可靠解析时, 该条费用暂不估算. 缓存命中率仅按已识别的输入 token 计算.
 
-Cursor 未登录, 登录失效或当前用量查询失败时, Token Cost 只显示本地 Grok 用量. CodexTray 不自动续期 Cursor 登录; 需要时打开 Cursor 完成登录, 再刷新面板. 云端只使用新账本, 不拼接旧接口的数据. 历史逐月回溯到首个不可读取的月份为止, 所有周期仅汇总成功读到的记录; `Lifetime` 不保证覆盖账号全部历史. 已读取的用量会缓存到本地, 重启后复用历史, 只刷新本月、上月及尚未读完整的月份. 此前不可读取的更早月份不会在每次重启时反复尝试. 首次没有缓存时仍需下载历史; 若要重新尝试更早历史或核对历史修正, 退出程序后删除 `CodexTray.exe` 同级目录中的 `cursor-usage-cache.json.gz`, 再启动即可.
+Cursor 未登录, 登录失效或当前用量查询失败时, Token Cost 只显示本地 Grok 用量. CodexTray 不自动续期 Cursor 登录; 需要时打开 Cursor 完成登录, 再刷新面板. 云端只使用新账本, 不拼接旧接口的数据. 历史逐月回溯到首个不可读取的月份为止, 所有周期仅汇总成功读到的记录; `Lifetime` 不保证覆盖账号全部历史. 已读取的用量会缓存到本地, 重启后复用历史, 只刷新本月、上月及尚未读完整的月份. 此前不可读取的更早月份不会在每次重启时反复尝试. 首次没有缓存或升级前的缓存仅包含 Cursor 时, 会重新下载历史以补齐 Grok API; 若要重新尝试更早历史或核对历史修正, 退出程序后删除 `CodexTray.exe` 同级目录中的 `cursor-usage-cache.json.gz`, 再启动即可.
 
 ## API 监控
 
@@ -131,10 +131,10 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 ## 数据与隐私
 
 - Codex 与 Grok 的额度使用本机已有登录信息向各自的官方服务查询. Grok 页的订阅名称来自 Grok Build 设置中的显示名, 读不到时使用本机已有的订阅记录.
-- Codex 的 Token Cost 来自本机会话日志. Grok 的 Token Cost 合并本机会话日志与 Cursor 云端用量. Codex 开启「压缩本地聊天记录」后, 较早的会话会保存为 `.jsonl.zst`, 这些压缩日志仍按原来的记录时间计入对应日期. Codex 和 Grok 页面不读取 OpenCode 会话.
+- Codex 的 Token Cost 来自本机会话日志. Grok 的 Token Cost 合并本机会话日志与 Cursor 和 Grok API 云端用量. Codex 开启「压缩本地聊天记录」后, 较早的会话会保存为 `.jsonl.zst`, 这些压缩日志仍按原来的记录时间计入对应日期. Codex 和 Grok 页面不读取 OpenCode 会话.
 - OpenAI, DeepSeek, OpenRouter, Vercel 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Admin key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击输入框右侧的眼睛图标可临时显示和编辑, 再次点击或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.
-- Grok 的登录凭据会自动续期并写回本地登录文件, 不会复制到 `settings.json`. Cursor 登录信息只读使用, 加密存储的凭据由当前 Windows 用户解密后用于官方用量查询, 不续期, 不写回, 也不复制到设置文件. Cursor 用量缓存保存在 `CodexTray.exe` 同级目录中的 `cursor-usage-cache.json.gz`, 使用 gzip 无损压缩, 保留时间、模型名和 token 计数的全部明细, 不保存凭据、聊天内容或原始接口响应. 旧版 JSON 缓存会自动迁移, 新文件写入成功后才删除旧文件. 缓存按账号校验, 损坏时自动重新查询; 删除缓存不会影响登录和设置.
+- Grok 的登录凭据会自动续期并写回本地登录文件, 不会复制到 `settings.json`. Cursor 登录信息只读使用, 加密存储的凭据由当前 Windows 用户解密后用于官方用量查询, 不续期, 不写回, 也不复制到设置文件. Cursor 和 Grok API 的用量缓存保存在 `CodexTray.exe` 同级目录中的 `cursor-usage-cache.json.gz`, 使用 gzip 无损压缩, 保留时间、产品类型、模型名和 token 计数的全部明细, 不保存凭据、聊天内容或原始接口响应. 兼容的旧版 JSON 缓存会自动迁移, 升级时会补查可能因旧版解析失败而遗漏的历史月份, 仅包含 Cursor 的旧缓存会重新采集, 新文件写入成功后才删除旧文件. 缓存按账号校验, 损坏时自动重新查询; 删除缓存不会影响登录和设置.
 - 插件连接仅供本机访问, 默认端口为 `17890`, 不向局域网开放. 登录凭据不会写入日志, 插件配置或插件收到的数据.
 - 应用设置保存在 `CodexTray.exe` 同级目录的 `settings.json`.
 - 有效配置备份与恢复时保留的原文件也在应用目录中, 凭据同样为明文. 请勿分享 `settings.json`, `settings.last-good.json` 或 `settings.damaged-*.json`.

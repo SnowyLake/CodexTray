@@ -198,7 +198,7 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Collects local Grok Build usage and optional Cursor cloud events, keeping session logs local.
+    /// Collects local Grok Build usage and optional Cursor / Grok API cloud events, keeping session logs local.
     /// </summary>
     public TokenCostStatistics CollectGrok(string? grokDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default, IReadOnlyList<CursorUsageEvent>? cursorUsage = null)
     {
@@ -244,9 +244,10 @@ public sealed class TokenCostCollector
             foreach (CursorUsageEvent usage in cursorUsage)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                TokenCounts counts = new(usage.CacheableInputTokens, usage.CacheReadTokens, usage.TotalTokens - usage.CacheableInputTokens);
+                TokenCounts counts = new(usage.CacheableInputTokens, usage.CacheReadTokens, usage.TotalTokens - usage.CacheableInputTokens - usage.UnpricedTokens);
                 decimal? cost = CalculateCost(pricing, NormalizeModel(usage.Model), counts, usage.Timestamp);
-                accumulator.Add(usage.Timestamp, usage.TotalTokens, cost, usage.Model + "*", usage.CacheReadTokens, usage.CacheableInputTokens);
+                string model = usage.Model + (usage.Product == "cursor" ? "*" : "-api*");
+                accumulator.Add(usage.Timestamp, usage.TotalTokens, cost, model, usage.CacheReadTokens, usage.CacheableInputTokens, hasUnpricedUsage: usage.UnpricedTokens > 0);
             }
         }
 
