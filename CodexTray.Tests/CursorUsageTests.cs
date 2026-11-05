@@ -14,6 +14,8 @@ internal static class CursorUsageTests
     internal static async Task CollectionAsync()
     {
         await MonthlyCacheAsync();
+        await ApiUsageAsync();
+        await UnknownApiMetersAsync();
         await InvalidPagesAsync();
         await PersistentCacheAsync();
     }
@@ -44,7 +46,7 @@ internal static class CursorUsageTests
             }
             Check(request.Method == HttpMethod.Get && request.RequestUri!.Host == "cursor.com" && request.RequestUri.AbsolutePath == "/api/dashboard/v2/query-billing-items", "v2 billing endpoint");
             Dictionary<string, string> query = Query(request.RequestUri!);
-            Check(query["scope"] == "user" && query["product"] == "cursor" && query["pageSize"] == "500", "v2 scope and page size");
+            Check(query["scope"] == "user" && !query.ContainsKey("product") && query["pageSize"] == "500", "v2 queries both products with user scope and full page size");
             Check(request.Headers.GetValues("Cookie").Single() == "WorkosCursorSessionToken=" + Uri.EscapeDataString((token == Token("account-a") ? "account-a" : "account-b") + "::" + token),
                   "account session cookie");
             DateTimeOffset start = DateTimeOffset.Parse(query["startTime"]);
@@ -114,6 +116,120 @@ internal static class CursorUsageTests
               "unavailable older history retains successful recent months");
         requests.Clear();
         Check((await boundary.CollectAsync(now)).Count == 3 && requests.SequenceEqual(["11:head", "10:head"]), "unreadable history boundary is retained until restart");
+    }
+
+    private static async Task ApiUsageAsync()
+    {
+        using TempDirectory temp = new();
+        WriteToken(temp.Path, Token("account"));
+        DateTimeOffset now = new(2026, 11, 5, 4, 0, 0, TimeSpan.Zero);
+        string cachePath = Path.Combine(temp.Path, "api-cache.json.gz");
+        int pages = 0;
+        bool invalidTotal = false;
+        using HttpClient client = new(new Handler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                return Task.FromResult(Response("{\"createdAt\":\"2026-11-01T00:00:00Z\"}"));
+            }
+            pages++;
+            Dictionary<string, string> query = Query(request.RequestUri!);
+            Check(!query.ContainsKey("product"), "mixed ledger request does not exclude API usage");
+            return Task.FromResult(Response(query.ContainsKey("cursor")
+                ? Page(false, null, ApiRow("api", now), Row("cursor", now, "grok-4.7", 1, 2, 3, 4),
+                       Row("chat", now, "excluded", 1, 2, 3, 4, product: "grok-chat"), Row("imagine", now, "excluded", 1, 2, 3, 4, product: "grok-imagine"))
+                : Page(true, "next", ApiRow("api", now, total: invalidTotal ? "-1" : "100"), ApiRow("image", now, total: "150", images: true),
+                       Row("bot", now, "excluded", 1, 2, 3, 4, product: "grok-bot"), Row("build", now, "excluded", 1, 2, 3, 4, product: "grok-build"))));
+        }));
+        IReadOnlyList<CursorUsageEvent> events = await new CursorUsageCollector(client, temp.Path, cachePath).CollectAsync(now);
+        Check(events.Count == 3 && pages == 2 && events.All(row => row.Model == "grok-4.7"), "API and Cursor coexist across pages without duplicates or other products");
+        CursorUsageEvent api = events.Single(row => row.Product == "grok-api" && row.TotalTokens == 100);
+        Check(api.TotalTokens == 100 && api.CacheReadTokens == 30 && api.CacheableInputTokens == 40,
+              "API string meters count independent cached input and reasoning output exactly once");
+        CursorUsageEvent image = events.Single(row => row.Product == "grok-api" && row.TotalTokens == 150);
+        Check(image.CacheReadTokens == 30 && image.CacheableInputTokens == 90, "API image tokens join uncached input without clearing either cloud product");
+        pages = 0;
+        IReadOnlyList<CursorUsageEvent> restarted = await new CursorUsageCollector(client, temp.Path, cachePath).CollectAsync(now);
+        Check(events.SequenceEqual(restarted) && pages == 1, "API product and counts survive disk cache and unchanged head reuse");
+        TokenCostStatistics stats = new TokenCostCollector().CollectGrok(temp.Path, now, cursorUsage: restarted);
+        Check(stats.Today.TotalTokens == 260 && stats.Today.CostUsd == 0.0009135m && !stats.Today.HasUnpricedUsage &&
+              stats.SessionLogs.Count == 0 && stats.Today.GetOutputTokensPerSecond() == null, "parsed API reasoning receives output pricing with no local log or speed samples");
+        TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+        viewModel.UpdateGrokTokenCost(stats);
+        Check(viewModel.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "Grok-4.7-API") &&
+              viewModel.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "Grok-4.7-Cursor"), "API image input preserves both cloud donut segments");
+        invalidTotal = true;
+        Check((await new CursorUsageCollector(client, temp.Path, cachePath).CollectAsync(now)).Count == 0, "invalid API totals are never published as valid usage");
+        Check(ReadCache(cachePath).Contains("grok-api", StringComparison.Ordinal), "failed refresh preserves the complete API cache on disk");
+        System.Text.Json.Nodes.JsonObject corrupt = System.Text.Json.Nodes.JsonNode.Parse(ReadCache(cachePath))!.AsObject();
+        corrupt["Months"]!.AsObject().First().Value!["Events"]![0]!["Product"] = "grok-build";
+        WriteCache(cachePath, corrupt.ToJsonString());
+        invalidTotal = false;
+        pages = 0;
+        Check((await new CursorUsageCollector(client, temp.Path, cachePath).CollectAsync(now)).Count == 3 && pages == 2, "unsupported cached products force a fresh complete collection");
+    }
+
+    private static async Task UnknownApiMetersAsync()
+    {
+        using TempDirectory temp = new();
+        WriteToken(temp.Path, Token("account"));
+        DateTimeOffset now = new(2026, 11, 5, 4, 0, 0, TimeSpan.Zero);
+        foreach (string scenario in new[] { "new-meter", "missing-breakdown", "invalid-breakdown", "overlapping-counts", "overflow", "tool-calls" })
+        {
+            System.Text.Json.Nodes.JsonObject api = JsonSerializer.SerializeToNode(ApiRow("api", now))!.AsObject();
+            switch (scenario)
+            {
+                case "new-meter":
+                    api["totalTokens"] = "120";
+                    api["usage"]!["Future modality tokens"] = "20";
+                    break;
+                case "missing-breakdown":
+                    api.Remove("usage");
+                    break;
+                case "invalid-breakdown":
+                    api["usage"]!["Prompt text tokens"] = "not-a-count";
+                    break;
+                case "overlapping-counts":
+                    api["totalTokens"] = "90";
+                    break;
+                case "overflow":
+                    api["usage"]!["Prompt text tokens"] = long.MaxValue;
+                    break;
+                case "tool-calls":
+                    api["usage"]!["Web searches"] = "7";
+                    break;
+            }
+            string body = Page(false, null, api, Row("cursor", now, "grok-4.7", 1, 2, 3, 4));
+            using HttpClient client = new(new Handler((request, _) => Task.FromResult(Response(request.Method == HttpMethod.Post
+                ? "{\"createdAt\":\"2026-11-01T00:00:00Z\"}" : body))));
+            string cachePath = Path.Combine(temp.Path, scenario + ".json.gz");
+            IReadOnlyList<CursorUsageEvent> events = await new CursorUsageCollector(client, temp.Path, cachePath).CollectAsync(now);
+            Check(events.Count == 2, $"{scenario}: API breakdown changes do not discard either cloud product");
+            CursorUsageEvent result = events.Single(row => row.Product == "grok-api");
+            long expectedTotal = scenario == "new-meter" ? 120 : scenario == "overlapping-counts" ? 90 : 100;
+            bool hasKnownCounts = scenario is "new-meter" or "tool-calls";
+            long expectedUnpriced = hasKnownCounts ? expectedTotal - 100 : expectedTotal;
+            Check(result.TotalTokens == expectedTotal && result.UnpricedTokens == expectedUnpriced &&
+                  result.CacheableInputTokens == (hasKnownCounts ? 40 : 0) && result.CacheReadTokens == (hasKnownCounts ? 30 : 0),
+                  $"{scenario}: preserve validated totals without guessing the unknown breakdown");
+            IReadOnlyList<CursorUsageEvent> restarted = await new CursorUsageCollector(client, temp.Path, cachePath).CollectAsync(now);
+            Check(events.SequenceEqual(restarted), $"{scenario}: unpriced counts survive cache restart");
+            TokenCostStatistics stats = new TokenCostCollector().CollectGrok(temp.Path, now, cursorUsage: restarted);
+            Check(stats.Today.TotalTokens == expectedTotal + 10 && stats.Today.CostUsd == (hasKnownCounts ? 0.0004185m : 0.0000235m) &&
+                  stats.Today.HasUnpricedUsage == (expectedUnpriced > 0), $"{scenario}: unknown tokens never become paid output and known costs remain");
+            TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
+            viewModel.UpdateGrokTokenCost(stats);
+            Check(viewModel.GrokTokenCost.DonutSegments.Count == 2 &&
+                  viewModel.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "Grok-4.7-API").Tooltip.Contains("Partial cost") == (expectedUnpriced > 0),
+                  $"{scenario}: both donut segments remain and API partial costs are visible");
+            foreach (long invalidUnpriced in new[] { -1L, expectedTotal + 1 })
+            {
+                System.Text.Json.Nodes.JsonObject corrupt = System.Text.Json.Nodes.JsonNode.Parse(ReadCache(cachePath))!.AsObject();
+                corrupt["Months"]!.AsObject().First().Value!["Events"]![0]!["UnpricedTokens"] = invalidUnpriced;
+                WriteCache(cachePath, corrupt.ToJsonString());
+                Check((await new CursorUsageCollector(client, temp.Path, cachePath).CollectAsync(now)).SequenceEqual(events), "invalid cached unpriced counts force a fresh collection");
+            }
+        }
     }
 
     private static async Task InvalidPagesAsync()
@@ -196,6 +312,10 @@ internal static class CursorUsageTests
             }
             DateTimeOffset timestamp = start.AddDays(1);
             string account = token == Token("account-a") ? "a" : "b";
+            if (phase == 7 && start.Month == 9)
+            {
+                return Task.FromResult(Response(Page(false, null, ApiRow("historic-api", timestamp, total: "120"))));
+            }
             if (start.Month == 11 && cursor == "head")
             {
                 string model = phase is 1 or 3 ? "updated-model" : "initial-model";
@@ -231,6 +351,56 @@ internal static class CursorUsageTests
               requests.SequenceEqual(["11:head", "10:head"]) && File.Exists(migrationPath) && !File.Exists(oldPath), "legacy JSON migrates losslessly without additional identity or history requests");
         Check(System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(ReadCache(migrationPath)), System.Text.Json.Nodes.JsonNode.Parse(saved)),
               "migration stores the original complete schema as gzip");
+
+        foreach (bool compressed in new[] { false, true })
+        {
+            string cursorOnlyPath = Path.Combine(temp.Path, "cursor-only-" + compressed + ".json.gz");
+            System.Text.Json.Nodes.JsonObject cursorOnly = System.Text.Json.Nodes.JsonNode.Parse(saved)!.AsObject();
+            cursorOnly["Version"] = 1;
+            if (compressed)
+            {
+                WriteCache(cursorOnlyPath, cursorOnly.ToJsonString());
+            }
+            else
+            {
+                File.WriteAllText(cursorOnlyPath[..^3], cursorOnly.ToJsonString());
+            }
+            requests.Clear();
+            Check((await new CursorUsageCollector(client, temp.Path, cursorOnlyPath).CollectAsync(november)).Count == 4 &&
+                  requests.SequenceEqual(["identity", "11:head", "11:next", "10:head", "9:head"]), "Cursor-only v1 cache cannot hide historic API usage");
+            Check(System.Text.Json.Nodes.JsonNode.Parse(ReadCache(cursorOnlyPath))!["Version"]!.GetValue<int>() == 3, "fresh history replaces the v1 cache");
+        }
+
+        string versionTwoPath = Path.Combine(temp.Path, "version-two.json.gz");
+        System.Text.Json.Nodes.JsonObject versionTwo = System.Text.Json.Nodes.JsonNode.Parse(saved)!.AsObject();
+        versionTwo["Version"] = 2;
+        foreach (var month in versionTwo["Months"]!.AsObject())
+        {
+            foreach (var entry in month.Value!["Events"]!.AsArray())
+            {
+                entry!.AsObject().Remove("UnpricedTokens");
+            }
+        }
+        WriteCache(versionTwoPath, versionTwo.ToJsonString());
+        requests.Clear();
+        Check((await new CursorUsageCollector(client, temp.Path, versionTwoPath).CollectAsync(november)).SequenceEqual(initial) &&
+              requests.SequenceEqual(["identity", "11:head", "10:head"]) && System.Text.Json.Nodes.JsonNode.Parse(ReadCache(versionTwoPath))!["Version"]!.GetValue<int>() == 3,
+              "v2 complete months survive migration while the account history boundary is rechecked");
+        string truncatedPath = Path.Combine(temp.Path, "version-two-truncated.json.gz");
+        System.Text.Json.Nodes.JsonObject truncated = System.Text.Json.Nodes.JsonNode.Parse(versionTwo.ToJsonString())!.AsObject();
+        truncated["HistoryStart"] = "2026-10-01T00:00:00+00:00";
+        var truncatedMonths = truncated["Months"]!.AsObject();
+        truncatedMonths.Remove(truncatedMonths.First(pair => pair.Key.StartsWith("2026-09", StringComparison.Ordinal)).Key);
+        WriteCache(truncatedPath, truncated.ToJsonString());
+        phase = 7;
+        requests.Clear();
+        IReadOnlyList<CursorUsageEvent> recoveredHistory = await new CursorUsageCollector(client, temp.Path, truncatedPath).CollectAsync(november);
+        Check(recoveredHistory.Count == 4 && recoveredHistory.Any(row => row.Product == "grok-api" && row.Timestamp.Month == 9 && row.UnpricedTokens == 20) &&
+              requests.SequenceEqual(["identity", "11:head", "10:head", "9:head"]), "v2 parsing failures cannot permanently hide readable API history after migration");
+        requests.Clear();
+        Check((await new CursorUsageCollector(client, temp.Path, truncatedPath).CollectAsync(november)).SequenceEqual(recoveredHistory) &&
+              requests.SequenceEqual(["11:head", "10:head"]), "recovered history and partial counts persist without another identity or old-month query");
+        phase = 0;
 
         foreach (string invalidProperty in new[] { "Version", "AccountHash" })
         {
@@ -533,23 +703,42 @@ internal static class CursorUsageTests
         }
         TrayPopupViewModel vm = new(new AppSettings(), () => Task.CompletedTask);
         vm.UpdateGrokTokenCost(stats);
-        Check(vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "grok-4.6") && vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "grok-4.6-cursor"),
+        Check(vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "Grok-4.6") && vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "Grok-4.6-Cursor"),
               "local and Cursor model segments stay separate");
-        Check(vm.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "grok-4.6-cursor").Share == "65%", "Cursor model aliases merge into one segment");
+        Check(vm.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "Grok-4.6-Cursor").Share == "65%", "Cursor model aliases merge into one segment");
         TokenCostStatistics fastDisplay = new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now, cursorUsage:
             [cloud[0], cloud[1], cloud[1] with { Model = "cursor-grok-4.6-high-fast" }, cloud[1] with { Model = "cursor-grok-4.6-fast" }, cloud[2]]);
         vm.UpdateGrokTokenCost(fastDisplay);
-        Check(vm.GrokTokenCost.DonutSegments.Count(segment => segment.Label == "grok-4.6-cursor") == 1 &&
-              vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "grok-4.6") && vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "unpriced*"),
+        Check(vm.GrokTokenCost.DonutSegments.Count(segment => segment.Label == "Grok-4.6-Cursor") == 1 &&
+              vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "Grok-4.6") && vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "Unpriced*"),
               "Cursor Grok prefix, effort and fast variants merge while other cloud markers remain");
         TokenCostStatistics mixedSpeeds = publishedCollector.CollectGrok(temp.Path, now, cursorUsage:
             [new(now, "cursor-grok-4.6-high", 2_000_000, 250_000, 1_000_000), new(now, "cursor-grok-4.6-high-fast", 2_000_000, 250_000, 1_000_000)]);
         Check(mixedSpeeds.Models.Single(model => model.Model == "cursor-grok-4.6-high*").Today.CostUsd == 7.625m &&
               mixedSpeeds.Models.Single(model => model.Model == "cursor-grok-4.6-high-fast*").Today.CostUsd == 15.25m, "Fast and standard costs are calculated separately");
         vm.UpdateGrokTokenCost(mixedSpeeds);
-        TokenCostDonutSegment mergedSpeedSegment = vm.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "grok-4.6-cursor");
+        TokenCostDonutSegment mergedSpeedSegment = vm.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "Grok-4.6-Cursor");
         Check(mergedSpeedSegment.Tooltip.Contains("Tokens: 4.00M") && mergedSpeedSegment.Tooltip.Contains("Cost: $22.88"),
               "one Cursor segment sums tokens and independently calculated standard and Fast costs");
+        CursorUsageEvent api = new(now, "grok-4.7", 2_000_000, 250_000, 1_000_000) { Product = "grok-api" };
+        TokenCostStatistics apiStats = publishedCollector.CollectGrok(temp.Path, now, cursorUsage:
+            [api, api with { Model = "grok-4.7-high" }, api with { Model = "grok-4.7-xhigh-fast" }, api with { Product = "cursor" }]);
+        Check(apiStats.Today.TotalTokens == 8_000_300 && apiStats.Today.CostUsd == 38.225m && !apiStats.Today.HasUnpricedUsage &&
+              apiStats.Today.CacheReadTokens == 1_000_020 && apiStats.Today.CacheableInputTokens == 4_000_100,
+              "Grok API uses current model prices and joins period totals with Cursor and local usage");
+        Check(apiStats.SessionLogs.Count == 1 && apiStats.Today.GetOutputTokensPerSecond() == 20m &&
+              apiStats.Models.Single(model => model.Model == "grok-4.7-api*").Today.GetOutputTokensPerSecond() == null,
+              "Grok API keeps cloud usage out of local logs and speed");
+        vm.UpdateGrokTokenCost(apiStats);
+        TokenCostDonutSegment apiSegment = vm.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "Grok-4.7-API");
+        Check(apiSegment.Tooltip.Contains("Tokens: 6.00M") && apiSegment.Tooltip.Contains("Cost: $30.50") &&
+              vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "Grok-4.7-Cursor") &&
+              vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "Grok-4.6"),
+              "API effort and Fast variants merge by version while Cursor and local sources stay separate");
+        TokenCostStatistics unpricedApi = publishedCollector.CollectGrok(temp.Path, now, cursorUsage: [api with { Model = "grok-4.99" }]);
+        vm.UpdateGrokTokenCost(unpricedApi);
+        Check(unpricedApi.Today.HasUnpricedUsage && vm.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "Grok-4.99-API").Tooltip.Contains("Partial cost"),
+              "unknown API prices retain tokens and mark partial costs");
         CursorUsageEvent[] more = [.. cloud, new(now, "alpha", 50, 0, 0), new(now, "beta", 40, 0, 0), new(now, "gamma", 30, 0, 0)];
         vm.UpdateGrokTokenCost(new TokenCostCollector(pricingPath).CollectGrok(temp.Path, now, cursorUsage: more));
         Check(vm.GrokTokenCost.DonutSegments.Count == 4 && vm.GrokTokenCost.DonutSegments.Any(segment => segment.Label == "Other"), "existing Other grouping remains intact");
@@ -567,6 +756,23 @@ internal static class CursorUsageTests
         usage = new Dictionary<string, long> { ["prompt-text-tokens"] = input, ["completion-text-tokens"] = output, ["cached-prompt-text-tokens"] = read, ["cache-write-text-tokens"] = write },
         displayExtras = new { model }, pricing = new { total = 0 },
     };
+
+    private static object ApiRow(string id, DateTimeOffset time, string total = "100", bool images = false)
+    {
+        Dictionary<string, string> usage = new()
+        {
+            ["Prompt text tokens"] = "10", ["Completion text tokens"] = "20", ["Cached prompt text tokens"] = "30", ["Reasoning text tokens"] = "40",
+        };
+        if (images)
+        {
+            usage["Prompt image tokens"] = "50";
+        }
+        return new
+        {
+            billingItemId = id, eventTime = time.ToString("O"), product = "grok-api", hasTokenMeters = true, totalTokens = total, usage,
+            displayExtras = new { model = "grok-4.7" },
+        };
+    }
 
     private static string Page(bool hasMore, string? cursor, params object[] rows) => hasMore || cursor != null
         ? JsonSerializer.Serialize(new { data = rows, pagination = new { hasMore, nextCursor = cursor } })

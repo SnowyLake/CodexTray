@@ -3161,7 +3161,7 @@ internal static class Program
         AssertEqual("$6.00 · 40%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 24-hour cost and cache hit");
         AssertEqual("56%|44%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 24-hour donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
+            $"GPT-5.6-Sol{Environment.NewLine}Tokens: 0.50K{Environment.NewLine}Cost: $4.00{Environment.NewLine}Share: 56%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 24-hour donut model tooltip");
         AssertEqual(
@@ -3174,7 +3174,7 @@ internal static class Program
         AssertEqual("1.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected today token total");
         AssertEqual("60%|40%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex today donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Share: 60%",
+            $"GPT-5.6-Sol{Environment.NewLine}Tokens: 0.60K{Environment.NewLine}Cost: $4.50{Environment.NewLine}Share: 60%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex today donut model tooltip");
         AssertEqual(31, viewModel.CodexTokenCost.ChartDays.Count, "current-month Codex token cost chart day count");
@@ -3189,7 +3189,7 @@ internal static class Program
         AssertEqual("$9.00 · 45%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-week cost and cache hit");
         AssertEqual("80%|20%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-week donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Share: 80%",
+            $"GPT-5.6-Sol{Environment.NewLine}Tokens: 0.80K{Environment.NewLine}Cost: $7.20{Environment.NewLine}Share: 80%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex current-week donut model tooltip");
         viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[3]);
@@ -3197,7 +3197,7 @@ internal static class Program
         AssertEqual("$80.00 · 0%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected current-year cost and cache hit");
         AssertEqual("75%|25%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex current-year donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.50K{Environment.NewLine}Cost: $15.00{Environment.NewLine}Share: 75%",
+            $"GPT-5.6-Sol{Environment.NewLine}Tokens: 1.50K{Environment.NewLine}Cost: $15.00{Environment.NewLine}Share: 75%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex current-year donut model tooltip");
         viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
@@ -3206,10 +3206,10 @@ internal static class Program
         AssertEqual("0.90K|2.00K|3.00K|4.00K", string.Join('|', viewModel.CodexTokenCost.Rows.Select(row => row.Tokens)), "restored Codex token cost row values");
         AssertEqual("2.00K", viewModel.CodexTokenCost.SelectedTokenDisplay, "Codex selected 7D token total");
         AssertEqual("$13.00 · 13%", viewModel.CodexTokenCost.SelectedCostDisplay, "Codex selected 7D cost and cache hit");
-        AssertEqual("GPT-5.6-sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
+        AssertEqual("GPT-5.6-Sol|GPT-5.4", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut model labels");
         AssertEqual("65%|35%", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Share)), "Codex 7D donut model shares");
         AssertEqual(
-            $"GPT-5.6-sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
+            $"GPT-5.6-Sol{Environment.NewLine}Tokens: 1.30K{Environment.NewLine}Cost: $8.45{Environment.NewLine}Share: 65%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "Codex 7D donut model tooltip");
         AssertTrue(viewModel.CodexTokenCost.Rows[1].IsSelected, "Codex 7D row should be selected");
@@ -3257,7 +3257,7 @@ internal static class Program
                 new TokenCostModelStatistics { Model = "e", LastTwentyFourHours = new TokenCostSummary { TotalTokens = 100, CostUsd = 1 } },
             ],
         });
-        AssertEqual("a|b|c|Other", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut other model labels");
+        AssertEqual("A|B|C|Other", string.Join('|', viewModel.CodexTokenCost.DonutSegments.Select(segment => segment.Label)), "Codex donut other model labels");
         AssertEqual(
             $"Other{Environment.NewLine}Tokens: 0.30K{Environment.NewLine}Cost: $3.00{Environment.NewLine}Share: 20%",
             viewModel.CodexTokenCost.DonutSegments[3].Tooltip,
@@ -3276,9 +3276,30 @@ internal static class Program
             ],
         });
         AssertEqual(
-            $"grok-4.6-build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Share: 100%",
+            $"Grok-4.6-Build{Environment.NewLine}Tokens: 241.46K{Environment.NewLine}Share: 100%",
             viewModel.CodexTokenCost.DonutSegments[0].Tooltip,
             "unpriced donut model tooltip");
+
+        foreach ((string model, string label) in new[]
+        {
+            ("gpt-6-astra", "GPT-6-Astra"),
+            ("deepseek-flash", "DeepSeek-Flash"),
+            ("deepseek-v4-flash", "DeepSeek-V4-Flash"),
+            ("grok-4.7-build", "Grok-4.7-Build"),
+            ("grok-4.7-high*", "Grok-4.7-Cursor"),
+            ("grok-4.7-high-api*", "Grok-4.7-API"),
+            ("deepseek-flash*", "DeepSeek-Flash*"),
+        })
+        {
+            viewModel.UpdateTokenCost(new TokenCostStatistics
+            {
+                LastTwentyFourHours = new TokenCostSummary { TotalTokens = 100 },
+                Models = [new TokenCostModelStatistics { Model = model, LastTwentyFourHours = new TokenCostSummary { TotalTokens = 100 } }],
+            });
+            TokenCostDonutSegment segment = viewModel.CodexTokenCost.DonutSegments.Single();
+            AssertEqual(label, segment.Label, "donut capitalizes model words while retaining brand names and source suffixes");
+            AssertTrue(segment.Tooltip.StartsWith(label + Environment.NewLine, StringComparison.Ordinal), "donut tooltip uses the same model label");
+        }
 
         viewModel.UpdateTokenCost(null);
         AssertEqual(30, viewModel.CodexTokenCost.ChartDays.Count, "unavailable Codex token cost chart day count");
@@ -3863,9 +3884,9 @@ internal static class Program
 
         TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
         viewModel.UpdateGrokDashboard(new GrokUsageDashboard(null, "N/A", now), statistics);
-        AssertTrue(viewModel.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "grok-4.5-build").Tooltip.Contains("Speed: 20.0 tok/s"), "Grok tooltip displays measured speed");
+        AssertTrue(viewModel.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "Grok-4.5-Build").Tooltip.Contains("Speed: 20.0 tok/s"), "Grok tooltip displays measured speed");
         viewModel.GrokTokenCost.SelectPeriodCommand.Execute(viewModel.GrokTokenCost.Rows[1]);
-        AssertTrue(viewModel.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "grok-4.5-build").Tooltip.Contains("Speed: 41.7 tok/s"), "tooltip speed follows selected period");
+        AssertTrue(viewModel.GrokTokenCost.DonutSegments.Single(segment => segment.Label == "Grok-4.5-Build").Tooltip.Contains("Speed: 41.7 tok/s"), "tooltip speed follows selected period");
         viewModel.UpdateTokenCost(new TokenCostStatistics
         {
             Models =
@@ -3881,7 +3902,7 @@ internal static class Program
         });
         AssertTrue(viewModel.CodexTokenCost.DonutSegments[0].Tooltip.Contains("Speed: 20.0 tok/s"), "same display label merges raw timing before calculating speed");
         AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "Other").Tooltip.Contains("Speed: 20.0 tok/s"), "Other excludes untimed tokens from weighted speed");
-        AssertTrue(!viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "b").Tooltip.Contains("Speed:"), "missing timing omits Speed");
+        AssertTrue(!viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "B").Tooltip.Contains("Speed:"), "missing timing omits Speed");
         return Task.CompletedTask;
     }
 
@@ -4008,9 +4029,9 @@ internal static class Program
 
         TrayPopupViewModel viewModel = new(new AppSettings(), () => Task.CompletedTask);
         viewModel.UpdateTokenCost(statistics);
-        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~81.3 tok/s"), "Codex tooltip marks estimated speed");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-Test").Tooltip.Contains("Speed: ~81.3 tok/s"), "Codex tooltip marks estimated speed");
         viewModel.CodexTokenCost.SelectPeriodCommand.Execute(viewModel.CodexTokenCost.Rows[1]);
-        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-test").Tooltip.Contains("Speed: ~64.2 tok/s"), "estimated speed follows period selection");
+        AssertTrue(viewModel.CodexTokenCost.DonutSegments.Single(segment => segment.Label == "GPT-Test").Tooltip.Contains("Speed: ~64.2 tok/s"), "estimated speed follows period selection");
         return Task.CompletedTask;
     }
 
