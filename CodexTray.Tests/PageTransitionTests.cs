@@ -26,10 +26,15 @@ internal static class PageTransitionTests
                 window.Show();
                 Pump();
                 bool animationsEnabled = SystemParameters.ClientAreaAnimation && Wpf.Ui.Hardware.HardwareAcceleration.IsSupported(Wpf.Ui.Hardware.RenderingTier.PartialAcceleration);
+                CheckQuotaTransitions(window, viewModel, animationsEnabled);
                 CheckChartAnimations(window, viewModel, animationsEnabled);
-                foreach (string source in new[] { "Codex", "Grok" })
+                foreach (string source in new[] { "Codex", "Grok", "Gemini" })
                 {
-                    SessionLogListViewModel logs = source == "Codex" ? viewModel.CodexSessionLogs : viewModel.GrokSessionLogs;
+                    SessionLogListViewModel logs = source == "Codex"
+                        ? viewModel.CodexSessionLogs
+                        : source == "Grok"
+                            ? viewModel.GrokSessionLogs
+                            : viewModel.GeminiSessionLogs;
                     Grid page = (Grid)window.FindName(source + "PageGrid");
                     UIElement[] regions = [
                         (UIElement)window.FindName(source + "SessionLogContent"),
@@ -53,7 +58,14 @@ internal static class PageTransitionTests
                         {
                             viewModel.ShowCodex();
                             Pump();
-                            viewModel.ShowGrok();
+                            if (source == "Grok")
+                            {
+                                viewModel.ShowGrok();
+                            }
+                            else
+                            {
+                                viewModel.ShowGemini();
+                            }
                         }
                         Pump();
                         Check(regions.All(IsIdle), "switching main pages must not start nested slides or fades");
@@ -94,6 +106,7 @@ internal static class PageTransitionTests
                 {
                     viewModel.ShowCodex();
                     viewModel.ShowGrok();
+                    viewModel.ShowGemini();
                     viewModel.ShowApi();
                     viewModel.ShowSettings();
                     viewModel.ShowAbout();
@@ -118,7 +131,7 @@ internal static class PageTransitionTests
                 window.Close();
                 Pump(250);
                 Check(viewport.Children.OfType<UIElement>().All(IsIdle), "closing must clear main-page animations");
-                Check(new[] { "Codex", "Grok" }.SelectMany(source => new[] { "SessionLogContent", "TokenCostDashboard", "QuotaScrollViewer" }
+                Check(new[] { "Codex", "Grok", "Gemini" }.SelectMany(source => new[] { "SessionLogContent", "TokenCostDashboard", "QuotaScrollViewer" }
                     .Select(suffix => (UIElement)window.FindName(source + suffix))).All(IsIdle), "closing must clear session slides and fades");
             }
             catch (Exception exception)
@@ -143,21 +156,68 @@ internal static class PageTransitionTests
 
     private static bool HasSlide(UIElement element) => element.RenderTransform is TranslateTransform { HasAnimatedProperties: true };
 
+    private static void CheckQuotaTransitions(TrayPopupWindow window, TrayPopupViewModel viewModel, bool animationsEnabled)
+    {
+        viewModel.ShowGemini();
+        Pump(250);
+        foreach (string cardName in new[] { "GeminiPrimaryCard", "GeminiPartnerCard" })
+        {
+            Border card = (Border)window.FindName(cardName);
+            var pager = (TrayPopupViewModel.QuotaPagerViewModel)card.DataContext;
+            pager.FirstQuota.UpdateUsedPercent(25, "fixture");
+            pager.SecondQuota.UpdateUsedPercent(50, "fixture");
+            pager.ThirdQuota?.UpdateUsedPercent(75, "fixture");
+            Grid content = (Grid)Descendants(card).OfType<ContentControl>().Single(control => control.Name == "FirstQuotaContent").Parent;
+            StackPanel indicators = Descendants(card).OfType<StackPanel>().Single(panel => panel.Name == "PageIndicators");
+            var lastQuota = pager.ThirdQuota ?? pager.SecondQuota;
+            pager.SelectQuotaCommand.Execute(lastQuota);
+            Pump();
+            Check(IsIdle(indicators) && IsIdle(card), "quota transitions must keep the card and page indicators fixed");
+            Check(animationsEnabled ? IsFading(content) && content.RenderTransform is TranslateTransform { X: > 0, Y: 0 } : IsIdle(content), "selecting a later quota must slide in from the right when enabled");
+            pager.SelectAdjacent(1);
+            Pump();
+            Check(pager.IsFirstSelected && (!animationsEnabled || content.RenderTransform is TranslateTransform { X: > 0, Y: 0 }), "wrapping forward must still slide in from the right");
+            pager.SelectAdjacent(-1);
+            Pump();
+            Check(!animationsEnabled || content.RenderTransform is TranslateTransform { X: < 0, Y: 0 }, "reversing mid-slide must start a slide from the left");
+            Pump(250);
+            pager.SelectQuotaCommand.Execute(lastQuota);
+            lastQuota.UpdateUsedPercent(10, "updated");
+            pager.EnsureValidSelection();
+            Pump();
+            Check(IsIdle(content), "reselecting or refreshing the current quota must not replay its transition");
+            pager.SelectQuotaCommand.Execute(pager.FirstQuota);
+            window.Hide();
+            Pump();
+            window.ShowNearTray(null);
+            Pump();
+            Check(IsIdle(content), "hiding mid-slide must release the quota clocks without replay on show");
+        }
+    }
+
     private static void CheckChartAnimations(TrayPopupWindow window, TrayPopupViewModel viewModel, bool animationsEnabled)
     {
-        foreach (bool isCodex in new[] { true, false })
+        foreach (string source in new[] { "Codex", "Grok", "Gemini" })
         {
-            if (isCodex)
+            if (source == "Codex")
             {
                 viewModel.ShowCodex();
             }
-            else
+            else if (source == "Grok")
             {
                 viewModel.ShowGrok();
             }
+            else
+            {
+                viewModel.ShowGemini();
+            }
             Pump(250);
-            TrayPopupViewModel.TokenCostDashboardViewModel dashboard = isCodex ? viewModel.CodexTokenCost : viewModel.GrokTokenCost;
-            ContentControl region = (ContentControl)window.FindName(isCodex ? "CodexTokenCostDashboard" : "GrokTokenCostDashboard");
+            TrayPopupViewModel.TokenCostDashboardViewModel dashboard = source == "Codex"
+                ? viewModel.CodexTokenCost
+                : source == "Grok"
+                    ? viewModel.GrokTokenCost
+                    : viewModel.GeminiTokenCost;
+            ContentControl region = (ContentControl)window.FindName(source + "TokenCostDashboard");
             ItemsControl donut = Descendants(region).OfType<ItemsControl>().Single(item => item.Name == "TokenCostDonutItemsControl");
             ItemsControl bars = Descendants(region).OfType<ItemsControl>().Single(item => item.Name == "TokenCostChartItemsControl");
             System.Windows.Shapes.Ellipse placeholder = Descendants(region).OfType<System.Windows.Shapes.Ellipse>().Single(item => item.Name == "TokenCostDonutPlaceholder");
@@ -351,8 +411,21 @@ internal static class PageTransitionTests
     private static void Pump(int milliseconds = 20)
     {
         DispatcherFrame frame = new();
-        DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(milliseconds) };
-        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(milliseconds);
+        DispatcherTimer timer = new(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(Math.Min(10, Math.Max(1, milliseconds / 2))),
+        };
+        timer.Tick += (_, _) =>
+        {
+            Application.Current?.MainWindow?.InvalidateVisual();
+            if (DateTime.UtcNow >= deadline)
+            {
+                timer.Stop();
+                frame.Continue = false;
+            }
+        };
+        Application.Current?.MainWindow?.InvalidateVisual();
         timer.Start();
         Dispatcher.PushFrame(frame);
     }

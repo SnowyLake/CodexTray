@@ -19,15 +19,22 @@ internal static class OAuthTokenHelpers
         string clientId,
         string refreshToken,
         string providerLabel,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? clientSecret = null)
     {
-        using HttpRequestMessage request = new(HttpMethod.Post, endpoint);
-        request.Content = new FormUrlEncodedContent(
+        List<KeyValuePair<string, string>> parameters =
         [
             new KeyValuePair<string, string>("grant_type", "refresh_token"),
             new KeyValuePair<string, string>("client_id", clientId),
             new KeyValuePair<string, string>("refresh_token", refreshToken),
-        ]);
+        ];
+        if (!string.IsNullOrEmpty(clientSecret))
+        {
+            parameters.Add(new KeyValuePair<string, string>("client_secret", clientSecret));
+        }
+
+        using HttpRequestMessage request = new(HttpMethod.Post, endpoint);
+        request.Content = new FormUrlEncodedContent(parameters);
 
         using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

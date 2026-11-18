@@ -28,12 +28,11 @@ public sealed record ApiUsageSummary(
 
 public sealed class ApiUsageCollector
 {
-    private static readonly HttpClient s_HttpClient = new()
-    {
-        Timeout = TimeSpan.FromSeconds(10),
-    };
+    private static readonly HttpClient s_HttpClient = CreateClient(useProxy: true);
+    private static readonly HttpClient s_LoopbackClient = CreateClient(useProxy: false);
 
     private readonly HttpClient m_HttpClient;
+    private readonly HttpClient m_LoopbackClient;
     private readonly Func<DateTimeOffset> m_Clock;
 
     /// <summary>
@@ -42,6 +41,7 @@ public sealed class ApiUsageCollector
     public ApiUsageCollector()
         : this(s_HttpClient)
     {
+        m_LoopbackClient = s_LoopbackClient;
     }
 
     /// <summary>
@@ -50,8 +50,14 @@ public sealed class ApiUsageCollector
     public ApiUsageCollector(HttpClient httpClient, Func<DateTimeOffset>? clock = null)
     {
         m_HttpClient = httpClient;
+        m_LoopbackClient = httpClient;
         m_Clock = clock ?? (() => DateTimeOffset.Now);
     }
+
+    private static HttpClient CreateClient(bool useProxy) => new(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = useProxy }) { Timeout = TimeSpan.FromSeconds(10) };
+
+    // Plain HTTP is restricted to loopback and must never send its credentials via a proxy.
+    private HttpClient ClientFor(Uri uri) => uri.Scheme == Uri.UriSchemeHttp ? m_LoopbackClient : m_HttpClient;
 
     /// <summary>
     /// Summarizes the availability of one completed API usage refresh.
@@ -173,7 +179,7 @@ public sealed class ApiUsageCollector
         };
         if (!TryBuildUri(monitor.BaseUrl, endpointPath, out Uri? uri, monitor.Provider == ApiMonitorSettings.OpenRouterProvider))
         {
-            return Unavailable(monitor.Id, "Enter a valid HTTP or HTTPS base URL", now);
+            return Unavailable(monitor.Id, ApiMonitorSettings.BaseUrlRequirement, now);
         }
 
         if (monitor.Provider == ApiMonitorSettings.NewApiProvider && monitor.UserId.Length == 0)
@@ -191,7 +197,7 @@ public sealed class ApiUsageCollector
                 request.Headers.TryAddWithoutValidation("New-Api-User", monitor.UserId);
             }
 
-            using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
+            using HttpResponseMessage response = await UsageHttp.SendAsync(ClientFor(uri!), request, cancellationToken).ConfigureAwait(false);
             string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
@@ -229,7 +235,7 @@ public sealed class ApiUsageCollector
         int limit = utcNow.Day;
         if (!TryBuildUri(monitor.BaseUrl, "/v1/organization/costs", out Uri? uri))
         {
-            return Unavailable(monitor.Id, "Enter a valid HTTP or HTTPS base URL", now);
+            return Unavailable(monitor.Id, ApiMonitorSettings.BaseUrlRequirement, now);
         }
 
         decimal monthCost = 0;
@@ -241,7 +247,7 @@ public sealed class ApiUsageCollector
                 using HttpRequestMessage request = new(HttpMethod.Get, BuildOpenAiCostsUri(uri!, monthStart, rangeEnd, limit, page));
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", monitor.ApiKey);
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
+                using HttpResponseMessage response = await UsageHttp.SendAsync(ClientFor(uri!), request, cancellationToken).ConfigureAwait(false);
                 string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -495,8 +501,7 @@ public sealed class ApiUsageCollector
     private static bool TryBuildUri(string baseUrl, string endpointPath, out Uri? uri, bool stripApiV1 = false)
     {
         uri = null;
-        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? baseUri) ||
-            (baseUri.Scheme != Uri.UriSchemeHttp && baseUri.Scheme != Uri.UriSchemeHttps))
+        if (!ApiMonitorSettings.TryParseBaseUrl(baseUrl, out Uri? baseUri))
         {
             return false;
         }

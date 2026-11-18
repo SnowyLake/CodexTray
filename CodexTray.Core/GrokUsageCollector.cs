@@ -58,24 +58,25 @@ public sealed class GrokUsageCollector
     /// </summary>
     public async Task<GrokUsageSnapshot> CollectAsync(CancellationToken cancellationToken = default)
     {
-        (string accessToken, string userId) = await ResolveGrokBuildAccessTokenAsync(forceRefresh: false, cancellationToken).ConfigureAwait(false);
+        GrokBuildCredential credential = await ResolveGrokBuildAccessTokenAsync(forceRefresh: false, expectedCredential: null, cancellationToken).ConfigureAwait(false);
         GrokUsageSnapshot usage;
         try
         {
-            usage = await FetchCreditsAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
+            usage = await FetchCreditsAsync(credential.AccessToken, credential.UserId, cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidOperationException exception) when (IsAuthFailure(exception))
         {
-            (accessToken, userId) = await ResolveGrokBuildAccessTokenAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
-            usage = await FetchCreditsAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
+            credential = await ResolveGrokBuildAccessTokenAsync(forceRefresh: true, expectedCredential: credential, cancellationToken).ConfigureAwait(false);
+            usage = await FetchCreditsAsync(credential.AccessToken, credential.UserId, cancellationToken).ConfigureAwait(false);
         }
 
-        string subscriptionTier = await TryFetchSettingsSubscriptionTierAsync(accessToken, userId, cancellationToken).ConfigureAwait(false);
-        if (subscriptionTier.Length == 0 && TryLoadLocalSubscriptionTier(accessToken, out string localTier))
+        string subscriptionTier = await TryFetchSettingsSubscriptionTierAsync(credential.AccessToken, credential.UserId, cancellationToken).ConfigureAwait(false);
+        if (subscriptionTier.Length == 0 && TryLoadLocalSubscriptionTier(credential.AccessToken, out string localTier))
         {
             subscriptionTier = localTier;
         }
 
+        EnsureGrokCredentialUnchanged(credential);
         return subscriptionTier.Length > 0
             ? usage with { SubscriptionTier = subscriptionTier }
             : usage;
@@ -249,7 +250,7 @@ public sealed class GrokUsageCollector
     /// <summary>
     /// Loads Grok Build credentials and refreshes them when expired or forced.
     /// </summary>
-    private async Task<(string AccessToken, string UserId)> ResolveGrokBuildAccessTokenAsync(bool forceRefresh, CancellationToken cancellationToken)
+    private async Task<GrokBuildCredential> ResolveGrokBuildAccessTokenAsync(bool forceRefresh, GrokBuildCredential? expectedCredential, CancellationToken cancellationToken)
     {
         await s_GrokBuildAuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -259,22 +260,42 @@ public sealed class GrokUsageCollector
                 throw new GrokDataException(error);
             }
 
+            if (expectedCredential != null && !SameGrokCredential(expectedCredential, credential))
+            {
+                throw new GrokDataException("Grok Build OAuth credentials changed. Refresh again.");
+            }
+
             if (!forceRefresh && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken))
             {
-                return (credential.AccessToken, credential.UserId);
+                return credential;
             }
 
             if (string.IsNullOrWhiteSpace(credential.RefreshToken))
             {
+                if (!forceRefresh && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken, TimeSpan.Zero))
+                {
+                    return credential;
+                }
+
                 throw new GrokDataException(forceRefresh
                     ? "Grok Build OAuth token expired or unauthorized and no refresh token is available. Run grok login."
                     : "Grok Build OAuth token expired. Run grok login to refresh it.");
             }
 
+            if (!AtomicFile.CanReplaceAllText(credential.AuthPath, credential.FileSnapshot))
+            {
+                EnsureGrokCredentialUnchanged(credential);
+                if (!forceRefresh && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken, TimeSpan.Zero))
+                {
+                    return credential;
+                }
+
+                throw new GrokDataException("Grok Build OAuth file cannot be updated safely. Renew the login in Grok Build.");
+            }
+
             OAuthTokenRefresh refresh = await RefreshOAuthTokenAsync(credential.RefreshToken, credential.ClientId, cancellationToken)
                 .ConfigureAwait(false);
-            SaveGrokBuildCredential(credential, refresh);
-            return (refresh.AccessToken, credential.UserId);
+            return SaveGrokBuildCredential(credential, refresh);
         }
         finally
         {
@@ -387,41 +408,17 @@ public sealed class GrokUsageCollector
 
         try
         {
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(authPath));
+            string text = File.ReadAllText(authPath);
+            using JsonDocument document = JsonDocument.Parse(text);
             if (document.RootElement.ValueKind != JsonValueKind.Object)
             {
                 error = "Grok Build OAuth file has an invalid format.";
                 return false;
             }
 
-            string? fallbackKey = null;
-            JsonElement? fallbackEntry = null;
-            foreach (JsonProperty entry in document.RootElement.EnumerateObject())
+            if (TryParseGrokBuildCredential(authPath, document.RootElement, out credential))
             {
-                if (entry.Value.ValueKind != JsonValueKind.Object ||
-                    !entry.Value.TryGetProperty("key", out JsonElement key) ||
-                    key.ValueKind != JsonValueKind.String ||
-                    string.IsNullOrWhiteSpace(key.GetString()))
-                {
-                    continue;
-                }
-
-                if (entry.Name.StartsWith("https://auth.x.ai::", StringComparison.Ordinal))
-                {
-                    credential = CreateGrokBuildCredential(authPath, entry.Name, entry.Value);
-                    return true;
-                }
-
-                if (entry.Name.Contains("/sign-in", StringComparison.Ordinal))
-                {
-                    fallbackKey = entry.Name;
-                    fallbackEntry = entry.Value;
-                }
-            }
-
-            if (fallbackKey != null && fallbackEntry is JsonElement fallback)
-            {
-                credential = CreateGrokBuildCredential(authPath, fallbackKey, fallback);
+                credential = credential with { FileSnapshot = text };
                 return true;
             }
         }
@@ -432,6 +429,48 @@ public sealed class GrokUsageCollector
         }
 
         error = "Grok Build OAuth access token was not found.";
+        return false;
+    }
+
+    private static bool TryParseGrokBuildCredential(string authPath, JsonElement root, out GrokBuildCredential credential)
+    {
+        credential = default!;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        string? fallbackKey = null;
+        JsonElement? fallbackEntry = null;
+        foreach (JsonProperty entry in root.EnumerateObject())
+        {
+            if (entry.Value.ValueKind != JsonValueKind.Object ||
+                !entry.Value.TryGetProperty("key", out JsonElement key) ||
+                key.ValueKind != JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(key.GetString()))
+            {
+                continue;
+            }
+
+            if (entry.Name.StartsWith("https://auth.x.ai::", StringComparison.Ordinal))
+            {
+                credential = CreateGrokBuildCredential(authPath, entry.Name, entry.Value);
+                return true;
+            }
+
+            if (entry.Name.Contains("/sign-in", StringComparison.Ordinal))
+            {
+                fallbackKey = entry.Name;
+                fallbackEntry = entry.Value;
+            }
+        }
+
+        if (fallbackKey != null && fallbackEntry is JsonElement fallback)
+        {
+            credential = CreateGrokBuildCredential(authPath, fallbackKey, fallback);
+            return true;
+        }
+
         return false;
     }
 
@@ -491,22 +530,28 @@ public sealed class GrokUsageCollector
             userIdElement.ValueKind == JsonValueKind.String
                 ? userIdElement.GetString() ?? string.Empty
                 : string.Empty;
-        return new GrokBuildCredential(authPath, entryKey, accessToken, refreshToken, expiresAt, clientId, userId);
+        return new GrokBuildCredential(authPath, entryKey, entry.GetRawText(), accessToken, refreshToken, expiresAt, clientId, userId);
     }
 
     /// <summary>
     /// Writes refreshed Grok Build tokens back into auth.json without dropping other entries.
     /// </summary>
-    private static void SaveGrokBuildCredential(GrokBuildCredential credential, OAuthTokenRefresh refresh)
+    private static GrokBuildCredential SaveGrokBuildCredential(GrokBuildCredential credential, OAuthTokenRefresh refresh)
     {
         string text = File.ReadAllText(credential.AuthPath);
+        using JsonDocument original = JsonDocument.Parse(text);
+        if (!TryParseGrokBuildCredential(credential.AuthPath, original.RootElement, out GrokBuildCredential current) || !SameGrokCredential(credential, current))
+        {
+            throw new GrokDataException("Grok Build OAuth credentials changed. Refresh again.");
+        }
+
         JsonNode root = JsonNode.Parse(text) ?? throw new GrokDataException("Grok Build OAuth file has an invalid format.");
         if (root is not JsonObject rootObject)
         {
             throw new GrokDataException("Grok Build OAuth file has an invalid format.");
         }
 
-        JsonObject entryObject = rootObject[credential.EntryKey] as JsonObject ?? new JsonObject();
+        JsonObject entryObject = (JsonObject)rootObject[credential.EntryKey]!;
         entryObject["key"] = refresh.AccessToken;
         entryObject["refresh_token"] = refresh.RefreshToken;
         if (!string.IsNullOrWhiteSpace(refresh.IdToken))
@@ -515,8 +560,30 @@ public sealed class GrokUsageCollector
         }
 
         entryObject["expires_at"] = refresh.ExpiresAt.UtcDateTime.ToString("o", CultureInfo.InvariantCulture);
-        rootObject[credential.EntryKey] = entryObject;
-        AtomicFile.WriteAllText(credential.AuthPath, rootObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        string contents = rootObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        if (!AtomicFile.TryReplaceAllText(credential.AuthPath, text, contents))
+        {
+            throw new GrokDataException("Grok Build OAuth credentials changed. Refresh again.");
+        }
+
+        using JsonDocument saved = JsonDocument.Parse(contents);
+        TryParseGrokBuildCredential(credential.AuthPath, saved.RootElement, out GrokBuildCredential updated);
+        return updated with { FileSnapshot = contents };
+    }
+
+    private static bool SameGrokCredential(GrokBuildCredential original, GrokBuildCredential current)
+    {
+        return string.Equals(original.AuthPath, current.AuthPath, StringComparison.Ordinal) &&
+            string.Equals(original.EntryKey, current.EntryKey, StringComparison.Ordinal) &&
+            string.Equals(original.EntrySnapshot, current.EntrySnapshot, StringComparison.Ordinal);
+    }
+
+    private static void EnsureGrokCredentialUnchanged(GrokBuildCredential credential)
+    {
+        if (!TryLoadGrokBuildCredential(out GrokBuildCredential current, out _) || !SameGrokCredential(credential, current))
+        {
+            throw new GrokDataException("Grok Build OAuth credentials changed. Refresh again.");
+        }
     }
 
     /// <summary>
@@ -667,7 +734,7 @@ public sealed class GrokUsageCollector
     /// <summary>
     /// Returns whether credentials should be refreshed before the next billing call.
     /// </summary>
-    private static bool NeedsRefresh(DateTimeOffset? expiresAt, string accessToken)
+    private static bool NeedsRefresh(DateTimeOffset? expiresAt, string accessToken, TimeSpan? refreshBuffer = null)
     {
         DateTimeOffset? effectiveExpiry = expiresAt;
         if (OAuthTokenHelpers.TryGetJwtExpiry(accessToken, out DateTimeOffset jwtExpiry))
@@ -677,7 +744,7 @@ public sealed class GrokUsageCollector
                 : jwtExpiry;
         }
 
-        return effectiveExpiry is DateTimeOffset expiry && expiry <= DateTimeOffset.UtcNow + s_RefreshBuffer;
+        return effectiveExpiry is DateTimeOffset expiry && expiry <= DateTimeOffset.UtcNow + (refreshBuffer ?? s_RefreshBuffer);
     }
 
     /// <summary>
@@ -715,11 +782,15 @@ public sealed class GrokUsageCollector
     private sealed record GrokBuildCredential(
         string AuthPath,
         string EntryKey,
+        string EntrySnapshot,
         string AccessToken,
         string? RefreshToken,
         DateTimeOffset? ExpiresAt,
         string ClientId,
-        string UserId);
+        string UserId)
+    {
+        public string FileSnapshot { get; init; } = string.Empty;
+    }
 
     private sealed class GrokDataException(string message) : InvalidOperationException(message);
 }

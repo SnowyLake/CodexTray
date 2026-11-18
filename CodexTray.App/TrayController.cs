@@ -21,6 +21,7 @@ internal sealed class TrayController : IDisposable
     private readonly SettingsStore m_SettingsStore;
     private readonly CodexUsageCollector m_CodexUsageCollector;
     private readonly GrokUsageCollector m_GrokUsageCollector;
+    private readonly GeminiUsageCollector m_GeminiUsageCollector;
     private readonly CursorUsageCollector m_CursorUsageCollector;
     private readonly ApiUsageCollector m_ApiUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
@@ -60,6 +61,7 @@ internal sealed class TrayController : IDisposable
         m_SettingsStore = new SettingsStore();
         m_CodexUsageCollector = new CodexUsageCollector();
         m_GrokUsageCollector = new GrokUsageCollector();
+        m_GeminiUsageCollector = new GeminiUsageCollector();
         m_CursorUsageCollector = new CursorUsageCollector();
         m_ApiUsageCollector = new ApiUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
@@ -580,6 +582,7 @@ internal sealed class TrayController : IDisposable
         int previousPort = m_Settings.Port;
         bool codexWasEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokWasEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
+        bool geminiWasEnabled = (m_Settings.VisiblePages & PageItem.Gemini) != 0;
         bool apisWasEnabled = (m_Settings.VisiblePages & PageItem.Apis) != 0;
         bool serviceWasRequired = IsPluginServiceRequired;
         AppSettings candidate = m_Settings.Copy();
@@ -596,6 +599,7 @@ internal sealed class TrayController : IDisposable
         ConfigureRefreshTimer();
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokIsEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
+        bool geminiIsEnabled = (m_Settings.VisiblePages & PageItem.Gemini) != 0;
         bool apisIsEnabled = (m_Settings.VisiblePages & PageItem.Apis) != 0;
         if (codexWasEnabled && !codexIsEnabled)
         {
@@ -605,6 +609,12 @@ internal sealed class TrayController : IDisposable
         if (grokWasEnabled && !grokIsEnabled)
         {
             m_UsageCache.ClearGrok();
+        }
+
+        if (geminiWasEnabled && !geminiIsEnabled)
+        {
+            m_PopupViewModel?.UpdateGeminiDashboard(GeminiUsageDashboard.Empty);
+            m_PopupViewModel?.UpdateGeminiTokenCost(null);
         }
 
         if (apisWasEnabled && !apisIsEnabled)
@@ -854,6 +864,14 @@ internal sealed class TrayController : IDisposable
                     result => m_PopupViewModel?.UpdateGrokTokenCost(result.Statistics, result.Error), localCosts: true));
             }
 
+            if ((visiblePages & PageItem.Gemini) != 0)
+            {
+                children.Add(PublishAsync(PageItem.Gemini, m_GeminiUsageCollector.CollectDashboardAsync(useAbsoluteResetTime, cancellationToken),
+                    dashboard => m_PopupViewModel?.UpdateGeminiDashboard(dashboard)));
+                children.Add(PublishAsync(PageItem.Gemini, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectGemini(cancellationToken: cancellationToken)), cancellationToken),
+                    result => m_PopupViewModel?.UpdateGeminiTokenCost(result.Statistics, result.Error), localCosts: true));
+            }
+
             if ((visiblePages & PageItem.Apis) != 0)
             {
                 ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Where(card => request.AllApiCards || request.ApiIds.Contains(card.Id)).Select(CloneApiMonitor).ToArray();
@@ -900,13 +918,17 @@ internal sealed class TrayController : IDisposable
                     DateTimeOffset now = DateTimeOffset.Now;
                     if (localCosts)
                     {
-                        if (page == PageItem.Codex)
+                        switch (page)
                         {
-                            m_PopupViewModel?.UpdateTokenCost(null, error);
-                        }
-                        else
-                        {
-                            m_PopupViewModel?.UpdateGrokTokenCost(null, error);
+                            case PageItem.Codex:
+                                m_PopupViewModel?.UpdateTokenCost(null, error);
+                                break;
+                            case PageItem.Grok:
+                                m_PopupViewModel?.UpdateGrokTokenCost(null, error);
+                                break;
+                            case PageItem.Gemini:
+                                m_PopupViewModel?.UpdateGeminiTokenCost(null, error);
+                                break;
                         }
 
                         return;
@@ -921,6 +943,18 @@ internal sealed class TrayController : IDisposable
                         case PageItem.Grok:
                             m_UsageCache.ClearGrok();
                             m_PopupViewModel?.UpdateGrokDashboard(new(null, error, now));
+                            break;
+                        case PageItem.Gemini:
+                            m_PopupViewModel?.UpdateGeminiDashboard(new GeminiUsageDashboard
+                            {
+                                Snapshot = new GeminiUsageSnapshot
+                                {
+                                    Source = "gemini",
+                                    UpdatedAt = now,
+                                    IsAvailable = false,
+                                },
+                                StatusMessage = error,
+                            });
                             break;
                     }
 

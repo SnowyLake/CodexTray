@@ -11,7 +11,7 @@
 
 这个目录包含 CodexTray 的 TrafficMonitor 原生插件源码. 插件实现 TrafficMonitor 的 `ITMPlugin` 和 `IPluginItem` 接口, 提供 `Codex`, `Grok` 和 `DeepSeek` 三个显示项.
 
-插件会请求本机 CodexTray 桥接服务的 `/codex-tray.txt` 接口, 并依次读取 Codex Weekly, Grok Weekly 和 DeepSeek CNY 余额三行显示值.
+插件在后台请求本机 CodexTray 的 `/codex-tray.txt`, 依次读取 Codex Weekly, Grok Weekly 和 DeepSeek CNY 余额. 刷新期间继续显示上一组值. 请求超过 5 秒或正文超过 4096 字节时, 三项均显示 `N/A`.
 
 ## 构建
 
@@ -25,6 +25,12 @@
 
 ```text
 Plugins\TrafficMonitor\Builds\x64\Release\CodexTray.dll
+```
+
+以下命令构建 Release DLL 并运行原生插件回归测试.
+
+```powershell
+.\Scripts\Test-TrafficMonitorPlugin.ps1
 ```
 
 ## 安装

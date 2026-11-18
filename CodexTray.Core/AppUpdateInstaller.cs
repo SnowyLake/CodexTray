@@ -17,11 +17,18 @@ public static class AppUpdateInstaller
         EnsureDisjoint(source, target, backup);
         try
         {
+            AppUpdatePaths.EnsureSafePath(source);
+            AppUpdatePaths.EnsureSafePath(target);
+            AppUpdatePaths.EnsureSafePath(backup);
             AppUpdatePackage.ValidateLayout(source);
         }
         catch (AppUpdateException exception)
         {
             throw new AppUpdateException(exception.Message, canRestartPreviousVersion: true, exception);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new AppUpdateException("CodexTray could not verify the update folders, so the installation was not changed.", canRestartPreviousVersion: true, exception);
         }
 
         string targetExecutable = Path.Combine(target, CodexTrayDefaults.AppName + ".exe");
@@ -35,6 +42,20 @@ public static class AppUpdateInstaller
         if (Directory.Exists(backup) || File.Exists(backup))
         {
             throw new AppUpdateException("The update backup could not be created, so the installation was not changed.", canRestartPreviousVersion: true);
+        }
+
+        try
+        {
+            AppUpdatePaths.EnumerateRelativeFiles(source);
+            AppUpdatePaths.EnumerateRelativeFiles(target);
+        }
+        catch (AppUpdateException exception)
+        {
+            throw new AppUpdateException(exception.Message, canRestartPreviousVersion: true, exception);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new AppUpdateException("CodexTray could not verify the update folders, so the installation was not changed.", canRestartPreviousVersion: true, exception);
         }
 
         try
@@ -82,14 +103,21 @@ public static class AppUpdateInstaller
     {
         string backup = Path.GetFullPath(backupDirectory);
         string target = Path.GetFullPath(targetDirectory);
-        List<string> backupFiles = EnumerateRelativeFiles(backup);
+        if (IsSameOrChild(backup, target) || IsSameOrChild(target, backup))
+        {
+            throw new AppUpdateException("The update folders overlap, so the installation was not restored.");
+        }
+
+        AppUpdatePaths.EnsureSafePath(target);
+        List<string> backupFiles = AppUpdatePaths.EnumerateRelativeFiles(backup);
+        List<string> targetFiles = Directory.Exists(target) ? AppUpdatePaths.EnumerateRelativeFiles(target) : [];
         HashSet<string> backupSet = new(backupFiles, StringComparer.OrdinalIgnoreCase);
         foreach (string relativePath in backupFiles)
         {
             CopyFile(Path.Combine(backup, relativePath), Path.Combine(target, relativePath));
         }
 
-        foreach (string relativePath in EnumerateRelativeFiles(target))
+        foreach (string relativePath in targetFiles)
         {
             if (!backupSet.Contains(relativePath))
             {
@@ -127,7 +155,7 @@ public static class AppUpdateInstaller
     /// </summary>
     private static void ReplaceInstallation(string source, string target)
     {
-        List<string> sourceFiles = EnumerateRelativeFiles(source);
+        List<string> sourceFiles = AppUpdatePaths.EnumerateRelativeFiles(source);
         foreach (string relativePath in sourceFiles)
         {
             if (IsPreservedSettings(relativePath) || IsExecutable(relativePath))
@@ -168,47 +196,11 @@ public static class AppUpdateInstaller
     /// </summary>
     private static void CopyTree(string source, string target)
     {
+        AppUpdatePaths.EnsureSafePath(target);
         Directory.CreateDirectory(target);
-        foreach (string relativePath in EnumerateRelativeFiles(source))
+        foreach (string relativePath in AppUpdatePaths.EnumerateRelativeFiles(source))
         {
             CopyFile(Path.Combine(source, relativePath), Path.Combine(target, relativePath));
-        }
-    }
-
-    /// <summary>
-    /// Lists files under a directory. Relative paths use the local directory separator.
-    /// </summary>
-    private static List<string> EnumerateRelativeFiles(string root)
-    {
-        List<string> files = [];
-        EnumerateRelativeFiles(root, string.Empty, files);
-        return files;
-    }
-
-    /// <summary>
-    /// Walks a directory and skips reparse points.
-    /// </summary>
-    private static void EnumerateRelativeFiles(string root, string relativeDirectory, List<string> files)
-    {
-        string directory = relativeDirectory.Length == 0 ? root : Path.Combine(root, relativeDirectory);
-        foreach (string path in Directory.EnumerateFileSystemEntries(directory))
-        {
-            FileAttributes attributes = File.GetAttributes(path);
-            if (attributes.HasFlag(FileAttributes.ReparsePoint))
-            {
-                continue;
-            }
-
-            string relativePath = relativeDirectory.Length == 0
-                ? Path.GetFileName(path)
-                : Path.Combine(relativeDirectory, Path.GetFileName(path));
-            if (attributes.HasFlag(FileAttributes.Directory))
-            {
-                EnumerateRelativeFiles(root, relativePath, files);
-                continue;
-            }
-
-            files.Add(relativePath);
         }
     }
 
@@ -217,6 +209,8 @@ public static class AppUpdateInstaller
     /// </summary>
     private static void CopyFile(string sourcePath, string destinationPath)
     {
+        AppUpdatePaths.EnsureSafePath(sourcePath);
+        AppUpdatePaths.EnsureSafePath(destinationPath);
         string? parent = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrEmpty(parent))
         {
@@ -225,6 +219,8 @@ public static class AppUpdateInstaller
 
         Retry(destinationPath, () =>
         {
+            AppUpdatePaths.EnsureSafePath(sourcePath);
+            AppUpdatePaths.EnsureSafePath(destinationPath);
             if (File.Exists(destinationPath))
             {
                 File.SetAttributes(destinationPath, FileAttributes.Normal);
@@ -241,6 +237,7 @@ public static class AppUpdateInstaller
     {
         Retry(path, () =>
         {
+            AppUpdatePaths.EnsureSafePath(path);
             if (!File.Exists(path))
             {
                 return;
@@ -277,5 +274,64 @@ public static class AppUpdateInstaller
         }
 
         throw new IOException($"Could not update {Path.GetFileName(path)}.", lastError);
+    }
+}
+
+internal static class AppUpdatePaths
+{
+    public static void EnsureSafePath(string path)
+    {
+        string? current = Path.GetFullPath(path);
+        while (current != null)
+        {
+            try
+            {
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                {
+                    throw new AppUpdateException("The update folder contains a symbolic link or reparse point.");
+                }
+            }
+            catch (FileNotFoundException)
+            {
+            }
+            catch (DirectoryNotFoundException)
+            {
+            }
+
+            current = Path.GetDirectoryName(current);
+        }
+    }
+
+    public static List<string> EnumerateRelativeFiles(string root)
+    {
+        EnsureSafePath(root);
+        List<string> files = [];
+        EnumerateRelativeFiles(root, string.Empty, files);
+        return files;
+    }
+
+    private static void EnumerateRelativeFiles(string root, string relativeDirectory, List<string> files)
+    {
+        string directory = relativeDirectory.Length == 0 ? root : Path.Combine(root, relativeDirectory);
+        EnsureSafePath(directory);
+        foreach (string path in Directory.EnumerateFileSystemEntries(directory))
+        {
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new AppUpdateException("The update folder contains a symbolic link or reparse point.");
+            }
+
+            string relativePath = relativeDirectory.Length == 0
+                ? Path.GetFileName(path)
+                : Path.Combine(relativeDirectory, Path.GetFileName(path));
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                EnumerateRelativeFiles(root, relativePath, files);
+                continue;
+            }
+
+            files.Add(relativePath);
+        }
     }
 }

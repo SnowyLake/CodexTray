@@ -2,11 +2,15 @@
 
 #include "PluginInterface.h"
 
+#include <array>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+
 #include <windows.h>
 #include <winhttp.h>
-
-#include <array>
-#include <string>
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -19,6 +23,8 @@ constexpr wchar_t k_ConfigUsageUrlKey[] = L"UsageUrl";
 constexpr wchar_t k_OptionsWindowClassName[] = L"CodexTrayOptionsWindow";
 constexpr int k_OptionsUrlEditId = 1001;
 constexpr wchar_t k_FallbackValue[] = L"N/A";
+constexpr size_t k_MaxResponseBytes = 4096;
+constexpr ULONGLONG k_RequestTimeoutMilliseconds = 5000;
 
 HMODULE g_Module = nullptr;
 
@@ -27,6 +33,13 @@ struct UsageValues
     std::wstring codex;
     std::wstring grok;
     std::wstring deepseek;
+};
+
+struct SharedUsage
+{
+    std::mutex mutex;
+    UsageValues values{ k_FallbackValue, k_FallbackValue, k_FallbackValue };
+    std::wstring tooltip = L"CodexTray waiting for data";
 };
 
 struct OptionsDialogState
@@ -38,31 +51,114 @@ struct OptionsDialogState
     bool accepted = false;
 };
 
-class WinHttpHandle
+struct AsyncRequestContext
+{
+    HANDLE completed = nullptr;
+    DWORD status = 0;
+    DWORD readBytes = 0;
+    std::array<char, k_MaxResponseBytes + 1> buffer{};
+};
+
+void CALLBACK OnRequestStatus(HINTERNET, DWORD_PTR context, DWORD status, void*, DWORD length)
+{
+    auto& state = *reinterpret_cast<AsyncRequestContext*>(context);
+    state.status = status;
+    state.readBytes = length;
+    SetEvent(state.completed);
+}
+
+class AsyncRequest
 {
 public:
-    /// Stores a WinHTTP handle for scoped cleanup.
-    explicit WinHttpHandle(HINTERNET handle = nullptr) : m_Handle(handle)
-    {
-    }
+    AsyncRequest() = default;
+    AsyncRequest(const AsyncRequest&) = delete;
+    AsyncRequest& operator=(const AsyncRequest&) = delete;
 
-    /// Closes the wrapped WinHTTP handle.
-    ~WinHttpHandle()
+    ~AsyncRequest()
     {
-        if (m_Handle != nullptr)
+        if (m_Request != nullptr)
         {
-            WinHttpCloseHandle(m_Handle);
+            WinHttpCloseHandle(m_Request);
+        }
+        if (m_Connection != nullptr)
+        {
+            WinHttpCloseHandle(m_Connection);
+        }
+        if (m_Session != nullptr)
+        {
+            WinHttpCloseHandle(m_Session);
+        }
+        if (m_UnloadRegistered)
+        {
+            // Keep the callback context alive until every session callback has returned.
+            WaitForSingleObject(m_Unloaded, INFINITE);
+        }
+        if (m_Context.completed != nullptr)
+        {
+            CloseHandle(m_Context.completed);
+        }
+        if (m_Unloaded != nullptr)
+        {
+            CloseHandle(m_Unloaded);
         }
     }
 
-    /// Returns the wrapped WinHTTP handle.
-    operator HINTERNET() const
+    bool Initialize(const wchar_t* host, INTERNET_PORT port, const wchar_t* path, DWORD flags)
     {
-        return m_Handle;
+        m_Context.completed = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        m_Unloaded = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (m_Context.completed == nullptr || m_Unloaded == nullptr)
+        {
+            return false;
+        }
+
+        m_Session = WinHttpOpen(L"CodexTray/TrafficMonitorPlugin 1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC);
+        if (m_Session == nullptr || !WinHttpSetOption(m_Session, WINHTTP_OPTION_UNLOAD_NOTIFY_EVENT, &m_Unloaded, sizeof(m_Unloaded)))
+        {
+            return false;
+        }
+        m_UnloadRegistered = true;
+        WinHttpSetTimeouts(m_Session, 1000, 1000, 1000, 2000);
+        m_Connection = WinHttpConnect(m_Session, host, port, 0);
+        if (m_Connection == nullptr)
+        {
+            return false;
+        }
+        m_Request = WinHttpOpenRequest(m_Connection, L"GET", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+        if (m_Request == nullptr)
+        {
+            return false;
+        }
+
+        DWORD_PTR context = reinterpret_cast<DWORD_PTR>(&m_Context);
+        if (!WinHttpSetOption(m_Request, WINHTTP_OPTION_CONTEXT_VALUE, &context, sizeof(context)))
+        {
+            return false;
+        }
+
+        constexpr DWORD notifications = WINHTTP_CALLBACK_FLAG_SENDREQUEST_COMPLETE | WINHTTP_CALLBACK_FLAG_HEADERS_AVAILABLE |
+            WINHTTP_CALLBACK_FLAG_READ_COMPLETE | WINHTTP_CALLBACK_FLAG_REQUEST_ERROR;
+        return WinHttpSetStatusCallback(m_Request, OnRequestStatus, notifications, 0) != WINHTTP_INVALID_STATUS_CALLBACK;
     }
 
+    bool WaitFor(DWORD status, ULONGLONG deadline) const
+    {
+        const ULONGLONG now = GetTickCount64();
+        return now < deadline && WaitForSingleObject(m_Context.completed, static_cast<DWORD>(deadline - now)) == WAIT_OBJECT_0 &&
+            GetTickCount64() < deadline && m_Context.status == status;
+    }
+
+    operator HINTERNET() const { return m_Request; }
+    AsyncRequestContext& Context() { return m_Context; }
+
 private:
-    HINTERNET m_Handle;
+    HINTERNET m_Session = nullptr;
+    HINTERNET m_Connection = nullptr;
+    HINTERNET m_Request = nullptr;
+    AsyncRequestContext m_Context;
+    HANDLE m_Unloaded = nullptr;
+    bool m_UnloadRegistered = false;
 };
 
 /// Converts a UTF-8 string to a wide string.
@@ -405,8 +501,8 @@ bool ShowUsageUrlOptionsDialog(HWND owner, std::wstring& url)
     return state.accepted;
 }
 
-/// Fetches a URL with WinHTTP and returns the response body.
-bool FetchUrl(const std::wstring& url, std::string& body)
+/// Fetches a URL and keeps the WinHTTP context alive until its session is unloaded.
+bool FetchUrlInBackground(const std::wstring& url, std::string& body, ULONGLONG deadline)
 {
     std::array<wchar_t, 256> host{};
     std::array<wchar_t, 2048> path{};
@@ -432,56 +528,48 @@ bool FetchUrl(const std::wstring& url, std::string& body)
         requestPath = L"/";
     }
 
-    WinHttpHandle session(WinHttpOpen(L"CodexTray/TrafficMonitorPlugin 1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
-    if (session == nullptr)
-    {
-        return false;
-    }
-
-    WinHttpSetTimeouts(session, 1000, 1000, 1000, 2000);
-
-    WinHttpHandle connection(WinHttpConnect(session, host.data(), components.nPort, 0));
-    if (connection == nullptr)
-    {
-        return false;
-    }
-
     DWORD flags = components.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0;
-    WinHttpHandle request(WinHttpOpenRequest(connection, L"GET", requestPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
-    if (request == nullptr)
+    AsyncRequest request;
+    if (!request.Initialize(host.data(), components.nPort, requestPath.c_str(), flags))
     {
         return false;
     }
 
-    if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-        !WinHttpReceiveResponse(request, nullptr))
+    auto& context = request.Context();
+    if (GetTickCount64() >= deadline ||
+        !WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, reinterpret_cast<DWORD_PTR>(&context)) ||
+        !request.WaitFor(WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE, deadline) ||
+        !WinHttpReceiveResponse(request, nullptr) || !request.WaitFor(WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE, deadline))
     {
         return false;
     }
 
     body.clear();
-    DWORD availableBytes = 0;
-    while (WinHttpQueryDataAvailable(request, &availableBytes) && availableBytes > 0)
+    while (true)
     {
-        std::string chunk(availableBytes, '\0');
-        DWORD readBytes = 0;
-        if (!WinHttpReadData(request, chunk.data(), availableBytes, &readBytes))
+        const auto capacity = static_cast<DWORD>(k_MaxResponseBytes - body.size() + 1);
+        if (!WinHttpReadData(request, context.buffer.data(), capacity, nullptr) || !request.WaitFor(WINHTTP_CALLBACK_STATUS_READ_COMPLETE, deadline))
         {
             return false;
         }
 
-        chunk.resize(readBytes);
-        body += chunk;
+        if (context.readBytes == 0)
+        {
+            return !body.empty();
+        }
+        if (context.readBytes > k_MaxResponseBytes - body.size())
+        {
+            return false;
+        }
+        body.append(context.buffer.data(), context.readBytes);
     }
-
-    return !body.empty();
 }
 
 /// Fetches Codex, Grok, then DeepSeek display values from the local three-line bridge service.
-bool FetchUsageValues(UsageValues& values)
+bool FetchUsageValues(UsageValues& values, ULONGLONG deadline)
 {
     std::string body;
-    if (!FetchUrl(ReadUsageUrl(), body))
+    if (!FetchUrlInBackground(ReadUsageUrl(), body, deadline))
     {
         return false;
     }
@@ -505,19 +593,113 @@ bool FetchUsageValues(UsageValues& values)
     return !values.codex.empty() && !values.grok.empty() && !values.deepseek.empty();
 }
 
+void PublishUsage(const std::shared_ptr<SharedUsage>& usage, UsageValues values, bool available)
+{
+    std::wstring tooltip;
+    if (available)
+    {
+        tooltip = L"Codex: " + values.codex + L"\nGrok: " + values.grok + L"\nDeepSeek: " + values.deepseek;
+    }
+    else
+    {
+        values = { k_FallbackValue, k_FallbackValue, k_FallbackValue };
+        tooltip = L"CodexTray bridge unavailable";
+    }
+
+    std::lock_guard<std::mutex> lock(usage->mutex);
+    usage->values = std::move(values);
+    usage->tooltip = std::move(tooltip);
+}
+
+std::atomic<bool> g_RequestPending = false;
+
+struct RefreshTask
+{
+    std::shared_ptr<SharedUsage> usage;
+    UsageValues values;
+    ULONGLONG deadline = 0;
+    HANDLE completed = nullptr;
+    HMODULE coordinatorModule = nullptr;
+    HMODULE networkModule = nullptr;
+    bool success = false;
+    bool ownsSlot = false;
+
+    ~RefreshTask()
+    {
+        if (completed != nullptr)
+        {
+            CloseHandle(completed);
+        }
+        if (ownsSlot)
+        {
+            g_RequestPending = false;
+        }
+    }
+};
+
+void CALLBACK RunNetworkTask(PTP_CALLBACK_INSTANCE instance, void* context)
+{
+    std::unique_ptr<std::shared_ptr<RefreshTask>> owner(static_cast<std::shared_ptr<RefreshTask>*>(context));
+    const auto task = *owner;
+    FreeLibraryWhenCallbackReturns(instance, task->networkModule);
+    CallbackMayRunLong(instance);
+    try
+    {
+        task->success = FetchUsageValues(task->values, task->deadline);
+    }
+    catch (...)
+    {
+        task->success = false;
+    }
+    SetEvent(task->completed);
+}
+
+void CALLBACK RunRefreshTask(PTP_CALLBACK_INSTANCE instance, void* context)
+{
+    std::unique_ptr<std::shared_ptr<RefreshTask>> owner(static_cast<std::shared_ptr<RefreshTask>*>(context));
+    const auto task = *owner;
+    FreeLibraryWhenCallbackReturns(instance, task->coordinatorModule);
+    CallbackMayRunLong(instance);
+    try
+    {
+        bool available = false;
+        auto networkContext = std::make_unique<std::shared_ptr<RefreshTask>>(task);
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(g_Module), &task->networkModule))
+        {
+            if (TrySubmitThreadpoolCallback(RunNetworkTask, networkContext.get(), nullptr))
+            {
+                networkContext.release();
+                const ULONGLONG now = GetTickCount64();
+                available = now < task->deadline && WaitForSingleObject(task->completed, static_cast<DWORD>(task->deadline - now)) == WAIT_OBJECT_0 &&
+                    GetTickCount64() < task->deadline && task->success;
+            }
+            else
+            {
+                FreeLibrary(task->networkModule);
+            }
+        }
+        PublishUsage(task->usage, available ? std::move(task->values) : UsageValues{}, available);
+    }
+    catch (...)
+    {
+        try
+        {
+            PublishUsage(task->usage, {}, false);
+        }
+        catch (...)
+        {
+        }
+    }
+}
+
 class UsageItem final : public IPluginItem
 {
 public:
     /// Creates one usage display item.
-    UsageItem(const wchar_t* name, const wchar_t* id, const wchar_t* label, const wchar_t* sampleText)
-        : m_Name(name), m_Id(id), m_Label(label), m_SampleText(sampleText), m_Value(k_FallbackValue)
+    UsageItem(const wchar_t* name, const wchar_t* id, const wchar_t* label, const wchar_t* sampleText,
+              SharedUsage& usage, std::wstring UsageValues::*value, size_t index)
+        : m_Name(name), m_Id(id), m_Label(label), m_SampleText(sampleText), m_Usage(usage), m_Value(value), m_Index(index)
     {
-    }
-
-    /// Updates the displayed item value.
-    void SetValue(std::wstring value)
-    {
-        m_Value = value.empty() ? k_FallbackValue : std::move(value);
     }
 
     /// Returns the display item name.
@@ -538,10 +720,13 @@ public:
         return m_Label.c_str();
     }
 
-    /// Returns the display item value text.
+    /// The returned pointer is valid until this thread next reads the same item.
     const wchar_t* GetItemValueText() const override
     {
-        return m_Value.c_str();
+        thread_local std::array<std::wstring, 3> values;
+        std::lock_guard<std::mutex> lock(m_Usage.mutex);
+        values[m_Index] = m_Usage.values.*m_Value;
+        return values[m_Index].c_str();
     }
 
     /// Returns the sample value text used by TrafficMonitor.
@@ -555,7 +740,9 @@ private:
     std::wstring m_Id;
     std::wstring m_Label;
     std::wstring m_SampleText;
-    std::wstring m_Value;
+    SharedUsage& m_Usage;
+    std::wstring UsageValues::*m_Value;
+    size_t m_Index;
 };
 
 class CodexTrayPlugin final : public ITMPlugin
@@ -563,10 +750,10 @@ class CodexTrayPlugin final : public ITMPlugin
 public:
     /// Creates the TrafficMonitor plugin singleton.
     CodexTrayPlugin()
-        : m_CodexItem(L"Codex", L"CodexTrayCodex", L"Codex", L"100%"),
-          m_GrokItem(L"Grok", L"CodexTrayGrok", L"Grok", L"100%"),
-          m_DeepSeekItem(L"DeepSeek", L"CodexTrayDeepSeek", L"DeepSeek", L"¥9999"),
-          m_Tooltip(L"CodexTray waiting for data")
+        : m_Usage(std::make_shared<SharedUsage>()),
+          m_CodexItem(L"Codex", L"CodexTrayCodex", L"Codex", L"100%", *m_Usage, &UsageValues::codex, 0),
+          m_GrokItem(L"Grok", L"CodexTrayGrok", L"Grok", L"100%", *m_Usage, &UsageValues::grok, 1),
+          m_DeepSeekItem(L"DeepSeek", L"CodexTrayDeepSeek", L"DeepSeek", L"¥9999", *m_Usage, &UsageValues::deepseek, 2)
     {
     }
 
@@ -586,23 +773,45 @@ public:
         }
     }
 
-    /// Refreshes display data from the local CodexTray service.
+    /// Starts a refresh without blocking the host's monitoring thread.
     void DataRequired() override
     {
-        UsageValues values;
-        if (!FetchUsageValues(values))
+        try
         {
-            m_CodexItem.SetValue({});
-            m_GrokItem.SetValue({});
-            m_DeepSeekItem.SetValue({});
-            m_Tooltip = L"CodexTray bridge unavailable";
-            return;
+            auto task = std::make_shared<RefreshTask>();
+            task->usage = m_Usage;
+            task->deadline = GetTickCount64() + k_RequestTimeoutMilliseconds;
+            task->completed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            auto context = std::make_unique<std::shared_ptr<RefreshTask>>(task);
+            if (g_RequestPending.exchange(true))
+            {
+                return;
+            }
+            task->ownsSlot = true;
+            if (task->completed == nullptr ||
+                !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(g_Module), &task->coordinatorModule))
+            {
+                PublishUsage(m_Usage, {}, false);
+                return;
+            }
+            if (!TrySubmitThreadpoolCallback(RunRefreshTask, context.get(), nullptr))
+            {
+                FreeLibrary(task->coordinatorModule);
+                PublishUsage(m_Usage, {}, false);
+                return;
+            }
+            context.release();
         }
-
-        m_CodexItem.SetValue(values.codex);
-        m_GrokItem.SetValue(values.grok);
-        m_DeepSeekItem.SetValue(values.deepseek);
-        m_Tooltip = L"Codex: " + values.codex + L"\nGrok: " + values.grok + L"\nDeepSeek: " + values.deepseek;
+        catch (...)
+        {
+            try
+            {
+                PublishUsage(m_Usage, {}, false);
+            }
+            catch (...)
+            {
+            }
+        }
     }
 
     /// Shows plugin options for editing the backend URL.
@@ -626,7 +835,8 @@ public:
             return OR_OPTION_UNCHANGED;
         }
 
-        m_Tooltip = L"CodexTray backend URL updated";
+        std::lock_guard<std::mutex> lock(m_Usage->mutex);
+        m_Usage->tooltip = L"CodexTray backend URL updated";
         return OR_OPTION_CHANGED;
     }
 
@@ -644,7 +854,7 @@ public:
         case TMI_COPYRIGHT:
             return L"MIT";
         case TMI_VERSION:
-            return L"6.3.0";
+            return L"6.4.0";
         case TMI_URL:
             return L"";
         default:
@@ -652,17 +862,20 @@ public:
         }
     }
 
-    /// Returns tooltip text for the current values.
+    /// The returned pointer is valid until this thread next reads the tooltip.
     const wchar_t* GetTooltipInfo() override
     {
-        return m_Tooltip.c_str();
+        thread_local std::wstring tooltip;
+        std::lock_guard<std::mutex> lock(m_Usage->mutex);
+        tooltip = m_Usage->tooltip;
+        return tooltip.c_str();
     }
 
 private:
+    std::shared_ptr<SharedUsage> m_Usage;
     UsageItem m_CodexItem;
     UsageItem m_GrokItem;
     UsageItem m_DeepSeekItem;
-    std::wstring m_Tooltip;
 };
 
 }
@@ -673,7 +886,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved)
     if (reason == DLL_PROCESS_ATTACH)
     {
         TrafficMonitorPlugin::g_Module = module;
-        DisableThreadLibraryCalls(module);
     }
 
     return TRUE;

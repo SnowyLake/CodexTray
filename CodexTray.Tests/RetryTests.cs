@@ -132,8 +132,9 @@ internal static class RetryTests
         requests.Add(PageItem.Apis, "a");
         requests.Add(PageItem.Apis, "a");
         requests.Add(PageItem.Grok);
+        requests.Add(PageItem.Gemini);
         RefreshRequest first = requests.Take()!;
-        Check(first.Pages == (PageItem.Codex | PageItem.Apis | PageItem.Grok) && first.ApiIds.SequenceEqual(["a"]) && !first.AllApiCards, "merge independent retry targets");
+        Check(first.Pages == (PageItem.Codex | PageItem.Apis | PageItem.Grok | PageItem.Gemini) && first.ApiIds.SequenceEqual(["a"]) && !first.AllApiCards, "merge independent retry targets");
         Check(requests.Take() == null, "batch is drained");
         requests.Add(PageItem.Apis, "b");
         requests.Add(PageItem.All);
@@ -161,8 +162,9 @@ internal static class RetryTests
         TrayPopupViewModel vm = new(new AppSettings { ApiMonitors = [a, b] }, () => throw new InvalidOperationException("targeted retry must not call full refresh"),
             (page, id) => { targets.Add((page, id)); return Task.CompletedTask; });
         await vm.RetrySourceCommand.ExecuteAsync(PageItem.Grok);
+        await vm.RetrySourceCommand.ExecuteAsync(PageItem.Gemini);
         await vm.RetryApiMonitorCommand.ExecuteAsync(vm.ApiMonitors[1]);
-        Check(targets.SequenceEqual([(PageItem.Grok, null), (PageItem.Apis, "b")]), "UI targets one source or card");
+        Check(targets.SequenceEqual([(PageItem.Grok, null), (PageItem.Gemini, null), (PageItem.Apis, "b")]), "UI targets one source or card");
     }
 
     /// <summary>
@@ -191,7 +193,7 @@ internal static class RetryTests
         Check(!vm.BuildDiagnostics(PageItem.Apis).Contains(secret), "whole API page uses the same provider whitelist");
         Check(vm.BuildDiagnostics(PageItem.Grok).Contains("Not collected"), "initial diagnostics do not claim successful collection");
         string allDiagnostics = vm.BuildDiagnostics(PageItem.All);
-        Check(new[] { "Codex usage:", "Grok usage:", "Unknown API balance:" }.All(allDiagnostics.Contains), "advanced diagnostics include every source");
+        Check(new[] { "Codex usage:", "Grok usage:", "Gemini usage:", "Gemini local cost:", "Unknown API balance:" }.All(allDiagnostics.Contains), "advanced diagnostics include every source");
         Check(!allDiagnostics.Contains(secret) && !allDiagnostics.Contains("message.example") && !allDiagnostics.Contains("user-secret") && !allDiagnostics.Contains("card-secret"),
             "combined diagnostics retain provider whitelisting and credential redaction");
     }

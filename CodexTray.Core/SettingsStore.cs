@@ -12,11 +12,14 @@ public enum PageItem
     // Bit 1 stays unused so older settings do not revive Cursor collection and a new flag does not collide with it.
     Apis = 1 << 2,
     Grok = 1 << 3,
-    All = Codex | Grok | Apis,
+    Gemini = 1 << 4,
+    All = Codex | Grok | Gemini | Apis,
 }
 
 public sealed class ApiMonitorSettings
 {
+    public const string BaseUrlRequirement = "Use HTTPS, or HTTP on localhost or a loopback IP address.";
+
     public const string OpenAiProvider = "OpenAI";
 
     public const string DeepSeekProvider = "DeepSeek";
@@ -46,6 +49,13 @@ public sealed class ApiMonitorSettings
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public decimal? MonthlyStartingCredit { get; set; }
+
+    public static bool TryParseBaseUrl(string? value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Uri? uri)
+    {
+        return Uri.TryCreate(value, UriKind.Absolute, out uri) && uri.UserInfo.Length == 0 &&
+            (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp &&
+                (uri.IdnHost == "localhost" || System.Net.IPAddress.TryParse(uri.IdnHost, out var address) && System.Net.IPAddress.IsLoopback(address)));
+    }
 
     /// <summary>
     /// Parses a non-negative USD starting credit. Empty or invalid text stays unset.
@@ -107,7 +117,7 @@ public sealed class AppSettings
     // Removed provider. Saved cards are dropped on load instead of being queried.
     private const string k_LegacyNanoGptProvider = "NanoGPT";
 
-    public const int CurrentSettingsSchemaVersion = 1;
+    public const int CurrentSettingsSchemaVersion = 2;
 
     public const string ThemeModeSystem = "System";
 
@@ -382,8 +392,8 @@ public sealed class SettingsStore
         bool migrateLegacyAllPages = !document.RootElement.TryGetProperty(nameof(AppSettings.SettingsSchemaVersion), out JsonElement schemaVersion) ||
             !schemaVersion.TryGetInt32(out int version) || version < AppSettings.CurrentSettingsSchemaVersion;
         AppSettings settings = JsonSerializer.Deserialize<AppSettings>(json, s_JsonOptions) ?? throw new JsonException("Settings object is missing.");
-        // VisiblePages 7 was Codex|Cursor|Apis, the full set before Grok existed.
-        if (migrateLegacyAllPages && settings.VisiblePages == (PageItem)7)
+        // VisiblePages 7 was Codex|Cursor|Apis (v0) and 13 was Codex|Apis|Grok (v1), the full sets before Gemini existed.
+        if (migrateLegacyAllPages && settings.VisiblePages is (PageItem)7 or (PageItem)13)
         {
             settings.VisiblePages = PageItem.All;
         }
