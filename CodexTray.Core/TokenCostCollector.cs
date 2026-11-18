@@ -139,9 +139,12 @@ public sealed class TokenCostCollector
     private const string k_ExcludedUsageModel = "codex-auto-review";
     private readonly string m_PricingPath;
     private readonly Dictionary<string, CachedFileUsage> m_FileUsageCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CachedFileUsage> m_GeminiFileUsageCache = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, ModelPricing>? m_CachedPricing;
     private Dictionary<string, ModelPricing>? m_CodexPricing;
+    private Dictionary<string, ModelPricing>? m_GeminiPricing;
     private readonly Lock m_PricingLock = new();
+    private readonly Lock m_GeminiCacheLock = new();
     private string? m_CachedPricingJson;
 
     /// <summary>
@@ -252,6 +255,493 @@ public sealed class TokenCostCollector
         }
 
         return accumulator.ToStatistics(sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
+    }
+
+    /// <summary>
+    /// Collects local Antigravity and Gemini CLI session usage and estimated response speed for the supported periods.
+    /// </summary>
+    public TokenCostStatistics CollectGemini(string? geminiDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string root = GeminiUsageCollector.ResolveGeminiHomePath(geminiDirectory);
+        DateTimeOffset current = now ?? DateTimeOffset.Now;
+        Dictionary<string, ModelPricing> pricing = LoadPricing(cancellationToken);
+        TokenCostPeriodAccumulator accumulator = new(current);
+        List<SessionLogEntry> sessionLogs = [];
+        DateTime today = current.LocalDateTime.Date;
+        HashSet<string> seenFiles = new(StringComparer.OrdinalIgnoreCase);
+
+        lock (m_GeminiCacheLock)
+        {
+            if (!ReferenceEquals(m_GeminiPricing, pricing))
+            {
+                m_GeminiFileUsageCache.Clear();
+                m_GeminiPricing = pricing;
+            }
+
+            foreach ((string path, string? database) in EnumerateGeminiTranscriptFiles(root, cancellationToken))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                seenFiles.Add(path);
+                CollectGeminiCachedFile(path, database, () => ParseAntigravityTranscriptEvents(path, database, pricing, cancellationToken), accumulator, sessionLogs, today);
+            }
+
+            foreach (string path in EnumerateGeminiCliSessionFiles(root, cancellationToken))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                seenFiles.Add(path);
+                CollectGeminiCachedFile(path, null, () => (ParseGeminiCliSessionEvents(path, pricing, cancellationToken), true), accumulator, sessionLogs, today);
+            }
+
+            List<string> stale = [];
+            foreach (string path in m_GeminiFileUsageCache.Keys)
+            {
+                if (!seenFiles.Contains(path))
+                {
+                    stale.Add(path);
+                }
+            }
+
+            foreach (string path in stale)
+            {
+                m_GeminiFileUsageCache.Remove(path);
+            }
+        }
+
+        return accumulator.ToStatistics(isSpeedEstimated: true, sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
+    }
+
+    /// <summary>
+    /// Replays a cached Gemini session file when unchanged on disk, otherwise parses and updates its cached events.
+    /// </summary>
+    private void CollectGeminiCachedFile(
+        string path,
+        string? database,
+        Func<(List<CachedUsageEvent> Events, bool Cacheable)> parseEvents,
+        TokenCostPeriodAccumulator accumulator,
+        List<SessionLogEntry> sessionLogs,
+        DateTime today)
+    {
+        FileFingerprint[] fingerprints = GetGeminiFingerprints(path, database);
+        if (fingerprints.Length > 0
+            && m_GeminiFileUsageCache.TryGetValue(path, out CachedFileUsage? cached)
+            && cached.Files.AsSpan().SequenceEqual(fingerprints))
+        {
+            AddCachedUsage(cached.Events, accumulator);
+            AppendSessionLogs(sessionLogs, cached.Events, today);
+            return;
+        }
+
+        (List<CachedUsageEvent> events, bool cacheable) = parseEvents();
+        if (cacheable && fingerprints.Length > 0 && fingerprints.AsSpan().SequenceEqual(GetGeminiFingerprints(path, database)))
+        {
+            m_GeminiFileUsageCache[path] = new CachedFileUsage
+            {
+                Files = fingerprints,
+                Events = events,
+            };
+        }
+        else
+        {
+            m_GeminiFileUsageCache.Remove(path);
+        }
+
+        AddCachedUsage(events, accumulator);
+        AppendSessionLogs(sessionLogs, events, today);
+    }
+
+    private static FileFingerprint[] GetGeminiFingerprints(string path, string? database)
+    {
+        if (!TryGetFileFingerprint(path, out long length, out DateTime lastWriteUtc))
+        {
+            return [];
+        }
+
+        FileFingerprint transcript = new(path, length, lastWriteUtc);
+        if (database == null || !TryGetFileFingerprint(database, out length, out lastWriteUtc))
+        {
+            return [transcript];
+        }
+
+        FileFingerprint db = new(database, length, lastWriteUtc);
+        string wal = database + "-wal";
+        return TryGetFileFingerprint(wal, out length, out lastWriteUtc) ? [transcript, db, new FileFingerprint(wal, length, lastWriteUtc)] : [transcript, db];
+    }
+
+    /// <summary>
+    /// Enumerates Antigravity brain transcript logs without following directory links.
+    /// </summary>
+    private static IEnumerable<(string Path, string? Database)> EnumerateGeminiTranscriptFiles(string geminiDirectory, CancellationToken cancellationToken)
+    {
+        EnumerationOptions options = new()
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = false,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+            MaxRecursionDepth = 8,
+        };
+        HashSet<string> yielded = new(StringComparer.OrdinalIgnoreCase);
+        string[] brainDirectories =
+        [
+            Path.Combine(geminiDirectory, "antigravity-cli", "brain"),
+            Path.Combine(geminiDirectory, "antigravity", "brain"),
+            Path.Combine(geminiDirectory, "brain"),
+        ];
+
+        foreach (string brainDirectory in brainDirectories)
+        {
+            if (!Directory.Exists(brainDirectory))
+            {
+                continue;
+            }
+
+            foreach (string path in Directory.EnumerateFiles(brainDirectory, "transcript.jsonl", options))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (yielded.Add(path))
+                {
+                    string[] parts = Path.GetRelativePath(brainDirectory, path).Split(Path.DirectorySeparatorChar);
+                    string? database = parts is [string id, ".system_generated", "logs", "transcript.jsonl"] && Guid.TryParseExact(id, "D", out _)
+                        ? Path.Combine(Path.GetDirectoryName(brainDirectory)!, "conversations", id + ".db")
+                        : null;
+                    yield return (path, database);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Enumerates Gemini CLI chat sessions and nested subagent sessions without following directory links.
+    /// </summary>
+    private static IEnumerable<string> EnumerateGeminiCliSessionFiles(string geminiDirectory, CancellationToken cancellationToken)
+    {
+        string tmpDirectory = Path.Combine(geminiDirectory, "tmp");
+        if (!Directory.Exists(tmpDirectory))
+        {
+            yield break;
+        }
+
+        EnumerationOptions options = new()
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = false,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+            MaxRecursionDepth = 16,
+        };
+        foreach (string path in Directory.EnumerateFiles(tmpDirectory, "*.json*", options))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string? directory = Path.GetDirectoryName(path);
+            string? parentName = Path.GetFileName(directory);
+            string fileName = Path.GetFileNameWithoutExtension(path);
+            bool isJsonl = path.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase);
+            if (string.Equals(parentName, "chats", StringComparison.OrdinalIgnoreCase) && fileName.StartsWith("session-", StringComparison.OrdinalIgnoreCase))
+            {
+                // Gemini CLI migrates the old JSON history into the same basename with a .jsonl extension.
+                if (isJsonl || (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && !File.Exists(path + "l")))
+                {
+                    yield return path;
+                }
+            }
+            else if (isJsonl && Guid.TryParseExact(fileName, "D", out _) && Guid.TryParseExact(parentName, "D", out _)
+                && string.Equals(Path.GetFileName(Path.GetDirectoryName(directory)), "chats", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return path;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Parses one Antigravity transcript JSONL file into priced events and estimated response speeds.
+    /// </summary>
+    private static (List<CachedUsageEvent> Events, bool Cacheable) ParseAntigravityTranscriptEvents(
+        string path,
+        string? database,
+        Dictionary<string, ModelPricing> pricing,
+        CancellationToken cancellationToken)
+    {
+        if (new FileInfo(path).Length > MaxGrokSessionFileBytes)
+        {
+            throw new IOException("Gemini transcript exceeds the supported size; costs are unavailable.");
+        }
+
+        List<CachedUsageEvent> events = [];
+        Dictionary<long, AntigravityTranscriptModels.StepModel>? stepModels = null;
+        bool attemptedLookup = false;
+        int pendingTimingIndex = -1;
+        DateTimeOffset pendingStartTime = default;
+        long pendingOutputTokens = 0;
+
+        foreach (string line in ReadLinesShared(path, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(line);
+                JsonElement root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    pendingTimingIndex = -1;
+                    continue;
+                }
+
+                bool hasTimestamp = DateTimeOffset.TryParse(
+                    GetString(root, "created_at"),
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out DateTimeOffset timestamp);
+                string stepType = GetString(root, "type");
+                string source = GetString(root, "source");
+
+                if (pendingTimingIndex >= 0)
+                {
+                    if (hasTimestamp && !string.Equals(stepType, "USER_INPUT", StringComparison.OrdinalIgnoreCase))
+                    {
+                        long durationMilliseconds = (timestamp - pendingStartTime).Ticks / TimeSpan.TicksPerMillisecond;
+                        if (TryPairEstimatedSpeed(pendingOutputTokens, durationMilliseconds, out long timedOutput, out long timedDuration))
+                        {
+                            events[pendingTimingIndex] = events[pendingTimingIndex] with
+                            {
+                                TimedOutputTokens = timedOutput,
+                                TimedDurationMilliseconds = timedDuration,
+                            };
+                        }
+                    }
+
+                    pendingTimingIndex = -1;
+                }
+
+                bool isModelResponse = string.Equals(stepType, "PLANNER_RESPONSE", StringComparison.OrdinalIgnoreCase)
+                    || (string.Equals(source, "MODEL", StringComparison.OrdinalIgnoreCase)
+                        && (root.TryGetProperty("output_tokens", out _) || root.TryGetProperty("input_tokens", out _)));
+                if (!isModelResponse || !hasTimestamp)
+                {
+                    continue;
+                }
+
+                long freshInput = Math.Max(0, GetInt64(root, "input_tokens"));
+                long cachedInput = Math.Max(0, GetInt64(root, "cache_read_tokens", GetInt64(root, "cached_tokens")));
+                long output = Math.Max(0, GetInt64(root, "output_tokens"));
+                TokenCounts counts = new(checked(freshInput + cachedInput), cachedInput, output);
+                if (!counts.HasUsage)
+                {
+                    continue;
+                }
+
+                string rawModel = GetString(root, "model");
+                if (string.IsNullOrWhiteSpace(rawModel) || string.Equals(rawModel, "unknown", StringComparison.OrdinalIgnoreCase))
+                {
+                    rawModel = "unknown";
+                    long step = GetInt64(root, "step_index", -1);
+                    if (database != null && step >= 0)
+                    {
+                        if (!attemptedLookup)
+                        {
+                            stepModels = AntigravityTranscriptModels.Read(database, cancellationToken);
+                            attemptedLookup = true;
+                        }
+                        if (stepModels != null && stepModels.TryGetValue(step, out AntigravityTranscriptModels.StepModel match)
+                            && match.Matches(timestamp, freshInput, cachedInput, output))
+                        {
+                            rawModel = match.Model;
+                        }
+                    }
+                }
+
+                string model = NormalizeAntigravityModel(rawModel);
+                if (IsExcludedUsageModel(model))
+                {
+                    continue;
+                }
+
+                decimal? costUsd = CalculateCost(pricing, model, counts, timestamp);
+                events.Add(new CachedUsageEvent(timestamp, counts.Total, costUsd, model, counts.CacheReadTokens, counts.CacheableInputTokens, 0, 0));
+
+                bool hasToolCalls = root.TryGetProperty("tool_calls", out JsonElement toolCalls)
+                    && toolCalls.ValueKind == JsonValueKind.Array
+                    && toolCalls.GetArrayLength() > 0;
+                if (hasToolCalls && output >= EstimatedSpeedMinOutputTokens)
+                {
+                    pendingTimingIndex = events.Count - 1;
+                    pendingStartTime = timestamp;
+                    pendingOutputTokens = output;
+                }
+            }
+            catch (Exception exception) when (exception is JsonException or ArgumentOutOfRangeException or OverflowException)
+            {
+                pendingTimingIndex = -1;
+            }
+        }
+
+        return (events, !attemptedLookup || stepModels != null);
+    }
+
+    /// <summary>
+    /// Parses one Gemini CLI session JSON or JSONL file, deduplicating incremental $set snapshots by message id.
+    /// </summary>
+    private static List<CachedUsageEvent> ParseGeminiCliSessionEvents(
+        string path,
+        Dictionary<string, ModelPricing> pricing,
+        CancellationToken cancellationToken)
+    {
+        if (new FileInfo(path).Length > MaxGrokSessionFileBytes)
+        {
+            throw new IOException("Gemini CLI session exceeds the supported size; costs are unavailable.");
+        }
+
+        Dictionary<string, CachedUsageEvent> byMessageId = new(StringComparer.Ordinal);
+        List<string> messageOrder = [];
+        int unnamedIndex = 0;
+
+        if (path.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (string line in ReadLinesShared(path, cancellationToken))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using JsonDocument document = JsonDocument.Parse(line);
+                    JsonElement root = document.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    JsonElement setElement = GetObject(root, "$set");
+                    if (setElement.ValueKind == JsonValueKind.Object
+                        && setElement.TryGetProperty("messages", out JsonElement snapshotMessages)
+                        && snapshotMessages.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement message in snapshotMessages.EnumerateArray())
+                        {
+                            RecordGeminiCliMessage(message, pricing, byMessageId, messageOrder, ref unnamedIndex);
+                        }
+                    }
+                    else
+                    {
+                        RecordGeminiCliMessage(root, pricing, byMessageId, messageOrder, ref unnamedIndex);
+                    }
+                }
+                catch (Exception exception) when (exception is JsonException or ArgumentOutOfRangeException or OverflowException)
+                {
+                }
+            }
+        }
+        else
+        {
+            try
+            {
+                using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using JsonDocument document = JsonDocument.Parse(stream);
+                JsonElement root = document.RootElement;
+                if (root.ValueKind == JsonValueKind.Object
+                    && root.TryGetProperty("messages", out JsonElement messages)
+                    && messages.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement message in messages.EnumerateArray())
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        RecordGeminiCliMessage(message, pricing, byMessageId, messageOrder, ref unnamedIndex);
+                    }
+                }
+            }
+            catch (Exception exception) when (exception is JsonException or ArgumentOutOfRangeException or OverflowException)
+            {
+            }
+        }
+
+        List<CachedUsageEvent> events = new(messageOrder.Count);
+        foreach (string key in messageOrder)
+        {
+            if (byMessageId.TryGetValue(key, out CachedUsageEvent usageEvent))
+            {
+                events.Add(usageEvent);
+            }
+        }
+
+        return events;
+    }
+
+    /// <summary>
+    /// Converts one Gemini CLI model message with token counters into a deduplicated cached event.
+    /// </summary>
+    private static void RecordGeminiCliMessage(
+        JsonElement message,
+        Dictionary<string, ModelPricing> pricing,
+        Dictionary<string, CachedUsageEvent> byMessageId,
+        List<string> messageOrder,
+        ref int unnamedIndex)
+    {
+        if (message.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        string messageType = GetString(message, "type");
+        if (!string.IsNullOrEmpty(messageType)
+            && !string.Equals(messageType, "gemini", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(messageType, "model", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(messageType, "assistant", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        JsonElement tokens = GetObject(message, "tokens");
+        if (tokens.ValueKind != JsonValueKind.Object || !HasAnyProperty(tokens))
+        {
+            return;
+        }
+
+        if (!DateTimeOffset.TryParse(
+                GetString(message, "timestamp"),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out DateTimeOffset timestamp))
+        {
+            return;
+        }
+
+        string rawModel = GetString(message, "model");
+        string model = NormalizeAntigravityModel(rawModel.Length > 0 ? rawModel : "unknown");
+        if (IsExcludedUsageModel(model))
+        {
+            return;
+        }
+
+        long rawInput = Math.Max(0, GetInt64(tokens, "input"));
+        long cached = Math.Max(0, GetInt64(tokens, "cached"));
+        long output = Math.Max(0, GetInt64(tokens, "output"));
+        long thoughts = Math.Max(0, GetInt64(tokens, "thoughts"));
+        long toolInput = Math.Max(0, GetInt64(tokens, "tool"));
+
+        // Gemini CLI input already includes cached tokens; tool-use prompts and thoughts are separate counters.
+        long totalInput = checked(rawInput + toolInput);
+        long totalOutput = checked(output + thoughts);
+        TokenCounts counts = new(totalInput, cached, totalOutput);
+        if (!counts.HasUsage)
+        {
+            return;
+        }
+
+        string messageId = GetString(message, "id");
+        string key = messageId.Length > 0 ? messageId : $"anon:{unnamedIndex++}";
+        if (!byMessageId.ContainsKey(key))
+        {
+            messageOrder.Add(key);
+        }
+
+        decimal? costUsd = CalculateCost(pricing, model, counts, timestamp);
+        byMessageId[key] = new CachedUsageEvent(timestamp, counts.Total, costUsd, model, counts.CacheReadTokens, counts.CacheableInputTokens, 0, 0);
     }
 
     /// <summary>
@@ -1285,7 +1775,7 @@ public sealed class TokenCostCollector
     }
 
     /// <summary>
-    /// Matches exact models and reasoning-effort suffix variants.
+    /// Matches exact models, Antigravity internal orchestrator IDs, and effort/variant suffixes.
     /// </summary>
     private static bool TryFindPricing(Dictionary<string, ModelPricing> pricing, string model, out ModelPricing result)
     {
@@ -1294,9 +1784,54 @@ public sealed class TokenCostCollector
             return true;
         }
 
-        string[] suffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh"];
-        string? baseModel = suffixes.FirstOrDefault(model.EndsWith) is string suffix ? model[..^suffix.Length] : null;
-        return baseModel != null && pricing.TryGetValue(baseModel, out result);
+        string mapped = MapAntigravityModelId(model);
+        if (!string.Equals(mapped, model, StringComparison.OrdinalIgnoreCase) && pricing.TryGetValue(mapped, out result))
+        {
+            return true;
+        }
+
+        string[] suffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh", "-thinking", "-g1-pro", "-g1-ultra", "-preview", "-latest"];
+        string candidate = model;
+        while (suffixes.FirstOrDefault(candidate.EndsWith) is string suffix)
+        {
+            candidate = candidate[..^suffix.Length];
+            if (pricing.TryGetValue(candidate, out result))
+            {
+                return true;
+            }
+
+            string mappedCandidate = MapAntigravityModelId(candidate);
+            if (!string.Equals(mappedCandidate, candidate, StringComparison.OrdinalIgnoreCase)
+                && pricing.TryGetValue(mappedCandidate, out result))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Normalizes a Gemini or Antigravity model ID after stripping snapshot dates and provider prefixes.
+    /// </summary>
+    private static string NormalizeAntigravityModel(string value)
+    {
+        return MapAntigravityModelId(NormalizeModel(value));
+    }
+
+    /// <summary>
+    /// Maps internal Antigravity model identifiers onto canonical pricing names.
+    /// </summary>
+    public static string MapAntigravityModelId(string model)
+    {
+        return model.ToLowerInvariant() switch
+        {
+            "gemini-pro-orchestrator-g1-pro" or "gemini-pro-orchestrator" => "gemini-4-argon",
+            "gemini-pro-orchestrator-g1-ultra" or "gemini-ultra-orchestrator" => "gemini-4-carbon",
+            "gemini-flash-executor" or "gemini-flash-worker-agy" => "gemini-4-hydrogen",
+            "gemini-3.8-flash-n" => "gemini-3.8-flash",
+            _ => model,
+        };
     }
 
     /// <summary>

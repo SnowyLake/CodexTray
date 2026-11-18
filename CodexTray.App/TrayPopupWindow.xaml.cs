@@ -764,13 +764,20 @@ internal sealed partial class TrayPopupWindow : Window
     }
 
     /// <summary>
-    /// Switches a two-page quota card with the mouse wheel.
+    /// Switches a multi-page quota card with the mouse wheel.
     /// </summary>
     private void QuotaCard_PreviewMouseWheel(object sender, Input.MouseWheelEventArgs args)
     {
         if (sender is FrameworkElement { DataContext: TrayPopupViewModel.QuotaPagerViewModel pager } && pager.HasMultiplePages && args.Delta != 0)
         {
-            pager.SelectQuota(args.Delta < 0 ? pager.SecondQuota : pager.FirstQuota);
+            if (DataContext is TrayPopupViewModel viewModel && ReferenceEquals(pager, viewModel.CodexQuotaPager))
+            {
+                pager.SelectQuota(args.Delta < 0 ? pager.SecondQuota : pager.FirstQuota);
+            }
+            else
+            {
+                pager.SelectAdjacent(args.Delta < 0 ? 1 : -1);
+            }
             args.Handled = true;
         }
     }

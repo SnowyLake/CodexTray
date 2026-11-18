@@ -70,6 +70,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 {
     private const string k_CodexPageName = "Codex";
     private const string k_GrokPageName = "Grok";
+    private const string k_GeminiPageName = "Gemini";
     private const string k_GrokBuildProductName = "Build";
     private const string k_GrokBotProductName = "Bot";
     private const string k_GrokCursorProductName = "Cursor";
@@ -101,7 +102,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         k_GrokBotProductName,
         k_GrokCursorProductName,
     ];
-    private static readonly string[] s_ModelEffortSuffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh"];
+    private static readonly string[] s_ModelEffortSuffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh", "-thinking", "-g1-pro", "-g1-ultra"];
     private static readonly Media.Brush s_PlanBadgeActiveBrush = s_GreenBrush;
     private static readonly Media.Brush s_PlanBadgeInactiveBrush = CreateFrozenBrush(107, 122, 117);
 
@@ -115,9 +116,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private GrokUsageDashboard m_GrokDashboard = new(null, string.Empty, DateTimeOffset.Now);
     private string m_GrokSubscriptionTier = string.Empty;
     private bool m_GrokTokenCostAvailable;
+    private GeminiUsageDashboard m_GeminiDashboard = GeminiUsageDashboard.Empty;
+    private bool m_GeminiTokenCostAvailable;
     public RefreshState CodexUsageState { get; } = new();
     public RefreshState CodexResetState { get; } = new();
     public RefreshState GrokUsageState { get; } = new();
+    public RefreshState GeminiUsageState { get; } = new();
 
     private ApiUsageRefreshStatus? m_ApiUsageStatus;
     private int m_ApiUsageErrorCount;
@@ -170,13 +174,31 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public QuotaPagerViewModel CodexQuotaPager { get; }
 
+    public QuotaViewModel GeminiSessionQuota { get; } = new("Session");
+
+    public QuotaViewModel GeminiWeeklyQuota { get; } = new("Weekly");
+
+    public QuotaViewModel GeminiArgonWeeklyQuota { get; } = new("Argon Weekly", isVisible: false);
+
+    public QuotaPagerViewModel GeminiQuotaPager { get; }
+
+    public QuotaViewModel GeminiPartnerSessionQuota { get; } = new("Claude & GPT Session", tooltipTitle: "Session");
+
+    public QuotaViewModel GeminiPartnerWeeklyQuota { get; } = new("Claude & GPT Weekly", tooltipTitle: "Weekly");
+
+    public QuotaPagerViewModel GeminiPartnerQuotaPager { get; }
+
     public TokenCostDashboardViewModel CodexTokenCost { get; }
 
     public TokenCostDashboardViewModel GrokTokenCost { get; }
 
+    public TokenCostDashboardViewModel GeminiTokenCost { get; }
+
     public SessionLogListViewModel CodexSessionLogs { get; } = new();
 
     public SessionLogListViewModel GrokSessionLogs { get; } = new();
+
+    public SessionLogListViewModel GeminiSessionLogs { get; } = new();
 
     public IRelayCommand OpenRepositoryCommand { get; }
 
@@ -318,6 +340,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 OnPropertyChanged(nameof(VisiblePagesDisplay));
                 OnPropertyChanged(nameof(ShowCodexPage));
                 OnPropertyChanged(nameof(ShowGrokPage));
+                OnPropertyChanged(nameof(ShowGeminiPage));
                 OnPropertyChanged(nameof(ShowApisPage));
                 EvaluateDirtyState();
             }
@@ -341,6 +364,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         get => (m_VisiblePages & PageItem.Grok) != 0;
         set => SetPageItem(PageItem.Grok, value);
+    }
+
+    public bool ShowGeminiPage
+    {
+        get => (m_VisiblePages & PageItem.Gemini) != 0;
+        set => SetPageItem(PageItem.Gemini, value);
     }
 
     public bool ShowApisPage
@@ -376,6 +405,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public bool IsCodexVisible => m_CurrentPage == k_CodexPageName;
 
     public bool IsGrokVisible => m_CurrentPage == k_GrokPageName;
+
+    public bool IsGeminiVisible => m_CurrentPage == k_GeminiPageName;
 
     public bool IsApiVisible => m_CurrentPage == k_ApiPageName;
 
@@ -434,6 +465,18 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial string GrokUpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
 
     [ObservableProperty]
+    public partial Media.Brush GeminiStatusDotBrush { get; private set; } = s_RedBrush;
+
+    [ObservableProperty]
+    public partial string GeminiPlanDisplay { get; private set; } = "UNKNOWN";
+
+    [ObservableProperty]
+    public partial Media.Brush GeminiPlanBadgeBrush { get; private set; } = s_PlanBadgeInactiveBrush;
+
+    [ObservableProperty]
+    public partial string GeminiUpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
+
+    [ObservableProperty]
     public partial IReadOnlyList<GrokProductUsageItemViewModel> GrokProductUsageItems { get; private set; } = [];
 
     [ObservableProperty]
@@ -484,8 +527,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         m_Settings = settings;
         CodexQuotaPager = new QuotaPagerViewModel(CodexSessionQuota, CodexWeeklyQuota);
+        GeminiQuotaPager = new QuotaPagerViewModel(GeminiSessionQuota, GeminiWeeklyQuota, GeminiArgonWeeklyQuota);
+        GeminiPartnerQuotaPager = new QuotaPagerViewModel(GeminiPartnerSessionQuota, GeminiPartnerWeeklyQuota);
         CodexTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
         GrokTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
+        GeminiTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
         retryAsync ??= (_, _) => RefreshCommand.CanExecute(null) ? RefreshCommand.ExecuteAsync(null) : Task.CompletedTask;
@@ -505,9 +551,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             ? k_CodexPageName
             : (settings.VisiblePages & PageItem.Grok) != 0
                 ? k_GrokPageName
-                : (settings.VisiblePages & PageItem.Apis) != 0
-                    ? k_ApiPageName
-                    : k_SettingsPageName;
+                : (settings.VisiblePages & PageItem.Gemini) != 0
+                    ? k_GeminiPageName
+                    : (settings.VisiblePages & PageItem.Apis) != 0
+                        ? k_ApiPageName
+                        : k_SettingsPageName;
         LoadSettings(settings);
         LoadApiMonitors(settings.ApiMonitors);
     }
@@ -894,6 +942,133 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Updates the Gemini page from one Gemini / Antigravity quota collection result.
+    /// </summary>
+    public void UpdateGeminiDashboard(GeminiUsageDashboard dashboard, TokenCostStatistics? tokenCost = null)
+    {
+        m_GeminiDashboard = dashboard;
+        GeminiUsageSnapshot snapshot = dashboard.Snapshot;
+        DateTimeOffset updatedAt = snapshot.UpdatedAt == DateTimeOffset.MinValue ? DateTimeOffset.Now : snapshot.UpdatedAt;
+        GeminiUsageState.Update(snapshot.IsAvailable, updatedAt, dashboard.StatusMessage);
+        if (snapshot.IsAvailable)
+        {
+            string normalizedPlan = FormatGeminiPlan(snapshot.SubscriptionTier);
+            GeminiPlanDisplay = normalizedPlan;
+            GeminiPlanBadgeBrush = normalizedPlan == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
+            ApplyGeminiWindow(GeminiSessionQuota, snapshot.GeminiFiveHour, updatedAt);
+            ApplyGeminiWindow(GeminiWeeklyQuota, snapshot.GeminiWeekly, updatedAt);
+            if (snapshot.ArgonWeekly != null)
+            {
+                ApplyGeminiWindow(GeminiArgonWeeklyQuota, snapshot.ArgonWeekly, updatedAt);
+            }
+            else
+            {
+                GeminiArgonWeeklyQuota.Hide();
+            }
+
+            if (snapshot.PartnerFiveHour != null)
+            {
+                ApplyGeminiWindow(GeminiPartnerSessionQuota, snapshot.PartnerFiveHour, updatedAt);
+            }
+            else
+            {
+                GeminiPartnerSessionQuota.UpdateUnavailable("N/A");
+            }
+
+            if (snapshot.PartnerWeekly != null)
+            {
+                ApplyGeminiWindow(GeminiPartnerWeeklyQuota, snapshot.PartnerWeekly, updatedAt);
+            }
+            else if (snapshot.PartnerFiveHour != null)
+            {
+                GeminiPartnerWeeklyQuota.Hide();
+            }
+            else
+            {
+                GeminiPartnerWeeklyQuota.UpdateUnavailable("N/A");
+            }
+        }
+        else
+        {
+            GeminiPlanDisplay = "UNKNOWN";
+            GeminiPlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            GeminiSessionQuota.UpdateUnavailable("N/A");
+            GeminiWeeklyQuota.UpdateUnavailable("N/A");
+            GeminiArgonWeeklyQuota.Hide();
+            GeminiPartnerSessionQuota.UpdateUnavailable("N/A");
+            GeminiPartnerWeeklyQuota.UpdateUnavailable("N/A");
+        }
+
+        GeminiQuotaPager.EnsureValidSelection();
+        GeminiPartnerQuotaPager.EnsureValidSelection();
+
+        if (tokenCost != null)
+        {
+            UpdateGeminiTokenCost(tokenCost);
+        }
+        else
+        {
+            UpdateGeminiStatus();
+        }
+    }
+
+    /// <summary>
+    /// Updates local Gemini token costs independently of the quota collection.
+    /// </summary>
+    public void UpdateGeminiTokenCost(TokenCostStatistics? statistics, string? error = null)
+    {
+        m_GeminiTokenCostAvailable = statistics != null;
+        GeminiTokenCost.Update(statistics, error);
+        GeminiSessionLogs.Update(statistics);
+        UpdateGeminiStatus();
+    }
+
+    /// <summary>
+    /// Combines the independently published Gemini quota and local-cost availability.
+    /// </summary>
+    private void UpdateGeminiStatus()
+    {
+        GeminiUsageSnapshot snapshot = m_GeminiDashboard.Snapshot;
+        bool usageAvailable = snapshot.IsAvailable;
+        bool tokenCostAvailable = m_GeminiTokenCostAvailable;
+        GeminiStatusDotBrush = usageAvailable && tokenCostAvailable
+            ? s_GreenBrush
+            : usageAvailable || tokenCostAvailable
+                ? s_YellowBrush
+                : s_RedBrush;
+        GeminiUpdatedAtDisplay = usageAvailable && tokenCostAvailable
+            ? FormatUpdatedAt(snapshot.UpdatedAt.ToString("O", CultureInfo.InvariantCulture))
+            : usageAvailable
+                ? "Usage updated, Token Cost N/A"
+                : tokenCostAvailable
+                    ? "Token Cost updated, Usage N/A"
+                    : "Update error";
+    }
+
+    /// <summary>
+    /// Applies one optional Gemini quota limit using the active reset-time formatting setting.
+    /// </summary>
+    private void ApplyGeminiWindow(QuotaViewModel target, UsageLimit? limit, DateTimeOffset now)
+    {
+        if (limit == null || limit.WindowMinutes <= 0)
+        {
+            target.UpdateUnavailable("N/A");
+            return;
+        }
+
+        target.Update(limit, GeminiUsageCollector.FormatResetLabel(limit, m_Settings.UseAbsoluteResetTime, now));
+    }
+
+    /// <summary>
+    /// Formats a normalized Gemini subscription badge display string.
+    /// </summary>
+    private static string FormatGeminiPlan(string? subscriptionTier)
+    {
+        string normalized = GeminiUsageCollector.NormalizeSubscriptionTier(subscriptionTier);
+        return normalized.Length == 0 ? "UNKNOWN" : normalized;
+    }
+
+    /// <summary>
     /// Shows the Codex dashboard page inside the tray popup.
     /// </summary>
     [RelayCommand]
@@ -909,6 +1084,15 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public void ShowGrok()
     {
         SetPage(k_GrokPageName);
+    }
+
+    /// <summary>
+    /// Shows the Gemini dashboard page inside the tray popup.
+    /// </summary>
+    [RelayCommand]
+    public void ShowGemini()
+    {
+        SetPage(k_GeminiPageName);
     }
 
     /// <summary>
@@ -956,6 +1140,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         m_CurrentPage = pageName;
         OnPropertyChanged(nameof(IsCodexVisible));
         OnPropertyChanged(nameof(IsGrokVisible));
+        OnPropertyChanged(nameof(IsGeminiVisible));
         OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsAboutVisible));
@@ -1153,6 +1338,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             {
                 Add("Grok usage", GrokUsageState);
                 Add("Grok local cost", GrokTokenCost.Freshness);
+            }
+            if ((page & PageItem.Gemini) != 0)
+            {
+                Add("Gemini usage", GeminiUsageState);
+                Add("Gemini local cost", GeminiTokenCost.Freshness);
             }
             if ((page & PageItem.Apis) != 0)
             {
@@ -2046,10 +2236,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             {
                 label = label[..^5];
             }
-            string? suffix = s_ModelEffortSuffixes.FirstOrDefault(label.EndsWith);
-            if (suffix != null)
+
+            label = TokenCostCollector.MapAntigravityModelId(label);
+            while (s_ModelEffortSuffixes.FirstOrDefault(label.EndsWith) is string suffix)
             {
                 label = label[..^suffix.Length];
+                label = TokenCostCollector.MapAntigravityModelId(label);
             }
 
             if (label.Equals("unknown", StringComparison.OrdinalIgnoreCase) || label.Length == 0)
@@ -2259,48 +2451,164 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     internal sealed record GrokProductUsageItemViewModel(string Name, string PercentText, double UsedPercent, Media.Brush Brush);
 
     /// <summary>
-    /// Selects between two quota pages displayed by one large card.
+    /// Selects between up to three quota pages displayed by one quota card.
     /// </summary>
     internal sealed partial class QuotaPagerViewModel : ObservableObject
     {
+        private int m_SelectedIndex;
+
         public QuotaViewModel FirstQuota { get; }
 
         public QuotaViewModel SecondQuota { get; }
 
+        public QuotaViewModel? ThirdQuota { get; }
+
         public Media.Brush SelectedBrush { get; } = s_GreenBrush;
 
-        public bool HasMultiplePages => FirstQuota.IsVisible && SecondQuota.IsVisible;
+        public bool HasThirdPage => ThirdQuota?.IsVisible == true;
 
-        public bool IsFirstVisible => FirstQuota.IsVisible && (!IsSecondSelected || !SecondQuota.IsVisible);
+        public bool HasMultiplePages => VisibleQuotaIndices().Count > 1;
 
-        public bool IsSecondVisible => SecondQuota.IsVisible && (IsSecondSelected || !FirstQuota.IsVisible);
+        public bool IsFirstSelected => CurrentIndex == 0;
 
-        [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(IsFirstVisible))]
-        [NotifyPropertyChangedFor(nameof(IsSecondVisible))]
-        public partial bool IsSecondSelected { get; private set; }
+        public bool IsSecondSelected => CurrentIndex == 1;
+
+        public bool IsThirdSelected => CurrentIndex == 2;
+
+        public bool IsFirstVisible => CurrentIndex == 0 && FirstQuota.IsVisible;
+
+        public bool IsSecondVisible => CurrentIndex == 1 && SecondQuota.IsVisible;
+
+        public bool IsThirdVisible => CurrentIndex == 2 && ThirdQuota?.IsVisible == true;
+
+        private int CurrentIndex
+        {
+            get
+            {
+                List<int> visible = VisibleQuotaIndices();
+                if (visible.Count == 0)
+                {
+                    return 0;
+                }
+
+                return visible.Contains(m_SelectedIndex) ? m_SelectedIndex : visible[0];
+            }
+        }
 
         /// <summary>
-        /// Creates a pager for two quota models.
+        /// Creates a pager for two or three quota models.
         /// </summary>
-        public QuotaPagerViewModel(QuotaViewModel firstQuota, QuotaViewModel secondQuota)
+        public QuotaPagerViewModel(QuotaViewModel firstQuota, QuotaViewModel secondQuota, QuotaViewModel? thirdQuota = null)
         {
             FirstQuota = firstQuota;
             SecondQuota = secondQuota;
+            ThirdQuota = thirdQuota;
             FirstQuota.PropertyChanged += OnQuotaPropertyChanged;
             SecondQuota.PropertyChanged += OnQuotaPropertyChanged;
+            if (ThirdQuota != null)
+            {
+                ThirdQuota.PropertyChanged += OnQuotaPropertyChanged;
+            }
         }
 
         /// <summary>
         /// Selects one quota page.
         /// </summary>
         [RelayCommand]
-        public void SelectQuota(QuotaViewModel quota)
+        public void SelectQuota(QuotaViewModel? quota)
         {
-            if (quota.IsVisible)
+            if (quota == null || !quota.IsVisible)
             {
-                IsSecondSelected = ReferenceEquals(quota, SecondQuota);
+                return;
             }
+
+            int targetIndex = ReferenceEquals(quota, FirstQuota)
+                ? 0
+                : ReferenceEquals(quota, SecondQuota)
+                    ? 1
+                    : ReferenceEquals(quota, ThirdQuota)
+                        ? 2
+                        : -1;
+            if (targetIndex < 0)
+            {
+                return;
+            }
+
+            SetSelectedIndex(targetIndex);
+        }
+
+        /// <summary>
+        /// Cycles to the next or previous visible quota page.
+        /// </summary>
+        public void SelectAdjacent(int delta)
+        {
+            List<int> visible = VisibleQuotaIndices();
+            if (visible.Count <= 1 || delta == 0)
+            {
+                return;
+            }
+
+            int currentPosition = visible.IndexOf(CurrentIndex);
+            if (currentPosition < 0)
+            {
+                currentPosition = 0;
+            }
+
+            int step = delta > 0 ? 1 : -1;
+            int nextPosition = (currentPosition + step + visible.Count) % visible.Count;
+            SetSelectedIndex(visible[nextPosition]);
+        }
+
+        /// <summary>
+        /// Ensures selection stays on a currently visible quota page after a data update.
+        /// </summary>
+        public void EnsureValidSelection()
+        {
+            List<int> visible = VisibleQuotaIndices();
+            if (visible.Count > 0 && !visible.Contains(m_SelectedIndex))
+            {
+                m_SelectedIndex = visible[0];
+            }
+
+            NotifySelectionProperties();
+        }
+
+        /// <summary>
+        /// Updates selection index and raises dependent notifications.
+        /// </summary>
+        private void SetSelectedIndex(int index)
+        {
+            if (m_SelectedIndex == index)
+            {
+                return;
+            }
+
+            m_SelectedIndex = index;
+            NotifySelectionProperties();
+        }
+
+        /// <summary>
+        /// Returns ordered visible quota indices among the configured slots.
+        /// </summary>
+        private List<int> VisibleQuotaIndices()
+        {
+            List<int> indices = new(3);
+            if (FirstQuota.IsVisible)
+            {
+                indices.Add(0);
+            }
+
+            if (SecondQuota.IsVisible)
+            {
+                indices.Add(1);
+            }
+
+            if (ThirdQuota?.IsVisible == true)
+            {
+                indices.Add(2);
+            }
+
+            return indices;
         }
 
         /// <summary>
@@ -2310,16 +2618,31 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         {
             if (args.PropertyName == nameof(QuotaViewModel.IsVisible))
             {
-                OnPropertyChanged(nameof(HasMultiplePages));
-                OnPropertyChanged(nameof(IsFirstVisible));
-                OnPropertyChanged(nameof(IsSecondVisible));
+                NotifySelectionProperties();
             }
+        }
+
+        /// <summary>
+        /// Raises all visibility and active-indicator notifications.
+        /// </summary>
+        private void NotifySelectionProperties()
+        {
+            OnPropertyChanged(nameof(HasThirdPage));
+            OnPropertyChanged(nameof(HasMultiplePages));
+            OnPropertyChanged(nameof(IsFirstSelected));
+            OnPropertyChanged(nameof(IsSecondSelected));
+            OnPropertyChanged(nameof(IsThirdSelected));
+            OnPropertyChanged(nameof(IsFirstVisible));
+            OnPropertyChanged(nameof(IsSecondVisible));
+            OnPropertyChanged(nameof(IsThirdVisible));
         }
     }
 
     internal sealed partial class QuotaViewModel : ObservableObject
     {
         public string Title { get; }
+
+        public string TooltipTitle { get; }
 
         [ObservableProperty]
         public partial int RemainingPercent { get; private set; }
@@ -2339,16 +2662,17 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// <summary>
         /// Creates a quota display model.
         /// </summary>
-        public QuotaViewModel(string title, bool isVisible = true)
+        public QuotaViewModel(string title, bool isVisible = true, string? tooltipTitle = null)
         {
             Title = title;
+            TooltipTitle = string.IsNullOrWhiteSpace(tooltipTitle) ? title : tooltipTitle;
             IsVisible = isVisible;
         }
 
         /// <summary>
         /// Updates the quota display from a usage limit.
         /// </summary>
-        public void Update(UsageLimit limit)
+        public void Update(UsageLimit limit, string? resetLabelOverride = null)
         {
             if (limit.WindowMinutes <= 0)
             {
@@ -2356,7 +2680,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 return;
             }
 
-            UpdateRemaining(limit.RemainingPercent, limit.ResetLabel);
+            UpdateRemaining(limit.RemainingPercent, resetLabelOverride ?? limit.ResetLabel);
         }
 
         /// <summary>

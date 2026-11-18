@@ -75,6 +75,10 @@ internal static class Program
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
         await RunAsync("prefers Grok settings display name", TestGrokSettingsSubscriptionTierAsync);
         await RunAsync("ignores OpenCode OAuth for Grok", TestGrokIgnoresOpenCodeOAuthAsync);
+        await RunAsync("collects Gemini quota and refreshes OAuth", TestGeminiUsageCollectorAsync);
+        await RunAsync("decodes Windows and IDE Gemini credentials", GeminiCredentialTests.EncodingsAsync);
+        await RunAsync("preserves nested Gemini credentials and bounds OAuth refresh", GeminiCredentialTests.RefreshPersistenceAsync);
+        await RunAsync("uses only complete local Gemini OAuth client pairs", GeminiCredentialTests.RefreshConfigurationAsync);
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("publishes completed refresh sources independently", TestIndependentRefreshAsync);
@@ -107,6 +111,8 @@ internal static class Program
         await RunAsync("reads plaintext and Windows-encrypted Cursor credentials", CursorUsageTests.CredentialsAsync);
         await RunAsync("merges Cursor costs with Grok and preserves local session logs", CursorUsageTests.IntegrationAsync);
         await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
+        await RunAsync("collects Gemini transcript and CLI session token costs", TestGeminiTokenCostCollectorAsync);
+        await RunAsync("recovers only verified Antigravity transcript models from SQLite", AntigravityTranscriptModelTests.RunAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         s_Failures += await AppUpdateTests.RunAllAsync();
         await RunAsync("separates page, session-log and window visibility transitions", PageTransitionTests.RunAsync);
@@ -277,7 +283,7 @@ internal static class Program
                 System.Windows.Controls.Grid codexTokenCostChartPlot = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostChartPlot");
                 System.Windows.Controls.Grid codexPageGrid = (System.Windows.Controls.Grid)window.FindName("CodexPageGrid");
                 System.Windows.Controls.Grid pageViewport = (System.Windows.Controls.Grid)window.FindName("PageViewport");
-                AssertTrue(pageViewport.ClipToBounds && pageViewport.Children.Count == 5 && pageViewport.Children.Contains(codexPageGrid), "all main pages must slide inside a clipped viewport");
+                AssertTrue(pageViewport.ClipToBounds && pageViewport.Children.Count == 6 && pageViewport.Children.Contains(codexPageGrid), "all main pages must slide inside a clipped viewport");
                 System.Windows.Controls.Grid codexTokenCostOverview = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostOverview");
                 System.Windows.Controls.Grid codexTokenCostDonutArea = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostDonutArea");
                 System.Windows.Controls.Button codexTokenCostChartPeriodButton = FindNamedDescendant<System.Windows.Controls.Button>(codexTokenCostDashboard, "TokenCostChartPeriodButton");
@@ -448,7 +454,11 @@ internal static class Program
                 System.Windows.Controls.StackPanel tabPanel = (System.Windows.Controls.StackPanel)grokTabButton.Parent;
                 int grokTabIndex = tabPanel.Children.IndexOf(grokTabButton);
                 AssertEqual("Codex", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex - 1]).ToolTip, "Grok tab predecessor");
-                AssertEqual("APIs", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex + 1]).ToolTip, "Grok tab successor");
+                AssertEqual("Gemini", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex + 1]).ToolTip, "Grok tab successor");
+                System.Windows.Controls.Button geminiTabButton = (System.Windows.Controls.Button)window.FindName("GeminiTabButton");
+                int geminiTabIndex = tabPanel.Children.IndexOf(geminiTabButton);
+                AssertEqual("Grok", ((System.Windows.Controls.Button)tabPanel.Children[geminiTabIndex - 1]).ToolTip, "Gemini tab predecessor");
+                AssertEqual("APIs", ((System.Windows.Controls.Button)tabPanel.Children[geminiTabIndex + 1]).ToolTip, "Gemini tab successor");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
                     {
@@ -611,6 +621,89 @@ internal static class Program
                 AssertEqual("PREMIUM", viewModel.GrokPlanDisplay, "later billing replaces the subscription tier");
                 AssertEqual("95%", viewModel.GrokWeeklyQuota.PercentText, "later billing replaces weekly remaining percent");
 
+                DateTimeOffset geminiNow = DateTimeOffset.Now;
+                viewModel.UpdateGeminiDashboard(new GeminiUsageDashboard
+                {
+                    Snapshot = new GeminiUsageSnapshot
+                    {
+                        Source = "cloud_code",
+                        UpdatedAt = geminiNow,
+                        GeminiFiveHour = new UsageLimit { Name = "session", WindowMinutes = 300, RemainingPercent = 90, UsedPercent = 10, ResetsAt = geminiNow.AddHours(3).ToUnixTimeSeconds() },
+                        GeminiWeekly = new UsageLimit { Name = "weekly", WindowMinutes = 10_080, RemainingPercent = 75, UsedPercent = 25, ResetsAt = geminiNow.AddDays(4).ToUnixTimeSeconds() },
+                        ArgonWeekly = new UsageLimit { Name = "argon_weekly", WindowMinutes = 10_080, RemainingPercent = 55, UsedPercent = 45, ResetsAt = geminiNow.AddDays(4).ToUnixTimeSeconds() },
+                        PartnerFiveHour = new UsageLimit { Name = "partner_session", WindowMinutes = 300, RemainingPercent = 85, UsedPercent = 15, ResetsAt = geminiNow.AddHours(2).ToUnixTimeSeconds() },
+                        PartnerWeekly = new UsageLimit { Name = "partner_weekly", WindowMinutes = 10_080, RemainingPercent = 65, UsedPercent = 35, ResetsAt = geminiNow.AddDays(5).ToUnixTimeSeconds() },
+                        SubscriptionTier = "PRO",
+                        IsAvailable = true,
+                    },
+                    StatusMessage = string.Empty,
+                }, CreateTokenCostStatistics(12));
+                viewModel.ShowGemini();
+                content.InvalidateMeasure();
+                content.Measure(new System.Windows.Size(window.Width, window.Height));
+                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                content.UpdateLayout();
+                System.Windows.Controls.ScrollViewer geminiQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("GeminiQuotaScrollViewer");
+                AssertTrue(geminiQuotaScrollViewer.ScrollableHeight == 0, $"Gemini quota cards should not scroll, actual {geminiQuotaScrollViewer.ScrollableHeight}");
+                AssertEqual(0d, geminiQuotaScrollViewer.ViewportHeight - geminiQuotaScrollViewer.ExtentHeight, "Gemini quota cards should fill the reserved region");
+                System.Windows.Controls.Border geminiPrimaryCard = (System.Windows.Controls.Border)window.FindName("GeminiPrimaryCard");
+                System.Windows.Controls.Border geminiPartnerCard = (System.Windows.Controls.Border)window.FindName("GeminiPartnerCard");
+                AssertEqual(codexPrimaryCard.ActualHeight, geminiPrimaryCard.ActualHeight, "Gemini large card height");
+                AssertEqual(codexResetCreditsCard.ActualHeight, geminiPartnerCard.ActualHeight, "Gemini small partner card height");
+                AssertEqual("PRO", viewModel.GeminiPlanDisplay, "Gemini subscription badge");
+                System.Windows.Controls.Grid geminiPageGrid = (System.Windows.Controls.Grid)window.FindName("GeminiPageGrid");
+                System.Windows.Controls.ContentControl geminiTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("GeminiTokenCostDashboard");
+                AssertTrue(ReferenceEquals(codexTokenCostDashboard.ContentTemplate, geminiTokenCostDashboard.ContentTemplate), "Codex and Gemini should share the token cost template");
+                AssertTrue(codexSectionHeights.SequenceEqual(geminiPageGrid.RowDefinitions.Select(row => row.ActualHeight)), "Codex and Gemini section heights");
+                System.Windows.Controls.StackPanel geminiPageIndicators = FindNamedDescendant<System.Windows.Controls.StackPanel>(geminiPrimaryCard, "PageIndicators");
+                System.Windows.Controls.Button geminiFirstButton = FindNamedDescendant<System.Windows.Controls.Button>(geminiPrimaryCard, "FirstPageButton");
+                System.Windows.Controls.Button geminiSecondButton = FindNamedDescendant<System.Windows.Controls.Button>(geminiPrimaryCard, "SecondPageButton");
+                System.Windows.Controls.Button geminiThirdButton = FindNamedDescendant<System.Windows.Controls.Button>(geminiPrimaryCard, "ThirdPageButton");
+                AssertEqual(System.Windows.Visibility.Visible, geminiPageIndicators.Visibility, "Gemini three-page primary card shows dots");
+                AssertEqual(System.Windows.Visibility.Visible, geminiThirdButton.Visibility, "Argon quota shows third indicator dot");
+                AssertEqual("Argon Weekly", geminiThirdButton.ToolTip, "Gemini Argon indicator tooltip");
+                AssertTrue(viewModel.GeminiQuotaPager.IsFirstSelected, "Gemini primary card starts on Session");
+                geminiPrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent });
+                AssertTrue(viewModel.GeminiQuotaPager.IsSecondSelected, "mouse wheel switches Gemini large card to Weekly");
+                geminiPrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent });
+                AssertTrue(viewModel.GeminiQuotaPager.IsThirdSelected, "mouse wheel switches Gemini large card to Argon");
+                geminiPrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent });
+                AssertTrue(viewModel.GeminiQuotaPager.IsFirstSelected, "mouse wheel wraps Gemini large card back to Session");
+                geminiThirdButton.Command.Execute(geminiThirdButton.CommandParameter);
+                AssertTrue(viewModel.GeminiQuotaPager.IsThirdSelected, "clicking third dot selects Argon page");
+
+                System.Windows.Controls.StackPanel geminiPartnerIndicators = FindNamedDescendant<System.Windows.Controls.StackPanel>(geminiPartnerCard, "PageIndicators");
+                System.Windows.Controls.Button geminiPartnerFirstButton = FindNamedDescendant<System.Windows.Controls.Button>(geminiPartnerCard, "FirstPageButton");
+                System.Windows.Controls.Button geminiPartnerSecondButton = FindNamedDescendant<System.Windows.Controls.Button>(geminiPartnerCard, "SecondPageButton");
+                AssertEqual(System.Windows.Visibility.Visible, geminiPartnerIndicators.Visibility, "Gemini partner small card shows page dots");
+                AssertEqual("Session", geminiPartnerFirstButton.ToolTip, "Gemini partner dot 1 tooltip");
+                AssertEqual("Weekly", geminiPartnerSecondButton.ToolTip, "Gemini partner dot 2 tooltip");
+                geminiPartnerCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent });
+                AssertTrue(viewModel.GeminiPartnerQuotaPager.IsSecondSelected, "mouse wheel switches Claude & GPT card to Weekly");
+                geminiPartnerFirstButton.Command.Execute(geminiPartnerFirstButton.CommandParameter);
+                AssertTrue(viewModel.GeminiPartnerQuotaPager.IsFirstSelected, "clicking first dot switches Claude & GPT card to Session");
+
+                viewModel.UpdateGeminiDashboard(new GeminiUsageDashboard
+                {
+                    Snapshot = new GeminiUsageSnapshot
+                    {
+                        Source = "cloud_code",
+                        UpdatedAt = geminiNow,
+                        GeminiFiveHour = new UsageLimit { Name = "session", WindowMinutes = 300, RemainingPercent = 95, UsedPercent = 5, ResetsAt = geminiNow.AddHours(4).ToUnixTimeSeconds() },
+                        GeminiWeekly = new UsageLimit { Name = "weekly", WindowMinutes = 10_080, RemainingPercent = 80, UsedPercent = 20, ResetsAt = geminiNow.AddDays(5).ToUnixTimeSeconds() },
+                        ArgonWeekly = null,
+                        PartnerFiveHour = new UsageLimit { Name = "partner_session", WindowMinutes = 300, RemainingPercent = 90, UsedPercent = 10, ResetsAt = geminiNow.AddHours(4).ToUnixTimeSeconds() },
+                        PartnerWeekly = new UsageLimit { Name = "partner_weekly", WindowMinutes = 10_080, RemainingPercent = 70, UsedPercent = 30, ResetsAt = geminiNow.AddDays(6).ToUnixTimeSeconds() },
+                        SubscriptionTier = "ULTRA",
+                        IsAvailable = true,
+                    },
+                    StatusMessage = string.Empty,
+                }, CreateTokenCostStatistics(12));
+                content.UpdateLayout();
+                AssertEqual("ULTRA", viewModel.GeminiPlanDisplay, "Gemini Ultra subscription badge");
+                AssertEqual(System.Windows.Visibility.Collapsed, geminiThirdButton.Visibility, "absent Argon hides third dot");
+                AssertTrue(viewModel.GeminiQuotaPager.IsFirstSelected, "removing active Argon falls back to Session");
+
                 viewModel.ShowApi();
                 content.InvalidateMeasure();
                 content.Measure(new System.Windows.Size(window.Width, window.Height));
@@ -664,14 +757,14 @@ internal static class Program
                     "selected Codex Weekly page indicator color");
                 codexFirstPageButton.Command.Execute(codexFirstPageButton.CommandParameter);
                 AssertTrue(!viewModel.CodexQuotaPager.IsSecondSelected, "Codex Session page button should select its quota");
-                codexPrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(
-                    System.Windows.Input.Mouse.PrimaryDevice,
-                    Environment.TickCount,
-                    -120)
+                for (int index = 0; index < 2; index++)
                 {
-                    RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
-                });
-                AssertTrue(viewModel.CodexQuotaPager.IsSecondSelected, "mouse wheel down should select Codex Weekly quota");
+                    codexPrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -120)
+                    {
+                        RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent,
+                    });
+                    AssertTrue(viewModel.CodexQuotaPager.IsSecondSelected, "mouse wheel down should select Codex Weekly without wrapping");
+                }
                 codexPrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(
                     System.Windows.Input.Mouse.PrimaryDevice,
                     Environment.TickCount,
@@ -1550,6 +1643,10 @@ internal static class Program
         AppSettings legacySettings = legacyStore.Load();
         AssertEqual(PageItem.All, legacySettings.VisiblePages, "legacy all pages should include Grok");
         AssertTrue(legacySettings.MicaEnabled, "legacy Mica mode");
+
+        File.WriteAllText(legacyStore.SettingsPath, "{\"SettingsSchemaVersion\":1,\"VisiblePages\":13}");
+        AppSettings v1AllSettings = legacyStore.Load();
+        AssertEqual(PageItem.All, v1AllSettings.VisiblePages, "v1 all pages should include Gemini");
         using JsonDocument migratedDocument = JsonDocument.Parse(File.ReadAllText(legacyStore.SettingsPath));
         AssertEqual(AppSettings.CurrentSettingsSchemaVersion, migratedDocument.RootElement.GetProperty(nameof(AppSettings.SettingsSchemaVersion)).GetInt32(), "migrated schema version");
         AssertTrue(migratedDocument.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "migrated settings should include Mica toggle");
@@ -2395,6 +2492,70 @@ internal static class Program
         AssertEqual(2, proPeriods.Length, "deepseek-v4-pro period count");
         AssertPricingPeriod(proPeriods[0], 1.32m, 0.044m, 3.96m, "1,2,3,4,5", "01:00", "04:00", "deepseek-v4-pro morning peak");
         AssertPricingPeriod(proPeriods[1], 1.32m, 0.044m, 3.96m, "1,2,3,4,5", "06:00", "10:00", "deepseek-v4-pro afternoon peak");
+        (string Model, decimal Input, decimal CachedInput, decimal Output)[] textModelPrices =
+        {
+            ("gemini-4-argon", 4m, 0.2m, 20m),
+            ("gemini-4-carbon", 4m, 0.2m, 20m),
+            ("gemini-4-hydrogen", 1.5m, 0.075m, 7.5m),
+            ("gemini-3.8-flash", 1.5m, 0.15m, 7.5m),
+            ("gemini-3.7-flash", 1.5m, 0.15m, 7.5m),
+            ("gemini-3.6-flash", 1.5m, 0.15m, 7.5m),
+            ("gemini-3.5-flash", 1.5m, 0.15m, 9m),
+            ("gemini-3.5-flash-lite", 0.3m, 0.03m, 2.5m),
+            ("gemini-3.1-pro", 2m, 0.2m, 12m),
+            ("gemini-3.1-flash-lite", 0.25m, 0.025m, 1.5m),
+            ("claude-fable-5.2", 8m, 0.2m, 40m),
+            ("claude-mythos-5.2", 8m, 0.2m, 40m),
+            ("claude-fable-5.1", 10m, 0.25m, 50m),
+            ("claude-mythos-5.1", 10m, 0.25m, 50m),
+            ("claude-fable-5", 10m, 1m, 50m),
+            ("claude-mythos-5", 10m, 1m, 50m),
+            ("claude-opus-5.5", 4m, 0.2m, 20m),
+            ("claude-sonnet-5.5", 2m, 0.1m, 10m),
+            ("claude-haiku-5.5", 0.1m, 0.01m, 0.5m),
+            ("claude-opus-5", 5m, 0.5m, 25m),
+            ("claude-sonnet-5", 2m, 0.2m, 10m),
+            ("claude-opus-4.8", 5m, 0.5m, 25m),
+            ("claude-opus-4.7", 5m, 0.5m, 25m),
+            ("claude-opus-4.6", 5m, 0.5m, 25m),
+            ("claude-sonnet-4.6", 3m, 0.3m, 15m),
+        };
+        using TempDirectory modelTemp = new();
+        string chats = Path.Combine(modelTemp.Path, "tmp", "pricing", "chats");
+        Directory.CreateDirectory(chats);
+        List<object> messages = [];
+        Dictionary<string, decimal> expectedCosts = new(StringComparer.Ordinal);
+        DateTimeOffset asOf = new(2026, 11, 17, 12, 0, 0, TimeSpan.Zero);
+        foreach (var expected in textModelPrices)
+        {
+            JsonElement modelPricing = document.RootElement.GetProperty(expected.Model);
+            AssertEqual(expected.Input, modelPricing.GetProperty("input").GetDecimal(), $"{expected.Model} input price");
+            AssertEqual(expected.CachedInput, modelPricing.GetProperty("cachedInput").GetDecimal(), $"{expected.Model} cached input price");
+            AssertEqual(expected.Output, modelPricing.GetProperty("output").GetDecimal(), $"{expected.Model} output price");
+            List<string> names = [expected.Model];
+            if (modelPricing.TryGetProperty("aliases", out JsonElement aliases))
+            {
+                names.AddRange(aliases.EnumerateArray().Select(alias => alias.GetString()!));
+            }
+            if (expected.Model == "gemini-3.1-flash-lite")
+            {
+                names.Add("gemini-3.1-flash-lite-preview");
+            }
+            foreach (string name in names)
+            {
+                expectedCosts[TokenCostCollector.MapAntigravityModelId(name)] = (expected.Input * 1000m + expected.CachedInput * 2000m + expected.Output * 500m) / 1_000_000m;
+                messages.Add(new { id = name, type = "gemini", model = name, timestamp = asOf, tokens = new { input = 3000, cached = 2000, output = 500 } });
+            }
+        }
+
+        File.WriteAllText(Path.Combine(chats, "session-prices.json"), JsonSerializer.Serialize(new { messages }));
+        TokenCostStatistics modelCosts = new TokenCostCollector(Path.Combine(AppContext.BaseDirectory, "Resources", "model-pricing.json")).CollectGemini(modelTemp.Path, asOf);
+        AssertEqual(messages.Count, modelCosts.SessionLogs.Count, "all supported model names produce usage rows");
+        AssertTrue(!modelCosts.Lifetime.HasUnpricedUsage, "official IDs and supported aliases all resolve to prices");
+        foreach (var row in modelCosts.SessionLogs)
+        {
+            AssertEqual(expectedCosts[row.Model], row.CostUsd, $"{row.Model} published pricing is used by the collector");
+        }
         return Task.CompletedTask;
     }
 
@@ -4880,6 +5041,247 @@ internal static class Program
     }
 
     /// <summary>
+    /// Verifies Gemini Cloud Code quota parsing, Argon optionality, tier normalization, and OAuth refresh persistence.
+    /// </summary>
+    private static async Task TestGeminiUsageCollectorAsync()
+    {
+        GeminiUsageSnapshot enabledBuckets = GeminiUsageCollector.ParseQuotaSummary("""
+            {"buckets":[
+                {"bucketId":"gemini-5h","remainingFraction":0.5},
+                {"bucketId":"gemini-argon-wtu-weekly","remainingFraction":1,"disabled":true},
+                {"bucketId":"3p-weekly","remainingFraction":1,"disabled":true}
+            ]}
+            """, DateTimeOffset.UtcNow);
+        AssertTrue(enabledBuckets.IsAvailable && enabledBuckets.GeminiFiveHour != null, "enabled quota stays available");
+        AssertTrue(enabledBuckets.ArgonWeekly == null && enabledBuckets.PartnerWeekly == null, "disabled buckets must not expose usable quota");
+
+        DateTimeOffset now = new(2026, 11, 16, 12, 0, 0, TimeSpan.FromHours(8));
+        using TempDirectory geminiHome = new();
+        string antigravityTokenDir = Path.Combine(geminiHome.Path, "antigravity-cli");
+        Directory.CreateDirectory(antigravityTokenDir);
+        string antigravityTokenPath = Path.Combine(antigravityTokenDir, "antigravity-oauth-token");
+        File.WriteAllText(antigravityTokenPath, JsonSerializer.Serialize(new
+        {
+            access_token = "ya29.pro-active-token",
+            refresh_token = "1//pro-refresh",
+            expiry_date = now.AddHours(1).ToUnixTimeMilliseconds(),
+        }));
+
+        string proQuotaBody = JsonSerializer.Serialize(new
+        {
+            groups = new object[]
+            {
+                new
+                {
+                    displayName = "Gemini",
+                    buckets = new object[]
+                    {
+                        new { bucketId = "gemini-5h", remainingFraction = 0.85, resetTime = now.AddHours(3).ToString("O", CultureInfo.InvariantCulture) },
+                        new { bucketId = "gemini-weekly", remainingFraction = 0.72, resetTime = now.AddDays(4).ToString("O", CultureInfo.InvariantCulture) },
+                        new { bucketId = "gemini-argon-wtu-weekly", remainingFraction = 0.45, resetTime = now.AddDays(4).ToString("O", CultureInfo.InvariantCulture) },
+                    },
+                },
+                new
+                {
+                    displayName = "Claude & GPT",
+                    buckets = new object[]
+                    {
+                        new { bucketId = "3p-5h", remainingFraction = 0.90, resetTime = now.AddHours(2).ToString("O", CultureInfo.InvariantCulture) },
+                        new { bucketId = "3p-weekly", remainingFraction = 0.60, resetTime = now.AddDays(5).ToString("O", CultureInfo.InvariantCulture) },
+                    },
+                },
+            },
+        });
+
+        using HttpClient proClient = new(new GeminiOAuthHttpMessageHandler(
+            expectedAccessToken: "ya29.pro-active-token",
+            refreshedAccessToken: "ya29.unused",
+            expectedRefreshToken: "1//pro-refresh",
+            rotatedRefreshToken: "1//unused",
+            loadCodeAssistBody: "{\"cloudaicompanionProject\":\"proj-pro\",\"paidTier\":{\"id\":\"g1-pro-tier\"}}",
+            quotaSummaryBody: proQuotaBody,
+            requireRefreshOnOldToken: false));
+        GeminiUsageCollector proCollector = new(proClient, geminiHome.Path, nowProvider: () => now);
+        GeminiUsageSnapshot proSnapshot = await proCollector.CollectAsync(useAbsoluteResetTime: false);
+        AssertTrue(proSnapshot.IsAvailable, "Pro Gemini snapshot should be available");
+        AssertEqual("PRO", proSnapshot.SubscriptionTier, "g1-pro-tier normalizes to PRO");
+        AssertEqual(85, proSnapshot.GeminiFiveHour!.RemainingPercent, "Gemini 5h remaining percent");
+        AssertEqual("3h00m", proSnapshot.GeminiFiveHour.ResetLabel, "Gemini 5h countdown reset label");
+        AssertEqual(72, proSnapshot.GeminiWeekly!.RemainingPercent, "Gemini weekly remaining percent");
+        AssertEqual("4d00h", proSnapshot.GeminiWeekly.ResetLabel, "Gemini weekly countdown reset label");
+        AssertEqual(45, proSnapshot.ArgonWeekly!.RemainingPercent, "Argon weekly remaining percent");
+        AssertEqual(90, proSnapshot.PartnerFiveHour!.RemainingPercent, "Partner 5h remaining percent");
+        AssertEqual(60, proSnapshot.PartnerWeekly!.RemainingPercent, "Partner weekly remaining percent");
+
+        GeminiUsageSnapshot absoluteSnapshot = await proCollector.CollectAsync(useAbsoluteResetTime: true);
+        AssertEqual("15:00", absoluteSnapshot.GeminiFiveHour!.ResetLabel, "Gemini 5h absolute reset label");
+        AssertEqual("11-20", absoluteSnapshot.GeminiWeekly!.ResetLabel, "Gemini weekly absolute reset date");
+
+        File.Delete(antigravityTokenPath);
+        string cliTokenPath = Path.Combine(geminiHome.Path, "oauth_creds.json");
+        File.WriteAllText(cliTokenPath, JsonSerializer.Serialize(new
+        {
+            access_token = "ya29.old-ultra-token",
+            client_id = "fixture-cli-client",
+            client_secret = "fixture-cli-secret",
+            refresh_token = "1//ultra-refresh",
+            expiry_date = now.AddHours(1).ToUnixTimeMilliseconds(),
+        }));
+
+        string ultraQuotaBody = JsonSerializer.Serialize(new
+        {
+            response = new
+            {
+                groups = new object[]
+                {
+                    new
+                    {
+                        displayName = "Gemini",
+                        buckets = new object[]
+                        {
+                            new { bucketId = "gemini-5h", resetTime = now.AddHours(1).ToString("O", CultureInfo.InvariantCulture) },
+                            new { bucketId = "gemini-weekly", remainingFraction = 0.50, resetTime = now.AddDays(3).ToString("O", CultureInfo.InvariantCulture) },
+                        },
+                    },
+                    new
+                    {
+                        displayName = "Claude & GPT",
+                        buckets = new object[]
+                        {
+                            new { bucketId = "3p-5h", remainingFraction = 0.25, resetTime = now.AddHours(1).ToString("O", CultureInfo.InvariantCulture) },
+                            new { bucketId = "3p-weekly", remainingFraction = 0.40, resetTime = now.AddDays(3).ToString("O", CultureInfo.InvariantCulture) },
+                        },
+                    },
+                },
+            },
+        });
+
+        using HttpClient ultraClient = new(new GeminiOAuthHttpMessageHandler(
+            expectedAccessToken: "ya29.old-ultra-token",
+            refreshedAccessToken: "ya29.new-ultra-token",
+            expectedRefreshToken: "1//ultra-refresh",
+            rotatedRefreshToken: "1//rotated-ultra-refresh",
+            loadCodeAssistBody: "{\"cloudaicompanionProject\":{\"id\":\"proj-ultra\"},\"paidTier\":{\"id\":\"g1-ultra-tier\"}}",
+            quotaSummaryBody: ultraQuotaBody,
+            requireRefreshOnOldToken: true));
+        GeminiUsageCollector ultraCollector = new(ultraClient, geminiHome.Path, nowProvider: () => now);
+        GeminiUsageSnapshot ultraSnapshot = await ultraCollector.CollectAsync(useAbsoluteResetTime: false);
+        AssertTrue(ultraSnapshot.IsAvailable, "Ultra snapshot succeeds after OAuth refresh");
+        AssertEqual("ULTRA", ultraSnapshot.SubscriptionTier, "g1-ultra-tier normalizes to ULTRA");
+        AssertEqual(0, ultraSnapshot.GeminiFiveHour!.RemainingPercent, "omitted remainingFraction with resetTime is treated as 0%");
+        AssertEqual(50, ultraSnapshot.GeminiWeekly!.RemainingPercent, "Ultra weekly remaining percent");
+        AssertTrue(ultraSnapshot.ArgonWeekly == null, "Ultra plan without Argon bucket leaves ArgonWeekly null");
+        AssertTrue(File.ReadAllText(cliTokenPath).Contains("ya29.new-ultra-token", StringComparison.Ordinal), "refreshed access token is written back atomically");
+        AssertTrue(File.ReadAllText(cliTokenPath).Contains("1//rotated-ultra-refresh", StringComparison.Ordinal), "rotated refresh token is written back atomically");
+    }
+
+    /// <summary>
+    /// Verifies Antigravity transcript and Gemini CLI session usage parsing, pricing, speed estimation, and snapshot deduplication.
+    /// </summary>
+    private static Task TestGeminiTokenCostCollectorAsync()
+    {
+        using TempDirectory temp = new();
+        string pricingPath = FindRepositoryFile(Path.Combine("Resources", "model-pricing.json"));
+        DateTimeOffset asOf = new(2026, 11, 16, 15, 0, 0, TimeSpan.FromHours(8));
+
+        string transcriptDir = Path.Combine(temp.Path, "antigravity-cli", "brain", "conv-1", ".system_generated", "logs");
+        Directory.CreateDirectory(transcriptDir);
+        File.WriteAllLines(Path.Combine(transcriptDir, "transcript.jsonl"),
+        [
+            "{\"step_index\":0,\"source\":\"USER_EXPLICIT\",\"type\":\"USER_INPUT\",\"status\":\"DONE\",\"created_at\":\"2026-11-16T10:00:00+08:00\",\"content\":\"Test prompt\"}",
+            "{\"step_index\":1,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"created_at\":\"2026-11-16T10:00:00+08:00\",\"model\":\"gemini-pro-orchestrator-g1-pro\",\"input_tokens\":100000,\"cache_read_tokens\":500000,\"output_tokens\":1000,\"tool_calls\":[{\"name\":\"read_file\"}]}",
+            "{\"step_index\":2,\"source\":\"MODEL\",\"type\":\"GENERIC\",\"status\":\"DONE\",\"created_at\":\"2026-11-16T10:00:10+08:00\",\"content\":\"tool output\"}",
+            "{\"step_index\":3,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"created_at\":\"2026-11-16T10:01:00+08:00\",\"model\":\"claude-sonnet-4-6-thinking\",\"input_tokens\":10000,\"cache_read_tokens\":0,\"output_tokens\":1000}",
+        ]);
+
+        string cliDir = Path.Combine(temp.Path, "tmp", "project-a", "chats");
+        Directory.CreateDirectory(cliDir);
+        File.WriteAllLines(Path.Combine(cliDir, "session-2026-11-16T11-00-abcd.jsonl"),
+        [
+            """
+            {"$set":{"messages":[{"id":"msg-1","type":"gemini","model":"gemini-3.1-pro","timestamp":"2026-11-16T11:00:00+08:00","tokens":{"input":5000,"cached":2000,"output":200,"thoughts":50,"total":5250}}]}}
+            """,
+            JsonSerializer.Serialize(new
+            {
+                id = "msg-1",
+                type = "gemini",
+                model = "gemini-3.1-pro",
+                timestamp = "2026-11-16T11:00:05+08:00",
+                tokens = new { input = 10000, cached = 5000, output = 400, thoughts = 100, total = 10500 },
+            }),
+        ]);
+
+        TokenCostCollector collector = new(pricingPath);
+        TokenCostStatistics stats = collector.CollectGemini(temp.Path, asOf);
+        AssertTrue(stats.IsSpeedEstimated, "Gemini output speed is marked as estimated");
+        // Transcript 1: 601,000 ($0.5200); Transcript 2: 11,000 ($0.0450); CLI deduped: 10,500 (5k*2 + 5k*0.2 + 500*12)/1M = $0.017.
+        AssertEqual(622_500L, stats.Today.TotalTokens, "Gemini today total tokens");
+        AssertEqual(620_000L, stats.Today.CacheableInputTokens, "Gemini today cacheable input tokens");
+        AssertEqual(505_000L, stats.Today.CacheReadTokens, "Gemini today cache read tokens");
+        AssertEqual(0.582m, stats.Today.CostUsd, "Gemini today calculated cost");
+        AssertEqual(100.0m, stats.Today.GetOutputTokensPerSecond(), "Gemini estimated output speed from tool-call delay");
+        AssertEqual(3, stats.SessionLogs.Count, "Gemini session log count after CLI message deduplication");
+        AssertEqual("gemini-4-argon", stats.SessionLogs[2].Model, "orchestrator g1-pro maps to gemini-4-argon");
+
+        string toolSessionPath = Path.Combine(cliDir, "session-tool.json");
+        File.WriteAllText(toolSessionPath, """
+            {"messages":[{"id":"tool-1","type":"gemini","model":"gemini-3.1-pro","timestamp":"2026-11-16T12:00:00+08:00","tokens":{"input":1000,"cached":200,"output":100,"thoughts":50,"tool":300,"total":1450}}]}
+            """);
+        TokenCostStatistics withToolUsage = collector.CollectGemini(temp.Path, asOf);
+        AssertEqual(stats.Today.TotalTokens + 1450L, withToolUsage.Today.TotalTokens, "CLI tool-use prompt tokens are included");
+        AssertEqual(stats.Today.CacheableInputTokens + 1300L, withToolUsage.Today.CacheableInputTokens, "tool prompts use ordinary input pricing");
+        AssertEqual(stats.Today.CostUsd + 0.00404m, withToolUsage.Today.CostUsd, "CLI tool input and thoughts are priced exactly once");
+
+        string snapshotPath = Path.Combine(cliDir, "session-snapshot.jsonl");
+        File.WriteAllText(snapshotPath, """
+            {"$set":{"messages":[{"id":"snapshot-1","type":"gemini","model":"gemini-3.1-pro","timestamp":"2026-11-16T13:00:00+08:00","tokens":{"input":1000,"cached":200,"output":100,"thoughts":50,"tool":200,"total":1350}}]}}
+            """);
+        TokenCostStatistics withSnapshot = collector.CollectGemini(temp.Path, asOf);
+        AssertEqual(withToolUsage.Today.TotalTokens + 1350L, withSnapshot.Today.TotalTokens, "$set-only snapshots retain tool prompts without duplicating cache reads");
+        AssertEqual(withToolUsage.Today.CostUsd + 0.00384m, withSnapshot.Today.CostUsd, "$set-only snapshot cost");
+        AssertEqual(withSnapshot.Today.TotalTokens, collector.CollectGemini(temp.Path, asOf).Today.TotalTokens, "unchanged Gemini files replay cached usage");
+        File.WriteAllText(Path.Combine(cliDir, "session-legacy-models.json"), """
+            {"messages":[
+                {"id":"old-gemini","type":"gemini","model":"gemini-3-pro-preview","timestamp":"2026-11-16T13:00:00+08:00","tokens":{"input":100,"output":50}},
+                {"id":"old-claude","type":"gemini","model":"claude-opus-4-5-thinking","timestamp":"2026-11-16T13:00:00+08:00","tokens":{"input":100,"output":50}}
+            ]}
+            """);
+        TokenCostStatistics withLegacyModels = collector.CollectGemini(temp.Path, asOf);
+        AssertEqual(withSnapshot.Today.TotalTokens + 300L, withLegacyModels.Today.TotalTokens, "removed models retain token usage");
+        AssertEqual(withSnapshot.Today.CostUsd, withLegacyModels.Today.CostUsd, "removed models and aliases no longer receive prices");
+        AssertTrue(withLegacyModels.Today.HasUnpricedUsage, "removed model costs are marked incomplete");
+
+        string migratedSessionPath = toolSessionPath + "l";
+        File.WriteAllLines(migratedSessionPath,
+        [
+            """{"id":"tool-1","type":"gemini","model":"gemini-3.1-pro","timestamp":"2026-11-16T12:00:00+08:00","tokens":{"input":1000,"cached":200,"output":100,"thoughts":50,"tool":300}}""",
+            """{"id":"tool-2","type":"gemini","model":"gemini-3.1-pro","timestamp":"2026-11-16T12:01:00+08:00","tokens":{"input":100,"output":50}}""",
+        ]);
+        string subagentDir = Path.Combine(cliDir, "5fb06adb-8ec2-498b-8a38-696401feda86");
+        Directory.CreateDirectory(subagentDir);
+        File.WriteAllText(Path.Combine(subagentDir, "0fe90d91-ac57-48b7-ab69-24615e42cc27.jsonl"),
+            """{"id":"subagent-1","type":"gemini","model":"gemini-3.1-pro","timestamp":"2026-11-16T12:02:00+08:00","tokens":{"input":200,"output":50}}""");
+        TokenCostStatistics withMigratedSession = collector.CollectGemini(temp.Path, asOf);
+        AssertEqual(withLegacyModels.Today.TotalTokens + 400L, withMigratedSession.Today.TotalTokens, "migrated sessions use JSONL only and include nested Gemini CLI subagents");
+        AssertEqual(withLegacyModels.SessionLogs.Count + 2, withMigratedSession.SessionLogs.Count, "migration does not duplicate original session log entries");
+
+        using TempDirectory workerTemp = new();
+        string workerLogs = Path.Combine(workerTemp.Path, "antigravity-cli", "brain", "worker");
+        Directory.CreateDirectory(workerLogs);
+        File.WriteAllText(Path.Combine(workerLogs, "transcript.jsonl"), """
+            {"source":"MODEL","type":"PLANNER_RESPONSE","model":"gemini-flash-worker-agy","created_at":"2026-11-16T13:00:00+08:00","input_tokens":1000,"cache_read_tokens":2000,"output_tokens":500}
+            """);
+        TokenCostStatistics workerStats = collector.CollectGemini(workerTemp.Path, asOf);
+        AssertEqual("gemini-4-hydrogen", workerStats.SessionLogs.Single().Model, "Orchestrator worker session rows use Hydrogen");
+        AssertEqual(0.0054m, workerStats.Today.CostUsd, "Orchestrator worker uses Hydrogen input, cache and output prices");
+        AssertTrue(!workerStats.Today.HasUnpricedUsage, "Orchestrator worker is fully priced");
+        TrayPopupViewModel.TokenCostDashboardViewModel dashboard = new(showSpeed: true);
+        dashboard.Update(workerStats);
+        AssertEqual("Gemini-4-Hydrogen", dashboard.DonutSegments.Single().Label, "Orchestrator worker donut label uses Hydrogen");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Creates a collector backed by fake OAuth credentials and a fixed official quota response.
     /// </summary>
     private static CodexUsageCollector CreateCodexUsageCollector(string codexRoot, DateTimeOffset now, long sessionResetAt, long weeklyResetAt, double primaryUsed, double secondaryUsed, out HttpClient client, string? resetCreditsBody = null)
@@ -5208,6 +5610,97 @@ internal sealed class GrokOAuthRefreshHttpMessageHandler : HttpMessageHandler
         }
 
         throw new InvalidOperationException($"unexpected Grok request URI: {requestUri}");
+    }
+}
+
+internal sealed class GeminiOAuthHttpMessageHandler : HttpMessageHandler
+{
+    private const string k_LoadCodeAssistUrl = "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
+    private const string k_QuotaSummaryUrl = "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary";
+    private const string k_TokenUrl = "https://oauth2.googleapis.com/token";
+    private readonly string m_ExpectedAccessToken;
+    private readonly string m_RefreshedAccessToken;
+    private readonly string m_ExpectedRefreshToken;
+    private readonly string m_RotatedRefreshToken;
+    private readonly string m_LoadCodeAssistBody;
+    private readonly string m_QuotaSummaryBody;
+    private readonly bool m_RequireRefreshOnOldToken;
+
+    /// <summary>
+    /// Creates a fake Cloud Code and Google OAuth message handler for Gemini collector tests.
+    /// </summary>
+    public GeminiOAuthHttpMessageHandler(
+        string expectedAccessToken,
+        string refreshedAccessToken,
+        string expectedRefreshToken,
+        string rotatedRefreshToken,
+        string loadCodeAssistBody,
+        string quotaSummaryBody,
+        bool requireRefreshOnOldToken)
+    {
+        m_ExpectedAccessToken = expectedAccessToken;
+        m_RefreshedAccessToken = refreshedAccessToken;
+        m_ExpectedRefreshToken = expectedRefreshToken;
+        m_RotatedRefreshToken = rotatedRefreshToken;
+        m_LoadCodeAssistBody = loadCodeAssistBody;
+        m_QuotaSummaryBody = quotaSummaryBody;
+        m_RequireRefreshOnOldToken = requireRefreshOnOldToken;
+    }
+
+    /// <summary>
+    /// Serves Cloud Code quota requests and OAuth refresh calls for tests.
+    /// </summary>
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        string? url = request.RequestUri?.ToString();
+        if (url == k_TokenUrl)
+        {
+            string body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!body.Contains($"refresh_token={Uri.EscapeDataString(m_ExpectedRefreshToken)}", StringComparison.Ordinal)
+                && !body.Contains($"refresh_token={m_ExpectedRefreshToken}", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("missing Gemini refresh token");
+            }
+
+            if (!body.Contains("client_secret=", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Google OAuth refresh must include client_secret");
+            }
+
+            string response = JsonSerializer.Serialize(new
+            {
+                access_token = m_RefreshedAccessToken,
+                refresh_token = m_RotatedRefreshToken,
+                expires_in = 3600,
+            });
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, Encoding.UTF8, "application/json"),
+            };
+        }
+
+        if (url is k_LoadCodeAssistUrl or k_QuotaSummaryUrl)
+        {
+            string? bearer = request.Headers.Authorization?.Parameter;
+            if (m_RequireRefreshOnOldToken && bearer == m_ExpectedAccessToken)
+            {
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            string expectedToken = m_RequireRefreshOnOldToken ? m_RefreshedAccessToken : m_ExpectedAccessToken;
+            if (bearer != expectedToken)
+            {
+                throw new InvalidOperationException("unexpected Gemini access token");
+            }
+
+            string payload = url == k_LoadCodeAssistUrl ? m_LoadCodeAssistBody : m_QuotaSummaryBody;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+            };
+        }
+
+        throw new InvalidOperationException($"unexpected Gemini request URI: {url}");
     }
 }
 

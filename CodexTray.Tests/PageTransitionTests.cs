@@ -27,9 +27,13 @@ internal static class PageTransitionTests
                 Pump();
                 bool animationsEnabled = SystemParameters.ClientAreaAnimation && Wpf.Ui.Hardware.HardwareAcceleration.IsSupported(Wpf.Ui.Hardware.RenderingTier.PartialAcceleration);
                 CheckChartAnimations(window, viewModel, animationsEnabled);
-                foreach (string source in new[] { "Codex", "Grok" })
+                foreach (string source in new[] { "Codex", "Grok", "Gemini" })
                 {
-                    SessionLogListViewModel logs = source == "Codex" ? viewModel.CodexSessionLogs : viewModel.GrokSessionLogs;
+                    SessionLogListViewModel logs = source == "Codex"
+                        ? viewModel.CodexSessionLogs
+                        : source == "Grok"
+                            ? viewModel.GrokSessionLogs
+                            : viewModel.GeminiSessionLogs;
                     Grid page = (Grid)window.FindName(source + "PageGrid");
                     UIElement[] regions = [
                         (UIElement)window.FindName(source + "SessionLogContent"),
@@ -53,7 +57,14 @@ internal static class PageTransitionTests
                         {
                             viewModel.ShowCodex();
                             Pump();
-                            viewModel.ShowGrok();
+                            if (source == "Grok")
+                            {
+                                viewModel.ShowGrok();
+                            }
+                            else
+                            {
+                                viewModel.ShowGemini();
+                            }
                         }
                         Pump();
                         Check(regions.All(IsIdle), "switching main pages must not start nested slides or fades");
@@ -94,6 +105,7 @@ internal static class PageTransitionTests
                 {
                     viewModel.ShowCodex();
                     viewModel.ShowGrok();
+                    viewModel.ShowGemini();
                     viewModel.ShowApi();
                     viewModel.ShowSettings();
                     viewModel.ShowAbout();
@@ -118,7 +130,7 @@ internal static class PageTransitionTests
                 window.Close();
                 Pump(250);
                 Check(viewport.Children.OfType<UIElement>().All(IsIdle), "closing must clear main-page animations");
-                Check(new[] { "Codex", "Grok" }.SelectMany(source => new[] { "SessionLogContent", "TokenCostDashboard", "QuotaScrollViewer" }
+                Check(new[] { "Codex", "Grok", "Gemini" }.SelectMany(source => new[] { "SessionLogContent", "TokenCostDashboard", "QuotaScrollViewer" }
                     .Select(suffix => (UIElement)window.FindName(source + suffix))).All(IsIdle), "closing must clear session slides and fades");
             }
             catch (Exception exception)
@@ -145,19 +157,27 @@ internal static class PageTransitionTests
 
     private static void CheckChartAnimations(TrayPopupWindow window, TrayPopupViewModel viewModel, bool animationsEnabled)
     {
-        foreach (bool isCodex in new[] { true, false })
+        foreach (string source in new[] { "Codex", "Grok", "Gemini" })
         {
-            if (isCodex)
+            if (source == "Codex")
             {
                 viewModel.ShowCodex();
             }
-            else
+            else if (source == "Grok")
             {
                 viewModel.ShowGrok();
             }
+            else
+            {
+                viewModel.ShowGemini();
+            }
             Pump(250);
-            TrayPopupViewModel.TokenCostDashboardViewModel dashboard = isCodex ? viewModel.CodexTokenCost : viewModel.GrokTokenCost;
-            ContentControl region = (ContentControl)window.FindName(isCodex ? "CodexTokenCostDashboard" : "GrokTokenCostDashboard");
+            TrayPopupViewModel.TokenCostDashboardViewModel dashboard = source == "Codex"
+                ? viewModel.CodexTokenCost
+                : source == "Grok"
+                    ? viewModel.GrokTokenCost
+                    : viewModel.GeminiTokenCost;
+            ContentControl region = (ContentControl)window.FindName(source + "TokenCostDashboard");
             ItemsControl donut = Descendants(region).OfType<ItemsControl>().Single(item => item.Name == "TokenCostDonutItemsControl");
             ItemsControl bars = Descendants(region).OfType<ItemsControl>().Single(item => item.Name == "TokenCostChartItemsControl");
             System.Windows.Shapes.Ellipse placeholder = Descendants(region).OfType<System.Windows.Shapes.Ellipse>().Single(item => item.Name == "TokenCostDonutPlaceholder");
@@ -351,8 +371,21 @@ internal static class PageTransitionTests
     private static void Pump(int milliseconds = 20)
     {
         DispatcherFrame frame = new();
-        DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(milliseconds) };
-        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(milliseconds);
+        DispatcherTimer timer = new(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(Math.Min(10, Math.Max(1, milliseconds / 2))),
+        };
+        timer.Tick += (_, _) =>
+        {
+            Application.Current?.MainWindow?.InvalidateVisual();
+            if (DateTime.UtcNow >= deadline)
+            {
+                timer.Stop();
+                frame.Continue = false;
+            }
+        };
+        Application.Current?.MainWindow?.InvalidateVisual();
         timer.Start();
         Dispatcher.PushFrame(frame);
     }
