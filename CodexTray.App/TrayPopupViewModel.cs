@@ -2457,6 +2457,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         private int m_SelectedIndex;
 
+        public event Action<int>? PageTurned;
+
         public QuotaViewModel FirstQuota { get; }
 
         public QuotaViewModel SecondQuota { get; }
@@ -2534,7 +2536,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 return;
             }
 
-            SetSelectedIndex(targetIndex);
+            SetSelectedIndex(targetIndex, targetIndex.CompareTo(CurrentIndex));
         }
 
         /// <summary>
@@ -2556,7 +2558,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
             int step = delta > 0 ? 1 : -1;
             int nextPosition = (currentPosition + step + visible.Count) % visible.Count;
-            SetSelectedIndex(visible[nextPosition]);
+            SetSelectedIndex(visible[nextPosition], step);
         }
 
         /// <summary>
@@ -2576,7 +2578,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         /// <summary>
         /// Updates selection index and raises dependent notifications.
         /// </summary>
-        private void SetSelectedIndex(int index)
+        private void SetSelectedIndex(int index, int direction)
         {
             if (m_SelectedIndex == index)
             {
@@ -2585,6 +2587,10 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
             m_SelectedIndex = index;
             NotifySelectionProperties();
+            if (direction != 0)
+            {
+                PageTurned?.Invoke(direction);
+            }
         }
 
         /// <summary>

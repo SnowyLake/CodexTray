@@ -336,7 +336,7 @@ internal sealed partial class TrayPopupWindow : Window
         ApplyPageTransition(sender, Transition.FadeIn, 160);
     }
 
-    private void SessionRegion_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
+    private void TransitionElement_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
     {
         if (sender is UIElement { IsVisible: false })
         {
@@ -351,8 +351,34 @@ internal sealed partial class TrayPopupWindow : Window
             return;
         }
         double offset = sender is Controls.ContentControl { Content: SessionLogListViewModel } ? 30 : -30;
-        bool pageIsMoving = sender is DependencyObject region && PageViewport.Children.OfType<FrameworkElement>().Any(page => m_Transitions.ContainsKey(page) && page.IsAncestorOf(region));
-        ApplyPageTransition(sender, IsLoaded && !pageIsMoving ? Transition.FadeIn : Transition.None, 200, offset);
+        ApplyPageTransition(sender, IsLoaded && !HasTransitioningAncestor((DependencyObject)sender) ? Transition.FadeIn : Transition.None, 200, offset);
+    }
+
+    private bool HasTransitioningAncestor(DependencyObject element) => m_Transitions.Keys.Any(parent => parent != element && parent.IsAncestorOf(element));
+
+    private void QuotaContent_Loaded(object sender, RoutedEventArgs args)
+    {
+        FrameworkElement content = (FrameworkElement)sender;
+        if (content.DataContext is not TrayPopupViewModel.QuotaPagerViewModel pager)
+        {
+            return;
+        }
+
+        pager.PageTurned += OnPageTurned;
+        content.Unloaded += OnUnloaded;
+
+        void OnPageTurned(int direction)
+        {
+            Transition slide = direction > 0 ? Transition.SlideRight : Transition.SlideLeft;
+            ApplyPageTransition(content, HasTransitioningAncestor(content) ? Transition.None : slide, 200);
+        }
+
+        void OnUnloaded(object sender, RoutedEventArgs args)
+        {
+            pager.PageTurned -= OnPageTurned;
+            content.Unloaded -= OnUnloaded;
+            ApplyPageTransition(content, Transition.None, 200);
+        }
     }
 
     private void MainPage_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)

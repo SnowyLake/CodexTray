@@ -481,22 +481,24 @@
             </DataTemplate>
 
             <DataTemplate x:Key="QuotaPagerDataTemplate">
-                <Grid>
-                    <ContentControl x:Name="FirstQuotaContent"
-                                    Content="{Binding FirstQuota}"
-                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Visibility="{Binding IsFirstVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <ContentControl x:Name="SecondQuotaContent"
-                                    Content="{Binding SecondQuota}"
-                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Visibility="{Binding IsSecondVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <ContentControl x:Name="ThirdQuotaContent"
-                                    Content="{Binding ThirdQuota}"
-                                    ContentTemplate="{StaticResource QuotaDataTemplate}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Visibility="{Binding IsThirdVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                <Grid ClipToBounds="True">
+                    <Grid Loaded="QuotaContent_Loaded" IsVisibleChanged="TransitionElement_IsVisibleChanged">
+                        <ContentControl x:Name="FirstQuotaContent"
+                                        Content="{Binding FirstQuota}"
+                                        ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        Visibility="{Binding IsFirstVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <ContentControl x:Name="SecondQuotaContent"
+                                        Content="{Binding SecondQuota}"
+                                        ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        Visibility="{Binding IsSecondVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <ContentControl x:Name="ThirdQuotaContent"
+                                        Content="{Binding ThirdQuota}"
+                                        ContentTemplate="{StaticResource QuotaDataTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        Visibility="{Binding IsThirdVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </Grid>
                     <StackPanel x:Name="PageIndicators"
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Bottom"
@@ -602,17 +604,19 @@
             </DataTemplate>
 
             <DataTemplate x:Key="CompactQuotaPagerDataTemplate">
-                <Grid>
-                    <ContentControl x:Name="FirstQuotaContent"
-                                    Content="{Binding FirstQuota}"
-                                    ContentTemplate="{StaticResource CompactPagedQuotaDataTemplate}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Visibility="{Binding IsFirstVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <ContentControl x:Name="SecondQuotaContent"
-                                    Content="{Binding SecondQuota}"
-                                    ContentTemplate="{StaticResource CompactPagedQuotaDataTemplate}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Visibility="{Binding IsSecondVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                <Grid ClipToBounds="True">
+                    <Grid Loaded="QuotaContent_Loaded" IsVisibleChanged="TransitionElement_IsVisibleChanged">
+                        <ContentControl x:Name="FirstQuotaContent"
+                                        Content="{Binding FirstQuota}"
+                                        ContentTemplate="{StaticResource CompactPagedQuotaDataTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        Visibility="{Binding IsFirstVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <ContentControl x:Name="SecondQuotaContent"
+                                        Content="{Binding SecondQuota}"
+                                        ContentTemplate="{StaticResource CompactPagedQuotaDataTemplate}"
+                                        HorizontalContentAlignment="Stretch"
+                                        Visibility="{Binding IsSecondVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </Grid>
                     <StackPanel x:Name="PageIndicators"
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Bottom"
@@ -1194,7 +1198,7 @@
                                       Margin="0,18,-8,0"
                                       Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
                                       TargetUpdated="SessionRegion_TargetUpdated"
-                                      IsVisibleChanged="SessionRegion_IsVisibleChanged"
+                                      IsVisibleChanged="TransitionElement_IsVisibleChanged"
                                       Padding="0,0,8,0"
                                       HorizontalScrollBarVisibility="Disabled"
                                       VerticalScrollBarVisibility="Hidden">
@@ -1267,7 +1271,7 @@
                                         VerticalContentAlignment="Stretch"
                                         Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
                                         TargetUpdated="SessionRegion_TargetUpdated"
-                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                                        IsVisibleChanged="TransitionElement_IsVisibleChanged" />
                         <ContentControl x:Name="CodexSessionLogContent" Grid.Row="0"
                                         Grid.RowSpan="2"
                                         Margin="0,4,0,0"
@@ -1277,7 +1281,7 @@
                                         VerticalContentAlignment="Stretch"
                                         Visibility="{Binding CodexSessionLogs.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
                                         TargetUpdated="SessionRegion_TargetUpdated"
-                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                                        IsVisibleChanged="TransitionElement_IsVisibleChanged" />
                     </Grid>
 
                 </Grid>
@@ -1373,7 +1377,7 @@
                                       Margin="0,18,-8,0"
                                       Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
                                       TargetUpdated="SessionRegion_TargetUpdated"
-                                      IsVisibleChanged="SessionRegion_IsVisibleChanged"
+                                      IsVisibleChanged="TransitionElement_IsVisibleChanged"
                                       Padding="0,0,8,0"
                                       HorizontalScrollBarVisibility="Disabled"
                                       VerticalScrollBarVisibility="Hidden">
@@ -1468,7 +1472,7 @@
                                         VerticalContentAlignment="Stretch"
                                         Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
                                         TargetUpdated="SessionRegion_TargetUpdated"
-                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                                        IsVisibleChanged="TransitionElement_IsVisibleChanged" />
                         <ContentControl x:Name="GrokSessionLogContent" Grid.Row="0"
                                         Grid.RowSpan="2"
                                         Margin="0,4,0,0"
@@ -1478,7 +1482,7 @@
                                         VerticalContentAlignment="Stretch"
                                         Visibility="{Binding GrokSessionLogs.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
                                         TargetUpdated="SessionRegion_TargetUpdated"
-                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                                        IsVisibleChanged="TransitionElement_IsVisibleChanged" />
                     </Grid>
 
                 </Grid>
@@ -1574,7 +1578,7 @@
                                       Margin="0,18,-8,0"
                                       Visibility="{Binding GeminiSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
                                       TargetUpdated="SessionRegion_TargetUpdated"
-                                      IsVisibleChanged="SessionRegion_IsVisibleChanged"
+                                      IsVisibleChanged="TransitionElement_IsVisibleChanged"
                                       Padding="0,0,8,0"
                                       HorizontalScrollBarVisibility="Disabled"
                                       VerticalScrollBarVisibility="Hidden">
@@ -1611,7 +1615,7 @@
                                         VerticalContentAlignment="Stretch"
                                         Visibility="{Binding GeminiSessionLogs.IsOpen, Converter={StaticResource InverseBooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
                                         TargetUpdated="SessionRegion_TargetUpdated"
-                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                                        IsVisibleChanged="TransitionElement_IsVisibleChanged" />
                         <ContentControl x:Name="GeminiSessionLogContent" Grid.Row="0"
                                         Grid.RowSpan="2"
                                         Margin="0,4,0,0"
@@ -1621,7 +1625,7 @@
                                         VerticalContentAlignment="Stretch"
                                         Visibility="{Binding GeminiSessionLogs.IsOpen, Converter={StaticResource BooleanToVisibilityConverter}, NotifyOnTargetUpdated=True}"
                                         TargetUpdated="SessionRegion_TargetUpdated"
-                                        IsVisibleChanged="SessionRegion_IsVisibleChanged" />
+                                        IsVisibleChanged="TransitionElement_IsVisibleChanged" />
                     </Grid>
 
                 </Grid>

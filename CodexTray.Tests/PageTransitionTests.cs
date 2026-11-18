@@ -26,6 +26,7 @@ internal static class PageTransitionTests
                 window.Show();
                 Pump();
                 bool animationsEnabled = SystemParameters.ClientAreaAnimation && Wpf.Ui.Hardware.HardwareAcceleration.IsSupported(Wpf.Ui.Hardware.RenderingTier.PartialAcceleration);
+                CheckQuotaTransitions(window, viewModel, animationsEnabled);
                 CheckChartAnimations(window, viewModel, animationsEnabled);
                 foreach (string source in new[] { "Codex", "Grok", "Gemini" })
                 {
@@ -154,6 +155,45 @@ internal static class PageTransitionTests
     }
 
     private static bool HasSlide(UIElement element) => element.RenderTransform is TranslateTransform { HasAnimatedProperties: true };
+
+    private static void CheckQuotaTransitions(TrayPopupWindow window, TrayPopupViewModel viewModel, bool animationsEnabled)
+    {
+        viewModel.ShowGemini();
+        Pump(250);
+        foreach (string cardName in new[] { "GeminiPrimaryCard", "GeminiPartnerCard" })
+        {
+            Border card = (Border)window.FindName(cardName);
+            var pager = (TrayPopupViewModel.QuotaPagerViewModel)card.DataContext;
+            pager.FirstQuota.UpdateUsedPercent(25, "fixture");
+            pager.SecondQuota.UpdateUsedPercent(50, "fixture");
+            pager.ThirdQuota?.UpdateUsedPercent(75, "fixture");
+            Grid content = (Grid)Descendants(card).OfType<ContentControl>().Single(control => control.Name == "FirstQuotaContent").Parent;
+            StackPanel indicators = Descendants(card).OfType<StackPanel>().Single(panel => panel.Name == "PageIndicators");
+            var lastQuota = pager.ThirdQuota ?? pager.SecondQuota;
+            pager.SelectQuotaCommand.Execute(lastQuota);
+            Pump();
+            Check(IsIdle(indicators) && IsIdle(card), "quota transitions must keep the card and page indicators fixed");
+            Check(animationsEnabled ? IsFading(content) && content.RenderTransform is TranslateTransform { X: > 0, Y: 0 } : IsIdle(content), "selecting a later quota must slide in from the right when enabled");
+            pager.SelectAdjacent(1);
+            Pump();
+            Check(pager.IsFirstSelected && (!animationsEnabled || content.RenderTransform is TranslateTransform { X: > 0, Y: 0 }), "wrapping forward must still slide in from the right");
+            pager.SelectAdjacent(-1);
+            Pump();
+            Check(!animationsEnabled || content.RenderTransform is TranslateTransform { X: < 0, Y: 0 }, "reversing mid-slide must start a slide from the left");
+            Pump(250);
+            pager.SelectQuotaCommand.Execute(lastQuota);
+            lastQuota.UpdateUsedPercent(10, "updated");
+            pager.EnsureValidSelection();
+            Pump();
+            Check(IsIdle(content), "reselecting or refreshing the current quota must not replay its transition");
+            pager.SelectQuotaCommand.Execute(pager.FirstQuota);
+            window.Hide();
+            Pump();
+            window.ShowNearTray(null);
+            Pump();
+            Check(IsIdle(content), "hiding mid-slide must release the quota clocks without replay on show");
+        }
+    }
 
     private static void CheckChartAnimations(TrayPopupWindow window, TrayPopupViewModel viewModel, bool animationsEnabled)
     {
