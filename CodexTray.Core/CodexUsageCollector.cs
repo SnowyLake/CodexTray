@@ -56,7 +56,7 @@ public sealed class CodexUsageCollector
         CodexCredentials credentials = ReadCodexCredentials(authPath);
         if (!credentials.IsAvailable)
         {
-            return CreateEmptyResponse(codexDirectory, now, credentials.Error ?? "Codex OAuth credentials unavailable");
+            return CreateEmptyResponse(now, credentials.Error ?? "Codex OAuth credentials unavailable");
         }
 
         using HttpRequestMessage request = new(HttpMethod.Get, "https://chatgpt.com/backend-api/wham/usage");
@@ -73,17 +73,17 @@ public sealed class CodexUsageCollector
             using HttpResponseMessage response = await UsageHttp.SendAsync(m_HttpClient, request, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
             {
-                return CreateEmptyResponse(codexDirectory, now, $"Codex OAuth token expired or unauthorized: HTTP {(int)response.StatusCode}");
+                return CreateEmptyResponse(now, $"Codex OAuth token expired or unauthorized: HTTP {(int)response.StatusCode}");
             }
 
             string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return CreateEmptyResponse(codexDirectory, now, UsageDiagnostics.HttpError(response.StatusCode));
+                return CreateEmptyResponse(now, UsageDiagnostics.HttpError(response.StatusCode));
             }
 
             using JsonDocument document = JsonDocument.Parse(body);
-            UsageResponse usage = BuildOfficialResponse(codexDirectory, authPath, document.RootElement, now, useAbsoluteResetTime);
+            UsageResponse usage = BuildOfficialResponse(document.RootElement, now, useAbsoluteResetTime);
             if (usage.Available)
             {
                 usage.ResetCredits = await CollectResetCreditsAsync(credentials, now, cancellationToken).ConfigureAwait(false);
@@ -97,14 +97,14 @@ public sealed class CodexUsageCollector
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or IOException or InvalidOperationException)
         {
-            return CreateEmptyResponse(codexDirectory, now, UsageDiagnostics.Error(exception));
+            return CreateEmptyResponse(now, UsageDiagnostics.Error(exception));
         }
     }
 
     /// <summary>
     /// Builds a usage response from the official quota endpoint JSON.
     /// </summary>
-    private UsageResponse BuildOfficialResponse(string codexDirectory, string authPath, JsonElement root, DateTimeOffset now, bool useAbsoluteResetTime)
+    private UsageResponse BuildOfficialResponse(JsonElement root, DateTimeOffset now, bool useAbsoluteResetTime)
     {
         JsonElement rateLimit = GetObjectProperty(root, "rate_limit");
         JsonElement primary = GetObjectProperty(rateLimit, "primary_window");
@@ -121,7 +121,7 @@ public sealed class CodexUsageCollector
 
         if (primary.ValueKind != JsonValueKind.Object && secondary.ValueKind != JsonValueKind.Object)
         {
-            return CreateEmptyResponse(codexDirectory, now, "Codex usage API did not return rate_limit windows");
+            return CreateEmptyResponse(now, "Codex usage API did not return rate_limit windows");
         }
 
         UsageDisplay display = BuildDisplay(weekly);
@@ -130,8 +130,6 @@ public sealed class CodexUsageCollector
         {
             Available = true,
             Error = null,
-            CodexDir = codexDirectory,
-            SourceFile = authPath,
             Source = "official_api",
             PlanType = planType,
             UpdatedAt = now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture),
@@ -316,13 +314,12 @@ public sealed class CodexUsageCollector
     /// <summary>
     /// Creates an unavailable usage response.
     /// </summary>
-    private static UsageResponse CreateEmptyResponse(string codexDirectory, DateTimeOffset now, string error)
+    private static UsageResponse CreateEmptyResponse(DateTimeOffset now, string error)
     {
         return new UsageResponse
         {
             Available = false,
             Error = error,
-            CodexDir = codexDirectory,
             Source = "none",
             PlanType = "unknown",
             UpdatedAt = now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture),

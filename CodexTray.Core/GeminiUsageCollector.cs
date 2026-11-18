@@ -135,6 +135,7 @@ public sealed partial class GeminiUsageCollector
 
         await s_AuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         GeminiCredential credential;
+        GeminiCredential sourceCredential;
         bool refreshed = false;
         try
         {
@@ -143,15 +144,16 @@ public sealed partial class GeminiUsageCollector
                 throw new GeminiDataException(error);
             }
 
+            sourceCredential = credential;
             if (NeedsRefresh(credential.ExpiresAt, credential.AccessToken, now))
             {
-                if (string.IsNullOrWhiteSpace(credential.RefreshToken))
+                GeminiCredential original = credential;
+                credential = await RefreshCredentialAsync(credential, now, allowCurrentOnUnavailable: true, cancellationToken).ConfigureAwait(false);
+                if (credential.SourceFilePath != null)
                 {
-                    throw new GeminiDataException("Gemini OAuth token expired. Sign in via agy or gemini again.");
+                    sourceCredential = credential;
                 }
-
-                credential = await RefreshCredentialAsync(credential, now, cancellationToken).ConfigureAwait(false);
-                refreshed = true;
+                refreshed = !ReferenceEquals(original, credential);
             }
         }
         finally
@@ -161,21 +163,29 @@ public sealed partial class GeminiUsageCollector
 
         try
         {
-            return await FetchFromCloudCodeAsync(credential, useAbsoluteResetTime, now, cancellationToken).ConfigureAwait(false);
+            GeminiUsageSnapshot snapshot = await FetchFromCloudCodeAsync(credential, useAbsoluteResetTime, now, cancellationToken).ConfigureAwait(false);
+            EnsureCredentialUnchanged(sourceCredential);
+            return snapshot;
         }
         catch (GeminiAuthException) when (!refreshed && !string.IsNullOrWhiteSpace(credential.RefreshToken))
         {
             await s_AuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                credential = await RefreshCredentialAsync(credential, now, cancellationToken).ConfigureAwait(false);
+                credential = await RefreshCredentialAsync(credential, now, allowCurrentOnUnavailable: false, cancellationToken).ConfigureAwait(false);
+                if (credential.SourceFilePath != null)
+                {
+                    sourceCredential = credential;
+                }
             }
             finally
             {
                 s_AuthLock.Release();
             }
 
-            return await FetchFromCloudCodeAsync(credential, useAbsoluteResetTime, now, cancellationToken).ConfigureAwait(false);
+            GeminiUsageSnapshot snapshot = await FetchFromCloudCodeAsync(credential, useAbsoluteResetTime, now, cancellationToken).ConfigureAwait(false);
+            EnsureCredentialUnchanged(sourceCredential);
+            return snapshot;
         }
     }
 
@@ -509,10 +519,16 @@ public sealed partial class GeminiUsageCollector
     /// <summary>
     /// Refreshes an OAuth access token via Google OAuth2 and writes updated tokens back when stored in a local file.
     /// </summary>
-    private async Task<GeminiCredential> RefreshCredentialAsync(GeminiCredential credential, DateTimeOffset now, CancellationToken cancellationToken)
+    private async Task<GeminiCredential> RefreshCredentialAsync(GeminiCredential credential, DateTimeOffset now, bool allowCurrentOnUnavailable, CancellationToken cancellationToken)
     {
+        EnsureCredentialUnchanged(credential);
         if (string.IsNullOrWhiteSpace(credential.RefreshToken))
         {
+            if (allowCurrentOnUnavailable && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken, now, TimeSpan.Zero))
+            {
+                return credential;
+            }
+
             throw new GeminiDataException("Gemini OAuth token expired and no refresh token is available.");
         }
 
@@ -529,6 +545,31 @@ public sealed partial class GeminiUsageCollector
             throw new GeminiDataException("OAuth client configuration is incomplete. Renew the login in Antigravity or Gemini CLI, then refresh.");
         }
 
+        if (credential.SourceFilePath != null)
+        {
+            bool supportsWriteback;
+            try
+            {
+                supportsWriteback = JsonNode.Parse(credential.SourceFileContents!) is JsonObject &&
+                    AtomicFile.CanReplaceAllText(credential.SourceFilePath, credential.SourceFileContents!);
+            }
+            catch (JsonException)
+            {
+                supportsWriteback = false;
+            }
+
+            if (!supportsWriteback)
+            {
+                EnsureCredentialUnchanged(credential);
+                if (allowCurrentOnUnavailable && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken, now, TimeSpan.Zero))
+                {
+                    return credential;
+                }
+
+                throw new GeminiDataException("Gemini OAuth file cannot be updated safely. Renew the login in Antigravity or Gemini CLI.");
+            }
+        }
+
         OAuthTokenResponse refreshed = await OAuthTokenHelpers.RefreshAsync(
             m_HttpClient,
             m_TokenRefreshUrl,
@@ -537,6 +578,8 @@ public sealed partial class GeminiUsageCollector
             "Gemini",
             cancellationToken,
             clientSecret).ConfigureAwait(false);
+
+        EnsureCredentialUnchanged(credential);
 
         DateTimeOffset expiresAt = refreshed.ExpiresInSeconds is double seconds
             ? now.AddSeconds(seconds)
@@ -553,7 +596,7 @@ public sealed partial class GeminiUsageCollector
 
         if (!string.IsNullOrWhiteSpace(credential.SourceFilePath))
         {
-            SaveUpdatedCredentialFile(credential.SourceFilePath, updated);
+            updated = SaveUpdatedCredentialFile(credential, updated);
         }
 
         return updated;
@@ -562,40 +605,54 @@ public sealed partial class GeminiUsageCollector
     /// <summary>
     /// Persists refreshed OAuth tokens atomically back to a writable local JSON credential file.
     /// </summary>
-    private static void SaveUpdatedCredentialFile(string filePath, GeminiCredential credential)
+    private static GeminiCredential SaveUpdatedCredentialFile(GeminiCredential original, GeminiCredential updated)
     {
-        try
+        string filePath = original.SourceFilePath!;
+        string rawText = File.ReadAllText(filePath);
+        if (!string.Equals(rawText, original.SourceFileContents, StringComparison.Ordinal))
         {
-            string rawText = File.ReadAllText(filePath);
-            if (JsonNode.Parse(rawText) is not JsonObject rootObject)
-            {
-                return;
-            }
-
-            JsonObject tokenObject = rootObject["token"] as JsonObject ?? rootObject;
-            tokenObject[tokenObject.ContainsKey("accessToken") && !tokenObject.ContainsKey("access_token") ? "accessToken" : "access_token"] = credential.AccessToken;
-            if (!string.IsNullOrWhiteSpace(credential.RefreshToken))
-            {
-                tokenObject[tokenObject.ContainsKey("refreshToken") && !tokenObject.ContainsKey("refresh_token") ? "refreshToken" : "refresh_token"] = credential.RefreshToken;
-            }
-
-            if (credential.ExpiresAt is DateTimeOffset expiresAt)
-            {
-                if (tokenObject.ContainsKey("expiry"))
-                {
-                    tokenObject["expiry"] = expiresAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
-                }
-                else
-                {
-                    tokenObject["expiry_date"] = expiresAt.ToUnixTimeMilliseconds();
-                }
-            }
-
-            AtomicFile.WriteAllText(filePath, rootObject.ToJsonString(s_WriteJsonOptions));
+            throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.");
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+
+        JsonObject rootObject = JsonNode.Parse(rawText) as JsonObject ?? throw new GeminiDataException("Gemini OAuth file has an invalid format.");
+
+        JsonObject tokenObject = rootObject["token"] as JsonObject ?? rootObject;
+        tokenObject[tokenObject.ContainsKey("accessToken") && !tokenObject.ContainsKey("access_token") ? "accessToken" : "access_token"] = updated.AccessToken;
+        if (!string.IsNullOrWhiteSpace(updated.RefreshToken))
         {
-            // Keep the live refreshed token in memory if the credential file cannot be updated on disk.
+            tokenObject[tokenObject.ContainsKey("refreshToken") && !tokenObject.ContainsKey("refresh_token") ? "refreshToken" : "refresh_token"] = updated.RefreshToken;
+        }
+
+        if (updated.ExpiresAt is DateTimeOffset expiresAt)
+        {
+            if (tokenObject.ContainsKey("expiry"))
+            {
+                tokenObject["expiry"] = expiresAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                tokenObject["expiry_date"] = expiresAt.ToUnixTimeMilliseconds();
+            }
+        }
+
+        string contents = rootObject.ToJsonString(s_WriteJsonOptions);
+        if (!AtomicFile.TryReplaceAllText(filePath, rawText, contents))
+        {
+            throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.");
+        }
+
+        return updated with { SourceFileContents = contents };
+    }
+
+    private void EnsureCredentialUnchanged(GeminiCredential original)
+    {
+        if (!TryLoadCredential(ResolveGeminiHomePath(m_ExplicitGeminiHomePath), out GeminiCredential current, out _) ||
+            (original.SourceFilePath == null
+                ? current != original
+                : !string.Equals(current.SourceFilePath, original.SourceFilePath, StringComparison.Ordinal) ||
+                  !string.Equals(current.SourceFileContents, original.SourceFileContents, StringComparison.Ordinal)))
+        {
+            throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.");
         }
     }
 
@@ -624,6 +681,7 @@ public sealed partial class GeminiUsageCollector
                 string contents = File.ReadAllText(candidateFile);
                 if (TryParseCredentialPayload(contents, candidateFile, preferGeminiCliClient, out credential))
                 {
+                    credential = credential with { SourceFileContents = contents };
                     error = string.Empty;
                     return true;
                 }
@@ -899,7 +957,7 @@ public sealed partial class GeminiUsageCollector
     /// <summary>
     /// Determines whether an access token is missing or within the refresh buffer of expiry.
     /// </summary>
-    private static bool NeedsRefresh(DateTimeOffset? expiresAt, string accessToken, DateTimeOffset now)
+    private static bool NeedsRefresh(DateTimeOffset? expiresAt, string accessToken, DateTimeOffset now, TimeSpan? refreshBuffer = null)
     {
         if (string.IsNullOrWhiteSpace(accessToken))
         {
@@ -914,7 +972,7 @@ public sealed partial class GeminiUsageCollector
                 : jwtExpiry;
         }
 
-        return effectiveExpiry is DateTimeOffset expiry && expiry <= now + s_RefreshBuffer;
+        return effectiveExpiry is DateTimeOffset expiry && expiry <= now + (refreshBuffer ?? s_RefreshBuffer);
     }
 
     /// <summary>
@@ -1246,7 +1304,10 @@ public sealed partial class GeminiUsageCollector
         string? ClientId,
         string? ClientSecret,
         string TierHint,
-        bool PreferGeminiCliClient);
+        bool PreferGeminiCliClient)
+    {
+        public string? SourceFileContents { get; init; }
+    }
 
     private sealed class GeminiDataException(string message) : InvalidOperationException(message);
 

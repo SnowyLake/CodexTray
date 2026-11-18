@@ -83,10 +83,6 @@ internal static class AppUpdateApplyHost
                         AppUpdateInstaller.Restore(backupDirectory, request.TargetDirectory);
                     }
                 }
-                catch (AppUpdateException)
-                {
-                    throw;
-                }
                 catch (Exception restoreException)
                 {
                     throw new AppUpdateException(
@@ -238,8 +234,9 @@ internal static class AppUpdateApplyHost
     /// <summary>
     /// Starts the installed executable in the installation directory.
     /// </summary>
-    private static void StartInstalledExecutable(string executablePath, string workingDirectory)
+    internal static void StartInstalledExecutable(string executablePath, string workingDirectory)
     {
+        AppUpdateWork.EnsureSafeExecutablePath(executablePath);
         using Process process = Process.Start(new ProcessStartInfo
         {
             FileName = executablePath,

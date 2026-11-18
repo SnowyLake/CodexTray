@@ -48,6 +48,7 @@ internal static class Program
         await RunAsync("formats Grok subscription badges", TestGrokPlanDisplayAsync);
         await RunAsync("uses absolute reset time when enabled", TestAbsoluteResetTimeAsync);
         await RunAsync("serves health and usage over HTTP", TestHttpServerAsync);
+        await RunAsync("enforces local HTTP host, header and client limits", LocalHttpSecurityTests.RunAsync);
         await RunAsync("merges and clears plugin usage sources", TestUsageCacheSourcesAsync);
         await RunAsync("drains active HTTP clients on stop", TestHttpServerActiveClientStopAsync);
         await RunAsync("drains HTTP clients after listener failure", TestHttpServerAcceptFailureAsync);
@@ -70,6 +71,7 @@ internal static class Program
         await RunAsync("formats compact token units", TestTokenUnitFormattingAsync);
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
         await RunAsync("collects API balances and OpenAI costs", TestApiUsageCollectorAsync);
+        await RunAsync("isolates API credentials by provider and destination", TestApiCredentialBoundariesAsync);
         await RunAsync("maps the first DeepSeek card to plugin usage", TestDeepSeekPluginUsageAsync);
         await RunAsync("parses Grok billing responses", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
@@ -78,6 +80,7 @@ internal static class Program
         await RunAsync("collects Gemini quota and refreshes OAuth", TestGeminiUsageCollectorAsync);
         await RunAsync("decodes Windows and IDE Gemini credentials", GeminiCredentialTests.EncodingsAsync);
         await RunAsync("preserves nested Gemini credentials and bounds OAuth refresh", GeminiCredentialTests.RefreshPersistenceAsync);
+        await RunAsync("rejects stale OAuth credential updates", OAuthCredentialConcurrencyTests.RunAsync);
         await RunAsync("uses only complete local Gemini OAuth client pairs", GeminiCredentialTests.RefreshConfigurationAsync);
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
@@ -1566,6 +1569,39 @@ internal static class Program
         AssertTrue(content.Contains($"http://{CodexTrayDefaults.Host}:17999{CodexTrayDefaults.UsageTextEndpointPath}", StringComparison.Ordinal), "plugin config should include bridge URL");
         AssertTrue(!content.Contains("{{", StringComparison.Ordinal), "plugin config should not include template placeholders");
         AssertTrue(!content.Contains("RequestIntervalSeconds", StringComparison.Ordinal), "plugin config should not include request interval");
+        using TempDirectory working = new();
+        using TempDirectory package = new();
+        string relativePlugin = Path.Combine("Plugins", "TrafficMonitor", CodexTrayDefaults.TrafficMonitorPluginFileName);
+        string packaged = Path.Combine(package.Path, relativePlugin);
+        string template = Path.Combine("Plugins", "TrafficMonitor", CodexTrayDefaults.TrafficMonitorPluginConfigFileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(packaged)!);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, template), Path.Combine(package.Path, template));
+        Directory.CreateDirectory(Path.Combine(working.Path, "Plugins", "TrafficMonitor"));
+        File.WriteAllText(Path.Combine(working.Path, relativePlugin), "working directory fixture");
+        string previousDirectory = Environment.CurrentDirectory;
+        object? previousBase = AppContext.GetData("APP_CONTEXT_BASE_DIRECTORY");
+        try
+        {
+            AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", package.Path);
+            Environment.CurrentDirectory = working.Path;
+            try
+            {
+                TrafficMonitorPluginInstaller.Install(temp.Path, 17999);
+                throw new InvalidOperationException("missing packaged plugin must fail installation");
+            }
+            catch (FileNotFoundException exception) when (exception.FileName == packaged)
+            {
+                AssertEqual("fake dll", File.ReadAllText(targetPath), "missing package preserves the installed plugin");
+            }
+            File.WriteAllText(packaged, "packaged fixture");
+            string installed = TrafficMonitorPluginInstaller.Install(temp.Path, 17999);
+            AssertEqual("packaged fixture", File.ReadAllText(installed), "default install copies only the packaged DLL");
+        }
+        finally
+        {
+            AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", previousBase);
+            Environment.CurrentDirectory = previousDirectory;
+        }
         return Task.CompletedTask;
     }
 
@@ -2097,6 +2133,62 @@ internal static class Program
         {
             CultureInfo.CurrentCulture = previousCulture;
         }
+    }
+
+    private static async Task TestApiCredentialBoundariesAsync()
+    {
+        ApiMonitorViewModel card = new(new ApiMonitorSettings { ApiKey = "fixture-key", UserId = "42" }, isEditing: true);
+        card.BaseUrl += "/v1";
+        AssertEqual("fixture-key", card.ApiKey, "changing the path on the same origin preserves credentials");
+        card.Provider = ApiMonitorSettings.OpenAiProvider;
+        AssertTrue(card.ApiKey.Length == 0 && card.UserId.Length == 0, "changing provider clears both credentials even on the same custom URL");
+        foreach (string url in new[] { "https://elsewhere.example", "https://elsewhere.example:8443", "http://elsewhere.example:8443" })
+        {
+            card.ApiKey = "fixture-key";
+            card.UserId = "42";
+            card.BaseUrl = url;
+            AssertTrue(card.ApiKey.Length == 0 && card.UserId.Length == 0, "changing host, port or scheme clears both credentials");
+        }
+        AssertTrue(!card.ToggleEditingCommand.CanExecute(null), "remote HTTP must not be savable");
+        card.ToggleEditingCommand.Execute(null);
+        AssertTrue(card.IsEditing, "invalid destinations keep the card in edit mode");
+
+        using HttpClient client = new(new ApiUsageHttpMessageHandler());
+        ApiUsageCollector collector = new(client);
+        foreach (string provider in card.ProviderOptions)
+        {
+            ApiMonitorSettings saved = new() { Provider = provider, BaseUrl = card.BaseUrl, ApiKey = "fixture-key", UserId = "42" };
+            ApiUsageResult result = (await collector.CollectAsync([saved])).Single();
+            AssertEqual(ApiMonitorSettings.BaseUrlRequirement, result.Error, "legacy HTTP configuration is rejected before a request");
+        }
+        foreach (string url in new[] { "http://localhost:8080", "http://127.0.0.1:8080", "http://[::1]:8080", "https://elsewhere.example" })
+        {
+            card.BaseUrl = url;
+            AssertTrue(card.ToggleEditingCommand.CanExecute(null), "loopback HTTP and remote HTTPS must be savable");
+        }
+
+        using LightweightHttpServer loopback = new(new UsageCache(), 0);
+        loopback.Start();
+        IWebProxy originalProxy = HttpClient.DefaultProxy;
+        try
+        {
+            HttpClient.DefaultProxy = new RejectProxy();
+            var localCard = new ApiMonitorSettings { BaseUrl = $"http://127.0.0.1:{loopback.Port}", ApiKey = "fixture-key" };
+            ApiUsageResult direct = (await new ApiUsageCollector().CollectAsync([localCard])).Single();
+            AssertEqual(UsageDiagnostics.HttpError(HttpStatusCode.NotFound), direct.Error, "loopback HTTP reaches the local server directly");
+        }
+        finally
+        {
+            HttpClient.DefaultProxy = originalProxy;
+            await loopback.StopAsync();
+        }
+    }
+
+    private sealed class RejectProxy : IWebProxy
+    {
+        public ICredentials? Credentials { get; set; }
+        public Uri GetProxy(Uri destination) => throw new InvalidOperationException("local credentials must bypass the system proxy");
+        public bool IsBypassed(Uri host) => throw new InvalidOperationException("local credentials must bypass the system proxy");
     }
 
     /// <summary>

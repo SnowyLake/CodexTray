@@ -48,7 +48,7 @@
 2. 只接受 tag `vX.Y.Z` 和资产名 `CodexTray-vX.Y.Z-win-x64.zip`. 下载 URL 必须是 `https://github.com` 上对应的 release asset. 用资产 `digest` 的 SHA-256 和 `size` 校验, 包大于 100 MB 时拒绝. 下载超时 120 秒.
 3. 解压时拒绝绝对路径, 盘符和 `..`. 包内必须同时有 `CodexTray.exe`, `Resources` 下的图标和 `model-pricing.json`, 以及 LiteMonitor 与 TrafficMonitor 插件文件.
 4. 校验通过后, 把新包中的 `CodexTray.exe` 复制到临时目录, 用 `--apply-update --wait-pid --parent-started-utc --source --target --restart` 启动. 主进程再走现有退出流程. 更新进程用 PID 和启动时间确认旧进程, 等待它退出, 最长 10 分钟. 覆盖和还原期间持有 `CodexTrayMutex`, 并在启动新进程之前释放.
-5. 覆盖前把安装目录备份到临时目录. 先复制资源和插件, 最后复制 exe. 单个文件最多重试 10 次, 间隔 250 毫秒. 根目录已有的 `settings.json` 不覆盖, 安装目录里的其他用户文件保留. 复制失败时从备份还原; 还原成功才重新启动旧版本.
+5. 覆盖前把安装目录备份到临时目录. 先复制资源和插件, 最后复制 exe. 单个文件最多重试 10 次, 间隔 250 毫秒. 根目录已有的 `settings.json` 不覆盖, 安装目录里的其他用户文件保留. 复制失败时从备份还原; 还原成功才重新启动旧版本. 覆盖、备份、还原和清理前检查路径及目录树中的重解析点; 安装目录包含联接或符号链接时拒绝自动更新.
 6. 安装目录不可写, 或当前进程不是 `CodexTray.exe` 时, 不退出程序. 根目录存在 `CodexTray.dll` 时视为开发编译, 检查和安装都拒绝, 也不退出程序. `Plugins/TrafficMonitor/CodexTray.dll` 不算. 超过 1 小时的更新临时目录会在下一次准备更新时删除.
 
 ### 额度与插件链路
@@ -60,8 +60,12 @@
    - `/codex-tray.txt`: TrafficMonitor 使用的三行文本, 依次为 Codex Weekly, Grok Weekly 和 DeepSeek 整元 CNY 余额.
    - `/health`: 返回本地服务健康状态.
 4. `LiteMonitorPluginInstaller` 和 `TrafficMonitorPluginInstaller` 从发布目录读取模板, 写入当前端口后安装到监控器目录.
+   TrafficMonitor 默认 DLL 固定为应用目录内的 `Plugins/TrafficMonitor/CodexTray.dll`. 开发调用可以显式提供编译产物路径.
+5. TrafficMonitor 读取三行文本时, 正文上限为 4096 字节, 整次请求限时 5 秒. 失败时三项均显示 `N/A`. 数值与 tooltip 以完整快照发布, 原生取值接口为调用线程保留字符串.
 
 ### API 监控链路
+
+卡片保存和后台采集共用 Base URL 校验. 远程目标必须使用 HTTPS, HTTP 限 localhost 和字面回环 IP, 并且绕过系统代理. 生产 HTTP 客户端禁用重定向及 Cookie. 卡片更换 provider 或目标源 (协议、主机、端口) 时清空密钥和 User ID, 同源路径编辑保留凭据.
 
 1. `AppSettings.ApiMonitors` 保存 API 监控卡片的顺序和 provider 配置. 支持的 provider 及新建卡片下拉顺序为 OpenAI, DeepSeek, OpenRouter, Vercel 与 NewAPI, 由 `ApiMonitorViewModel.ProviderOptions` 固定. 新建卡片的 provider, 名称和 Base URL 为 OpenAI 与 `https://api.openai.com`. `ApiMonitorSettings` 的字段初始值和未知 provider 的规范化结果仍是 DeepSeek. `TrayPopupViewModel` 负责增删, 排序和持久化卡片. 升降箭头仅位于卡片编辑页, 排序立即持久化已有卡片的顺序, 不保存未完成的字段编辑或 pending 卡片. `AppSettings.Normalize` 会移除旧版 Cursor 卡片和已保存的 NanoGPT 卡片.
 2. `ApiUsageCollector` 并行刷新所有卡片. OpenAI 使用 `/v1/organization/costs`, DeepSeek 使用 `/user/balance`, OpenRouter 使用 `/api/v1/credits`, Vercel 使用 `/v1/credits`, NewAPI 使用 `/api/user/self` 并发送 `New-Api-User` header.
@@ -69,6 +73,8 @@
 4. `TrayController` 将结果交给 `TrayPopupViewModel` 更新单卡片状态与 APIs 页汇总状态, 并将第一张 DeepSeek 卡片写入 `UsageCache`. 其他 API provider 不进入插件 HTTP 响应. 有多张 DeepSeek 卡片时只使用最靠前的一张, 该卡片不可用时显示 `N/A`, 不回退到后续 DeepSeek 卡片.
 
 ### Grok 页面链路
+
+Grok 与 Gemini 的文件凭据共用 `AtomicFile` 的 NTFS 事务写回. OAuth 请求前以事务读写句柄确认文件内容与采集快照一致. 网络返回后在同一笔新的事务内比较当前内容、写入并提交, 并发换号或退出后丢弃旧结果. 无法事务写回时, 仍有效的 access token 可以继续查询, 再次续期须由原客户端完成.
 
 1. `GrokUsageCollector` 从 Grok Build 的 `~/.grok/auth.json` 读取 xAI OAuth access token, 不使用 OpenCode 凭据. 临近过期, 或额度请求返回 401/403 时, 使用 refresh token 调用 `auth.x.ai` 刷新并写回原文件. 设置请求失败不触发这次续期. OAuth token 不会复制到 `settings.json`.
 2. Grok 额度请求 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`, 与 Grok Build 客户端相同. `https://grok.com/rest/grok/credits` 对非浏览器返回 Cloudflare 挑战页, 不使用. 响应提供 Weekly 已用百分比 `creditUsagePercent`, 账期结束时间 (`currentPeriod.end`, 缺失时用 `billingPeriodEnd`) 和 `productUsage` 产品占比. 当前响应可以只有 `config`, 不带 `subscriptionTier`. 已用百分比先限制在 0 到 100. `productUsage` 缺少产品名或名称为空时记为 `Cursor`. 插件把已用百分比四舍五入为整数, 剩余为 `100 - 已用整数`. 卡片把剩余百分比 `100 - 已用` 四舍五入为整数. 重置时间使用该账期结束时间.
@@ -173,6 +179,7 @@
 - 修改 `VisiblePages` 或刷新调度时, 同步检查页面导航, 定时器, 插件本地 HTTP 服务启停, 缓存清理和各采集器调用条件.
 - 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
 - 本地服务必须保持仅监听 `127.0.0.1`. 除第一张 DeepSeek 卡片的 CNY 余额外, 其他 API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.
+- 本地 HTTP 请求必须包含一个匹配监听端口的 Host (127.0.0.1 或 localhost). 最多同时处理 32 个客户端, 每个请求头总计不超过 16 KiB 和 32 个字段, 时限 5 秒. LiteMonitor JSON 只输出三项 `display` 与对应的 `limits.*.remaining_percent`.
 - `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. 发布预览和重启脚本仅停止与目标 exe 完整路径一致的进程; 存在其他安装路径或无法读取路径的同名进程时先报错, 不终止任何实例. `Scripts/Restart-App.ps1` 不执行发布.
 - 修改应用内更新的包名, 校验, 保留文件, `--apply-update` 参数或更新对话框时, 同步检查 `AppUpdateRelease`, `AppUpdatePackage`, `AppUpdateInstaller`, `GitHubAppUpdateClient`, `Program.cs`, Settings 页版本行, 对应测试和 README.
 

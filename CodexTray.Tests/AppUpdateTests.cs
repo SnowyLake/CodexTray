@@ -1,5 +1,6 @@
 using CodexTray.Core;
 using CodexTray.App;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Net;
@@ -23,6 +24,8 @@ internal static class AppUpdateTests
         failures += await RunAsync("prepares an update handoff from a release package", TestPrepareHandoffAsync);
         failures += await RunAsync("applies an update without replacing settings", TestApplyUpdateAsync);
         failures += await RunAsync("restores the previous installation when replacement fails", TestRestoreFailedUpdateAsync);
+        failures += await RunAsync("rejects reparse points in update and recovery paths", TestUpdateReparsePointsAsync);
+        failures += await RunAsync("does not extract or clean up through reparse points", TestUpdateReparseCleanupAsync);
         failures += await RunAsync("round-trips update process arguments", TestUpdateArgumentsAsync);
         failures += await RunAsync("rejects updates from a development build", TestRejectDevelopmentBuildAsync);
         failures += await RunAsync("keeps update indicators until the available release changes", TestUpdateIndicatorsAsync);
@@ -288,6 +291,155 @@ internal static class AppUpdateTests
         AssertTrue(File.ReadAllText(Path.Combine(target, CodexTrayDefaults.AppName + ".exe")).StartsWith("old:", StringComparison.Ordinal), "executable restored");
         AssertTrue(!File.Exists(Path.Combine(target, CodexTrayDefaults.PluginsDirectoryName, CodexTrayDefaults.LiteMonitorPluginSubdirectory, "added.txt")), "new file removed");
         return Task.CompletedTask;
+    }
+
+    private static Task TestUpdateReparsePointsAsync()
+    {
+        using TempDirectory temp = new();
+        string source = Path.Combine(temp.Path, "source");
+        string target = Path.Combine(temp.Path, "target");
+        string backup = Path.Combine(temp.Path, "backup");
+        string linkedDirectory = Path.Combine(temp.Path, "linked-directory");
+        Directory.CreateDirectory(linkedDirectory);
+        string sentinel = Path.Combine(linkedDirectory, "sentinel.txt");
+        File.WriteAllText(sentinel, "unchanged");
+        WritePackage(source, "new");
+        WritePackage(target, "old");
+        string targetExecutable = Path.Combine(target, CodexTrayDefaults.AppName + ".exe");
+
+        void AssertApplyRejected(string sourcePath, string targetPath, string backupPath)
+        {
+            AppUpdateException? error = null;
+            try
+            {
+                AppUpdateInstaller.Apply(sourcePath, targetPath, backupPath);
+            }
+            catch (AppUpdateException exception)
+            {
+                error = exception;
+            }
+
+            AssertTrue(error is { CanRestartPreviousVersion: true }, "rejected before changing the installation");
+            AssertTrue(File.ReadAllText(targetExecutable).StartsWith("old:", StringComparison.Ordinal), "installed executable unchanged");
+            AssertEqual("unchanged", File.ReadAllText(sentinel), "linked files unchanged");
+        }
+
+        string targetChild = Path.Combine(target, "linked-child");
+        CreateJunction(targetChild, linkedDirectory);
+        AssertApplyRejected(source, target, backup);
+        AssertTrue(!Directory.Exists(backup), "no backup created for a linked installation");
+        AssertThrows(() => AppUpdateWork.PrepareHandoff(source, Path.Combine(temp.Path, "work"), targetExecutable), "reparse point");
+        AssertTrue(!Directory.Exists(Path.Combine(temp.Path, "work")), "handoff rejects a linked installation before staging");
+        AppUpdateWork.DeleteQuietly(target);
+        AssertTrue(Directory.Exists(target) && File.Exists(sentinel), "cleanup leaves a tree containing a link untouched");
+        Directory.Delete(targetChild);
+
+        string sourceChild = Path.Combine(source, "linked-child");
+        CreateJunction(sourceChild, linkedDirectory);
+        AssertApplyRejected(source, target, backup);
+        Directory.Delete(sourceChild);
+
+        string targetRoot = Path.Combine(temp.Path, "target-link");
+        CreateJunction(targetRoot, target);
+        AssertApplyRejected(source, targetRoot, backup);
+        AssertThrows(() => AppUpdateApplyHost.StartInstalledExecutable(Path.Combine(targetRoot, CodexTrayDefaults.AppName + ".exe"), targetRoot), "reparse point");
+        Directory.Delete(targetRoot);
+
+        string executableLink = Path.Combine(temp.Path, CodexTrayDefaults.AppName + ".exe");
+        CreateJunction(executableLink, linkedDirectory);
+        AssertThrows(() => AppUpdateApplyHost.StartInstalledExecutable(executableLink, temp.Path), "reparse point");
+        Directory.Delete(executableLink);
+
+        string realParent = Path.Combine(temp.Path, "real-parent");
+        string parentTarget = Path.Combine(realParent, "target");
+        WritePackage(parentTarget, "old");
+        string parentLink = Path.Combine(temp.Path, "parent-link");
+        CreateJunction(parentLink, realParent);
+        AssertApplyRejected(source, Path.Combine(parentLink, "target"), backup);
+        AssertApplyRejected(source, target, Path.Combine(parentLink, "backup"));
+        AppUpdateWork.DeleteQuietly(Path.Combine(parentLink, "target"));
+        AssertTrue(File.Exists(Path.Combine(parentTarget, CodexTrayDefaults.AppName + ".exe")), "cleanup rejects a linked parent");
+        Directory.Delete(parentLink);
+
+        string missingDirectory = Path.Combine(temp.Path, "missing-directory");
+        Directory.CreateDirectory(missingDirectory);
+        CreateJunction(backup, missingDirectory);
+        Directory.Delete(missingDirectory);
+        AssertApplyRejected(source, target, backup);
+        Directory.Delete(backup);
+
+        Directory.CreateDirectory(missingDirectory);
+        CreateJunction(targetChild, missingDirectory);
+        Directory.Delete(missingDirectory);
+        AssertApplyRejected(source, target, backup);
+        Directory.Delete(targetChild);
+
+        WritePackage(backup, "backup");
+        CreateJunction(targetChild, linkedDirectory);
+        AssertThrows(() => AppUpdateInstaller.Restore(backup, target), "reparse point");
+        AssertTrue(File.ReadAllText(targetExecutable).StartsWith("old:", StringComparison.Ordinal), "restore validates target before copying");
+        AssertEqual("unchanged", File.ReadAllText(sentinel), "restore leaves linked files untouched");
+        Directory.Delete(targetChild);
+
+        string backupChild = Path.Combine(backup, "linked-child");
+        CreateJunction(backupChild, linkedDirectory);
+        AssertThrows(() => AppUpdateInstaller.Restore(backup, target), "reparse point");
+        AssertTrue(File.ReadAllText(targetExecutable).StartsWith("old:", StringComparison.Ordinal), "restore validates backup before copying");
+        Directory.Delete(backupChild);
+        return Task.CompletedTask;
+    }
+
+    private static async Task TestUpdateReparseCleanupAsync()
+    {
+        using TempDirectory temp = new();
+        string linkedDirectory = Path.Combine(temp.Path, "linked-directory");
+        Directory.CreateDirectory(linkedDirectory);
+        string sentinel = Path.Combine(linkedDirectory, "sentinel.txt");
+        File.WriteAllText(sentinel, "unchanged");
+        string rootLink = Path.Combine(temp.Path, "root-link");
+        CreateJunction(rootLink, linkedDirectory);
+        AppUpdateWork.DeleteQuietly(rootLink);
+        AssertTrue(Directory.Exists(rootLink) && File.Exists(sentinel), "cleanup rejects a linked root");
+        using HttpClient client = new(new StaticHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent([1]),
+        }));
+        GitHubAppUpdateClient downloader = new(client);
+        AppUpdateRelease release = CreateRelease(new Version(1, 2, 3), 1, Sha("a"));
+        await AssertThrowsAsync(() => downloader.DownloadPackageAsync(release, Path.Combine(rootLink, "package.zip"), CancellationToken.None), "reparse point");
+        AssertTrue(!File.Exists(Path.Combine(linkedDirectory, "package.zip")), "download leaves linked files untouched");
+        Directory.Delete(rootLink);
+
+        string destination = Path.Combine(temp.Path, "destination");
+        Directory.CreateDirectory(destination);
+        string nestedLink = Path.Combine(destination, "nested");
+        CreateJunction(nestedLink, linkedDirectory);
+        string zipPath = Path.Combine(temp.Path, "package.zip");
+        using (ZipArchive archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+        {
+            WriteEntry(archive, "nested/example.txt", "example");
+        }
+
+        AssertThrows(() => AppUpdatePackage.Extract(zipPath, destination), "reparse point");
+        AssertTrue(!File.Exists(Path.Combine(linkedDirectory, "example.txt")), "extraction leaves linked files untouched");
+        AssertEqual("unchanged", File.ReadAllText(sentinel), "linked sentinel unchanged");
+        Directory.Delete(nestedLink);
+    }
+
+    private static void CreateJunction(string path, string target)
+    {
+        using Process process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/d /c mklink /J \"{path}\" \"{target}\"",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        }) ?? throw new InvalidOperationException("could not start junction creation");
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        AssertEqual(0, process.ExitCode, output);
     }
 
     /// <summary>

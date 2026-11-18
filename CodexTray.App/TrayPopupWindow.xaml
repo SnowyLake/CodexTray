@@ -1841,8 +1841,13 @@
                                                                    Text="Base URL"
                                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                    FontSize="12" />
-                                                        <ui:TextBox Text="{Binding BaseUrl}"
+                                                        <ui:TextBox Text="{Binding BaseUrl, UpdateSourceTrigger=LostFocus}"
                                                                  Style="{StaticResource SettingsTextBoxStyle}" />
+                                                        <TextBlock Text="{x:Static core:ApiMonitorSettings.BaseUrlRequirement}"
+                                                                   TextWrapping="Wrap"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                   FontSize="11"
+                                                                   Visibility="{Binding HasInvalidBaseUrl, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                                                         <TextBlock Margin="0,10,0,5"
                                                                    Text="{Binding CredentialLabel}"

@@ -18,6 +18,8 @@ public enum PageItem
 
 public sealed class ApiMonitorSettings
 {
+    public const string BaseUrlRequirement = "Use HTTPS, or HTTP on localhost or a loopback IP address.";
+
     public const string OpenAiProvider = "OpenAI";
 
     public const string DeepSeekProvider = "DeepSeek";
@@ -47,6 +49,13 @@ public sealed class ApiMonitorSettings
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public decimal? MonthlyStartingCredit { get; set; }
+
+    public static bool TryParseBaseUrl(string? value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Uri? uri)
+    {
+        return Uri.TryCreate(value, UriKind.Absolute, out uri) && uri.UserInfo.Length == 0 &&
+            (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp &&
+                (uri.IdnHost == "localhost" || System.Net.IPAddress.TryParse(uri.IdnHost, out var address) && System.Net.IPAddress.IsLoopback(address)));
+    }
 
     /// <summary>
     /// Parses a non-negative USD starting credit. Empty or invalid text stays unset.

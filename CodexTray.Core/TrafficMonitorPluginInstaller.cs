@@ -12,7 +12,12 @@ public static class TrafficMonitorPluginInstaller
             throw new DirectoryNotFoundException($"TrafficMonitor.exe not found in {trafficMonitorDirectory}");
         }
 
-        string sourcePath = ResolvePluginBinaryPath(pluginBinaryPath);
+        string sourcePath = pluginBinaryPath ?? Path.Combine(AppContext.BaseDirectory, CodexTrayDefaults.PluginsDirectoryName,
+                                                            CodexTrayDefaults.TrafficMonitorPluginSubdirectory, CodexTrayDefaults.TrafficMonitorPluginFileName);
+        if (!File.Exists(sourcePath))
+        {
+            throw new FileNotFoundException("TrafficMonitor plugin DLL is missing. Reinstall a complete CodexTray package.", sourcePath);
+        }
         string pluginDirectory = Path.Combine(trafficMonitorDirectory, "plugins");
         Directory.CreateDirectory(pluginDirectory);
 
@@ -71,58 +76,5 @@ public static class TrafficMonitorPluginInstaller
         }
 
         return File.ReadAllText(templatePath);
-    }
-
-    /// <summary>
-    /// Resolves the compiled TrafficMonitor plugin DLL path.
-    /// </summary>
-    private static string ResolvePluginBinaryPath(string? pluginBinaryPath)
-    {
-        if (!string.IsNullOrWhiteSpace(pluginBinaryPath))
-        {
-            return EnsurePluginBinaryExists(pluginBinaryPath);
-        }
-
-        foreach (string candidate in EnumeratePluginBinaryCandidates())
-        {
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        throw new FileNotFoundException($"TrafficMonitor plugin DLL was not found. Run Scripts\\Build-TrafficMonitorPlugin.ps1 first, then install {CodexTrayDefaults.TrafficMonitorPluginFileName}.");
-    }
-
-    /// <summary>
-    /// Returns a plugin binary path when it exists.
-    /// </summary>
-    private static string EnsurePluginBinaryExists(string pluginBinaryPath)
-    {
-        if (!File.Exists(pluginBinaryPath))
-        {
-            throw new FileNotFoundException($"TrafficMonitor plugin DLL was not found: {pluginBinaryPath}");
-        }
-
-        return pluginBinaryPath;
-    }
-
-    /// <summary>
-    /// Enumerates likely locations for the compiled TrafficMonitor plugin DLL.
-    /// </summary>
-    private static IEnumerable<string> EnumeratePluginBinaryCandidates()
-    {
-        string pluginsDirectory = CodexTrayDefaults.PluginsDirectoryName;
-        string trafficMonitorSubdirectory = CodexTrayDefaults.TrafficMonitorPluginSubdirectory;
-        string pluginFileName = CodexTrayDefaults.TrafficMonitorPluginFileName;
-
-        string baseDirectory = AppContext.BaseDirectory;
-        yield return Path.Combine(baseDirectory, pluginsDirectory, trafficMonitorSubdirectory, pluginFileName);
-        yield return Path.Combine(baseDirectory, pluginFileName);
-
-        string currentDirectory = Directory.GetCurrentDirectory();
-        yield return Path.Combine(currentDirectory, pluginsDirectory, trafficMonitorSubdirectory, pluginFileName);
-        yield return Path.Combine(currentDirectory, pluginsDirectory, trafficMonitorSubdirectory, "Builds", "x64", "Release", pluginFileName);
-        yield return Path.Combine(currentDirectory, pluginsDirectory, trafficMonitorSubdirectory, "Builds", "x64", "Debug", pluginFileName);
     }
 }

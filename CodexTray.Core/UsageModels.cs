@@ -11,12 +11,6 @@ public sealed class UsageResponse
     [JsonPropertyName("error")]
     public string? Error { get; set; }
 
-    [JsonPropertyName("codex_dir")]
-    public string CodexDir { get; set; } = string.Empty;
-
-    [JsonPropertyName("source_file")]
-    public string SourceFile { get; set; } = string.Empty;
-
     [JsonPropertyName("source")]
     public string Source { get; set; } = "none";
 

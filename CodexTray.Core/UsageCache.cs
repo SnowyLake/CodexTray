@@ -99,8 +99,6 @@ public sealed class UsageCache
         {
             Available = codex.Available,
             Error = codex.Error,
-            CodexDir = codex.CodexDir,
-            SourceFile = codex.SourceFile,
             Source = codex.Source,
             PlanType = codex.PlanType,
             UpdatedAt = codex.UpdatedAt,

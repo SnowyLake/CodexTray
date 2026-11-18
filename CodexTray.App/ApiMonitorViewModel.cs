@@ -69,6 +69,8 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
                 Name = normalized;
             }
 
+            ApiKey = string.Empty;
+            UserId = string.Empty;
             if (BaseUrl.Length == 0 || IsDefaultBaseUrl(BaseUrl))
             {
                 BaseUrl = GetDefaultBaseUrl(normalized);
@@ -94,7 +96,23 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasInvalidBaseUrl))]
+    [NotifyCanExecuteChangedFor(nameof(ToggleEditingCommand))]
     public partial string BaseUrl { get; set; }
+
+    public bool HasInvalidBaseUrl => !ApiMonitorSettings.TryParseBaseUrl(BaseUrl, out _);
+
+    partial void OnBaseUrlChanged(string oldValue, string newValue)
+    {
+        if (ApiMonitorSettings.TryParseBaseUrl(oldValue, out Uri? oldUri) && ApiMonitorSettings.TryParseBaseUrl(newValue, out Uri? newUri) &&
+            Uri.Compare(oldUri, newUri, UriComponents.SchemeAndServer, UriFormat.UriEscaped, StringComparison.OrdinalIgnoreCase) == 0)
+        {
+            return;
+        }
+
+        ApiKey = string.Empty;
+        UserId = string.Empty;
+    }
 
     [ObservableProperty]
     public partial string ApiKey { get; set; }
@@ -134,6 +152,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     public partial string UsedDisplay { get; private set; } = "N/A";
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ToggleEditingCommand))]
     public partial bool IsEditing { get; private set; }
 
     [ObservableProperty]
@@ -230,9 +249,13 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     /// <summary>
     /// Toggles editing and commits a pending monitor when editing is saved.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanToggleEditing))]
     private void ToggleEditing()
     {
+        if (!CanToggleEditing())
+        {
+            return;
+        }
         IsEditing = !IsEditing;
         if (IsEditing)
         {
@@ -242,5 +265,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         IsPending = false;
         EditingSaved?.Invoke(this, EventArgs.Empty);
     }
+
+    private bool CanToggleEditing() => !IsEditing || !HasInvalidBaseUrl;
 
 }

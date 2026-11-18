@@ -10,6 +10,8 @@ public sealed class LightweightHttpServer : IDisposable
 {
     private const int k_RequestTimeoutMilliseconds = 5_000;
     private const int k_MaximumHeaderLines = 32;
+    private const int k_MaximumHeaderBytes = 16 * 1024;
+    private const int k_MaximumClients = 32;
 
     private static readonly JsonSerializerOptions s_JsonOptions = new()
     {
@@ -272,15 +274,26 @@ public sealed class LightweightHttpServer : IDisposable
                 break;
             }
 
-            TaskCompletionSource start = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            Task? clientTask = null;
-            clientTask = HandleClientTrackedAsync(client, cancellationToken, start.Task, () => RemoveClientTask(clientTask!));
+            TaskCompletionSource? start = null;
             lock (m_LifecycleLock)
             {
-                m_ClientTasks.Add(clientTask);
+                if (!cancellationToken.IsCancellationRequested && m_ClientTasks.Count < k_MaximumClients)
+                {
+                    start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    Task? clientTask = null;
+                    clientTask = HandleClientTrackedAsync(client, cancellationToken, start.Task, () => RemoveClientTask(clientTask!));
+                    m_ClientTasks.Add(clientTask);
+                }
             }
 
-            start.SetResult();
+            if (start == null)
+            {
+                client.Dispose();
+            }
+            else
+            {
+                start.SetResult();
+            }
         }
 
         // Let Start publish the accept task before the shared stop path captures it.
@@ -294,23 +307,23 @@ public sealed class LightweightHttpServer : IDisposable
     private async Task HandleClientTrackedAsync(TcpClient client, CancellationToken cancellationToken, Task startTask, Action removeTask)
     {
         await startTask.ConfigureAwait(false);
-        using (client)
+        try
         {
-            try
+            using (client)
             {
                 await HandleClientAsync(client, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException or IOException)
-            {
-            }
-            catch (Exception exception)
-            {
-                SetLastError(exception.Message);
-            }
-            finally
-            {
-                removeTask();
-            }
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException or IOException)
+        {
+        }
+        catch (Exception exception)
+        {
+            SetLastError(exception.Message);
+        }
+        finally
+        {
+            removeTask();
         }
     }
 
@@ -377,25 +390,49 @@ public sealed class LightweightHttpServer : IDisposable
         timeout.CancelAfter(k_RequestTimeoutMilliseconds);
         CancellationToken requestToken = timeout.Token;
         await using NetworkStream stream = client.GetStream();
-        using StreamReader reader = new(stream, Encoding.ASCII, leaveOpen: true);
-        string? requestLine = await reader.ReadLineAsync(requestToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(requestLine))
+        byte[] headerBytes = new byte[k_MaximumHeaderBytes];
+        int count = 0;
+        int headerEnd = -1;
+        while (count < headerBytes.Length)
         {
-            return;
-        }
-
-        for (int headerCount = 0; headerCount < k_MaximumHeaderLines && !requestToken.IsCancellationRequested; headerCount++)
-        {
-            string? headerLine = await reader.ReadLineAsync(requestToken).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(headerLine))
+            int read = await stream.ReadAsync(headerBytes.AsMemory(count), requestToken).ConfigureAwait(false);
+            if (read == 0)
             {
+                break;
+            }
+
+            int searchStart = Math.Max(0, count - 3);
+            count += read;
+            int offset = headerBytes.AsSpan(searchStart, count - searchStart).IndexOf("\r\n\r\n"u8);
+            if (offset >= 0)
+            {
+                headerEnd = searchStart + offset;
                 break;
             }
         }
 
-        string[] parts = requestLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        string method = parts.Length > 0 ? parts[0] : string.Empty;
-        string path = NormalizeRequestPath(parts.Length > 1 ? parts[1] : string.Empty);
+        if (headerEnd < 0)
+        {
+            int status = count == headerBytes.Length ? 431 : 400;
+            string reason = status == 431 ? "Request Header Fields Too Large" : "Bad Request";
+            await WriteResponseAsync(stream, status, reason, "application/json; charset=utf-8", "{\"error\":\"invalid_request\"}", requestToken).ConfigureAwait(false);
+            return;
+        }
+
+        string[] lines = Encoding.Latin1.GetString(headerBytes, 0, headerEnd).Split("\r\n");
+        if (lines.Length - 1 > k_MaximumHeaderLines)
+        {
+            await WriteResponseAsync(stream, 431, "Request Header Fields Too Large", "application/json; charset=utf-8", "{\"error\":\"invalid_request\"}", requestToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryParseRequest(lines, out string method, out string path))
+        {
+            await WriteResponseAsync(stream, 400, "Bad Request", "application/json; charset=utf-8", "{\"error\":\"invalid_request\"}", requestToken).ConfigureAwait(false);
+            return;
+        }
+
+        path = NormalizeRequestPath(path);
         if (!string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
         {
             await WriteResponseAsync(stream, 405, "Method Not Allowed", "application/json; charset=utf-8", "{\"error\":\"method_not_allowed\"}", requestToken).ConfigureAwait(false);
@@ -424,7 +461,67 @@ public sealed class LightweightHttpServer : IDisposable
 
         UsageResponse response = m_UsageCache.Get() ?? CreatePendingResponse();
         SetLastError(null);
-        await WriteJsonAsync(stream, 200, response, requestToken).ConfigureAwait(false);
+        await WriteJsonAsync(stream, 200, new
+        {
+            limits = new
+            {
+                weekly = new { remaining_percent = response.Limits.Weekly.RemainingPercent },
+                grok_weekly = new { remaining_percent = response.Limits.GrokWeekly.RemainingPercent },
+                deepseek = new { remaining_percent = response.Limits.DeepSeek.RemainingPercent },
+            },
+            display = new
+            {
+                weekly = response.Display.Weekly,
+                grok_weekly = response.Display.GrokWeekly,
+                deepseek = response.Display.DeepSeek,
+            },
+        }, requestToken).ConfigureAwait(false);
+    }
+
+    private bool TryParseRequest(string[] lines, out string method, out string path)
+    {
+        method = string.Empty;
+        path = string.Empty;
+        string[] parts = lines[0].Split(' ');
+        if (parts.Length != 3 || !IsHttpToken(parts[0]) || !parts[1].StartsWith('/') || parts[1].Any(character => character < '!' || character > '~')
+            || (parts[2] != "HTTP/1.1" && parts[2] != "HTTP/1.0"))
+        {
+            return false;
+        }
+
+        bool hasHost = false;
+        foreach (string line in lines.Skip(1))
+        {
+            int separator = line.IndexOf(':');
+            if (separator <= 0 || !IsHttpToken(line[..separator]) || line[(separator + 1)..].Any(character => char.IsControl(character) && character != '\t'))
+            {
+                return false;
+            }
+
+            if (!line[..separator].Equals("Host", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string host = line[(separator + 1)..].Trim(' ', '\t');
+            if (hasHost || !(host.Equals($"{CodexTrayDefaults.Host}:{Port}", StringComparison.OrdinalIgnoreCase)
+                || host.Equals($"localhost:{Port}", StringComparison.OrdinalIgnoreCase)
+                || (Port == 80 && (host.Equals(CodexTrayDefaults.Host, StringComparison.OrdinalIgnoreCase) || host.Equals("localhost", StringComparison.OrdinalIgnoreCase)))))
+            {
+                return false;
+            }
+
+            hasHost = true;
+        }
+
+        method = parts[0];
+        path = parts[1];
+        return hasHost;
+    }
+
+    private static bool IsHttpToken(string value)
+    {
+        return value.Length > 0 && value.All(character => char.IsAsciiLetterOrDigit(character) || "!#$%&'*+-.^_`|~".Contains(character));
     }
 
     /// <summary>

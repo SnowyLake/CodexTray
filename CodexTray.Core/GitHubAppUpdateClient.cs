@@ -62,6 +62,7 @@ public sealed class GitHubAppUpdateClient
         using HttpRequestMessage request = CreateRequest(HttpMethod.Get, release.PackageUrl);
         using HttpResponseMessage response = await m_HttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        AppUpdatePaths.EnsureSafePath(destinationPath);
         string? parent = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrEmpty(parent))
         {
@@ -69,6 +70,7 @@ public sealed class GitHubAppUpdateClient
         }
 
         await using Stream httpStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        AppUpdatePaths.EnsureSafePath(destinationPath);
         await using FileStream file = new(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
         byte[] buffer = new byte[81920];
         long total = 0;

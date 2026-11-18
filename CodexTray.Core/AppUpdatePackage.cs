@@ -40,11 +40,14 @@ public static class AppUpdatePackage
     public static void Extract(string zipPath, string destinationDirectory)
     {
         string destination = Path.GetFullPath(destinationDirectory);
+        AppUpdatePaths.EnsureSafePath(zipPath);
+        AppUpdatePaths.EnsureSafePath(destination);
         Directory.CreateDirectory(destination);
         using ZipArchive archive = ZipFile.OpenRead(zipPath);
         foreach (ZipArchiveEntry entry in archive.Entries)
         {
             string target = GetSafeEntryPath(destination, entry.FullName);
+            AppUpdatePaths.EnsureSafePath(target);
             if (string.IsNullOrEmpty(entry.Name))
             {
                 Directory.CreateDirectory(target);
@@ -114,6 +117,7 @@ public static class AppUpdateWork
     public static string CreateDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), CodexTrayDefaults.AppName, "update", Guid.NewGuid().ToString("N"));
+        AppUpdatePaths.EnsureSafePath(path);
         Directory.CreateDirectory(path);
         return path;
     }
@@ -124,26 +128,34 @@ public static class AppUpdateWork
     public static void CleanupStaleDirectories()
     {
         string root = Path.Combine(Path.GetTempPath(), CodexTrayDefaults.AppName, "update");
-        if (!Directory.Exists(root))
+        try
         {
-            return;
-        }
-
-        DateTime cutoff = DateTime.UtcNow.AddHours(-CodexTrayDefaults.UpdateWorkRetentionHours);
-        foreach (string directory in Directory.EnumerateDirectories(root))
-        {
-            try
+            AppUpdatePaths.EnsureSafePath(root);
+            if (!Directory.Exists(root))
             {
-                if (Directory.GetCreationTimeUtc(directory) > cutoff)
+                return;
+            }
+
+            DateTime cutoff = DateTime.UtcNow.AddHours(-CodexTrayDefaults.UpdateWorkRetentionHours);
+            foreach (string directory in Directory.EnumerateDirectories(root))
+            {
+                try
                 {
-                    continue;
-                }
+                    AppUpdatePaths.EnsureSafePath(directory);
+                    if (Directory.GetCreationTimeUtc(directory) > cutoff)
+                    {
+                        continue;
+                    }
 
-                Directory.Delete(directory, recursive: true);
+                    DeleteQuietly(directory);
+                }
+                catch (Exception exception) when (exception is AppUpdateException or IOException or UnauthorizedAccessException)
+                {
+                }
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-            }
+        }
+        catch (Exception exception) when (exception is AppUpdateException or IOException or UnauthorizedAccessException)
+        {
         }
     }
 
@@ -152,16 +164,23 @@ public static class AppUpdateWork
     /// </summary>
     public static void DeleteQuietly(string? path)
     {
-        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        if (string.IsNullOrWhiteSpace(path))
         {
             return;
         }
 
         try
         {
+            AppUpdatePaths.EnsureSafePath(path);
+            if (!Directory.Exists(path))
+            {
+                return;
+            }
+
+            AppUpdatePaths.EnumerateRelativeFiles(path);
             Directory.Delete(path, recursive: true);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is AppUpdateException or IOException or UnauthorizedAccessException)
         {
         }
     }
@@ -187,10 +206,14 @@ public static class AppUpdateWork
             throw new AppUpdateException("Updates can only be applied to CodexTray.exe.");
         }
 
+        AppUpdatePaths.EnumerateRelativeFiles(extractedDirectory);
+        AppUpdatePaths.EnumerateRelativeFiles(targetDirectory);
         EnsureWritable(targetDirectory);
         string applyDirectory = Path.Combine(workDirectory, "apply");
+        AppUpdatePaths.EnsureSafePath(applyDirectory);
         Directory.CreateDirectory(applyDirectory);
         string applyExecutable = Path.Combine(applyDirectory, CodexTrayDefaults.AppName + ".exe");
+        AppUpdatePaths.EnsureSafePath(applyExecutable);
         File.Copy(Path.Combine(extractedDirectory, CodexTrayDefaults.AppName + ".exe"), applyExecutable, overwrite: true);
         return new AppUpdateHandoff(applyExecutable, Path.GetFullPath(extractedDirectory), targetDirectory, currentExecutable);
     }
@@ -225,6 +248,14 @@ public static class AppUpdateWork
     }
 
     /// <summary>
+    /// Rejects an executable path that crosses a reparse point.
+    /// </summary>
+    public static void EnsureSafeExecutablePath(string executablePath)
+    {
+        AppUpdatePaths.EnsureSafePath(executablePath);
+    }
+
+    /// <summary>
     /// Checks that the installation directory can be modified before the app exits.
     /// </summary>
     private static void EnsureWritable(string targetDirectory)
@@ -232,6 +263,7 @@ public static class AppUpdateWork
         string probe = Path.Combine(targetDirectory, $".codextray-update-{Guid.NewGuid():N}.probe");
         try
         {
+            AppUpdatePaths.EnsureSafePath(probe);
             File.WriteAllText(probe, "ok");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -242,12 +274,13 @@ public static class AppUpdateWork
         {
             try
             {
+                AppUpdatePaths.EnsureSafePath(probe);
                 if (File.Exists(probe))
                 {
                     File.Delete(probe);
                 }
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (exception is AppUpdateException or IOException or UnauthorizedAccessException)
             {
             }
         }

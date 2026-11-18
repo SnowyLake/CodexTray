@@ -130,6 +130,8 @@ Cursor 未登录, 登录失效或当前用量查询失败时, Token Cost 只显�
 
 保存只应用于当前卡片. 保存、排序或删除卡片时, 其他卡片尚未保存的字段和新增草稿会保留在编辑状态.
 
+远程 Base URL 必须使用 HTTPS. 本机代理可以使用 HTTP, 例如 `http://127.0.0.1:8080`. 旧卡片若使用远程 HTTP, 需要先改为服务商的 HTTPS 地址. 更换 provider、协议、主机或端口后, 请重新填写该服务的密钥和 User ID. 只修改同一地址的路径可以继续使用原凭据.
+
 - OpenAI: 填写 Base URL 和组织 Admin key, 默认 Base URL 为 `https://api.openai.com`. 新建卡片默认就是 OpenAI. 卡片显示当前 UTC 自然月已用金额, 标签为 Used. 可以再填写每月起始额度, 单位是 USD, 这是手填数字, 不是 OpenAI 返回的剩余额度. 填写后卡片同时显示 Balance 和 Used, Balance 为起始额度减去当月用量; 用量超过起始额度时 Balance 为负数. 留空则只显示 Used. 普通项目 API key 不能查询.
 - DeepSeek: 填写 Base URL 和 API key, 默认 Base URL 为 `https://api.deepseek.com`. 卡片显示 CNY 余额, 第一张 DeepSeek 卡片也会显示在 LiteMonitor 和 TrafficMonitor 中.
 - OpenRouter: 填写 Base URL 和 Management Key, 默认 Base URL 为 `https://openrouter.ai`. 卡片显示剩余与已用 credits, 普通 API key 不适用.
@@ -148,14 +150,17 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 升级 CodexTray 或修改 HTTP 端口后, 请重新执行 `Setup`, 让插件文件和端口配置同步到监控器.
 
+如果 TrafficMonitor 安装提示缺少 DLL, 请重新解压完整的 CodexTray 发布包, 确认 `Plugins/TrafficMonitor/CodexTray.dll` 存在后再执行 `Setup`.
+
 ## 数据与隐私
 
 - Codex, Grok 与 Gemini 的额度使用本机已有登录信息向各自的官方服务查询. Grok 页的订阅名称来自 Grok Build 设置中的显示名, 读不到时使用本机已有的订阅记录; Gemini 依次读取本机 Antigravity / Gemini CLI 凭据文件, Windows 凭据管理器与 Antigravity IDE 状态库, 必要时通过官方 OAuth 接口刷新并只更新本机对应文件.
 - Codex 与 Gemini 的 Token Cost 来自本机会话日志. Grok 的 Token Cost 合并本机会话日志与 Cursor 和 Grok API 云端用量. Codex 开启「压缩本地聊天记录」后, 较早的会话会保存为 `.jsonl.zst`, 这些压缩日志仍按原来的记录时间计入对应日期. Codex, Grok 和 Gemini 页面均不读取 OpenCode 会话.
 - OpenAI, DeepSeek, OpenRouter, Vercel 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Admin key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击输入框右侧的眼睛图标可临时显示和编辑, 再次点击或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.
-- Grok 的登录凭据会自动续期并写回本地登录文件, 不会复制到 `settings.json`. Cursor 登录信息只读使用, 加密存储的凭据由当前 Windows 用户解密后用于官方用量查询, 不续期, 不写回, 也不复制到设置文件. Cursor 和 Grok API 的用量缓存保存在 `CodexTray.exe` 同级目录中的 `cursor-usage-cache.json.gz`, 使用 gzip 无损压缩, 保留时间、产品类型、模型名和 token 计数的全部明细, 不保存凭据、聊天内容或原始接口响应. 兼容的旧版 JSON 缓存会自动迁移, 升级时会补查可能因旧版解析失败而遗漏的历史月份, 仅包含 Cursor 的旧缓存会重新采集, 新文件写入成功后才删除旧文件. 缓存按账号校验, 损坏时自动重新查询; 删除缓存不会影响登录和设置.
-- 插件连接仅供本机访问, 默认端口为 `17890`, 不向局域网开放. 登录凭据不会写入日志, 插件配置或插件收到的数据.
+- Grok 和 Gemini 只在支持事务的本地 NTFS 上写回文件凭据. 续期期间若原客户端切换账号或退出登录, CodexTray 会丢弃旧结果. 如果文件被占用或存储位置不支持事务, 仍有效的登录可以继续查询. 到期后请打开原客户端更新登录.
+- Cursor 登录信息只读使用, 加密存储的凭据由当前 Windows 用户解密后用于官方用量查询, 不续期, 不写回, 也不复制到设置文件. Cursor 和 Grok API 的用量缓存保存在 `CodexTray.exe` 同级目录中的 `cursor-usage-cache.json.gz`, 使用 gzip 无损压缩, 保留时间、产品类型、模型名和 token 计数的全部明细, 不保存凭据、聊天内容或原始接口响应. 兼容的旧版 JSON 缓存会自动迁移, 升级时会补查可能因旧版解析失败而遗漏的历史月份, 仅包含 Cursor 的旧缓存会重新采集, 新文件写入成功后才删除旧文件. 缓存按账号校验, 损坏时自动重新查询; 删除缓存不会影响登录和设置.
+- 插件连接仅供本机访问, 默认端口为 `17890`, 不向局域网开放. 插件只接收 Codex、Grok 和 DeepSeek 的显示值与着色所需的百分比. 应用会拒绝主机名或端口不匹配的请求.
 - 应用设置保存在 `CodexTray.exe` 同级目录的 `settings.json`.
 - 有效配置备份与恢复时保留的原文件也在应用目录中, 凭据同样为明文. 请勿分享 `settings.json`, `settings.last-good.json` 或 `settings.damaged-*.json`.
 
@@ -192,6 +197,8 @@ Weekly 额度和各产品使用占比需要先在 Grok Build 中登录. 自动�
 ### 为什么软件内更新失败
 
 软件每次启动及运行中每隔 6 小时自动检查更新, 需要能访问 GitHub. 发现新版本时, 底部 Settings 图标显示消息点, 版本号右侧显示 `New`, 检查按钮切换为安装图标. 点击安装图标并确认后才会下载安装; 自动检查失败时不会弹窗, 已发现的更新提示会保留. 没有更新提示时仍可通过 `Check for updates` 手动检查. 安装目录必须可写, 并且其中已经有完整的发布文件. 从源代码编译运行时, `CodexTray.exe` 旁边会有 `CodexTray.dll`, 这时不能在软件内更新, 请改用发布目录或解压后的安装包. 弹窗中选择 `Install` 后, 程序会退出并替换文件; 更新过程中本地插件接口会短暂中断. 替换失败时会恢复更新前的文件并重新启动.
+
+如果更新提示安装目录包含符号链接或目录联接, 请把完整发布包解压到普通目录后启动, 再使用应用内更新.
 
 ### 为什么托盘图标没有直接显示在任务栏
 
