@@ -2588,6 +2588,7 @@ internal static class Program
         {
             ("gemini-4-argon", 4m, 0.2m, 20m),
             ("gemini-4-carbon", 4m, 0.2m, 20m),
+            ("gemini-4-neon", 3m, 0.15m, 15m),
             ("gemini-4-hydrogen", 1.5m, 0.075m, 7.5m),
             ("gemini-3.8-flash", 1.5m, 0.15m, 7.5m),
             ("gemini-3.7-flash", 1.5m, 0.15m, 7.5m),
@@ -2632,6 +2633,10 @@ internal static class Program
             if (expected.Model == "gemini-3.1-flash-lite")
             {
                 names.Add("gemini-3.1-flash-lite-preview");
+            }
+            if (expected.Model == "gemini-4-neon")
+            {
+                names.Add("gemini-4-neon-xhigh");
             }
             foreach (string name in names)
             {
