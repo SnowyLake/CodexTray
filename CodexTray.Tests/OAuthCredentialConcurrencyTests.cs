@@ -85,15 +85,33 @@ internal static class OAuthCredentialConcurrencyTests
         }
 
         string store = GeminiCredential(now.AddHours(-1));
-        using (HttpClient client = new(new Handler((request, _) =>
+        int expiredStoreRequests = 0;
+        using (HttpClient client = new(new Handler((_, _) =>
         {
-            Check(request.RequestUri!.Host == "oauth2.googleapis.com", "changed store prevents Gemini quota requests");
-            store = store.Replace("old-access", "other-account", StringComparison.Ordinal);
+            expiredStoreRequests++;
             return Task.FromResult(JsonResponse("{\"access_token\":\"refreshed\",\"expires_in\":3600}"));
         })))
         {
             GeminiUsageDashboard result = await new GeminiUsageCollector(client, temp.Path, credentialStoreReader: () => store, nowProvider: () => now).CollectDashboardAsync();
-            Check(!result.Snapshot.IsAvailable, "Gemini detects a changed credential-store login during refresh");
+            Check(!result.Snapshot.IsAvailable && expiredStoreRequests == 0 && result.FailureKind == GeminiUsageFailureKind.OwnerRefreshRequired,
+                "expired non-file store does not send direct OAuth refresh requests");
+        }
+
+        store = GeminiCredential(now.AddHours(1));
+        int activeStoreQuotaRequests = 0;
+        using (HttpClient client = new(new Handler((request, _) =>
+        {
+            activeStoreQuotaRequests++;
+            if (request.RequestUri!.AbsolutePath.EndsWith("retrieveUserQuotaSummary", StringComparison.Ordinal))
+            {
+                store = store.Replace("old-access", "other-account", StringComparison.Ordinal);
+            }
+            return Task.FromResult(GeminiQuotaResponse(request));
+        })))
+        {
+            GeminiUsageDashboard result = await new GeminiUsageCollector(client, temp.Path, credentialStoreReader: () => store, nowProvider: () => now).CollectDashboardAsync();
+            Check(!result.Snapshot.IsAvailable && activeStoreQuotaRequests > 0 && result.FailureKind == GeminiUsageFailureKind.CredentialChanged,
+                "Gemini detects a changed credential-store login during quota collection");
         }
     }
 

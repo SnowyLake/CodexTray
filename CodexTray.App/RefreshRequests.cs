@@ -2,7 +2,7 @@ using CodexTray.Core;
 
 namespace CodexTray.App;
 
-internal sealed record RefreshRequest(PageItem Pages, string[] ApiIds, bool AllApiCards);
+internal sealed record RefreshRequest(PageItem Pages, string[] ApiIds, bool AllApiCards, PageItem ManualPages = PageItem.None);
 
 /// <summary>
 /// Merges pending retry targets while one owner drains the previous collection.
@@ -11,14 +11,19 @@ internal sealed class RefreshRequests
 {
     private PageItem m_Pages;
     private bool m_AllApiCards;
+    private PageItem m_ManualPages;
     private readonly HashSet<string> m_ApiIds = [];
 
     /// <summary>
     /// Adds source or card targets, allowing a full API refresh to subsume card retries.
     /// </summary>
-    internal void Add(PageItem pages, string? apiId = null)
+    internal void Add(PageItem pages, string? apiId = null, bool manual = false)
     {
         m_Pages |= pages;
+        if (manual)
+        {
+            m_ManualPages |= pages;
+        }
         if ((pages & PageItem.Apis) != 0)
         {
             m_AllApiCards |= apiId == null;
@@ -39,9 +44,10 @@ internal sealed class RefreshRequests
             return null;
         }
 
-        RefreshRequest request = new(m_Pages, m_ApiIds.ToArray(), m_AllApiCards);
+        RefreshRequest request = new(m_Pages, m_ApiIds.ToArray(), m_AllApiCards, m_ManualPages);
         m_Pages = PageItem.None;
         m_AllApiCards = false;
+        m_ManualPages = PageItem.None;
         m_ApiIds.Clear();
         return request;
     }

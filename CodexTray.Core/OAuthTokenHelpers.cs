@@ -40,7 +40,7 @@ internal static class OAuthTokenHelpers
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            throw new UsageHttpException(response.StatusCode);
+            throw new UsageHttpException(response.StatusCode, TryReadWhitelistedOAuthErrorCode(body), TryReadRetryAfter(response));
         }
 
         using JsonDocument document = JsonDocument.Parse(body);
@@ -85,6 +85,56 @@ internal static class OAuthTokenHelpers
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Reads only whitelisted RFC 6749 OAuth error codes from a bounded error body, never error_description.
+    /// </summary>
+    internal static string? TryReadWhitelistedOAuthErrorCode(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body) || body.Length > 65_536)
+        {
+            return null;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(body);
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("error", out JsonElement errorElement)
+                || errorElement.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            string? code = errorElement.GetString()?.Trim();
+            return code is "invalid_grant" or "invalid_client" or "unauthorized_client" or "access_denied"
+                ? code
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    internal static TimeSpan? TryReadRetryAfter(HttpResponseMessage response)
+    {
+        if (response.Headers.RetryAfter?.Delta is TimeSpan delta && delta > TimeSpan.Zero)
+        {
+            return delta;
+        }
+
+        if (response.Headers.RetryAfter?.Date is DateTimeOffset date)
+        {
+            TimeSpan remaining = date - DateTimeOffset.UtcNow;
+            if (remaining > TimeSpan.Zero)
+            {
+                return remaining;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

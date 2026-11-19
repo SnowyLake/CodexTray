@@ -477,6 +477,9 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial string GeminiUpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
 
     [ObservableProperty]
+    public partial string? GeminiStatusTooltip { get; private set; }
+
+    [ObservableProperty]
     public partial IReadOnlyList<GrokProductUsageItemViewModel> GrokProductUsageItems { get; private set; } = [];
 
     [ObservableProperty]
@@ -1040,9 +1043,42 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             ? FormatUpdatedAt(snapshot.UpdatedAt.ToString("O", CultureInfo.InvariantCulture))
             : usageAvailable
                 ? "Usage updated, Token Cost N/A"
-                : tokenCostAvailable
-                    ? "Token Cost updated, Usage N/A"
-                    : "Update error";
+                : FormatGeminiFailureStatus(m_GeminiDashboard, tokenCostAvailable);
+        GeminiStatusTooltip = !usageAvailable && snapshot.UpdatedAt != DateTimeOffset.MinValue && GeminiUsageState.Error.Length > 0
+            ? GeminiUsageState.Tooltip
+            : null;
+    }
+
+    /// <summary>
+    /// Formats a compact, actionable status line when Gemini quota is unavailable.
+    /// </summary>
+    private static string FormatGeminiFailureStatus(GeminiUsageDashboard dashboard, bool tokenCostAvailable)
+    {
+        string? primary = dashboard.FailureKind switch
+        {
+            GeminiUsageFailureKind.OwnerRefreshRequired => dashboard.CredentialOwner switch
+            {
+                GeminiCredentialOwner.AntigravityCli => "Open Antigravity CLI",
+                GeminiCredentialOwner.GeminiCli => "Open Gemini CLI",
+                GeminiCredentialOwner.AntigravityIde => "Open Antigravity IDE",
+                _ => "Renew Gemini login",
+            },
+            GeminiUsageFailureKind.LoginRequired => "Sign in to Gemini",
+            GeminiUsageFailureKind.AccessDenied => "Gemini access denied",
+            GeminiUsageFailureKind.CredentialChanged => "Login changed",
+            GeminiUsageFailureKind.RateLimited => "Usage rate limited",
+            GeminiUsageFailureKind.Timeout => "Usage timed out",
+            GeminiUsageFailureKind.Network => "Usage offline",
+            GeminiUsageFailureKind.ServiceUnavailable => "Usage service error",
+            GeminiUsageFailureKind.LocalDataError => "Local login unreadable",
+            _ => null,
+        };
+        if (primary == null)
+        {
+            return tokenCostAvailable ? "Token Cost updated, Usage N/A" : "Update error";
+        }
+
+        return tokenCostAvailable ? $"{primary} · Cost updated" : primary;
     }
 
     /// <summary>
