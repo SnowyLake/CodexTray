@@ -257,7 +257,7 @@ internal sealed class TrayController : IDisposable
         Drawing.Point? trayIconPosition = null;
         Forms.ContextMenuStrip menu = new();
         menu.Items.Add("Open Panel", null, (_, _) => ShowPanel(trayIconPosition));
-        menu.Items.Add("Refresh Now", null, async (_, _) => await RequestRefreshAsync());
+        menu.Items.Add("Refresh Now", null, async (_, _) => await RequestRefreshAsync(PageItem.All, manual: true));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Exit", null, async (_, _) => await ExitApplicationAsync());
 
@@ -493,7 +493,7 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        m_PopupViewModel = new TrayPopupViewModel(m_Settings, RequestRefreshAsync, (page, id) => RequestRefreshAsync(page, id));
+        m_PopupViewModel = new TrayPopupViewModel(m_Settings, () => RequestRefreshAsync(PageItem.All, manual: true), (page, id) => RequestRefreshAsync(page, id, manual: true));
         m_PopupViewModel.SaveSettingsRequested += (_, _) => SaveSettings();
         m_PopupViewModel.ApiMonitorsChanged += (_, _) =>
         {
@@ -551,7 +551,13 @@ internal sealed class TrayController : IDisposable
         {
             m_Settings = m_SettingsStore.RestoreBackup();
             m_ApiSnapshots = new();
+            m_GeminiUsageCollector.ResetState();
             m_PopupViewModel?.LoadRecoveredSettings(m_Settings);
+            if ((m_Settings.VisiblePages & PageItem.Gemini) == 0)
+            {
+                m_PopupViewModel?.UpdateGeminiDashboard(GeminiUsageDashboard.Empty);
+                m_PopupViewModel?.UpdateGeminiTokenCost(null);
+            }
             SyncSettingsRecoveryStatus();
             m_UsageCache.ClearCodex();
             m_UsageCache.ClearGrok();
@@ -613,6 +619,7 @@ internal sealed class TrayController : IDisposable
 
         if (geminiWasEnabled && !geminiIsEnabled)
         {
+            m_GeminiUsageCollector.ResetState();
             m_PopupViewModel?.UpdateGeminiDashboard(GeminiUsageDashboard.Empty);
             m_PopupViewModel?.UpdateGeminiTokenCost(null);
         }
@@ -776,7 +783,7 @@ internal sealed class TrayController : IDisposable
     /// <summary>
     /// Queues selected sources or one API card behind the current refresh owner.
     /// </summary>
-    private Task RequestRefreshAsync(PageItem pages, string? apiId = null)
+    private Task RequestRefreshAsync(PageItem pages, string? apiId = null, bool manual = false)
     {
         lock (m_TaskLock)
         {
@@ -785,7 +792,7 @@ internal sealed class TrayController : IDisposable
                 return Task.CompletedTask;
             }
 
-            m_RefreshRequests.Add(pages, apiId);
+            m_RefreshRequests.Add(pages, apiId, manual);
             if (!m_RefreshTask.IsCompleted)
             {
                 return m_RefreshTask;
@@ -866,7 +873,7 @@ internal sealed class TrayController : IDisposable
 
             if ((visiblePages & PageItem.Gemini) != 0)
             {
-                children.Add(PublishAsync(PageItem.Gemini, m_GeminiUsageCollector.CollectDashboardAsync(useAbsoluteResetTime, cancellationToken),
+                children.Add(PublishAsync(PageItem.Gemini, m_GeminiUsageCollector.CollectDashboardAsync(useAbsoluteResetTime, cancellationToken, (request.ManualPages & PageItem.Gemini) != 0),
                     dashboard => m_PopupViewModel?.UpdateGeminiDashboard(dashboard)));
                 children.Add(PublishAsync(PageItem.Gemini, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectGemini(cancellationToken: cancellationToken)), cancellationToken),
                     result => m_PopupViewModel?.UpdateGeminiTokenCost(result.Statistics, result.Error), localCosts: true));

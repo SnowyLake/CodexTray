@@ -24,6 +24,7 @@
   "grok-4.7-fast": { "input": 4.0, "cachedInput": 1.0, "output": 12.0, "aliases": ["grok-4.7-low-fast", "grok-4.7-medium-fast", "grok-4.7-high-fast", "grok-4.7-xhigh-fast"] },
   "gemini-4-argon": { "input": 4.0, "cachedInput": 0.2, "output": 20.0, "aliases": ["gemini-4.0-argon", "gemini-argon", "gemini-pro-orchestrator-g1-pro", "gemini-pro-orchestrator", "gemini-orchestrator-argon"] },
   "gemini-4-carbon": { "input": 4.0, "cachedInput": 0.2, "output": 20.0, "aliases": ["gemini-4.0-carbon", "gemini-carbon", "gemini-pro-orchestrator-g1-ultra", "gemini-ultra-orchestrator", "gemini-orchestrator-carbon"] },
+  "gemini-4-neon": { "input": 3.0, "cachedInput": 0.15, "output": 15.0, "aliases": ["gemini-4.0-neon", "gemini-neon"] },
   "gemini-4-hydrogen": { "input": 1.5, "cachedInput": 0.075, "output": 7.5, "aliases": ["gemini-4.0-hydrogen", "gemini-hydrogen", "gemini-flash-executor", "gemini-flash-worker-agy", "gemini-4-flash"] },
   "gemini-3.8-flash": { "input": 1.5, "cachedInput": 0.15, "output": 7.5, "aliases": ["gemini-3.8-flash-latest", "gemini-3.8-flash-preview"] },
   "gemini-3.7-flash": { "input": 1.5, "cachedInput": 0.15, "output": 7.5 },

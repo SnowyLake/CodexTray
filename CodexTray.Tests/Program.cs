@@ -82,6 +82,8 @@ internal static class Program
         await RunAsync("preserves nested Gemini credentials and bounds OAuth refresh", GeminiCredentialTests.RefreshPersistenceAsync);
         await RunAsync("rejects stale OAuth credential updates", OAuthCredentialConcurrencyTests.RunAsync);
         await RunAsync("uses only complete local Gemini OAuth client pairs", GeminiCredentialTests.RefreshConfigurationAsync);
+        await RunAsync("handles Gemini refresh buffer, agy CLI recovery, backoff and status", GeminiCredentialTests.RefreshBufferAndOwnerRecoveryAsync);
+        await RunAsync("guards Gemini recovery identity, locks, junctions, Retry-After and UIA", GeminiCredentialTests.ReviewRegressionsAsync);
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("publishes completed refresh sources independently", TestIndependentRefreshAsync);
@@ -2588,6 +2590,7 @@ internal static class Program
         {
             ("gemini-4-argon", 4m, 0.2m, 20m),
             ("gemini-4-carbon", 4m, 0.2m, 20m),
+            ("gemini-4-neon", 3m, 0.15m, 15m),
             ("gemini-4-hydrogen", 1.5m, 0.075m, 7.5m),
             ("gemini-3.8-flash", 1.5m, 0.15m, 7.5m),
             ("gemini-3.7-flash", 1.5m, 0.15m, 7.5m),
@@ -2632,6 +2635,10 @@ internal static class Program
             if (expected.Model == "gemini-3.1-flash-lite")
             {
                 names.Add("gemini-3.1-flash-lite-preview");
+            }
+            if (expected.Model == "gemini-4-neon")
+            {
+                names.Add("gemini-4-neon-xhigh");
             }
             foreach (string name in names)
             {

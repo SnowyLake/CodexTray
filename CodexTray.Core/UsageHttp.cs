@@ -80,6 +80,11 @@ internal static class UsageHttp
 /// <summary>
 /// Carries a fixed safe HTTP error description, never response text or request credentials.
 /// </summary>
-internal sealed class UsageHttpException(HttpStatusCode status) : InvalidOperationException(UsageDiagnostics.HttpError(status))
+internal sealed class UsageHttpException(HttpStatusCode status, string? oauthErrorCode = null, TimeSpan? retryAfter = null) : InvalidOperationException(UsageDiagnostics.HttpError(status))
 {
+    public HttpStatusCode StatusCode { get; } = status;
+
+    public string? OAuthErrorCode { get; } = oauthErrorCode;
+
+    public TimeSpan? RetryAfter { get; } = retryAfter;
 }

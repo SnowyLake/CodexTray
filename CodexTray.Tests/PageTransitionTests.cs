@@ -223,7 +223,8 @@ internal static class PageTransitionTests
             System.Windows.Shapes.Ellipse placeholder = Descendants(region).OfType<System.Windows.Shapes.Ellipse>().Single(item => item.Name == "TokenCostDonutPlaceholder");
             Check(placeholder.IsVisible, "an empty donut must show its placeholder ring");
             dashboard.Update(ChartStatistics(100));
-            Pump();
+            // Wait past the initial t=0 animation frame so the clip geometry advances beyond Geometry.Empty before sampling interior points.
+            Pump(animationsEnabled ? 120 : 20, animationsEnabled ? () => donut.Opacity is >= 0.05 and < 1 : null);
             Check(!placeholder.IsVisible, "a populated donut must hide the placeholder to avoid an inner ghost when enlarged");
             if (animationsEnabled)
             {
@@ -408,7 +409,7 @@ internal static class PageTransitionTests
         && !DependencyPropertyHelper.GetValueSource(element, UIElement.OpacityProperty).IsAnimated
         && element.Opacity == 1 && (element.RenderTransform is not TranslateTransform offset || offset.X == 0 && offset.Y == 0);
 
-    private static void Pump(int milliseconds = 20)
+    private static void Pump(int milliseconds = 20, Func<bool>? stopWhen = null)
     {
         DispatcherFrame frame = new();
         DateTime deadline = DateTime.UtcNow.AddMilliseconds(milliseconds);
@@ -419,7 +420,7 @@ internal static class PageTransitionTests
         timer.Tick += (_, _) =>
         {
             Application.Current?.MainWindow?.InvalidateVisual();
-            if (DateTime.UtcNow >= deadline)
+            if (stopWhen?.Invoke() == true || DateTime.UtcNow >= deadline)
             {
                 timer.Stop();
                 frame.Continue = false;

@@ -51,7 +51,15 @@ public static class UsageDiagnostics
         {
             return "Network";
         }
-        if (error.Contains("OAuth", StringComparison.OrdinalIgnoreCase) || error.Contains("Authentication", StringComparison.OrdinalIgnoreCase) || error.Contains("HTTP 401") || error.Contains("HTTP 403"))
+        if (error.Contains("OAuth", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("Authentication", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("Sign in", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("access denied", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("Open Antigravity", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("Open Gemini", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("Renew ", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("HTTP 401")
+            || error.Contains("HTTP 403"))
         {
             return "Authentication";
         }
