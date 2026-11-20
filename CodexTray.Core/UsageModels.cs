@@ -35,13 +35,16 @@ public sealed class UsageLimits
     [JsonIgnore]
     public UsageLimit Session { get; set; } = new() { Name = "session" };
 
-    [JsonPropertyName("weekly")]
-    public UsageLimit Weekly { get; set; } = new() { Name = "weekly" };
+    [JsonPropertyName("codex_weekly")]
+    public UsageLimit Weekly { get; set; } = new() { Name = "weekly", RemainingPercent = 0 };
 
     [JsonPropertyName("grok_weekly")]
     public UsageLimit GrokWeekly { get; set; } = new() { Name = "weekly", RemainingPercent = 0 };
 
-    [JsonPropertyName("deepseek")]
+    [JsonPropertyName("gemini_session")]
+    public UsageLimit GeminiSession { get; set; } = new() { Name = "session", RemainingPercent = 0 };
+
+    [JsonPropertyName("deepseek_balance")]
     public UsageLimit DeepSeek { get; set; } = new() { Name = "deepseek", RemainingPercent = 0 };
 }
 
@@ -130,13 +133,16 @@ public sealed class ResetCredits
 
 public sealed class UsageDisplay
 {
-    [JsonPropertyName("weekly")]
+    [JsonPropertyName("codex_weekly")]
     public string Weekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
     [JsonPropertyName("grok_weekly")]
     public string GrokWeekly { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
-    [JsonPropertyName("deepseek")]
+    [JsonPropertyName("gemini_session")]
+    public string GeminiSession { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+
+    [JsonPropertyName("deepseek_balance")]
     public string DeepSeek { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
     [JsonPropertyName("summary")]
@@ -144,5 +150,7 @@ public sealed class UsageDisplay
 }
 
 public sealed record GrokPluginUsage(UsageLimit Weekly, string Display);
+
+public sealed record GeminiPluginUsage(UsageLimit Session, string Display);
 
 public sealed record DeepSeekPluginUsage(UsageLimit Limit, string Display);

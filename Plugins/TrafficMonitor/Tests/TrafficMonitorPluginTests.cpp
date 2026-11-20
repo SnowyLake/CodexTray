@@ -115,18 +115,36 @@ private:
             }
             if (open)
             {
-                SendAll(client, "\r\nContent-Length: 11\r\n\r\n42%\n73%\n123");
+                SendAll(client, "\r\nContent-Length: 15\r\n\r\n42%\n73%\n88%\n123");
             }
             closesocket(client);
             return;
         }
 
-        std::string body = path == "/second" ? "11%\n22%\n333\n" : "42%\n73%\n123\n";
-        if (path == "/limit" || path == "/over-limit")
+        std::string status = "200 OK";
+        std::string body = path == "/second" ? "11%\n22%\n33%\n444\n" : "42%\n73%\n88%\n123\n";
+        if (path == "/crlf")
         {
-            body = std::string(path == "/limit" ? 4091 : 4092, 'x') + "\ny\nz\n";
+            body = "41%\r\n72%\r\n87%\r\n\xC2\xA5""123\r\n";
         }
-        const std::string headers = "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n";
+        else if (path == "/error-503")
+        {
+            status = "503 Service Unavailable";
+            body = "42%\n73%\n88%\n123\n";
+        }
+        else if (path == "/extra-line")
+        {
+            body = "42%\n73%\n88%\n123\nextra\n";
+        }
+        else if (path == "/blank-fourth")
+        {
+            body = "42%\n73%\n88%\n\n123\n";
+        }
+        else if (path == "/limit" || path == "/over-limit")
+        {
+            body = std::string(path == "/limit" ? 4089 : 4090, 'x') + "\ny\nz\nw\n";
+        }
+        const std::string headers = "HTTP/1.1 " + status + "\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n";
         if (SendAll(client, headers))
         {
             if (path == "/slow-body")
@@ -197,8 +215,10 @@ int wmain(int argc, wchar_t** argv)
     ITMPlugin* plugin = getPlugin();
     IPluginItem* codex = plugin->GetItem(0);
     IPluginItem* grok = plugin->GetItem(1);
-    IPluginItem* deepseek = plugin->GetItem(2);
-    Require(codex && grok && deepseek && !plugin->GetItem(3), "plugin items");
+    IPluginItem* gemini = plugin->GetItem(2);
+    IPluginItem* deepseek = plugin->GetItem(3);
+    Require(codex && grok && gemini && deepseek && !plugin->GetItem(4), "plugin items");
+    Require(std::wstring(deepseek->GetItemValueSampleText()) == L"\u00A59999", "DeepSeek sample text uses yen sign");
 
     auto refresh = [&](const wchar_t* path, const std::wstring& expected)
     {
@@ -210,11 +230,13 @@ int wmain(int argc, wchar_t** argv)
     refresh(L"/first", L"42%");
     const wchar_t* oldCodex = codex->GetItemValueText();
     const wchar_t* oldGrok = grok->GetItemValueText();
+    const wchar_t* oldGemini = gemini->GetItemValueText();
     const wchar_t* oldDeepseek = deepseek->GetItemValueText();
     const wchar_t* oldTooltip = plugin->GetTooltipInfo();
     refresh(L"/second", L"11%");
-    Require(std::wstring(oldCodex) == L"42%" && std::wstring(oldGrok) == L"73%" && std::wstring(oldDeepseek) == L"123", "old value pointers survive update");
-    Require(std::wstring(oldTooltip) == L"Codex: 42%\nGrok: 73%\nDeepSeek: 123", "old tooltip pointer survives update");
+    Require(std::wstring(oldCodex) == L"42%" && std::wstring(oldGrok) == L"73%" && std::wstring(oldGemini) == L"88%" && std::wstring(oldDeepseek) == L"123", "old value pointers survive update");
+    Require(std::wstring(oldTooltip) == L"Codex: 42%\nGrok: 73%\nGemini: 88%\nDeepSeek: 123", "old tooltip pointer survives update");
+    Require(std::wstring(gemini->GetItemValueText()) == L"33%" && std::wstring(deepseek->GetItemValueText()) == L"444", "updated values publish in order");
 
     std::atomic<bool> stop = false;
     std::atomic<bool> invalid = false;
@@ -239,8 +261,15 @@ int wmain(int argc, wchar_t** argv)
     reader.join();
     Require(!invalid, "concurrent publication preserves borrowed pointers");
 
-    refresh(L"/limit", std::wstring(4091, L'x'));
+    refresh(L"/limit", std::wstring(4089, L'x'));
     refresh(L"/over-limit", L"N/A");
+    refresh(L"/crlf", L"41%");
+    Require(std::wstring(grok->GetItemValueText()) == L"72%" && std::wstring(gemini->GetItemValueText()) == L"87%" && std::wstring(deepseek->GetItemValueText()) == L"\u00A5123", "CRLF UTF-8 four-line response parses");
+    refresh(L"/error-503", L"N/A");
+    refresh(L"/first", L"42%");
+    refresh(L"/extra-line", L"N/A");
+    refresh(L"/first", L"42%");
+    refresh(L"/blank-fourth", L"N/A");
     for (const wchar_t* path : { L"/slow-header", L"/slow-body" })
     {
         refresh(L"/first", L"42%");

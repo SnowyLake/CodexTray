@@ -4,6 +4,7 @@ public sealed class UsageCache
 {
     private volatile UsageResponse? m_CodexResponse;
     private volatile GrokPluginUsage? m_GrokUsage;
+    private volatile GeminiPluginUsage? m_GeminiUsage;
     private volatile DeepSeekPluginUsage? m_DeepSeekUsage;
 
     /// <summary>
@@ -20,6 +21,14 @@ public sealed class UsageCache
     public void UpdateGrok(GrokPluginUsage usage)
     {
         m_GrokUsage = usage;
+    }
+
+    /// <summary>
+    /// Stores the latest collected Gemini plugin snapshot.
+    /// </summary>
+    public void UpdateGemini(GeminiPluginUsage usage)
+    {
+        m_GeminiUsage = usage;
     }
 
     /// <summary>
@@ -47,6 +56,14 @@ public sealed class UsageCache
     }
 
     /// <summary>
+    /// Clears the cached Gemini plugin snapshot.
+    /// </summary>
+    public void ClearGemini()
+    {
+        m_GeminiUsage = null;
+    }
+
+    /// <summary>
     /// Clears the cached DeepSeek plugin snapshot.
     /// </summary>
     public void ClearDeepSeek()
@@ -63,14 +80,15 @@ public sealed class UsageCache
     }
 
     /// <summary>
-    /// Gets a merged plugin response from the latest Codex, Grok, and DeepSeek values.
+    /// Gets a merged plugin response from the latest Codex, Grok, Gemini, and DeepSeek values.
     /// </summary>
     public UsageResponse? Get()
     {
         UsageResponse? codex = m_CodexResponse;
         GrokPluginUsage? grok = m_GrokUsage;
+        GeminiPluginUsage? gemini = m_GeminiUsage;
         DeepSeekPluginUsage? deepSeek = m_DeepSeekUsage;
-        if (codex == null && grok == null && deepSeek == null)
+        if (codex == null && grok == null && gemini == null && deepSeek == null)
         {
             return null;
         }
@@ -87,6 +105,12 @@ public sealed class UsageCache
             UsedPercent = 100,
             RemainingPercent = 0,
         };
+        UsageLimit geminiSession = gemini?.Session ?? new UsageLimit
+        {
+            Name = "session",
+            UsedPercent = 100,
+            RemainingPercent = 0,
+        };
         UsageLimit deepSeekLimit = deepSeek?.Limit ?? new UsageLimit
         {
             Name = "deepseek",
@@ -94,6 +118,7 @@ public sealed class UsageCache
             RemainingPercent = 0,
         };
         string grokDisplay = grok?.Display ?? CodexTrayDefaults.UnavailableDisplay;
+        string geminiDisplay = gemini?.Display ?? CodexTrayDefaults.UnavailableDisplay;
         string deepSeekDisplay = deepSeek?.Display ?? CodexTrayDefaults.UnavailableDisplay;
         return new UsageResponse
         {
@@ -107,6 +132,7 @@ public sealed class UsageCache
                 Session = codex.Limits.Session,
                 Weekly = codex.Limits.Weekly,
                 GrokWeekly = grokWeekly,
+                GeminiSession = geminiSession,
                 DeepSeek = deepSeekLimit,
             },
             ResetCredits = codex.ResetCredits,
@@ -114,8 +140,8 @@ public sealed class UsageCache
             {
                 Weekly = codex.Display.Weekly,
                 GrokWeekly = grokDisplay,
+                GeminiSession = geminiDisplay,
                 DeepSeek = deepSeekDisplay,
-                Summary = $"Codex: {codex.Display.Weekly} | Grok: {grokDisplay} | DeepSeek: {deepSeekDisplay}",
             },
         };
     }

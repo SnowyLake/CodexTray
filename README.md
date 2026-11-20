@@ -18,7 +18,7 @@
 
 `CodexTray` 是一款面向 Windows x64 的系统托盘应用, 用于在一个轻量面板中查看 Codex, Grok 与 Gemini 的订阅额度, 重置时间, token 用量与估算费用, 同时支持监控多个主流 API 账户的余额或费用.
 
-配合 LiteMonitor 或 TrafficMonitor 插件, 还可以将 Codex Weekly, Grok Weekly 与第一张 DeepSeek 卡片的 CNY 余额直接展示在系统监控栏中.
+配合 LiteMonitor 或 TrafficMonitor 插件, 还可以将 Codex Weekly, Grok Weekly, Gemini 5 小时额度与第一张 DeepSeek 卡片的 CNY 余额直接展示在系统监控栏中.
 
 本文面向最终用户, 介绍安装, 配置与日常使用. 开发与维护规范见 [AGENTS.md](AGENTS.md).
 
@@ -50,7 +50,7 @@
 
 - **左键单击托盘图标**: 显示或隐藏主面板.
 - **右键单击托盘图标**: 打开菜单, 提供 `Open Panel`, `Refresh Now` 与 `Exit`.
-- **悬停托盘图标**: 查看当前可见来源的 Codex Weekly, Grok Weekly 与第一张 DeepSeek 卡片余额.
+- **悬停托盘图标**: 查看当前可见来源的 Codex Weekly, Grok Weekly, Gemini 5 小时额度与第一张 DeepSeek 卡片余额.
 - **固定与收起**: 点击面板左下角图钉可固定显示 (保持至退出); 再次点击恢复失焦自动收起. 按 `Esc` 或左键托盘图标随时收起面板.
 
 ### 页面说明
@@ -104,12 +104,13 @@ Codex, Grok 与 Gemini 页面均提供按时段汇总的 token 用量, 估算费
 CodexTray 支持 **LiteMonitor** 与 **TrafficMonitor**:
 
 1. 在 Settings 页对应监控器一栏点击 `Auto detect` 自动定位, 或点击 `Browse` 选择包含监控器主程序的目录.
-2. 点击 `Setup` 部署插件与端口配置.
-3. 重启对应监控器或重新加载插件.
+2. 若更新已有 **TrafficMonitor** 插件, 请先退出 TrafficMonitor 以解除 DLL 占用.
+3. 点击 `Setup` 部署插件与端口配置.
+4. 启动或重启对应监控器, 并在监控器的显示设置中勾选需要的监控项 (例如新增的 `Gemini`).
 
-插件固定展示三项数据: `Codex` (Codex Weekly), `Grok` (Grok Weekly) 与 `DeepSeek` (第一张 DeepSeek 卡片的四舍五入整元 CNY 余额). 隐藏对应页面后该项显示 `N/A`; 三项全部关闭时停止本地插件服务.
+插件固定展示四项数据: `Codex` (Codex Weekly), `Grok` (Grok Weekly), `Gemini` (Gemini 5 小时额度) 与 `DeepSeek` (第一张 DeepSeek 卡片的四舍五入整元 CNY 余额). 隐藏对应页面后该项显示 `N/A`; 全部页面关闭时停止本地插件服务.
 
-升级 CodexTray 或修改 HTTP 端口后, 请再次点击 `Setup` 同步插件文件与端口配置.
+升级 CodexTray 或修改 HTTP 端口后, 请按上述步骤重新点击 `Setup` 同步插件文件与端口配置.
 
 ## 数据与隐私
 
@@ -135,7 +136,7 @@ CodexTray 支持 **LiteMonitor** 与 **TrafficMonitor**:
 
 ### 为什么 LiteMonitor / TrafficMonitor 没有数据或未更新?
 
-请确认 CodexTray 正在运行且 Codex, Grok 或 APIs 至少开启一项. 升级应用或修改 HTTP 端口后, 须在 Settings 页重新执行 `Setup`. 若 TrafficMonitor 提示缺少 DLL, 请确认发布包中的 `Plugins/TrafficMonitor/CodexTray.dll` 完整存在.
+请确认 CodexTray 正在运行且 Codex, Grok, Gemini 或 APIs 至少开启一项. 升级应用或修改 HTTP 端口后, 须在 Settings 页重新执行 `Setup`. 若 TrafficMonitor 提示缺少 DLL, 请确认发布包中的 `Plugins/TrafficMonitor/CodexTray.dll` 完整存在.
 
 ### 为什么应用内更新失败?
 

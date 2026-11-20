@@ -139,24 +139,29 @@ internal static class Program
             {
                 Weekly = new UsageLimit { RemainingPercent = 100, WindowMinutes = 10_080 },
                 GrokWeekly = new UsageLimit { RemainingPercent = 0 },
+                GeminiSession = new UsageLimit { RemainingPercent = 85 },
             },
-            Display = new UsageDisplay { GrokWeekly = "0%", DeepSeek = "¥123" },
+            Display = new UsageDisplay { GrokWeekly = "0%", GeminiSession = "85%", DeepSeek = "¥123" },
         };
-        AssertEqual("Codex W: 100%\nGrok W: 0%\nDeepSeek: ¥123", TrayController.BuildTrayTooltip(PageItem.All, usage), "all visible source summary");
+        AssertEqual("Codex W: 100%\nGrok W: 0%\nGemini S: 85%\nDeepSeek: ¥123", TrayController.BuildTrayTooltip(PageItem.All, usage), "all visible source summary");
         AssertEqual("Grok W: 0%", TrayController.BuildTrayTooltip(PageItem.Grok, usage), "hidden sources are absent");
+        AssertEqual("Gemini S: 85%", TrayController.BuildTrayTooltip(PageItem.Gemini, usage), "Gemini-only visible source summary");
         AssertEqual(CodexTrayDefaults.AppName, TrayController.BuildTrayTooltip((PageItem)2, usage), "retired page bits add no tray quota line");
         usage.Limits.Weekly.WindowMinutes = 0;
         AssertEqual("Codex W: N/A", TrayController.BuildTrayTooltip(PageItem.Codex, usage), "a session-only Codex result cannot invent a weekly quota");
         usage.Limits.Weekly.WindowMinutes = 10_080;
         AssertEqual(CodexTrayDefaults.AppName, TrayController.BuildTrayTooltip(PageItem.None, usage), "no visible sources");
-        AssertEqual("Codex W: N/A\nGrok W: N/A\nDeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.All, null), "initial unavailable summary");
+        AssertEqual("Codex W: N/A\nGrok W: N/A\nGemini S: N/A\nDeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.All, null), "initial unavailable summary");
         usage.Available = false;
         usage.Display.GrokWeekly = "N/A";
-        AssertTrue(TrayController.BuildTrayTooltip(PageItem.All, usage).StartsWith("Codex W: N/A\nGrok W: N/A"), "failed sources do not show old percentages");
+        usage.Display.GeminiSession = "N/A";
+        AssertTrue(TrayController.BuildTrayTooltip(PageItem.All, usage).StartsWith("Codex W: N/A\nGrok W: N/A\nGemini S: N/A"), "failed sources do not show old percentages");
         usage.Available = true;
         usage.Limits.Weekly.RemainingPercent = 999;
         usage.Limits.GrokWeekly.RemainingPercent = 100;
         usage.Display.GrokWeekly = "100%";
+        usage.Limits.GeminiSession.RemainingPercent = 100;
+        usage.Display.GeminiSession = "100%";
         usage.Display.DeepSeek = "¥79228162514264337593543950335";
         string bounded = TrayController.BuildTrayTooltip(PageItem.All, usage);
         AssertTrue(bounded.Length <= 63 && bounded.EndsWith('…') && !bounded.Contains(usage.Error!), "tray text is bounded and excludes errors");
@@ -1283,6 +1288,17 @@ internal static class Program
             new GrokUsageSnapshot(5, now.AddDays(7).ToUnixTimeSeconds()),
             string.Empty,
             now)));
+        usageCache.UpdateGemini(GeminiUsageCollector.BuildPluginUsage(new GeminiUsageDashboard
+        {
+            Snapshot = new GeminiUsageSnapshot
+            {
+                Source = "cloud_code",
+                UpdatedAt = now,
+                GeminiFiveHour = new UsageLimit { Name = "session", UsedPercent = 25, RemainingPercent = 75, WindowMinutes = 300 },
+                IsAvailable = true,
+            },
+            StatusMessage = string.Empty,
+        }));
         usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
             new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
             "¥110"));
@@ -1301,31 +1317,59 @@ internal static class Program
         JsonElement limits = document.RootElement.GetProperty("limits");
         AssertTrue(!display.TryGetProperty("session", out JsonElement sessionDisplay), "HTTP plugin response should omit Codex Session display");
         AssertTrue(!limits.TryGetProperty("session", out JsonElement sessionLimit), "HTTP plugin response should omit Codex Session limit");
-        AssertEqual("80%", display.GetProperty("weekly").GetString(), "HTTP plugin Codex display");
+        AssertTrue(!display.TryGetProperty("weekly", out JsonElement legacyWeeklyDisplay), "HTTP plugin response should use codex_weekly display");
+        AssertTrue(!limits.TryGetProperty("weekly", out JsonElement legacyWeeklyLimit), "HTTP plugin response should use codex_weekly limit");
+        AssertTrue(!display.TryGetProperty("deepseek", out JsonElement legacyDeepSeekDisplay), "HTTP plugin response should use deepseek_balance display");
+        AssertTrue(!limits.TryGetProperty("deepseek", out JsonElement legacyDeepSeekLimit), "HTTP plugin response should use deepseek_balance limit");
+        AssertEqual("80%", display.GetProperty("codex_weekly").GetString(), "HTTP plugin Codex display");
         AssertTrue(!display.TryGetProperty("cursor_monthly", out JsonElement cursorDisplay), "HTTP plugin response should omit Cursor Monthly display");
         AssertTrue(!limits.TryGetProperty("cursor_monthly", out JsonElement cursorLimit), "HTTP plugin response should omit Cursor Monthly limit");
         AssertEqual("95%", display.GetProperty("grok_weekly").GetString(), "HTTP plugin Grok display");
-        AssertEqual("¥110", display.GetProperty("deepseek").GetString(), "HTTP plugin DeepSeek display");
+        AssertEqual("75%", display.GetProperty("gemini_session").GetString(), "HTTP plugin Gemini display");
+        AssertEqual("¥110", display.GetProperty("deepseek_balance").GetString(), "HTTP plugin DeepSeek display");
+        AssertEqual(80, limits.GetProperty("codex_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Codex remaining percent");
         AssertEqual(95, limits.GetProperty("grok_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Grok remaining percent");
-        AssertEqual(100, limits.GetProperty("deepseek").GetProperty("remaining_percent").GetInt32(), "HTTP plugin DeepSeek remaining percent");
+        AssertEqual(75, limits.GetProperty("gemini_session").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Gemini remaining percent");
+        AssertEqual(100, limits.GetProperty("deepseek_balance").GetProperty("remaining_percent").GetInt32(), "HTTP plugin DeepSeek remaining percent");
         string[] displayNames = [.. display.EnumerateObject().Select(property => property.Name)];
         string[] limitNames = [.. limits.EnumerateObject().Select(property => property.Name)];
-        AssertTrue(Array.IndexOf(displayNames, "grok_weekly") < Array.IndexOf(displayNames, "deepseek"), "HTTP plugin Grok display should precede DeepSeek");
-        AssertTrue(Array.IndexOf(limitNames, "grok_weekly") < Array.IndexOf(limitNames, "deepseek"), "HTTP plugin Grok limit should precede DeepSeek");
+        AssertTrue(displayNames.SequenceEqual(["codex_weekly", "grok_weekly", "gemini_session", "deepseek_balance"]), "HTTP plugin display field order");
+        AssertTrue(limitNames.SequenceEqual(["codex_weekly", "grok_weekly", "gemini_session", "deepseek_balance"]), "HTTP plugin limit field order");
         AssertTrue(!display.TryGetProperty("codex_5h", out JsonElement legacySession), "legacy session plugin field should be removed");
         AssertTrue(!display.TryGetProperty("codex_7d", out JsonElement legacyWeekly), "legacy weekly plugin field should be removed");
 
         string usageText = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageTextEndpointPath}");
         string[] usageLines = usageText.Split(Environment.NewLine);
-        AssertEqual(3, usageLines.Length, "text endpoint line count");
+        AssertEqual(4, usageLines.Length, "text endpoint line count");
         AssertEqual("80%", usageLines[0], "text endpoint Codex display");
         AssertEqual("95%", usageLines[1], "text endpoint Grok display");
-        AssertEqual("¥110", usageLines[2], "text endpoint DeepSeek display");
+        AssertEqual("75%", usageLines[2], "text endpoint Gemini display");
+        AssertEqual("¥110", usageLines[3], "text endpoint DeepSeek display");
+
+        usageCache.ClearCodex();
+        usageCache.ClearGrok();
+        usageCache.ClearDeepSeek();
+        string geminiOnlyJson = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageEndpointPath}");
+        using JsonDocument geminiOnlyDoc = JsonDocument.Parse(geminiOnlyJson);
+        JsonElement geminiOnlyDisplay = geminiOnlyDoc.RootElement.GetProperty("display");
+        JsonElement geminiOnlyLimits = geminiOnlyDoc.RootElement.GetProperty("limits");
+        AssertEqual("N/A", geminiOnlyDisplay.GetProperty("codex_weekly").GetString(), "Gemini-only HTTP response reports N/A for Codex");
+        AssertEqual(0, geminiOnlyLimits.GetProperty("codex_weekly").GetProperty("remaining_percent").GetInt32(), "Gemini-only HTTP response reports 0 remaining percent for unavailable Codex");
+        AssertEqual("75%", geminiOnlyDisplay.GetProperty("gemini_session").GetString(), "Gemini-only HTTP response keeps Gemini display");
+        AssertEqual(75, geminiOnlyLimits.GetProperty("gemini_session").GetProperty("remaining_percent").GetInt32(), "Gemini-only HTTP response keeps Gemini remaining percent");
+        string[] geminiOnlyLines = (await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageTextEndpointPath}")).Split(Environment.NewLine);
+        AssertTrue(geminiOnlyLines.SequenceEqual(["N/A", "N/A", "75%", "N/A"]), "Gemini-only text endpoint line order");
+
+        usageCache.ClearGemini();
+        string pendingJson = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageEndpointPath}");
+        using JsonDocument pendingDoc = JsonDocument.Parse(pendingJson);
+        AssertEqual("N/A", pendingDoc.RootElement.GetProperty("display").GetProperty("codex_weekly").GetString(), "empty cache HTTP response reports N/A for Codex");
+        AssertEqual(0, pendingDoc.RootElement.GetProperty("limits").GetProperty("codex_weekly").GetProperty("remaining_percent").GetInt32(), "empty cache HTTP response reports 0 remaining percent for Codex");
         await server.StopAsync();
     }
 
     /// <summary>
-    /// Tests independent merging and clearing of Codex, Grok, and DeepSeek plugin values.
+    /// Tests independent merging and clearing of Codex, Grok, Gemini, and DeepSeek plugin values.
     /// </summary>
     private static Task TestUsageCacheSourcesAsync()
     {
@@ -1347,6 +1391,9 @@ internal static class Program
         usageCache.UpdateGrok(new GrokPluginUsage(
             new UsageLimit { Name = "weekly", RemainingPercent = 60 },
             "60%"));
+        usageCache.UpdateGemini(new GeminiPluginUsage(
+            new UsageLimit { Name = "session", RemainingPercent = 75 },
+            "75%"));
         usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
             new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
             "¥110"));
@@ -1355,24 +1402,65 @@ internal static class Program
         AssertEqual(true, usageCache.GetCodex()?.Available, "Codex snapshot should stay available");
         AssertEqual("80%", merged.Display.Weekly, "merged Codex display");
         AssertEqual("60%", merged.Display.GrokWeekly, "merged Grok display");
+        AssertEqual("75%", merged.Display.GeminiSession, "merged Gemini display");
+        AssertEqual(75, merged.Limits.GeminiSession.RemainingPercent, "merged Gemini remaining percent");
         AssertEqual("¥110", merged.Display.DeepSeek, "merged DeepSeek display");
         AssertEqual(100, merged.Limits.DeepSeek.RemainingPercent, "merged DeepSeek remaining percent");
-        AssertEqual("Codex: 80% | Grok: 60% | DeepSeek: ¥110", merged.Display.Summary, "merged plugin summary order");
 
         usageCache.ClearCodex();
         AssertTrue(usageCache.GetCodex() == null, "cleared Codex snapshot should be empty");
-        UsageResponse grokAndDeepSeek = usageCache.Get() ?? throw new InvalidOperationException("Grok and DeepSeek usage should be available");
-        AssertEqual("N/A", grokAndDeepSeek.Display.Weekly, "cleared Codex display");
-        AssertEqual("60%", grokAndDeepSeek.Display.GrokWeekly, "preserved Grok display");
-        AssertEqual("¥110", grokAndDeepSeek.Display.DeepSeek, "preserved DeepSeek display");
+        UsageResponse withoutCodex = usageCache.Get() ?? throw new InvalidOperationException("Grok, Gemini, and DeepSeek usage should be available");
+        AssertEqual("N/A", withoutCodex.Display.Weekly, "cleared Codex display");
+        AssertEqual("60%", withoutCodex.Display.GrokWeekly, "preserved Grok display");
+        AssertEqual("75%", withoutCodex.Display.GeminiSession, "preserved Gemini display");
+        AssertEqual("¥110", withoutCodex.Display.DeepSeek, "preserved DeepSeek display");
 
         usageCache.ClearGrok();
+        UsageResponse geminiAndDeepSeek = usageCache.Get() ?? throw new InvalidOperationException("Gemini and DeepSeek usage should be available");
+        AssertEqual("N/A", geminiAndDeepSeek.Display.GrokWeekly, "cleared Grok display");
+        AssertEqual("75%", geminiAndDeepSeek.Display.GeminiSession, "preserved Gemini display after Grok clears");
+        AssertEqual("¥110", geminiAndDeepSeek.Display.DeepSeek, "preserved DeepSeek display after Grok clears");
+
+        usageCache.ClearGemini();
         UsageResponse deepSeekOnly = usageCache.Get() ?? throw new InvalidOperationException("DeepSeek-only usage should be available");
-        AssertEqual("N/A", deepSeekOnly.Display.GrokWeekly, "cleared Grok display");
+        AssertEqual("N/A", deepSeekOnly.Display.GeminiSession, "cleared Gemini display");
+        AssertEqual(0, deepSeekOnly.Limits.GeminiSession.RemainingPercent, "cleared Gemini remaining percent");
         AssertEqual("¥110", deepSeekOnly.Display.DeepSeek, "preserved DeepSeek display after other sources clear");
 
         usageCache.ClearDeepSeek();
         AssertTrue(usageCache.Get() == null, "cleared plugin usage should be empty");
+
+        GeminiPluginUsage unavailableGemini = GeminiUsageCollector.BuildPluginUsage(GeminiUsageDashboard.Empty);
+        AssertEqual("N/A", unavailableGemini.Display, "unavailable Gemini dashboard maps to N/A");
+        AssertEqual(0, unavailableGemini.Session.RemainingPercent, "unavailable Gemini remaining percent");
+
+        GeminiPluginUsage weeklyOnlyGemini = GeminiUsageCollector.BuildPluginUsage(new GeminiUsageDashboard
+        {
+            Snapshot = new GeminiUsageSnapshot
+            {
+                Source = "cloud_code",
+                UpdatedAt = DateTimeOffset.UtcNow,
+                GeminiWeekly = new UsageLimit { Name = "weekly", RemainingPercent = 90, WindowMinutes = 10_080 },
+                IsAvailable = true,
+            },
+            StatusMessage = string.Empty,
+        });
+        AssertEqual("N/A", weeklyOnlyGemini.Display, "weekly-only Gemini snapshot does not fabricate 5-hour plugin usage");
+        AssertEqual(0, weeklyOnlyGemini.Session.RemainingPercent, "weekly-only Gemini remaining percent");
+
+        GeminiPluginUsage exhaustedGemini = GeminiUsageCollector.BuildPluginUsage(new GeminiUsageDashboard
+        {
+            Snapshot = new GeminiUsageSnapshot
+            {
+                Source = "cloud_code",
+                UpdatedAt = DateTimeOffset.UtcNow,
+                GeminiFiveHour = new UsageLimit { Name = "session", UsedPercent = 100, RemainingPercent = 0, WindowMinutes = 300 },
+                IsAvailable = true,
+            },
+            StatusMessage = string.Empty,
+        });
+        AssertEqual("0%", exhaustedGemini.Display, "exhausted Gemini 5-hour quota displays 0%");
+        AssertEqual(0, exhaustedGemini.Session.RemainingPercent, "exhausted Gemini remaining percent");
         return Task.CompletedTask;
     }
 
@@ -1540,16 +1628,43 @@ internal static class Program
         int quoteIndex = trafficMonitorSource.IndexOf('"', returnIndex + "return L\"".Length);
         string trafficMonitorVersion = trafficMonitorSource[(returnIndex + "return L\"".Length)..quoteIndex];
         AssertEqual(expectedVersion, trafficMonitorVersion, "TrafficMonitor version should match the app version");
-        AssertTrue(content.Contains("\"short_label\": \"Codex\"", StringComparison.Ordinal), "plugin content should include Codex item");
         AssertTrue(!content.Contains("\"short_label\": \"Cursor\"", StringComparison.Ordinal), "plugin content should omit Cursor");
         AssertTrue(!content.Contains("cursor_monthly", StringComparison.Ordinal), "plugin content should omit Cursor Monthly");
-        AssertTrue(content.Contains("\"short_label\": \"Grok\"", StringComparison.Ordinal), "plugin content should include Grok item");
-        AssertTrue(content.Contains("\"short_label\": \"DeepSeek\"", StringComparison.Ordinal), "plugin content should include DeepSeek item");
-        AssertTrue(content.Contains("\"format_val\": \"{{grok_display}}\"", StringComparison.Ordinal), "plugin content should include Grok value");
-        AssertTrue(content.Contains("\"format_val\": \"{{deepseek_display}}\"", StringComparison.Ordinal), "plugin content should include DeepSeek value");
-        AssertTrue(
-            content.IndexOf("\"short_label\": \"Grok\"", StringComparison.Ordinal) < content.IndexOf("\"short_label\": \"DeepSeek\"", StringComparison.Ordinal),
-            "plugin Grok item should precede DeepSeek");
+        JsonElement step = pluginDocument.RootElement.GetProperty("execution").GetProperty("steps")[0];
+        JsonElement extract = step.GetProperty("extract");
+        (string Key, string Label, string DisplayVar, string DisplayPath, string RemainingVar, string RemainingPath, string ColorVar)[] expectedItems =
+        [
+            ("codex", "Codex", "codex_display", "display.codex_weekly", "codex_remaining", "limits.codex_weekly.remaining_percent", "codex_color"),
+            ("grok", "Grok", "grok_display", "display.grok_weekly", "grok_remaining", "limits.grok_weekly.remaining_percent", "grok_color"),
+            ("gemini", "Gemini", "gemini_display", "display.gemini_session", "gemini_remaining", "limits.gemini_session.remaining_percent", "gemini_color"),
+            ("deepseek", "DeepSeek", "deepseek_display", "display.deepseek_balance", "deepseek_remaining", "limits.deepseek_balance.remaining_percent", "deepseek_color"),
+        ];
+        JsonElement[] processSteps = [.. step.GetProperty("process").EnumerateArray()];
+        JsonElement[] outputs = [.. pluginDocument.RootElement.GetProperty("outputs").EnumerateArray()];
+        AssertEqual(expectedItems.Length, processSteps.Length, "plugin process step count");
+        AssertEqual(expectedItems.Length, outputs.Length, "plugin output item count");
+        for (int index = 0; index < expectedItems.Length; index++)
+        {
+            var expected = expectedItems[index];
+            AssertEqual(expected.DisplayPath, extract.GetProperty(expected.DisplayVar).GetString(), $"plugin extract {expected.DisplayVar}");
+            AssertEqual(expected.RemainingPath, extract.GetProperty(expected.RemainingVar).GetString(), $"plugin extract {expected.RemainingVar}");
+
+            JsonElement process = processSteps[index];
+            AssertEqual(expected.ColorVar, process.GetProperty("var").GetString(), $"plugin process var {expected.Key}");
+            AssertEqual(expected.RemainingVar, process.GetProperty("source").GetString(), $"plugin process source {expected.Key}");
+            AssertEqual("threshold_switch", process.GetProperty("function").GetString(), $"plugin process function {expected.Key}");
+            JsonElement valueMap = process.GetProperty("value_map");
+            AssertEqual("2", valueMap.GetProperty("0").GetString(), $"plugin low threshold {expected.Key}");
+            AssertEqual("1", valueMap.GetProperty("20").GetString(), $"plugin medium threshold {expected.Key}");
+            AssertEqual("0", valueMap.GetProperty("50").GetString(), $"plugin high threshold {expected.Key}");
+
+            JsonElement output = outputs[index];
+            AssertEqual(expected.Key, output.GetProperty("key").GetString(), $"plugin output key at {index}");
+            AssertEqual(expected.Label, output.GetProperty("label").GetString(), $"plugin output label at {index}");
+            AssertEqual(expected.Label, output.GetProperty("short_label").GetString(), $"plugin output short_label at {index}");
+            AssertEqual($"{{{{{expected.DisplayVar}}}}}", output.GetProperty("format_val").GetString(), $"plugin output format_val {expected.Key}");
+            AssertEqual($"{{{{{expected.ColorVar}}}}}", output.GetProperty("color").GetString(), $"plugin output color {expected.Key}");
+        }
         AssertTrue(content.Contains($"http://{CodexTrayDefaults.Host}:17998{CodexTrayDefaults.UsageEndpointPath}", StringComparison.Ordinal), "plugin content should include bridge URL");
         return Task.CompletedTask;
     }

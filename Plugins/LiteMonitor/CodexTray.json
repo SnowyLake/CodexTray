@@ -4,7 +4,7 @@
     "name": "CodexTray",
     "version": "6.4.1",
     "author": "SnowyLake",
-    "description": "显示 Codex, Grok 的剩余额度百分比和 DeepSeek 余额"
+    "description": "显示 Codex, Grok, Gemini 的剩余额度百分比和 DeepSeek 余额"
   },
   "inputs": [
     {
@@ -26,12 +26,14 @@
         "method": "GET",
         "response_format": "json",
         "extract": {
-          "codex_display": "display.weekly",
+          "codex_display": "display.codex_weekly",
           "grok_display": "display.grok_weekly",
-          "deepseek_display": "display.deepseek",
-          "codex_remaining": "limits.weekly.remaining_percent",
+          "gemini_display": "display.gemini_session",
+          "deepseek_display": "display.deepseek_balance",
+          "codex_remaining": "limits.codex_weekly.remaining_percent",
           "grok_remaining": "limits.grok_weekly.remaining_percent",
-          "deepseek_remaining": "limits.deepseek.remaining_percent"
+          "gemini_remaining": "limits.gemini_session.remaining_percent",
+          "deepseek_remaining": "limits.deepseek_balance.remaining_percent"
         },
         "process": [
           {
@@ -47,6 +49,16 @@
           {
             "var": "grok_color",
             "source": "grok_remaining",
+            "function": "threshold_switch",
+            "value_map": {
+              "0": "2",
+              "20": "1",
+              "50": "0"
+            }
+          },
+          {
+            "var": "gemini_color",
+            "source": "gemini_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -84,6 +96,14 @@
       "format_val": "{{grok_display}}",
       "unit": "",
       "color": "{{grok_color}}"
+    },
+    {
+      "key": "gemini",
+      "label": "Gemini",
+      "short_label": "Gemini",
+      "format_val": "{{gemini_display}}",
+      "unit": "",
+      "color": "{{gemini_color}}"
     },
     {
       "key": "deepseek",

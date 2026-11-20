@@ -461,19 +461,24 @@ public sealed class LightweightHttpServer : IDisposable
 
         UsageResponse response = m_UsageCache.Get() ?? CreatePendingResponse();
         SetLastError(null);
+        int codexRemainingPercent = string.Equals(response.Display.Weekly, CodexTrayDefaults.UnavailableDisplay, StringComparison.Ordinal)
+            ? 0
+            : response.Limits.Weekly.RemainingPercent;
         await WriteJsonAsync(stream, 200, new
         {
             limits = new
             {
-                weekly = new { remaining_percent = response.Limits.Weekly.RemainingPercent },
+                codex_weekly = new { remaining_percent = codexRemainingPercent },
                 grok_weekly = new { remaining_percent = response.Limits.GrokWeekly.RemainingPercent },
-                deepseek = new { remaining_percent = response.Limits.DeepSeek.RemainingPercent },
+                gemini_session = new { remaining_percent = response.Limits.GeminiSession.RemainingPercent },
+                deepseek_balance = new { remaining_percent = response.Limits.DeepSeek.RemainingPercent },
             },
             display = new
             {
-                weekly = response.Display.Weekly,
+                codex_weekly = response.Display.Weekly,
                 grok_weekly = response.Display.GrokWeekly,
-                deepseek = response.Display.DeepSeek,
+                gemini_session = response.Display.GeminiSession,
+                deepseek_balance = response.Display.DeepSeek,
             },
         }, requestToken).ConfigureAwait(false);
     }
@@ -565,11 +570,11 @@ public sealed class LightweightHttpServer : IDisposable
     }
 
     /// <summary>
-    /// Writes Codex Weekly, Grok Weekly, and DeepSeek as a three-line text response for TrafficMonitor.
+    /// Writes Codex Weekly, Grok Weekly, Gemini Session, and DeepSeek as a four-line text response for TrafficMonitor.
     /// </summary>
     private static Task WriteUsageTextAsync(NetworkStream stream, UsageResponse response, CancellationToken cancellationToken)
     {
-        string body = string.Join(Environment.NewLine, response.Display.Weekly, response.Display.GrokWeekly, response.Display.DeepSeek);
+        string body = string.Join(Environment.NewLine, response.Display.Weekly, response.Display.GrokWeekly, response.Display.GeminiSession, response.Display.DeepSeek);
         return WriteResponseAsync(stream, 200, "OK", "text/plain; charset=utf-8", body, cancellationToken);
     }
 

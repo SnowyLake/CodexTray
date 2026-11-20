@@ -9,9 +9,9 @@
 
 ## 概览
 
-这个目录包含 CodexTray 的 TrafficMonitor 原生插件源码. 插件实现 TrafficMonitor 的 `ITMPlugin` 和 `IPluginItem` 接口, 提供 `Codex`, `Grok` 和 `DeepSeek` 三个显示项.
+这个目录包含 CodexTray 的 TrafficMonitor 原生插件源码. 插件实现 TrafficMonitor 的 `ITMPlugin` 和 `IPluginItem` 接口, 提供 `Codex`, `Grok`, `Gemini` 和 `DeepSeek` 四个显示项.
 
-插件在后台请求本机 CodexTray 的 `/codex-tray.txt`, 依次读取 Codex Weekly, Grok Weekly 和 DeepSeek CNY 余额. 刷新期间继续显示上一组值. 请求超过 5 秒或正文超过 4096 字节时, 三项均显示 `N/A`.
+插件在后台请求本机 CodexTray 的 `/codex-tray.txt`, 依次读取 Codex Weekly, Grok Weekly, Gemini 5 小时额度 和 DeepSeek CNY 余额. 刷新期间继续显示上一组值. 请求超过 5 秒或正文超过 4096 字节时, 四项均显示 `N/A`.
 
 ## 构建
 
@@ -35,7 +35,11 @@ Plugins\TrafficMonitor\Builds\x64\Release\CodexTray.dll
 
 ## 安装
 
-启动 `CodexTray.exe`, 在 Settings 页选择 TrafficMonitor 文件夹, 然后点击对应的插件安装按钮.
+首次安装或升级插件时, 建议按以下步骤操作:
+
+1. 若 TrafficMonitor 正在运行, 请先退出以解除 `CodexTray.dll` 占用.
+2. 启动 `CodexTray.exe`, 在 Settings 页选择 TrafficMonitor 文件夹, 然后点击对应的 `Setup` 按钮.
+3. 启动 TrafficMonitor, 在主窗口/任务栏显示设置中勾选需要的监控项 (例如 `Codex`, `Grok`, `Gemini`, `DeepSeek`).
 
 安装器会把 `CodexTray.dll` 复制到 TrafficMonitor 主程序目录的 `plugins` 文件夹, 并基于模板写入 `CodexTray.ini`.
 

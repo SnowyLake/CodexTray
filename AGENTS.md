@@ -57,7 +57,7 @@
 
 - **严禁硬编码真实密钥**: 绝不得在代码, 配置文件, 测试用例或文档示例中硬编码任何真实密钥, API key, OAuth `client_secret`, token 或账号凭据; 测试与示例一律使用无意义的占位符.
 - **本地插件服务隔离**: `LightweightHttpServer` 必须仅监听 `127.0.0.1`, 且强制校验请求 `Host` 与当前监听端口匹配 (仅限 `127.0.0.1` 或 `localhost`), 严禁向局域网开放.
-- **插件响应白名单**: 仅 Codex Weekly, Grok Weekly 与 APIs 页**第一张** DeepSeek 卡片的四舍五入整元 CNY 余额可进入插件 HTTP 响应. 第一张 DeepSeek 卡片不可用时返回 `N/A`, **不得**回退到后续 DeepSeek 卡片; 其他页面及 API provider 不得进入插件响应.
+- **插件响应白名单**: 仅 Codex Weekly, Grok Weekly, Gemini 5 小时额度与 APIs 页**第一张** DeepSeek 卡片的四舍五入整元 CNY 余额可进入插件 HTTP 响应. 第一张 DeepSeek 卡片不可用时返回 `N/A`, **不得**回退到后续 DeepSeek 卡片; 其他页面及 API provider 不得进入插件响应.
 - **凭据存储与脱敏**:
   - OAuth token 绝不复制到 `settings.json`, 日志, 诊断文本或插件配置.
   - API 监控凭据目前在 `settings.json`, `settings.last-good.json` 与 `settings.damaged-*.json` 中以明文存储; `CredentialInput` 仅用于屏幕遮挡且离开编辑态即重置, **不得**在文档或界面中将其表述为加密存储.

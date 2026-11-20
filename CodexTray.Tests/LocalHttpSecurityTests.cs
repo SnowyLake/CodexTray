@@ -25,6 +25,7 @@ internal static class LocalHttpSecurityTests
             Display = new UsageDisplay { Weekly = "80%" },
         });
         cache.UpdateGrok(new GrokPluginUsage(new UsageLimit { RemainingPercent = 60 }, "60%"));
+        cache.UpdateGemini(new GeminiPluginUsage(new UsageLimit { RemainingPercent = 75 }, "75%"));
         cache.UpdateDeepSeek(new DeepSeekPluginUsage(new UsageLimit { RemainingPercent = 100 }, "¥110"));
         using LightweightHttpServer server = new(cache, 0);
         server.Start();
@@ -91,15 +92,16 @@ internal static class LocalHttpSecurityTests
         Assert(!json.Contains("private-", StringComparison.Ordinal), "plugin JSON exposed internal values");
         JsonElement display = root.GetProperty("display");
         JsonElement limits = root.GetProperty("limits");
-        Assert(display.EnumerateObject().Select(property => property.Name).SequenceEqual(["weekly", "grok_weekly", "deepseek"]), "plugin display fields changed");
-        Assert(limits.EnumerateObject().Select(property => property.Name).SequenceEqual(["weekly", "grok_weekly", "deepseek"]), "plugin limit fields changed");
+        Assert(display.EnumerateObject().Select(property => property.Name).SequenceEqual(["codex_weekly", "grok_weekly", "gemini_session", "deepseek_balance"]), "plugin display fields changed");
+        Assert(limits.EnumerateObject().Select(property => property.Name).SequenceEqual(["codex_weekly", "grok_weekly", "gemini_session", "deepseek_balance"]), "plugin limit fields changed");
         Assert(limits.EnumerateObject().All(property => property.Value.EnumerateObject().Select(field => field.Name).SequenceEqual(["remaining_percent"])), "plugin limit exposed internal fields");
-        Assert(display.GetProperty("weekly").GetString() == "80%" && limits.GetProperty("weekly").GetProperty("remaining_percent").GetInt32() == 80, "Codex plugin fields changed");
+        Assert(display.GetProperty("codex_weekly").GetString() == "80%" && limits.GetProperty("codex_weekly").GetProperty("remaining_percent").GetInt32() == 80, "Codex plugin fields changed");
         Assert(display.GetProperty("grok_weekly").GetString() == "60%" && limits.GetProperty("grok_weekly").GetProperty("remaining_percent").GetInt32() == 60, "Grok plugin fields changed");
-        Assert(display.GetProperty("deepseek").GetString() == "¥110" && limits.GetProperty("deepseek").GetProperty("remaining_percent").GetInt32() == 100, "DeepSeek plugin fields changed");
+        Assert(display.GetProperty("gemini_session").GetString() == "75%" && limits.GetProperty("gemini_session").GetProperty("remaining_percent").GetInt32() == 75, "Gemini plugin fields changed");
+        Assert(display.GetProperty("deepseek_balance").GetString() == "¥110" && limits.GetProperty("deepseek_balance").GetProperty("remaining_percent").GetInt32() == 100, "DeepSeek plugin fields changed");
 
         string text = await client.GetStringAsync(url + CodexTrayDefaults.UsageTextEndpointPath);
-        Assert(text.Split(Environment.NewLine).SequenceEqual(["80%", "60%", "¥110"]), "TrafficMonitor response changed");
+        Assert(text.Split(Environment.NewLine).SequenceEqual(["80%", "60%", "75%", "¥110"]), "TrafficMonitor response changed");
     }
 
     private static async Task CheckClientLimitAndRestartAsync(LightweightHttpServer server)

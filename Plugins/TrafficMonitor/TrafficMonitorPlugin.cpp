@@ -32,13 +32,14 @@ struct UsageValues
 {
     std::wstring codex;
     std::wstring grok;
+    std::wstring gemini;
     std::wstring deepseek;
 };
 
 struct SharedUsage
 {
     std::mutex mutex;
-    UsageValues values{ k_FallbackValue, k_FallbackValue, k_FallbackValue };
+    UsageValues values{ k_FallbackValue, k_FallbackValue, k_FallbackValue, k_FallbackValue };
     std::wstring tooltip = L"CodexTray waiting for data";
 };
 
@@ -544,6 +545,15 @@ bool FetchUrlInBackground(const std::wstring& url, std::string& body, ULONGLONG 
         return false;
     }
 
+    DWORD statusCode = 0;
+    DWORD statusCodeSize = sizeof(statusCode);
+    if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
+                             &statusCode, &statusCodeSize, WINHTTP_NO_HEADER_INDEX) ||
+        statusCode < 200 || statusCode >= 300)
+    {
+        return false;
+    }
+
     body.clear();
     while (true)
     {
@@ -565,7 +575,56 @@ bool FetchUrlInBackground(const std::wstring& url, std::string& body, ULONGLONG 
     }
 }
 
-/// Fetches Codex, Grok, then DeepSeek display values from the local three-line bridge service.
+/// Parses exactly four non-empty usage lines, accepting LF/CRLF and one optional trailing newline.
+bool ParseUsageLines(const std::wstring& text, UsageValues& values)
+{
+    size_t end = text.size();
+    if (end > 0 && text[end - 1] == L'\n')
+    {
+        --end;
+        if (end > 0 && text[end - 1] == L'\r')
+        {
+            --end;
+        }
+    }
+
+    std::array<std::wstring, 4> lines;
+    size_t start = 0;
+    for (size_t index = 0; index < lines.size(); ++index)
+    {
+        const size_t separator = text.find(L'\n', start);
+        if (index < lines.size() - 1)
+        {
+            if (separator == std::wstring::npos || separator >= end)
+            {
+                return false;
+            }
+            lines[index] = TrimString(text.substr(start, separator - start));
+            start = separator + 1;
+        }
+        else
+        {
+            if (separator != std::wstring::npos && separator < end)
+            {
+                return false;
+            }
+            lines[index] = TrimString(text.substr(start, end - start));
+        }
+
+        if (lines[index].empty())
+        {
+            return false;
+        }
+    }
+
+    values.codex = std::move(lines[0]);
+    values.grok = std::move(lines[1]);
+    values.gemini = std::move(lines[2]);
+    values.deepseek = std::move(lines[3]);
+    return true;
+}
+
+/// Fetches Codex, Grok, Gemini, then DeepSeek display values from the local four-line bridge service.
 bool FetchUsageValues(UsageValues& values, ULONGLONG deadline)
 {
     std::string body;
@@ -574,23 +633,7 @@ bool FetchUsageValues(UsageValues& values, ULONGLONG deadline)
         return false;
     }
 
-    std::wstring text = Utf8ToWide(body);
-    size_t firstSeparator = text.find(L'\n');
-    if (firstSeparator == std::wstring::npos)
-    {
-        return false;
-    }
-
-    size_t secondSeparator = text.find(L'\n', firstSeparator + 1);
-    if (secondSeparator == std::wstring::npos)
-    {
-        return false;
-    }
-
-    values.codex = TrimString(text.substr(0, firstSeparator));
-    values.grok = TrimString(text.substr(firstSeparator + 1, secondSeparator - firstSeparator - 1));
-    values.deepseek = TrimString(text.substr(secondSeparator + 1));
-    return !values.codex.empty() && !values.grok.empty() && !values.deepseek.empty();
+    return ParseUsageLines(Utf8ToWide(body), values);
 }
 
 void PublishUsage(const std::shared_ptr<SharedUsage>& usage, UsageValues values, bool available)
@@ -598,11 +641,11 @@ void PublishUsage(const std::shared_ptr<SharedUsage>& usage, UsageValues values,
     std::wstring tooltip;
     if (available)
     {
-        tooltip = L"Codex: " + values.codex + L"\nGrok: " + values.grok + L"\nDeepSeek: " + values.deepseek;
+        tooltip = L"Codex: " + values.codex + L"\nGrok: " + values.grok + L"\nGemini: " + values.gemini + L"\nDeepSeek: " + values.deepseek;
     }
     else
     {
-        values = { k_FallbackValue, k_FallbackValue, k_FallbackValue };
+        values = { k_FallbackValue, k_FallbackValue, k_FallbackValue, k_FallbackValue };
         tooltip = L"CodexTray bridge unavailable";
     }
 
@@ -723,7 +766,7 @@ public:
     /// The returned pointer is valid until this thread next reads the same item.
     const wchar_t* GetItemValueText() const override
     {
-        thread_local std::array<std::wstring, 3> values;
+        thread_local std::array<std::wstring, 4> values;
         std::lock_guard<std::mutex> lock(m_Usage.mutex);
         values[m_Index] = m_Usage.values.*m_Value;
         return values[m_Index].c_str();
@@ -753,7 +796,8 @@ public:
         : m_Usage(std::make_shared<SharedUsage>()),
           m_CodexItem(L"Codex", L"CodexTrayCodex", L"Codex", L"100%", *m_Usage, &UsageValues::codex, 0),
           m_GrokItem(L"Grok", L"CodexTrayGrok", L"Grok", L"100%", *m_Usage, &UsageValues::grok, 1),
-          m_DeepSeekItem(L"DeepSeek", L"CodexTrayDeepSeek", L"DeepSeek", L"¥9999", *m_Usage, &UsageValues::deepseek, 2)
+          m_GeminiItem(L"Gemini", L"CodexTrayGemini", L"Gemini", L"100%", *m_Usage, &UsageValues::gemini, 2),
+          m_DeepSeekItem(L"DeepSeek", L"CodexTrayDeepSeek", L"DeepSeek", L"\u00A59999", *m_Usage, &UsageValues::deepseek, 3)
     {
     }
 
@@ -767,6 +811,8 @@ public:
         case 1:
             return &m_GrokItem;
         case 2:
+            return &m_GeminiItem;
+        case 3:
             return &m_DeepSeekItem;
         default:
             return nullptr;
@@ -848,7 +894,7 @@ public:
         case TMI_NAME:
             return L"CodexTray";
         case TMI_DESCRIPTION:
-            return L"Displays Codex and Grok quota and DeepSeek balance from CodexTray.";
+            return L"Displays Codex, Grok, and Gemini quota and DeepSeek balance from CodexTray.";
         case TMI_AUTHOR:
             return L"SnowyLake";
         case TMI_COPYRIGHT:
@@ -875,6 +921,7 @@ private:
     std::shared_ptr<SharedUsage> m_Usage;
     UsageItem m_CodexItem;
     UsageItem m_GrokItem;
+    UsageItem m_GeminiItem;
     UsageItem m_DeepSeekItem;
 };
 

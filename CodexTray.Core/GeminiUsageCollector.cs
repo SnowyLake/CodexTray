@@ -372,6 +372,32 @@ public sealed partial class GeminiUsageCollector
     }
 
     /// <summary>
+    /// Builds the Gemini 5-hour Session value exposed to monitor plugins.
+    /// </summary>
+    public static GeminiPluginUsage BuildPluginUsage(GeminiUsageDashboard dashboard)
+    {
+        GeminiUsageSnapshot snapshot = dashboard.Snapshot;
+        UsageLimit? fiveHour = snapshot.IsAvailable ? snapshot.GeminiFiveHour : null;
+        if (fiveHour == null)
+        {
+            return new GeminiPluginUsage(
+                new UsageLimit { Name = "session", UsedPercent = 100, RemainingPercent = 0 },
+                CodexTrayDefaults.UnavailableDisplay);
+        }
+
+        int remainingPercent = Math.Clamp(fiveHour.RemainingPercent, 0, 100);
+        int usedPercent = 100 - remainingPercent;
+        return new GeminiPluginUsage(
+            new UsageLimit
+            {
+                Name = "session",
+                UsedPercent = usedPercent,
+                RemainingPercent = remainingPercent,
+            },
+            $"{remainingPercent}%");
+    }
+
+    /// <summary>
     /// Formats a reset label for one Gemini quota window according to absolute or countdown display mode.
     /// </summary>
     public static string FormatResetLabel(UsageLimit limit, bool useAbsoluteResetTime, DateTimeOffset now)

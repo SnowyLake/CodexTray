@@ -2,6 +2,7 @@ using CodexTray.Core;
 using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
+using System.Security;
 using System.Text.Json;
 using System.Windows.Threading;
 using Drawing = System.Drawing;
@@ -561,12 +562,13 @@ internal sealed class TrayController : IDisposable
             SyncSettingsRecoveryStatus();
             m_UsageCache.ClearCodex();
             m_UsageCache.ClearGrok();
+            m_UsageCache.ClearGemini();
             m_UsageCache.ClearDeepSeek();
             ConfigureRefreshTimer();
             QueueServiceReconcile();
-            StartupManager.SetEnabled(Environment.ProcessPath ?? string.Empty, m_Settings.StartWithWindows);
             RefreshPopupStatus();
             _ = RequestRefreshAsync();
+            TryApplyStartupRegistration();
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
@@ -601,7 +603,6 @@ internal sealed class TrayController : IDisposable
 
         m_Settings = candidate;
         m_PopupViewModel?.AcceptSavedSettings(candidate);
-        StartupManager.SetEnabled(Environment.ProcessPath ?? string.Empty, m_Settings.StartWithWindows);
         ConfigureRefreshTimer();
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokIsEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
@@ -619,6 +620,7 @@ internal sealed class TrayController : IDisposable
 
         if (geminiWasEnabled && !geminiIsEnabled)
         {
+            m_UsageCache.ClearGemini();
             m_GeminiUsageCollector.ResetState();
             m_PopupViewModel?.UpdateGeminiDashboard(GeminiUsageDashboard.Empty);
             m_PopupViewModel?.UpdateGeminiTokenCost(null);
@@ -637,7 +639,23 @@ internal sealed class TrayController : IDisposable
 
         RefreshPopupStatus();
         _ = RequestRefreshAsync();
+        TryApplyStartupRegistration();
         return true;
+    }
+
+    /// <summary>
+    /// Applies Windows startup registration after settings and cache updates have taken effect.
+    /// </summary>
+    private void TryApplyStartupRegistration()
+    {
+        try
+        {
+            StartupManager.SetEnabled(Environment.ProcessPath ?? string.Empty, m_Settings.StartWithWindows);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or SecurityException or IOException or InvalidOperationException)
+        {
+            ShowWarning("Settings were saved, but Windows startup registration could not be updated.");
+        }
     }
 
     /// <summary>
@@ -758,6 +776,10 @@ internal sealed class TrayController : IDisposable
         {
             lines.Add("Grok W: " + (usage?.Display.GrokWeekly != null && usage.Display.GrokWeekly != "N/A" ? Percent(usage.Limits.GrokWeekly) : "N/A"));
         }
+        if ((visiblePages & PageItem.Gemini) != 0)
+        {
+            lines.Add("Gemini S: " + (usage?.Display.GeminiSession != null && usage.Display.GeminiSession != "N/A" ? Percent(usage.Limits.GeminiSession) : "N/A"));
+        }
         if ((visiblePages & PageItem.Apis) != 0)
         {
             string raw = usage?.Display.DeepSeek ?? "N/A";
@@ -874,7 +896,11 @@ internal sealed class TrayController : IDisposable
             if ((visiblePages & PageItem.Gemini) != 0)
             {
                 children.Add(PublishAsync(PageItem.Gemini, Task.Run(() => m_GeminiUsageCollector.CollectDashboardAsync(useAbsoluteResetTime, cancellationToken, (request.ManualPages & PageItem.Gemini) != 0), cancellationToken),
-                    dashboard => m_PopupViewModel?.UpdateGeminiDashboard(dashboard)));
+                    dashboard =>
+                    {
+                        m_UsageCache.UpdateGemini(GeminiUsageCollector.BuildPluginUsage(dashboard));
+                        m_PopupViewModel?.UpdateGeminiDashboard(dashboard);
+                    }));
                 children.Add(PublishAsync(PageItem.Gemini, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectGemini(cancellationToken: cancellationToken)), cancellationToken),
                     result => m_PopupViewModel?.UpdateGeminiTokenCost(result.Statistics, result.Error), localCosts: true));
             }
@@ -952,6 +978,7 @@ internal sealed class TrayController : IDisposable
                             m_PopupViewModel?.UpdateGrokDashboard(new(null, error, now));
                             break;
                         case PageItem.Gemini:
+                            m_UsageCache.ClearGemini();
                             m_PopupViewModel?.UpdateGeminiDashboard(new GeminiUsageDashboard
                             {
                                 Snapshot = new GeminiUsageSnapshot
