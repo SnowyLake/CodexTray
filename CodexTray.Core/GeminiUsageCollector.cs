@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
@@ -37,6 +36,7 @@ public enum GeminiCredentialOwner
 {
     Unknown,
     AntigravityCli,
+    AntigravityAcp,
     GeminiCli,
     AntigravityIde,
 }
@@ -100,8 +100,12 @@ public sealed partial class GeminiUsageCollector
     private const int k_FiveHourWindowMinutes = 300;
     private const int k_WeeklyWindowMinutes = 10080;
     private const int k_CredTypeGeneric = 1;
-    private const int k_AgyVersionOutputMaxBytes = 64 * 1024;
-    private const int k_AgyUsageOutputMaxBytes = 1024 * 1024;
+    private const int k_ClientScanBufferBytes = 1024 * 1024;
+    private const int k_ClientScanOverlapBytes = 256;
+    private const int k_ClientPairProximityBytes = 4096;
+    private const int k_MaxCrossProductDimension = 4;
+    private const int k_MaxDiscoveredClientPairs = 24;
+    private const long k_MaxClientScanFileBytes = 256L * 1024 * 1024;
     private const string k_PrimaryCloudCodeBaseUrl = "https://daily-cloudcode-pa.googleapis.com";
     private const string k_FallbackCloudCodeBaseUrl = "https://cloudcode-pa.googleapis.com";
     private const string k_LoadCodeAssistPath = "/v1internal:loadCodeAssist";
@@ -109,10 +113,7 @@ public sealed partial class GeminiUsageCollector
     private const string k_DefaultUserAgent = "antigravity/hub/2.24.0";
     private const string k_DefaultTokenRefreshUrl = "https://oauth2.googleapis.com/token";
 
-    private static readonly Version s_MinAgyUsageVersion = new(1, 1, 11);
     private static readonly TimeSpan s_RefreshBuffer = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan s_AgyVersionTimeout = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan s_AgyUsageTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan[] s_BackoffSteps = [TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15)];
     private static readonly SemaphoreSlim s_AuthLock = new(1, 1);
     private static readonly JsonSerializerOptions s_WriteJsonOptions = new()
@@ -131,14 +132,15 @@ public sealed partial class GeminiUsageCollector
     private readonly string m_TokenRefreshUrl;
     private readonly Func<string?>? m_CredentialStoreReader;
     private readonly bool m_UseSystemCredentialStores;
-    private readonly bool m_AllowAgyHelper;
-    private readonly string? m_ExplicitAgyExecutablePath;
-    private readonly Func<string, string[], TimeSpan, int, CancellationToken, Task<AgyCliResult>>? m_AgyCliRunner;
+    private readonly bool m_AllowLocalClientDiscovery;
+    private readonly string[]? m_ExplicitClientDiscoveryPaths;
 
     private readonly object m_StateLock = new();
     private long m_StateGeneration;
     private BackoffState? m_BackoffState;
-    private CachedAgyVersion? m_CachedAgyVersion;
+    private CachedRefreshedToken? m_CachedToken;
+    private readonly Dictionary<string, CachedClientPairs> m_CachedClientPairs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, OAuthClientPair> m_VerifiedClientPairs = new(StringComparer.Ordinal);
 
     [GeneratedRegex(@"ya29\.[A-Za-z0-9._\-]{16,}", RegexOptions.CultureInvariant)]
     private static partial Regex GoogleAccessTokenRegex();
@@ -146,14 +148,11 @@ public sealed partial class GeminiUsageCollector
     [GeneratedRegex(@"1//[A-Za-z0-9._\-]{16,}", RegexOptions.CultureInvariant)]
     private static partial Regex GoogleRefreshTokenRegex();
 
-    [GeneratedRegex(@"\b(\d+)\.(\d+)\.(\d+)\b", RegexOptions.CultureInvariant)]
-    private static partial Regex SemVerRegex();
-
     /// <summary>
     /// Creates a Gemini usage collector using the default credential discovery paths and HTTP client.
     /// </summary>
     public GeminiUsageCollector()
-        : this(s_HttpClient, explicitGeminiHomePath: null, baseUrl: null, tokenRefreshUrl: null, credentialStoreReader: null, nowProvider: null, useSystemCredentialStores: true, allowAgyHelper: true)
+        : this(s_HttpClient, explicitGeminiHomePath: null, baseUrl: null, tokenRefreshUrl: null, credentialStoreReader: null, nowProvider: null, useSystemCredentialStores: true, allowLocalClientDiscovery: true)
     {
     }
 
@@ -168,9 +167,8 @@ public sealed partial class GeminiUsageCollector
         Func<string?>? credentialStoreReader = null,
         Func<DateTimeOffset>? nowProvider = null,
         bool useSystemCredentialStores = false,
-        bool allowAgyHelper = false,
-        string? agyExecutablePath = null,
-        Func<string, string[], TimeSpan, int, CancellationToken, Task<AgyCliResult>>? agyCliRunner = null)
+        bool allowLocalClientDiscovery = false,
+        string[]? clientDiscoveryPaths = null)
     {
         m_HttpClient = httpClient;
         m_NowProvider = nowProvider ?? (() => DateTimeOffset.Now);
@@ -179,13 +177,12 @@ public sealed partial class GeminiUsageCollector
         m_TokenRefreshUrl = string.IsNullOrWhiteSpace(tokenRefreshUrl) ? k_DefaultTokenRefreshUrl : tokenRefreshUrl;
         m_CredentialStoreReader = credentialStoreReader;
         m_UseSystemCredentialStores = useSystemCredentialStores;
-        m_AllowAgyHelper = allowAgyHelper || agyCliRunner != null;
-        m_ExplicitAgyExecutablePath = string.IsNullOrWhiteSpace(agyExecutablePath) ? null : agyExecutablePath;
-        m_AgyCliRunner = agyCliRunner;
+        m_AllowLocalClientDiscovery = allowLocalClientDiscovery || clientDiscoveryPaths != null;
+        m_ExplicitClientDiscoveryPaths = clientDiscoveryPaths;
     }
 
     /// <summary>
-    /// Clears transient failure backoff and cached CLI metadata without blocking the caller.
+    /// Clears transient failure backoff, private token cache, and discovered OAuth client metadata without blocking the caller.
     /// </summary>
     public void ResetState()
     {
@@ -193,7 +190,9 @@ public sealed partial class GeminiUsageCollector
         {
             m_StateGeneration++;
             m_BackoffState = null;
-            m_CachedAgyVersion = null;
+            m_CachedToken = null;
+            m_CachedClientPairs.Clear();
+            m_VerifiedClientPairs.Clear();
         }
     }
 
@@ -202,6 +201,14 @@ public sealed partial class GeminiUsageCollector
         lock (m_StateLock)
         {
             return m_StateGeneration;
+        }
+    }
+
+    private void EnsureStateGenerationUnchanged(long stateGeneration, GeminiCredentialOwner owner)
+    {
+        if (ReadStateGeneration() != stateGeneration)
+        {
+            throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.", GeminiUsageFailureKind.CredentialChanged, owner);
         }
     }
 
@@ -216,42 +223,40 @@ public sealed partial class GeminiUsageCollector
 
         await s_AuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         DateTimeOffset now;
-        GeminiCredential credential;
         GeminiCredential sourceCredential;
+        GeminiCredential effectiveCredential;
         bool refreshed = false;
         try
         {
             now = m_NowProvider();
-            if (!TryLoadCredential(geminiHome, out credential, out string error, out bool hadLocalReadError))
+            if (!TryLoadCredential(geminiHome, out sourceCredential, out string error, out bool hadLocalReadError))
             {
                 ClearBackoff(stateGeneration);
+                ClearCachedToken(stateGeneration);
                 throw new GeminiDataException(error, hadLocalReadError ? GeminiUsageFailureKind.LocalDataError : GeminiUsageFailureKind.LoginRequired, GeminiCredentialOwner.Unknown);
             }
 
-            BackoffState? activeBackoff = ReadBackoffForSource(credential.SourceKey, stateGeneration);
+            BackoffState? activeBackoff = ReadBackoffForSource(sourceCredential.SourceKey, stateGeneration);
             if (!forceRefresh && activeBackoff != null && (activeBackoff.WaitForChange || now < activeBackoff.NextAttemptAfter))
             {
                 throw new GeminiDataException(activeBackoff.Message, activeBackoff.FailureKind, activeBackoff.Owner);
             }
 
-            sourceCredential = credential;
-            bool isActuallyExpired = NeedsRefresh(credential.ExpiresAt, credential.AccessToken, now, TimeSpan.Zero);
-            bool inRefreshBuffer = isActuallyExpired || NeedsRefresh(credential.ExpiresAt, credential.AccessToken, now);
+            effectiveCredential = ApplyCachedToken(sourceCredential, stateGeneration);
+            bool isActuallyExpired = NeedsRefresh(effectiveCredential.ExpiresAt, effectiveCredential.AccessToken, now, TimeSpan.Zero);
+            bool inRefreshBuffer = isActuallyExpired || NeedsRefresh(effectiveCredential.ExpiresAt, effectiveCredential.AccessToken, now);
             if (inRefreshBuffer)
             {
-                RecoveryResult recovery = await RecoverCredentialLockedAsync(geminiHome, credential, now, useAbsoluteResetTime, allowCurrentOnUnavailable: !isActuallyExpired, stateGeneration, cancellationToken).ConfigureAwait(false);
-                if (recovery.DirectSnapshot != null)
-                {
-                    ClearBackoff(stateGeneration);
-                    return recovery.DirectSnapshot;
-                }
-
-                if (recovery.Credential != null && !ReferenceEquals(recovery.Credential, credential))
-                {
-                    credential = recovery.Credential;
-                    sourceCredential = credential;
-                    refreshed = true;
-                }
+                RefreshResult refreshResult = await RefreshCredentialLockedAsync(
+                    sourceCredential,
+                    effectiveCredential,
+                    now,
+                    allowCurrentOnUnavailable: !isActuallyExpired,
+                    stateGeneration,
+                    cancellationToken).ConfigureAwait(false);
+                sourceCredential = refreshResult.SourceCredential;
+                effectiveCredential = refreshResult.EffectiveCredential;
+                refreshed = refreshResult.WasRefreshed;
             }
         }
         finally
@@ -261,28 +266,32 @@ public sealed partial class GeminiUsageCollector
 
         try
         {
-            GeminiUsageSnapshot snapshot = await FetchFromCloudCodeAsync(credential, useAbsoluteResetTime, now, cancellationToken).ConfigureAwait(false);
+            EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
+            GeminiUsageSnapshot snapshot = await FetchFromCloudCodeAsync(effectiveCredential, useAbsoluteResetTime, now, cancellationToken).ConfigureAwait(false);
             EnsureCredentialUnchanged(sourceCredential);
+            EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
             ClearBackoff(stateGeneration);
             return snapshot;
         }
-        catch (GeminiAuthException) when (!refreshed && CanAttemptRecovery(credential))
+        catch (GeminiAuthException) when (!refreshed && CanAttemptRefresh(sourceCredential, effectiveCredential, stateGeneration, cancellationToken))
         {
             await s_AuthLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 now = m_NowProvider();
+                EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
                 EnsureCredentialUnchanged(sourceCredential);
-                RecoveryResult recovery = await RecoverCredentialLockedAsync(geminiHome, credential, now, useAbsoluteResetTime, allowCurrentOnUnavailable: false, stateGeneration, cancellationToken).ConfigureAwait(false);
-                if (recovery.DirectSnapshot != null)
-                {
-                    ClearBackoff(stateGeneration);
-                    return recovery.DirectSnapshot;
-                }
-
-                credential = recovery.Credential!;
-                sourceCredential = credential;
-                refreshed = true;
+                ClearCachedToken(stateGeneration);
+                RefreshResult refreshResult = await RefreshCredentialLockedAsync(
+                    sourceCredential,
+                    effectiveCredential with { AccessToken = string.Empty },
+                    now,
+                    allowCurrentOnUnavailable: false,
+                    stateGeneration,
+                    cancellationToken).ConfigureAwait(false);
+                sourceCredential = refreshResult.SourceCredential;
+                effectiveCredential = refreshResult.EffectiveCredential;
+                refreshed = refreshResult.WasRefreshed;
             }
             finally
             {
@@ -291,13 +300,16 @@ public sealed partial class GeminiUsageCollector
 
             try
             {
-                GeminiUsageSnapshot snapshot = await FetchFromCloudCodeAsync(credential, useAbsoluteResetTime, now, cancellationToken).ConfigureAwait(false);
+                EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
+                GeminiUsageSnapshot snapshot = await FetchFromCloudCodeAsync(effectiveCredential, useAbsoluteResetTime, now, cancellationToken).ConfigureAwait(false);
                 EnsureCredentialUnchanged(sourceCredential);
+                EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
                 ClearBackoff(stateGeneration);
                 return snapshot;
             }
             catch (GeminiAuthException secondAuth)
             {
+                ClearCachedToken(stateGeneration);
                 throw RecordAuthRejection(sourceCredential, secondAuth, stateGeneration);
             }
             catch (Exception exception) when (exception is UsageHttpException or HttpRequestException or TaskCanceledException)
@@ -308,6 +320,7 @@ public sealed partial class GeminiUsageCollector
         }
         catch (GeminiAuthException authException)
         {
+            ClearCachedToken(stateGeneration);
             throw RecordAuthRejection(sourceCredential, authException, stateGeneration);
         }
         catch (Exception exception) when (exception is UsageHttpException or HttpRequestException or TaskCanceledException)
@@ -678,266 +691,415 @@ public sealed partial class GeminiUsageCollector
         request.Headers.Accept.ParseAdd("application/json");
     }
 
-    private bool CanAttemptRecovery(GeminiCredential credential)
+    private bool CanAttemptRefresh(GeminiCredential sourceCredential, GeminiCredential effectiveCredential, long stateGeneration, CancellationToken cancellationToken)
     {
-        return (credential.SourceFilePath != null && TryResolveCompleteClientPair(credential, out _, out _) && !string.IsNullOrWhiteSpace(credential.RefreshToken))
-            || credential.CanInvokeAgyHelper;
+        return !string.IsNullOrWhiteSpace(effectiveCredential.RefreshToken)
+            && ResolveClientPairs(sourceCredential, stateGeneration, cancellationToken, out _).Count > 0;
+    }
+
+    private GeminiCredential ApplyCachedToken(GeminiCredential sourceCredential, long stateGeneration)
+    {
+        lock (m_StateLock)
+        {
+            if (m_StateGeneration != stateGeneration || m_CachedToken == null)
+            {
+                return sourceCredential;
+            }
+
+            if (!string.Equals(m_CachedToken.SourceKey, sourceCredential.SourceKey, StringComparison.Ordinal))
+            {
+                m_CachedToken = null;
+                return sourceCredential;
+            }
+
+            return sourceCredential with
+            {
+                AccessToken = m_CachedToken.AccessToken,
+                ExpiresAt = m_CachedToken.ExpiresAt,
+            };
+        }
+    }
+
+    private void StoreCachedToken(string sourceKey, string accessToken, DateTimeOffset expiresAt, long stateGeneration)
+    {
+        lock (m_StateLock)
+        {
+            if (m_StateGeneration == stateGeneration)
+            {
+                m_CachedToken = new CachedRefreshedToken(sourceKey, accessToken, expiresAt);
+            }
+        }
+    }
+
+    private void ClearCachedToken(long stateGeneration)
+    {
+        lock (m_StateLock)
+        {
+            if (m_StateGeneration == stateGeneration)
+            {
+                m_CachedToken = null;
+            }
+        }
+    }
+
+    private void StoreVerifiedClientPair(string sourceLocation, OAuthClientPair pair, long stateGeneration)
+    {
+        lock (m_StateLock)
+        {
+            if (m_StateGeneration == stateGeneration)
+            {
+                m_VerifiedClientPairs[sourceLocation] = pair;
+            }
+        }
+    }
+
+    private void ClearVerifiedClientPair(string sourceLocation, long stateGeneration)
+    {
+        lock (m_StateLock)
+        {
+            if (m_StateGeneration == stateGeneration)
+            {
+                m_VerifiedClientPairs.Remove(sourceLocation);
+            }
+        }
     }
 
     /// <summary>
-    /// Refreshes a writable local file credential or delegates expired Antigravity CLI logins to the owning CLI.
+    /// Refreshes an OAuth access token directly, persisting to writable local JSON files or caching short-lived access tokens in memory for read-only stores.
     /// </summary>
-    private async Task<RecoveryResult> RecoverCredentialLockedAsync(
-        string geminiHome,
-        GeminiCredential credential,
+    private async Task<RefreshResult> RefreshCredentialLockedAsync(
+        GeminiCredential sourceCredential,
+        GeminiCredential effectiveCredential,
         DateTimeOffset now,
-        bool useAbsoluteResetTime,
         bool allowCurrentOnUnavailable,
         long stateGeneration,
         CancellationToken cancellationToken)
     {
-        EnsureCredentialUnchanged(credential);
-        bool canKeepCurrent = allowCurrentOnUnavailable && !NeedsRefresh(credential.ExpiresAt, credential.AccessToken, now, TimeSpan.Zero);
+        EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
+        EnsureCredentialUnchanged(sourceCredential);
+        bool canKeepCurrent = allowCurrentOnUnavailable && !NeedsRefresh(effectiveCredential.ExpiresAt, effectiveCredential.AccessToken, now, TimeSpan.Zero);
 
-        // External stores (Credential Manager / IDE SQLite) are never refreshed via direct token POST to avoid unpersisted rotation.
-        if (credential.SourceFilePath == null)
+        bool hasRefreshToken = !string.IsNullOrWhiteSpace(effectiveCredential.RefreshToken);
+        bool hadTransientDiscoveryError = false;
+        IReadOnlyList<OAuthClientPair> clientPairs = hasRefreshToken
+            ? ResolveClientPairs(sourceCredential, stateGeneration, cancellationToken, out hadTransientDiscoveryError)
+            : [];
+        if (!hasRefreshToken || clientPairs.Count == 0)
         {
+            EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
+            EnsureCredentialUnchanged(sourceCredential);
             if (canKeepCurrent)
             {
-                return new RecoveryResult(credential, null);
+                return new RefreshResult(sourceCredential, effectiveCredential, WasRefreshed: false);
             }
 
-            if (credential.CanInvokeAgyHelper)
+            if (hadTransientDiscoveryError)
             {
-                return await TryRecoverWithAgyLockedAsync(geminiHome, credential, now, useAbsoluteResetTime, stateGeneration, cancellationToken).ConfigureAwait(false);
+                throw RecordTransientBackoff(
+                    sourceCredential,
+                    GeminiUsageFailureKind.LocalDataError,
+                    "Local OAuth client configuration could not be read. " + FormatOwnerRefreshMessage(sourceCredential.Owner),
+                    now,
+                    stateGeneration);
             }
 
-            throw RecordPermanentBackoff(credential, GeminiUsageFailureKind.OwnerRefreshRequired, FormatOwnerRefreshMessage(credential.Owner), stateGeneration);
+            string reason = !hasRefreshToken
+                ? FormatOwnerRefreshMessage(sourceCredential.Owner)
+                : "OAuth client configuration is incomplete. " + FormatOwnerRefreshMessage(sourceCredential.Owner);
+            throw RecordPermanentBackoff(sourceCredential, GeminiUsageFailureKind.OwnerRefreshRequired, reason, stateGeneration);
         }
 
-        bool hasRefreshToken = !string.IsNullOrWhiteSpace(credential.RefreshToken);
-        bool hasClientPair = TryResolveCompleteClientPair(credential, out string? clientId, out string? clientSecret);
-        bool supportsWriteback = hasRefreshToken && hasClientPair && CanWriteCredentialFileSafely(credential);
-        if (!hasRefreshToken || !hasClientPair || !supportsWriteback)
+        OAuthTokenResponse? refreshed = null;
+        OAuthClientPair? matchedPair = null;
+        bool sawInvalidGrant = false;
+        for (int index = 0; index < clientPairs.Count; index++)
         {
-            EnsureCredentialUnchanged(credential);
-            if (canKeepCurrent)
+            EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
+            OAuthClientPair pair = clientPairs[index];
+            try
             {
-                return new RecoveryResult(credential, null);
+                refreshed = await OAuthTokenHelpers.RefreshAsync(
+                    m_HttpClient,
+                    m_TokenRefreshUrl,
+                    pair.ClientId,
+                    effectiveCredential.RefreshToken!,
+                    "Gemini",
+                    cancellationToken,
+                    pair.ClientSecret).ConfigureAwait(false);
+                matchedPair = pair;
+                break;
             }
-
-            if (credential.CanInvokeAgyHelper)
+            catch (UsageHttpException httpException) when (httpException.OAuthErrorCode is "invalid_grant" or "invalid_client" or "unauthorized_client")
             {
-                return await TryRecoverWithAgyLockedAsync(geminiHome, credential, now, useAbsoluteResetTime, stateGeneration, cancellationToken).ConfigureAwait(false);
-            }
+                if (httpException.OAuthErrorCode == "invalid_grant")
+                {
+                    sawInvalidGrant = true;
+                }
 
-            if (!hasRefreshToken || !hasClientPair)
+                if (index + 1 < clientPairs.Count)
+                {
+                    EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
+                    EnsureCredentialUnchanged(sourceCredential);
+                    continue;
+                }
+
+                ClearCachedToken(stateGeneration);
+                ClearVerifiedClientPair(sourceCredential.SourceLocation, stateGeneration);
+                string message = sawInvalidGrant
+                    ? FormatOwnerRefreshMessage(sourceCredential.Owner)
+                    : "OAuth client configuration did not match this login. " + FormatOwnerRefreshMessage(sourceCredential.Owner);
+                throw RecordPermanentBackoff(sourceCredential, GeminiUsageFailureKind.OwnerRefreshRequired, message, stateGeneration);
+            }
+            catch (Exception exception) when (exception is UsageHttpException or HttpRequestException or TaskCanceledException)
             {
-                string reason = !hasRefreshToken
-                    ? FormatOwnerRefreshMessage(credential.Owner)
-                    : "OAuth client configuration is incomplete. " + FormatOwnerRefreshMessage(credential.Owner);
-                throw RecordPermanentBackoff(credential, GeminiUsageFailureKind.OwnerRefreshRequired, reason, stateGeneration);
+                RecordTransientBackoff(sourceCredential, exception, now, stateGeneration);
+                throw;
             }
-
-            // A writeback probe can fail temporarily while another process holds the credential file.
-            throw RecordTransientBackoff(
-                credential,
-                GeminiUsageFailureKind.OwnerRefreshRequired,
-                "Gemini OAuth file cannot be updated safely. " + FormatOwnerRefreshMessage(credential.Owner),
-                now,
-                stateGeneration);
         }
 
-        OAuthTokenResponse refreshed;
-        try
+        EnsureStateGenerationUnchanged(stateGeneration, sourceCredential.Owner);
+        EnsureCredentialUnchanged(sourceCredential);
+        if (matchedPair != null)
         {
-            refreshed = await OAuthTokenHelpers.RefreshAsync(
-                m_HttpClient,
-                m_TokenRefreshUrl,
-                clientId!,
-                credential.RefreshToken!,
-                "Gemini",
-                cancellationToken,
-                clientSecret).ConfigureAwait(false);
-        }
-        catch (UsageHttpException httpException) when (httpException.OAuthErrorCode is "invalid_grant" or "invalid_client" or "unauthorized_client")
-        {
-            throw RecordPermanentBackoff(credential, GeminiUsageFailureKind.OwnerRefreshRequired, FormatOwnerRefreshMessage(credential.Owner), stateGeneration);
-        }
-        catch (Exception exception) when (exception is UsageHttpException or HttpRequestException or TaskCanceledException)
-        {
-            RecordTransientBackoff(credential, exception, now, stateGeneration);
-            throw;
+            StoreVerifiedClientPair(sourceCredential.SourceLocation, matchedPair, stateGeneration);
         }
 
-        EnsureCredentialUnchanged(credential);
-
-        DateTimeOffset expiresAt = refreshed.ExpiresInSeconds is double seconds
+        DateTimeOffset expiresAt = refreshed!.ExpiresInSeconds is double seconds
             ? now.AddSeconds(seconds)
             : OAuthTokenHelpers.TryGetJwtExpiry(refreshed.AccessToken, out DateTimeOffset jwtExpiry)
                 ? jwtExpiry
                 : now.AddHours(1);
 
-        GeminiCredential updated = credential with
+        GeminiCredential updated = effectiveCredential with
         {
             AccessToken = refreshed.AccessToken,
             RefreshToken = refreshed.RefreshToken,
             ExpiresAt = expiresAt,
         };
 
-        updated = SaveUpdatedCredentialFile(credential, updated);
-        return new RecoveryResult(updated, null);
+        // Attempt atomic TxF writeback for local JSON files; fall back to short-lived in-memory caching when the file is locked or read-only while contents remain unchanged.
+        if (sourceCredential.SourceFilePath != null && TrySaveUpdatedCredentialFile(sourceCredential, updated, out GeminiCredential persisted))
+        {
+            ClearCachedToken(stateGeneration);
+            return new RefreshResult(persisted, persisted, WasRefreshed: true);
+        }
+
+        // Only cache the short-lived access token and expiry; never cache long-lived refresh tokens for read-only stores.
+        StoreCachedToken(sourceCredential.SourceKey, updated.AccessToken, expiresAt, stateGeneration);
+        return new RefreshResult(sourceCredential, sourceCredential with { AccessToken = updated.AccessToken, ExpiresAt = expiresAt }, WasRefreshed: true);
     }
 
-    private static bool TryResolveCompleteClientPair(GeminiCredential credential, out string? clientId, out string? clientSecret)
-    {
-        clientId = credential.ClientId;
-        clientSecret = credential.ClientSecret;
-        if (clientId == null && clientSecret == null)
-        {
-            string prefix = credential.PreferGeminiCliClient ? "CODEXTRAY_GEMINI_CLI" : "CODEXTRAY_ANTIGRAVITY";
-            clientId = Environment.GetEnvironmentVariable(prefix + "_CLIENT_ID");
-            clientSecret = Environment.GetEnvironmentVariable(prefix + "_CLIENT_SECRET");
-        }
-
-        return !string.IsNullOrWhiteSpace(clientId) && !string.IsNullOrWhiteSpace(clientSecret);
-    }
-
-    private static bool CanWriteCredentialFileSafely(GeminiCredential credential)
-    {
-        if (credential.SourceFilePath == null || credential.SourceFileContents == null)
-        {
-            return false;
-        }
-
-        try
-        {
-            return JsonNode.Parse(credential.SourceFileContents) is JsonObject
-                && AtomicFile.CanReplaceAllText(credential.SourceFilePath, credential.SourceFileContents);
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Runs the supported read-only Antigravity CLI usage command so agy renews its own credential store.
-    /// </summary>
-    private async Task<RecoveryResult> TryRecoverWithAgyLockedAsync(
-        string geminiHome,
+    private IReadOnlyList<OAuthClientPair> ResolveClientPairs(
         GeminiCredential credential,
-        DateTimeOffset now,
-        bool useAbsoluteResetTime,
         long stateGeneration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        out bool hadTransientDiscoveryError)
     {
-        if (!string.IsNullOrWhiteSpace(credential.AuthMethod)
-            && !string.Equals(credential.AuthMethod, "consumer", StringComparison.OrdinalIgnoreCase))
+        hadTransientDiscoveryError = false;
+        if (credential.ClientId != null || credential.ClientSecret != null)
         {
-            throw RecordPermanentBackoff(credential, GeminiUsageFailureKind.OwnerRefreshRequired, FormatOwnerRefreshMessage(credential.Owner), stateGeneration);
+            return !string.IsNullOrWhiteSpace(credential.ClientId) && !string.IsNullOrWhiteSpace(credential.ClientSecret)
+                ? [new OAuthClientPair(credential.ClientId, credential.ClientSecret)]
+                : [];
         }
 
-        if (!AreAgySlashCommandsEnabled(geminiHome))
+        string prefix = credential.PreferGeminiCliClient ? "CODEXTRAY_GEMINI_CLI" : "CODEXTRAY_ANTIGRAVITY";
+        string? envId = Environment.GetEnvironmentVariable(prefix + "_CLIENT_ID");
+        string? envSecret = Environment.GetEnvironmentVariable(prefix + "_CLIENT_SECRET");
+        if (envId != null || envSecret != null)
         {
-            throw RecordPermanentBackoff(credential, GeminiUsageFailureKind.OwnerRefreshRequired, FormatOwnerRefreshMessage(credential.Owner), stateGeneration);
+            return !string.IsNullOrWhiteSpace(envId) && !string.IsNullOrWhiteSpace(envSecret)
+                ? [new OAuthClientPair(envId, envSecret)]
+                : [];
         }
 
-        if (!TryResolveAgyExecutablePath(out string agyExecutablePath))
+        if (!m_AllowLocalClientDiscovery)
         {
-            throw RecordPermanentBackoff(credential, GeminiUsageFailureKind.OwnerRefreshRequired, FormatOwnerRefreshMessage(credential.Owner), stateGeneration);
+            return [];
         }
 
-        AgyVersionProbeStatus versionStatus = await CheckAgyVersionSupportedLockedAsync(agyExecutablePath, stateGeneration, cancellationToken).ConfigureAwait(false);
-        if (versionStatus == AgyVersionProbeStatus.TimedOut)
+        List<OAuthClientPair> discovered = DiscoverLocalClientPairs(credential.Owner, stateGeneration, cancellationToken, out hadTransientDiscoveryError);
+        if (discovered.Count <= 1)
         {
-            throw RecordTransientBackoff(credential, GeminiUsageFailureKind.Timeout, "Antigravity CLI timed out while checking version.", now, stateGeneration);
+            return discovered;
         }
 
-        if (versionStatus == AgyVersionProbeStatus.ProbeFailed)
+        OAuthClientPair? verified = null;
+        lock (m_StateLock)
         {
-            throw RecordTransientBackoff(credential, GeminiUsageFailureKind.OwnerRefreshRequired, FormatOwnerRefreshMessage(credential.Owner), now, stateGeneration);
-        }
-
-        if (versionStatus != AgyVersionProbeStatus.Supported)
-        {
-            throw RecordPermanentBackoff(credential, GeminiUsageFailureKind.OwnerRefreshRequired, FormatOwnerRefreshMessage(credential.Owner), stateGeneration);
-        }
-
-        AgyCliResult usageResult = await RunAgyCliAsync(
-            agyExecutablePath,
-            ["-p", "/usage", "--output-format", "json"],
-            s_AgyUsageTimeout,
-            k_AgyUsageOutputMaxBytes,
-            cancellationToken).ConfigureAwait(false);
-
-        if (usageResult.TimedOut)
-        {
-            throw RecordTransientBackoff(credential, GeminiUsageFailureKind.Timeout, "Antigravity CLI timed out while refreshing login.", now, stateGeneration);
-        }
-
-        if (!TryLoadCredential(geminiHome, out GeminiCredential reloaded, out _, out _))
-        {
-            ClearBackoff(stateGeneration);
-            throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.", GeminiUsageFailureKind.CredentialChanged, credential.Owner);
-        }
-
-        if (reloaded.SourceKind != credential.SourceKind || !string.Equals(reloaded.SourceLocation, credential.SourceLocation, StringComparison.Ordinal))
-        {
-            ClearBackoff(stateGeneration);
-            throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.", GeminiUsageFailureKind.CredentialChanged, reloaded.Owner);
-        }
-
-        DateTimeOffset postRunNow = m_NowProvider();
-        if (!string.Equals(reloaded.RawFingerprint, credential.RawFingerprint, StringComparison.Ordinal))
-        {
-            if (!NeedsRefresh(reloaded.ExpiresAt, reloaded.AccessToken, postRunNow, TimeSpan.Zero))
+            if (m_StateGeneration == stateGeneration)
             {
-                return new RecoveryResult(reloaded, null);
+                m_VerifiedClientPairs.TryGetValue(credential.SourceLocation, out verified);
+            }
+        }
+
+        if (verified != null && discovered.Contains(verified))
+        {
+            List<OAuthClientPair> prioritized = [verified];
+            foreach (OAuthClientPair candidate in discovered)
+            {
+                if (candidate != verified)
+                {
+                    prioritized.Add(candidate);
+                }
             }
 
-            throw RecordTransientBackoff(reloaded, GeminiUsageFailureKind.OwnerRefreshRequired, FormatOwnerRefreshMessage(reloaded.Owner), postRunNow, stateGeneration);
+            return prioritized;
         }
 
-        // Only accept stdout fallback when the active source is the unambiguous Credential Manager login (never a stale local file when agy may use Credential Manager).
-        bool canUseStdoutFallback = credential.SourceKind is GeminiCredentialSourceKind.WindowsCredentialManager or GeminiCredentialSourceKind.InjectedStore;
-        if (canUseStdoutFallback && usageResult.ExitCode == 0 && !usageResult.OutputTruncated
-            && TryParseAgyUsageReport(usageResult.StdOut, postRunNow, useAbsoluteResetTime, fallbackTier: null, out GeminiUsageSnapshot cliSnapshot))
-        {
-            EnsureCredentialUnchanged(credential);
-            return new RecoveryResult(null, cliSnapshot);
-        }
-
-        throw RecordTransientBackoff(credential, GeminiUsageFailureKind.OwnerRefreshRequired, FormatOwnerRefreshMessage(credential.Owner), postRunNow, stateGeneration);
+        return discovered;
     }
 
-    private bool TryResolveAgyExecutablePath(out string executablePath)
+    private List<OAuthClientPair> DiscoverLocalClientPairs(
+        GeminiCredentialOwner owner,
+        long stateGeneration,
+        CancellationToken cancellationToken,
+        out bool hadTransientError)
     {
-        if (m_ExplicitAgyExecutablePath != null)
+        hadTransientError = false;
+        List<OAuthClientPair> combined = [];
+        HashSet<OAuthClientPair> seen = [];
+
+        foreach (string candidatePath in GetCandidateClientDiscoveryPaths(owner))
         {
-            executablePath = m_ExplicitAgyExecutablePath;
-            return m_AgyCliRunner != null || IsTrustedLocalExecutable(executablePath);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsTrustedLocalFile(candidatePath))
+            {
+                continue;
+            }
+
+            DateTime lastWriteUtc;
+            long length;
+            try
+            {
+                FileInfo info = new(candidatePath);
+                if (info.Length <= 0 || info.Length > k_MaxClientScanFileBytes)
+                {
+                    continue;
+                }
+
+                lastWriteUtc = info.LastWriteTimeUtc;
+                length = info.Length;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            {
+                hadTransientError = true;
+                continue;
+            }
+
+            CachedClientPairs? cached = null;
+            lock (m_StateLock)
+            {
+                if (m_StateGeneration == stateGeneration
+                    && m_CachedClientPairs.TryGetValue(candidatePath, out CachedClientPairs? entry)
+                    && entry.LastWriteUtc == lastWriteUtc
+                    && entry.Length == length)
+                {
+                    cached = entry;
+                }
+            }
+
+            IReadOnlyList<OAuthClientPair> filePairs;
+            if (cached != null)
+            {
+                filePairs = cached.Pairs;
+            }
+            else
+            {
+                if (!TryScanOAuthClientPairsFromFile(candidatePath, cancellationToken, out filePairs))
+                {
+                    hadTransientError = true;
+                    continue;
+                }
+
+                lock (m_StateLock)
+                {
+                    if (m_StateGeneration == stateGeneration)
+                    {
+                        m_CachedClientPairs[candidatePath] = new CachedClientPairs(lastWriteUtc, length, filePairs);
+                    }
+                }
+            }
+
+            foreach (OAuthClientPair pair in filePairs)
+            {
+                if (seen.Add(pair))
+                {
+                    combined.Add(pair);
+                    if (combined.Count >= k_MaxDiscoveredClientPairs)
+                    {
+                        return combined;
+                    }
+                }
+            }
         }
 
+        return combined;
+    }
+
+    private IEnumerable<string> GetCandidateClientDiscoveryPaths(GeminiCredentialOwner owner)
+    {
+        if (m_ExplicitClientDiscoveryPaths != null)
+        {
+            return m_ExplicitClientDiscoveryPaths;
+        }
+
+        List<string> paths = [];
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+        if (owner == GeminiCredentialOwner.GeminiCli)
+        {
+            if (!string.IsNullOrWhiteSpace(appData))
+            {
+                paths.Add(Path.Combine(appData, "npm", "node_modules", "@google", "gemini-cli", "node_modules", "@google", "gemini-cli-core", "dist", "src", "code_assist", "oauth2.js"));
+                paths.Add(Path.Combine(appData, "npm", "node_modules", "@google", "gemini-cli-core", "dist", "src", "code_assist", "oauth2.js"));
+            }
+
+            return paths;
+        }
+
         if (string.IsNullOrWhiteSpace(localAppData))
         {
-            executablePath = string.Empty;
-            return false;
+            return paths;
         }
 
-        string candidate = Path.Combine(localAppData, "agy", "bin", "agy.exe");
-        if (m_AgyCliRunner != null || IsTrustedLocalExecutable(candidate))
+        void AddIdeCandidates()
         {
-            executablePath = candidate;
-            return true;
+            foreach (string folderName in new[] { "Antigravity", "Antigravity IDE" })
+            {
+                string resources = Path.Combine(localAppData, "Programs", folderName, "resources");
+                paths.Add(Path.Combine(resources, "app", "extensions", "antigravity", "bin", "language_server_windows_x64.exe"));
+                paths.Add(Path.Combine(resources, "app.asar"));
+                paths.Add(Path.Combine(resources, "app", "out", "main.js"));
+            }
         }
 
-        executablePath = string.Empty;
-        return false;
+        void AddCliCandidates()
+        {
+            if (owner == GeminiCredentialOwner.AntigravityAcp)
+            {
+                paths.Add(Path.Combine(localAppData, "agy", "bin", "antigravity-acp.exe"));
+            }
+
+            paths.Add(Path.Combine(localAppData, "agy", "bin", "agy.exe"));
+        }
+
+        if (owner == GeminiCredentialOwner.AntigravityIde)
+        {
+            AddIdeCandidates();
+            AddCliCandidates();
+        }
+        else
+        {
+            AddCliCandidates();
+            AddIdeCandidates();
+        }
+
+        return paths;
     }
 
-    internal static bool IsTrustedLocalExecutable(string path)
+    internal static bool IsTrustedLocalFile(string path)
     {
         try
         {
@@ -955,373 +1117,306 @@ public sealed partial class GeminiUsageCollector
         }
     }
 
-    private static bool AreAgySlashCommandsEnabled(string geminiHome)
+    /// <summary>
+    /// Streams a local installed app archive, JS bundle, or native binary to extract candidate Google installed-app OAuth client pairs.
+    /// </summary>
+    internal static IReadOnlyList<OAuthClientPair> ScanOAuthClientPairsFromFile(string path, CancellationToken cancellationToken = default)
     {
-        string settingsPath = Path.Combine(geminiHome, "antigravity-cli", "settings.json");
-        if (!File.Exists(settingsPath))
-        {
-            return true;
-        }
+        return TryScanOAuthClientPairsFromFile(path, cancellationToken, out IReadOnlyList<OAuthClientPair> pairs) ? pairs : [];
+    }
 
+    internal static bool TryScanOAuthClientPairsFromFile(string path, CancellationToken cancellationToken, out IReadOnlyList<OAuthClientPair> pairs)
+    {
+        pairs = [];
         try
         {
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(settingsPath));
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, bufferSize: 64 * 1024, FileOptions.SequentialScan);
+            if (stream.Length <= 0 || stream.Length > k_MaxClientScanFileBytes)
             {
-                return false;
+                return true;
             }
 
-            foreach (string propertyName in new[] { "disableSlashCommands", "disable_slash_commands" })
+            byte[] buffer = new byte[k_ClientScanBufferBytes + k_ClientScanOverlapBytes];
+            List<(string Value, long Offset)> clientIds = [];
+            List<(string Value, long Offset)> clientSecrets = [];
+
+            long fileOffset = 0;
+            int carried = 0;
+            bool isFirstChunk = true;
+
+            while (true)
             {
-                if (document.RootElement.TryGetProperty(propertyName, out JsonElement property) && property.ValueKind == JsonValueKind.True)
+                cancellationToken.ThrowIfCancellationRequested();
+                int bytesRead = ReadFullChunk(stream, buffer, carried, k_ClientScanBufferBytes);
+                int totalLength = carried + bytesRead;
+                if (totalLength == 0)
                 {
-                    return false;
+                    break;
                 }
+
+                bool isLastChunk = bytesRead < k_ClientScanBufferBytes || stream.Position >= stream.Length;
+                long chunkStartOffset = fileOffset - carried;
+                ReadOnlySpan<byte> span = buffer.AsSpan(0, totalLength);
+
+                int idScanStart = isFirstChunk ? 0 : Math.Max(0, carried - 32);
+                int idScanEnd = isLastChunk ? totalLength : Math.Max(idScanStart, totalLength - 32);
+                ScanClientIds(span, chunkStartOffset, idScanStart, idScanEnd, clientIds);
+
+                int secretScanStart = isFirstChunk ? 0 : Math.Max(0, carried - 64);
+                int secretScanEnd = isLastChunk ? totalLength : Math.Max(secretScanStart, totalLength - 64);
+                ScanClientSecrets(span, chunkStartOffset, secretScanStart, secretScanEnd, clientSecrets);
+
+                if (TrySelectNearbyPair(clientIds, clientSecrets, out string nearbyId, out string nearbySecret))
+                {
+                    pairs = [new OAuthClientPair(nearbyId, nearbySecret)];
+                    return true;
+                }
+
+                fileOffset += bytesRead;
+                if (isLastChunk)
+                {
+                    break;
+                }
+
+                carried = Math.Min(k_ClientScanOverlapBytes, totalLength);
+                Buffer.BlockCopy(buffer, totalLength - carried, buffer, 0, carried);
+                isFirstChunk = false;
             }
 
+            pairs = SelectOAuthClientPairs(clientIds, clientSecrets);
             return true;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
             return false;
         }
     }
 
-    private async Task<AgyVersionProbeStatus> CheckAgyVersionSupportedLockedAsync(string agyExecutablePath, long stateGeneration, CancellationToken cancellationToken)
+    internal static bool TryScanOAuthClientPairFromFile(string path, out string clientId, out string clientSecret)
     {
-        DateTime lastWriteUtc = DateTime.MinValue;
-        long length = -1;
-        if (File.Exists(agyExecutablePath))
+        IReadOnlyList<OAuthClientPair> pairs = ScanOAuthClientPairsFromFile(path);
+        if (pairs.Count > 0)
         {
-            try
-            {
-                FileInfo info = new(agyExecutablePath);
-                lastWriteUtc = info.LastWriteTimeUtc;
-                length = info.Length;
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                return AgyVersionProbeStatus.ProbeFailed;
-            }
+            clientId = pairs[0].ClientId;
+            clientSecret = pairs[0].ClientSecret;
+            return true;
         }
 
-        CachedAgyVersion? cached;
-        lock (m_StateLock)
-        {
-            cached = m_CachedAgyVersion;
-        }
-
-        if (cached != null
-            && string.Equals(cached.Path, agyExecutablePath, StringComparison.OrdinalIgnoreCase)
-            && cached.LastWriteUtc == lastWriteUtc
-            && cached.Length == length)
-        {
-            return cached.Version >= s_MinAgyUsageVersion
-                ? AgyVersionProbeStatus.Supported
-                : AgyVersionProbeStatus.UnsupportedVersion;
-        }
-
-        AgyCliResult versionResult = await RunAgyCliAsync(
-            agyExecutablePath,
-            ["--version"],
-            s_AgyVersionTimeout,
-            k_AgyVersionOutputMaxBytes,
-            cancellationToken).ConfigureAwait(false);
-
-        if (versionResult.TimedOut)
-        {
-            return AgyVersionProbeStatus.TimedOut;
-        }
-
-        if (versionResult.ExitCode != 0 || versionResult.OutputTruncated)
-        {
-            return AgyVersionProbeStatus.ProbeFailed;
-        }
-
-        Version? parsed = TryParseSemVer(versionResult.StdOut);
-        if (parsed == null)
-        {
-            return AgyVersionProbeStatus.ProbeFailed;
-        }
-
-        lock (m_StateLock)
-        {
-            if (m_StateGeneration == stateGeneration)
-            {
-                m_CachedAgyVersion = new CachedAgyVersion(agyExecutablePath, lastWriteUtc, length, parsed);
-            }
-        }
-
-        return parsed >= s_MinAgyUsageVersion
-            ? AgyVersionProbeStatus.Supported
-            : AgyVersionProbeStatus.UnsupportedVersion;
+        clientId = string.Empty;
+        clientSecret = string.Empty;
+        return false;
     }
 
-    internal static Version? TryParseSemVer(string? text)
+    private static int ReadFullChunk(Stream stream, byte[] buffer, int offset, int count)
     {
-        if (string.IsNullOrWhiteSpace(text))
+        int totalRead = 0;
+        while (totalRead < count)
         {
-            return null;
-        }
-
-        Match match = SemVerRegex().Match(text);
-        if (!match.Success)
-        {
-            return null;
-        }
-
-        return int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int major)
-            && int.TryParse(match.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int minor)
-            && int.TryParse(match.Groups[3].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int patch)
-            ? new Version(major, minor, patch)
-            : null;
-    }
-
-    internal static bool TryParseAgyUsageReport(
-        string? stdout,
-        DateTimeOffset now,
-        bool useAbsoluteResetTime,
-        string? fallbackTier,
-        out GeminiUsageSnapshot snapshot)
-    {
-        snapshot = default!;
-        if (string.IsNullOrWhiteSpace(stdout))
-        {
-            return false;
-        }
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(stdout);
-            JsonElement root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object)
-            {
-                return false;
-            }
-
-            if (!root.TryGetProperty("status", out JsonElement status)
-                || status.ValueKind != JsonValueKind.String
-                || !string.Equals(status.GetString(), "SUCCESS", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            if (root.TryGetProperty("is_error", out JsonElement isError) && isError.ValueKind == JsonValueKind.True)
-            {
-                return false;
-            }
-
-            if (!root.TryGetProperty("num_turns", out JsonElement numTurns)
-                || numTurns.ValueKind != JsonValueKind.Number
-                || !numTurns.TryGetInt32(out int turnCount)
-                || turnCount != 0)
-            {
-                return false;
-            }
-
-            if (!root.TryGetProperty("command", out JsonElement command) || command.ValueKind != JsonValueKind.Object)
-            {
-                return false;
-            }
-
-            if (!command.TryGetProperty("name", out JsonElement commandName)
-                || commandName.ValueKind != JsonValueKind.String
-                || !string.Equals(commandName.GetString(), "usage", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            if (!command.TryGetProperty("data", out JsonElement data)
-                || data.ValueKind != JsonValueKind.Object
-                || !data.TryGetProperty("groups", out JsonElement groups)
-                || groups.ValueKind != JsonValueKind.Array)
-            {
-                return false;
-            }
-
-            snapshot = ParseQuotaSummary(data.GetRawText(), now, useAbsoluteResetTime, fallbackTier, "agy_cli");
-            return snapshot.IsAvailable;
-        }
-        catch (Exception exception) when (exception is JsonException or GeminiDataException)
-        {
-            return false;
-        }
-    }
-
-    private Task<AgyCliResult> RunAgyCliAsync(
-        string executablePath,
-        string[] arguments,
-        TimeSpan timeout,
-        int maxOutputBytes,
-        CancellationToken cancellationToken)
-    {
-        if (m_AgyCliRunner != null)
-        {
-            return m_AgyCliRunner(executablePath, arguments, timeout, maxOutputBytes, cancellationToken);
-        }
-
-        return ExecuteAgyProcessAsync(executablePath, arguments, timeout, maxOutputBytes, cancellationToken);
-    }
-
-    internal static async Task<AgyCliResult> ExecuteAgyProcessAsync(
-        string executablePath,
-        string[] arguments,
-        TimeSpan timeout,
-        int maxOutputBytes,
-        CancellationToken cancellationToken)
-    {
-        ProcessStartInfo startInfo = new()
-        {
-            FileName = executablePath,
-            WorkingDirectory = Path.GetTempPath(),
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-        foreach (string argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-        startInfo.Environment["AGY_CLI_DISABLE_AUTO_UPDATE"] = "true";
-
-        using Process process = new() { StartInfo = startInfo };
-        try
-        {
-            if (!process.Start())
-            {
-                return new AgyCliResult(-1, string.Empty, false, false);
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
-        {
-            return new AgyCliResult(-1, string.Empty, false, false);
-        }
-
-        try
-        {
-            process.StandardInput.Close();
-        }
-        catch (IOException)
-        {
-        }
-
-        using StreamReader stdOutReader = process.StandardOutput;
-        using StreamReader stdErrReader = process.StandardError;
-        using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(timeout);
-
-        int[] remainingBytes = [maxOutputBytes];
-        int truncatedFlag = 0;
-        Task<string> stdoutTask = ReadBoundedStreamAsync(stdOutReader, remainingBytes, () => Volatile.Write(ref truncatedFlag, 1), timeoutCts.Token);
-        Task stderrTask = DrainBoundedStreamAsync(stdErrReader, remainingBytes, () => Volatile.Write(ref truncatedFlag, 1), timeoutCts.Token);
-
-        try
-        {
-            await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
-            string stdout = await stdoutTask.ConfigureAwait(false);
-            await stderrTask.ConfigureAwait(false);
-            return new AgyCliResult(process.ExitCode, stdout, false, Volatile.Read(ref truncatedFlag) != 0);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            await AbortAndCleanupProcessAsync(process, stdoutTask, stderrTask).ConfigureAwait(false);
-            return new AgyCliResult(-1, string.Empty, true, false);
-        }
-        catch (OperationCanceledException)
-        {
-            await AbortAndCleanupProcessAsync(process, stdoutTask, stderrTask).ConfigureAwait(false);
-            throw;
-        }
-    }
-
-    private static async Task AbortAndCleanupProcessAsync(Process process, Task stdoutTask, Task stderrTask)
-    {
-        TryKillProcessTree(process);
-        using CancellationTokenSource cleanupCts = new(TimeSpan.FromSeconds(2));
-        try
-        {
-            await process.WaitForExitAsync(cleanupCts.Token).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is OperationCanceledException or InvalidOperationException or System.ComponentModel.Win32Exception)
-        {
-        }
-
-        await ObserveStreamCleanupAsync(stdoutTask, cleanupCts.Token).ConfigureAwait(false);
-        await ObserveStreamCleanupAsync(stderrTask, cleanupCts.Token).ConfigureAwait(false);
-    }
-
-    private static async Task ObserveStreamCleanupAsync(Task streamTask, CancellationToken cleanupToken)
-    {
-        try
-        {
-            await streamTask.WaitAsync(cleanupToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is OperationCanceledException or IOException or ObjectDisposedException or InvalidOperationException)
-        {
-        }
-    }
-
-    private static async Task<string> ReadBoundedStreamAsync(StreamReader reader, int[] remainingBytes, Action onTruncated, CancellationToken cancellationToken)
-    {
-        StringBuilder builder = new();
-        char[] buffer = new char[4096];
-        while (true)
-        {
-            int count = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
-            if (count == 0)
+            int read = stream.Read(buffer, offset + totalRead, count - totalRead);
+            if (read == 0)
             {
                 break;
             }
 
-            int byteCount = Encoding.UTF8.GetByteCount(buffer, 0, count);
-            if (Interlocked.Add(ref remainingBytes[0], -byteCount) < 0)
+            totalRead += read;
+        }
+
+        return totalRead;
+    }
+
+    private static void ScanClientIds(ReadOnlySpan<byte> data, long chunkStartOffset, int scanStart, int scanEnd, List<(string Value, long Offset)> matches)
+    {
+        ReadOnlySpan<byte> anchor = ".apps.googleusercontent.com"u8;
+        int searchOffset = scanStart;
+        while (searchOffset < scanEnd)
+        {
+            int relative = data[searchOffset..].IndexOf(anchor);
+            if (relative < 0)
             {
-                onTruncated();
+                break;
+            }
+
+            int anchorPos = searchOffset + relative;
+            searchOffset = anchorPos + anchor.Length;
+            if (anchorPos >= scanEnd)
+            {
+                break;
+            }
+
+            int endPos = anchorPos + anchor.Length;
+            if (endPos < data.Length && data[endPos] == (byte)'.')
+            {
                 continue;
             }
 
-            builder.Append(buffer, 0, count);
-        }
+            int tokenEnd = anchorPos;
+            int tokenStart = tokenEnd;
+            while (tokenStart > 0 && tokenEnd - tokenStart < 64 && IsClientIdTokenByte(data[tokenStart - 1]))
+            {
+                tokenStart--;
+            }
 
-        return builder.ToString();
+            int tokenLength = tokenEnd - tokenStart;
+            if (tokenLength < 16 || tokenStart <= 0 || data[tokenStart - 1] != (byte)'-')
+            {
+                continue;
+            }
+
+            int digitsEnd = tokenStart - 1;
+            int digitsStart = digitsEnd;
+            while (digitsStart > 0 && digitsEnd - digitsStart < 20 && IsAsciiDigit(data[digitsStart - 1]))
+            {
+                digitsStart--;
+            }
+
+            int digitsLength = digitsEnd - digitsStart;
+            if (digitsLength < 6)
+            {
+                continue;
+            }
+
+            string value = Encoding.ASCII.GetString(data.Slice(digitsStart, endPos - digitsStart));
+            matches.Add((value, chunkStartOffset + digitsStart));
+        }
     }
 
-    private static async Task DrainBoundedStreamAsync(StreamReader reader, int[] remainingBytes, Action onTruncated, CancellationToken cancellationToken)
+    private static void ScanClientSecrets(ReadOnlySpan<byte> data, long chunkStartOffset, int scanStart, int scanEnd, List<(string Value, long Offset)> matches)
     {
-        char[] buffer = new char[2048];
-        while (true)
+        ReadOnlySpan<byte> anchor = "GOCSPX-"u8;
+        int searchOffset = scanStart;
+        while (searchOffset < scanEnd)
         {
-            int count = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
-            if (count == 0)
+            int relative = data[searchOffset..].IndexOf(anchor);
+            if (relative < 0)
             {
                 break;
             }
 
-            int byteCount = Encoding.UTF8.GetByteCount(buffer, 0, count);
-            if (Interlocked.Add(ref remainingBytes[0], -byteCount) < 0)
+            int anchorPos = searchOffset + relative;
+            searchOffset = anchorPos + anchor.Length;
+            if (anchorPos >= scanEnd)
             {
-                onTruncated();
+                break;
             }
+
+            int bodyStart = anchorPos + anchor.Length;
+            if (bodyStart + 28 > data.Length)
+            {
+                continue;
+            }
+
+            bool validBody = true;
+            for (int index = 0; index < 28; index++)
+            {
+                if (!IsBase64UrlByte(data[bodyStart + index]))
+                {
+                    validBody = false;
+                    break;
+                }
+            }
+
+            if (!validBody)
+            {
+                continue;
+            }
+
+            // Google GOCSPX client secrets always have a 28-char base64url body; taking exact length avoids swallowing adjacent packed strings in Go .rodata.
+            string value = Encoding.ASCII.GetString(data.Slice(anchorPos, anchor.Length + 28));
+            matches.Add((value, chunkStartOffset + anchorPos));
         }
     }
 
-    private static void TryKillProcessTree(Process process)
+    private static bool TrySelectNearbyPair(
+        List<(string Value, long Offset)> clientIds,
+        List<(string Value, long Offset)> clientSecrets,
+        out string clientId,
+        out string clientSecret)
     {
-        try
+        clientId = string.Empty;
+        clientSecret = string.Empty;
+        if (clientIds.Count == 0 || clientSecrets.Count == 0)
         {
-            if (!process.HasExited)
+            return false;
+        }
+
+        long bestDistance = long.MaxValue;
+        foreach ((string idValue, long idOffset) in clientIds)
+        {
+            foreach ((string secretValue, long secretOffset) in clientSecrets)
             {
-                process.Kill(entireProcessTree: true);
+                long distance = Math.Abs(idOffset - secretOffset);
+                if (distance <= k_ClientPairProximityBytes && distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    clientId = idValue;
+                    clientSecret = secretValue;
+                }
             }
         }
-        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
-        {
-        }
+
+        return bestDistance <= k_ClientPairProximityBytes;
     }
+
+    private static IReadOnlyList<OAuthClientPair> SelectOAuthClientPairs(
+        List<(string Value, long Offset)> clientIds,
+        List<(string Value, long Offset)> clientSecrets)
+    {
+        if (TrySelectNearbyPair(clientIds, clientSecrets, out string nearbyId, out string nearbySecret))
+        {
+            return [new OAuthClientPair(nearbyId, nearbySecret)];
+        }
+
+        List<string> uniqueIds = [];
+        HashSet<string> seenIds = new(StringComparer.Ordinal);
+        foreach ((string idValue, _) in clientIds)
+        {
+            if (seenIds.Add(idValue))
+            {
+                uniqueIds.Add(idValue);
+            }
+        }
+
+        List<string> uniqueSecrets = [];
+        HashSet<string> seenSecrets = new(StringComparer.Ordinal);
+        foreach ((string secretValue, _) in clientSecrets)
+        {
+            if (seenSecrets.Add(secretValue))
+            {
+                uniqueSecrets.Add(secretValue);
+            }
+        }
+
+        // Go binaries group .rodata strings by length, separating a small set of OAuth client IDs and secrets across sections.
+        if (uniqueIds.Count is >= 1 and <= k_MaxCrossProductDimension
+            && uniqueSecrets.Count is >= 1 and <= k_MaxCrossProductDimension)
+        {
+            List<OAuthClientPair> pairs = new(uniqueIds.Count * uniqueSecrets.Count);
+            foreach (string id in uniqueIds)
+            {
+                foreach (string secret in uniqueSecrets)
+                {
+                    pairs.Add(new OAuthClientPair(id, secret));
+                }
+            }
+
+            return pairs;
+        }
+
+        return [];
+    }
+
+    private static bool IsAsciiDigit(byte b) => b is >= (byte)'0' and <= (byte)'9';
+
+    private static bool IsClientIdTokenByte(byte b) => b is (>= (byte)'0' and <= (byte)'9')
+        or (>= (byte)'A' and <= (byte)'Z')
+        or (>= (byte)'a' and <= (byte)'z')
+        or (byte)'_';
+
+    private static bool IsBase64UrlByte(byte b) => b is (>= (byte)'0' and <= (byte)'9')
+        or (>= (byte)'A' and <= (byte)'Z')
+        or (>= (byte)'a' and <= (byte)'z')
+        or (byte)'_'
+        or (byte)'-';
 
     private BackoffState? ReadBackoffForSource(string sourceKey, long stateGeneration)
     {
@@ -1430,18 +1525,38 @@ public sealed partial class GeminiUsageCollector
     private static string FormatOwnerRefreshMessage(GeminiCredentialOwner owner) => owner switch
     {
         GeminiCredentialOwner.AntigravityCli => "Open Antigravity CLI (agy) to renew your Gemini login, then refresh.",
+        GeminiCredentialOwner.AntigravityAcp => "Open Antigravity ACP to renew your Gemini login, then refresh.",
         GeminiCredentialOwner.GeminiCli => "Open Gemini CLI to renew your Gemini login, then refresh.",
         GeminiCredentialOwner.AntigravityIde => "Open Antigravity IDE to renew your Gemini login, then refresh.",
         _ => "Renew your login in Antigravity or Gemini CLI, then refresh.",
     };
 
     /// <summary>
-    /// Persists refreshed OAuth tokens atomically back to a writable local JSON credential file.
+    /// Attempts to persist refreshed OAuth tokens atomically back to a local JSON credential file; returns false if writeback is unavailable while contents remain unchanged.
     /// </summary>
-    private static GeminiCredential SaveUpdatedCredentialFile(GeminiCredential original, GeminiCredential updated)
+    private bool TrySaveUpdatedCredentialFile(GeminiCredential original, GeminiCredential updated, out GeminiCredential persisted)
     {
+        persisted = default!;
         string filePath = original.SourceFilePath!;
-        string rawText = File.ReadAllText(filePath);
+        string rawText;
+        try
+        {
+            rawText = File.ReadAllText(filePath);
+        }
+        catch (FileNotFoundException)
+        {
+            throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.", GeminiUsageFailureKind.CredentialChanged, original.Owner);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.", GeminiUsageFailureKind.CredentialChanged, original.Owner);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            EnsureCredentialUnchanged(original);
+            return false;
+        }
+
         if (!string.Equals(rawText, original.SourceFileContents, StringComparison.Ordinal))
         {
             throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.", GeminiUsageFailureKind.CredentialChanged, original.Owner);
@@ -1459,27 +1574,56 @@ public sealed partial class GeminiUsageCollector
 
         if (updated.ExpiresAt is DateTimeOffset expiresAt)
         {
-            if (tokenObject.ContainsKey("expiry"))
-            {
-                tokenObject["expiry"] = expiresAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
-            }
-            else
-            {
-                tokenObject["expiry_date"] = expiresAt.ToUnixTimeMilliseconds();
-            }
+            WriteExpiryTimestamp(tokenObject, expiresAt, original.Owner);
         }
 
         string contents = rootObject.ToJsonString(s_WriteJsonOptions);
         if (!AtomicFile.TryReplaceAllText(filePath, rawText, contents))
         {
-            throw new GeminiDataException("Gemini OAuth credentials changed. Refresh again.", GeminiUsageFailureKind.CredentialChanged, original.Owner);
+            // Distinguish a transient lock/non-TxF failure (safe to cache in memory) from an external account switch or deletion.
+            EnsureCredentialUnchanged(original);
+            return false;
         }
 
-        return updated with
+        persisted = updated with
         {
             SourceFileContents = contents,
             RawFingerprint = ComputeFingerprint(contents),
         };
+        return true;
+    }
+
+    private static void WriteExpiryTimestamp(JsonObject tokenObject, DateTimeOffset expiresAt, GeminiCredentialOwner owner)
+    {
+        foreach (string fieldName in new[] { "expiry_date", "expiryDate", "expires_at", "expiresAt", "expiry" })
+        {
+            if (!tokenObject.TryGetPropertyValue(fieldName, out JsonNode? existingNode))
+            {
+                continue;
+            }
+
+            if (existingNode is JsonValue value && value.TryGetValue(out long existingEpoch))
+            {
+                tokenObject[fieldName] = existingEpoch > 100_000_000_000L
+                    ? expiresAt.ToUnixTimeMilliseconds()
+                    : expiresAt.ToUnixTimeSeconds();
+            }
+            else
+            {
+                tokenObject[fieldName] = expiresAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+            }
+
+            return;
+        }
+
+        if (owner == GeminiCredentialOwner.GeminiCli)
+        {
+            tokenObject["expiry_date"] = expiresAt.ToUnixTimeMilliseconds();
+        }
+        else
+        {
+            tokenObject["expiry"] = expiresAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+        }
     }
 
     private void EnsureCredentialUnchanged(GeminiCredential original)
@@ -1501,17 +1645,16 @@ public sealed partial class GeminiUsageCollector
     {
         credential = default!;
         hadLocalReadError = false;
-        bool isDefaultProfile = string.IsNullOrWhiteSpace(m_ExplicitGeminiHomePath)
-            && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GEMINI_HOME"));
 
-        (string Path, bool PreferGeminiCliClient, GeminiCredentialOwner Owner, bool CanInvokeAgyHelper)[] candidateFiles =
+        (string Path, bool PreferGeminiCliClient, GeminiCredentialOwner Owner)[] candidateFiles =
         [
-            (Path.Combine(geminiHome, "antigravity-cli", "antigravity-oauth-token"), false, GeminiCredentialOwner.AntigravityCli, m_AllowAgyHelper && (isDefaultProfile || m_AgyCliRunner != null)),
-            (Path.Combine(geminiHome, "oauth_creds.json"), true, GeminiCredentialOwner.GeminiCli, false),
-            (Path.Combine(geminiHome, "antigravity", "oauth_creds.json"), false, GeminiCredentialOwner.AntigravityCli, false),
+            (Path.Combine(geminiHome, "antigravity-cli", "antigravity-oauth-token"), false, GeminiCredentialOwner.AntigravityCli),
+            (Path.Combine(geminiHome, "antigravity-acp", "acp_token.json"), false, GeminiCredentialOwner.AntigravityAcp),
+            (Path.Combine(geminiHome, "oauth_creds.json"), true, GeminiCredentialOwner.GeminiCli),
+            (Path.Combine(geminiHome, "antigravity", "oauth_creds.json"), false, GeminiCredentialOwner.AntigravityCli),
         ];
 
-        foreach ((string candidateFile, bool preferGeminiCliClient, GeminiCredentialOwner owner, bool canInvokeAgyHelper) in candidateFiles)
+        foreach ((string candidateFile, bool preferGeminiCliClient, GeminiCredentialOwner owner) in candidateFiles)
         {
             if (!File.Exists(candidateFile))
             {
@@ -1530,7 +1673,6 @@ public sealed partial class GeminiUsageCollector
                         Owner = owner,
                         SourceLocation = candidateFile,
                         RawFingerprint = ComputeFingerprint(contents),
-                        CanInvokeAgyHelper = canInvokeAgyHelper,
                     };
                     error = string.Empty;
                     return true;
@@ -1553,7 +1695,6 @@ public sealed partial class GeminiUsageCollector
                     Owner = GeminiCredentialOwner.AntigravityCli,
                     SourceLocation = "credential-store:gemini:antigravity",
                     RawFingerprint = ComputeFingerprint(injected),
-                    CanInvokeAgyHelper = m_AllowAgyHelper,
                 };
                 error = string.Empty;
                 return true;
@@ -1561,19 +1702,24 @@ public sealed partial class GeminiUsageCollector
         }
         else if (m_UseSystemCredentialStores && OperatingSystem.IsWindows())
         {
-            foreach (string target in new[] { "gemini:antigravity", "gemini-cli" })
+            (string Target, bool PreferGeminiCliClient, GeminiCredentialOwner Owner)[] credentialTargets =
+            [
+                ("gemini:antigravity", false, GeminiCredentialOwner.AntigravityCli),
+                ("gemini:antigravity-acp", false, GeminiCredentialOwner.AntigravityAcp),
+                ("gemini-cli", true, GeminiCredentialOwner.GeminiCli),
+            ];
+
+            foreach ((string target, bool preferGeminiCliClient, GeminiCredentialOwner owner) in credentialTargets)
             {
                 string? secretBlob = TryReadWindowsGenericCredential(target);
-                bool isGeminiCli = target == "gemini-cli";
-                if (!string.IsNullOrWhiteSpace(secretBlob) && TryParseCredentialPayload(secretBlob, sourceFilePath: null, preferGeminiCliClient: isGeminiCli, out credential))
+                if (!string.IsNullOrWhiteSpace(secretBlob) && TryParseCredentialPayload(secretBlob, sourceFilePath: null, preferGeminiCliClient, out credential))
                 {
                     credential = credential with
                     {
                         SourceKind = GeminiCredentialSourceKind.WindowsCredentialManager,
-                        Owner = isGeminiCli ? GeminiCredentialOwner.GeminiCli : GeminiCredentialOwner.AntigravityCli,
+                        Owner = owner,
                         SourceLocation = "wincred:" + target,
                         RawFingerprint = ComputeFingerprint(secretBlob),
-                        CanInvokeAgyHelper = !isGeminiCli && m_AllowAgyHelper && isDefaultProfile,
                     };
                     error = string.Empty;
                     return true;
@@ -1683,7 +1829,6 @@ public sealed partial class GeminiUsageCollector
                         Owner = GeminiCredentialOwner.AntigravityIde,
                         SourceLocation = $"sqlite:{databasePath}#antigravityUnifiedStateSync.oauthToken",
                         RawFingerprint = ComputeFingerprint(stored),
-                        CanInvokeAgyHelper = false,
                     };
                     return true;
                 }
@@ -1722,12 +1867,12 @@ public sealed partial class GeminiUsageCollector
         for (int pass = 0; pass < 2; pass++)
         {
             Match accessMatch = GoogleAccessTokenRegex().Match(candidate);
-            if (accessMatch.Success)
+            Match refreshMatch = GoogleRefreshTokenRegex().Match(candidate);
+            if (accessMatch.Success || refreshMatch.Success)
             {
-                Match refreshMatch = GoogleRefreshTokenRegex().Match(candidate);
                 credential = new GeminiCredential(
                     SourceFilePath: sourceFilePath,
-                    AccessToken: accessMatch.Value,
+                    AccessToken: accessMatch.Success ? accessMatch.Value : string.Empty,
                     RefreshToken: refreshMatch.Success ? refreshMatch.Value : null,
                     ExpiresAt: null,
                     ClientId: null,
@@ -2201,9 +2346,13 @@ public sealed partial class GeminiUsageCollector
         InjectedStore,
     }
 
-    internal sealed record AgyCliResult(int ExitCode, string StdOut, bool TimedOut, bool OutputTruncated);
+    private sealed record RefreshResult(GeminiCredential SourceCredential, GeminiCredential EffectiveCredential, bool WasRefreshed);
 
-    private sealed record RecoveryResult(GeminiCredential? Credential, GeminiUsageSnapshot? DirectSnapshot);
+    internal sealed record OAuthClientPair(string ClientId, string ClientSecret);
+
+    private sealed record CachedRefreshedToken(string SourceKey, string AccessToken, DateTimeOffset ExpiresAt);
+
+    private sealed record CachedClientPairs(DateTime LastWriteUtc, long Length, IReadOnlyList<OAuthClientPair> Pairs);
 
     private sealed record BackoffState(
         string SourceKey,
@@ -2213,16 +2362,6 @@ public sealed partial class GeminiUsageCollector
         DateTimeOffset NextAttemptAfter,
         bool WaitForChange,
         int ConsecutiveFailures);
-
-    private enum AgyVersionProbeStatus
-    {
-        Supported,
-        UnsupportedVersion,
-        ProbeFailed,
-        TimedOut,
-    }
-
-    private sealed record CachedAgyVersion(string Path, DateTime LastWriteUtc, long Length, Version Version);
 
     internal sealed record GeminiCredential(
         string? SourceFilePath,
@@ -2245,8 +2384,6 @@ public sealed partial class GeminiUsageCollector
         public string RawFingerprint { get; init; } = string.Empty;
 
         public string? AuthMethod { get; init; }
-
-        public bool CanInvokeAgyHelper { get; init; }
 
         public string SourceKey => $"{SourceKind}|{SourceLocation}|{RawFingerprint}";
     }

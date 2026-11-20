@@ -114,11 +114,11 @@ Cursor 未登录, 登录失效或当前用量查询失败时, Token Cost 只显�
 
 ## Gemini 页面
 
-在本机登录 Antigravity CLI (`agy`), Antigravity IDE 或 Gemini CLI 后, 打开 Gemini 页面可查看当前账号的订阅类型, 多组模型额度, 重置时间与本机 Token Cost.
+在本机登录 Antigravity CLI (`agy`), Antigravity ACP (例如 T3 Code), Antigravity IDE 或 Gemini CLI 后, 打开 Gemini 页面可查看当前账号的订阅类型, 多组模型额度, 重置时间与本机 Token Cost.
 
-- Antigravity CLI (`agy` `1.1.11` 及以上版本, 默认安装于 `%LOCALAPPDATA%\agy\bin\agy.exe` 且未开启 `disableSlashCommands`) 的默认登录过期后, CodexTray 会在后台调用只读的 `agy -p "/usage" --output-format json` (零模型回合, 不消耗模型额度, 不新建对话, 且禁用自动更新) 让原客户端自行续期, 随后重读凭据恢复完整额度和订阅名称.
-- Gemini CLI, Antigravity IDE 或旧版/受限的 `agy` 登录在有效期内仍可直接查询; 到期后状态栏会提示打开对应的客户端 (`Open Antigravity CLI`, `Open Gemini CLI` 或 `Open Antigravity IDE`) 更新登录, 悬停状态栏可查看最后成功时间与失败原因, 更新后下一轮刷新或点击 `Refresh Now` 即可恢复. 本地 Token Cost 独立统计, 不受额度过期影响.
-- 本地 JSON 凭据文件同时包含完整的 `client_id` 与 `client_secret` (或均缺时通过 `CODEXTRAY_GEMINI_CLI_CLIENT_ID`/`_SECRET` 或 `CODEXTRAY_ANTIGRAVITY_CLIENT_ID`/`_SECRET` 提供完整配对) 且所在位置支持 NTFS 事务写回时, 仍可直接自动续期. 修改环境变量后重启托盘程序, 请勿将这些值填入仓库或提交到 Git.
+- `access_token` 临近过期或失效时, CodexTray 会复用本机已有登录中的 `refresh_token` 直接向 Google OAuth 静默续期, 不会在后台拉起外部 CLI 或自动弹出浏览器登录窗口. Windows 凭据管理器与 Antigravity IDE 状态库均以只读方式使用, 刷新后的短期 `access_token` 仅保存在 CodexTray 内存缓存中, 下次刷新检测到原登录切换账号或退出登录时会立即失效; 可写入的本地 JSON 凭据文件会原子更新原文件.
+- OAuth 客户端配置优先读取凭据文件或环境变量 (`CODEXTRAY_ANTIGRAVITY_CLIENT_ID`/`_SECRET` 与 `CODEXTRAY_GEMINI_CLI_CLIENT_ID`/`_SECRET`), 未显式设置时会从本机已安装的 Antigravity 或 Gemini CLI 应用中自动发现. 修改环境变量后重启托盘程序, 请勿将这些值填入仓库或提交到 Git.
+- 当 `refresh_token` 被吊销, 缺失或无法完成静默续期时, 状态栏会提示打开对应的客户端 (`Open Antigravity CLI`, `Open Antigravity ACP`, `Open Gemini CLI` 或 `Open Antigravity IDE`) 重新登录, 悬停状态栏可查看最后成功时间与失败原因, 更新后下一轮刷新或点击 `Refresh Now` 即可恢复. 本地 Token Cost 独立统计, 不受额度过期影响.
 
 - 上方大卡片依次展示 Gemini 5 小时额度 (`Session`), Gemini 周额度 (`Weekly`) 以及高级模型独立周额度 (`Argon Weekly`, 仅在服务端返回该额度桶时显示, 例如非 Ultra 订阅). 卡片支持通过左下角页点或鼠标滚轮切换页签.
 - 下方小卡片以 `Claude & GPT Session` 和 `Claude & GPT Weekly` 分别展示合作模型的 5 小时额度与周额度, 同样支持左下角页点与鼠标滚轮切换.
@@ -156,7 +156,7 @@ CodexTray 支持 LiteMonitor 与 TrafficMonitor. 在 Settings 页找到对应监
 
 ## 数据与隐私
 
-- Codex, Grok 与 Gemini 的额度使用本机已有登录信息向各自的官方服务查询. Grok 页的订阅名称来自 Grok Build 设置中的显示名, 读不到时使用本机已有的订阅记录; Gemini 依次读取本机 Antigravity / Gemini CLI 凭据文件, Windows 凭据管理器与 Antigravity IDE 状态库. 仅对支持事务写回且配对完整的本地 JSON 文件直接续期并更新原文件; Windows 凭据管理器和 IDE 状态库均为只读使用, 默认安装的受支持 `agy` 登录到期时通过其只读 `/usage` 命令交由原客户端续期.
+- Codex, Grok 与 Gemini 的额度使用本机已有登录信息向各自的官方服务查询. Grok 页的订阅名称来自 Grok Build 设置中的显示名, 读不到时使用本机已有的订阅记录; Gemini 依次读取本机 Antigravity CLI / ACP / Gemini CLI 凭据文件, Windows 凭据管理器与 Antigravity IDE 状态库, 仅对支持事务写回的本地 JSON 文件原子写回刷新后的凭据, Windows 凭据管理器和 IDE 状态库均为只读使用, 刷新后的短期 token 仅缓存在内存中.
 - Codex 与 Gemini 的 Token Cost 来自本机会话日志. Grok 的 Token Cost 合并本机会话日志与 Cursor 和 Grok API 云端用量. Codex 开启「压缩本地聊天记录」后, 较早的会话会保存为 `.jsonl.zst`, 这些压缩日志仍按原来的记录时间计入对应日期. Codex, Grok 和 Gemini 页面均不读取 OpenCode 会话.
 - OpenAI, DeepSeek, OpenRouter, Vercel 与 NewAPI 请求直接发送到卡片中配置的 Base URL. API key, Admin key, Management Key, access token 和 User ID 以明文保存在 `CodexTray.exe` 同级目录的 `settings.json` 中.
 - API 密钥与 NewAPI User ID 编辑时默认遮挡, 点击输入框右侧的眼睛图标可临时显示和编辑, 再次点击或离开编辑界面后恢复遮挡. 遮挡只保护屏幕显示, 不改变配置文件的明文存储方式.

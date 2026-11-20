@@ -82,8 +82,8 @@ internal static class Program
         await RunAsync("preserves nested Gemini credentials and bounds OAuth refresh", GeminiCredentialTests.RefreshPersistenceAsync);
         await RunAsync("rejects stale OAuth credential updates", OAuthCredentialConcurrencyTests.RunAsync);
         await RunAsync("uses only complete local Gemini OAuth client pairs", GeminiCredentialTests.RefreshConfigurationAsync);
-        await RunAsync("handles Gemini refresh buffer, agy CLI recovery, backoff and status", GeminiCredentialTests.RefreshBufferAndOwnerRecoveryAsync);
-        await RunAsync("guards Gemini recovery identity, locks, junctions, Retry-After and UIA", GeminiCredentialTests.ReviewRegressionsAsync);
+        await RunAsync("handles Gemini refresh buffer, read-only OAuth refresh, discovery and status", GeminiCredentialTests.RefreshBufferAndOwnerRecoveryAsync);
+        await RunAsync("guards Gemini client scanning, junctions, locks, Retry-After and UIA", GeminiCredentialTests.ReviewRegressionsAsync);
         await RunAsync("includes published model pricing", TestPublishedModelPricingAsync);
         await RunAsync("summarizes API refresh statuses", TestApiUsageSummaryAsync);
         await RunAsync("publishes completed refresh sources independently", TestIndependentRefreshAsync);

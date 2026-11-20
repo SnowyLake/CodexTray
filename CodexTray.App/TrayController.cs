@@ -873,7 +873,7 @@ internal sealed class TrayController : IDisposable
 
             if ((visiblePages & PageItem.Gemini) != 0)
             {
-                children.Add(PublishAsync(PageItem.Gemini, m_GeminiUsageCollector.CollectDashboardAsync(useAbsoluteResetTime, cancellationToken, (request.ManualPages & PageItem.Gemini) != 0),
+                children.Add(PublishAsync(PageItem.Gemini, Task.Run(() => m_GeminiUsageCollector.CollectDashboardAsync(useAbsoluteResetTime, cancellationToken, (request.ManualPages & PageItem.Gemini) != 0), cancellationToken),
                     dashboard => m_PopupViewModel?.UpdateGeminiDashboard(dashboard)));
                 children.Add(PublishAsync(PageItem.Gemini, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectGemini(cancellationToken: cancellationToken)), cancellationToken),
                     result => m_PopupViewModel?.UpdateGeminiTokenCost(result.Statistics, result.Error), localCosts: true));

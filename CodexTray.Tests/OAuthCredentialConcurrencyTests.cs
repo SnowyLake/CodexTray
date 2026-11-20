@@ -85,16 +85,24 @@ internal static class OAuthCredentialConcurrencyTests
         }
 
         string store = GeminiCredential(now.AddHours(-1));
-        int expiredStoreRequests = 0;
-        using (HttpClient client = new(new Handler((_, _) =>
+        int expiredStoreRefreshRequests = 0;
+        int expiredStoreQuotaRequests = 0;
+        using (HttpClient client = new(new Handler((request, _) =>
         {
-            expiredStoreRequests++;
-            return Task.FromResult(JsonResponse("{\"access_token\":\"refreshed\",\"expires_in\":3600}"));
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                expiredStoreRefreshRequests++;
+                store = store.Replace("old-access", "other-account", StringComparison.Ordinal);
+                return Task.FromResult(JsonResponse("{\"access_token\":\"refreshed\",\"expires_in\":3600}"));
+            }
+
+            expiredStoreQuotaRequests++;
+            return Task.FromResult(GeminiQuotaResponse(request));
         })))
         {
             GeminiUsageDashboard result = await new GeminiUsageCollector(client, temp.Path, credentialStoreReader: () => store, nowProvider: () => now).CollectDashboardAsync();
-            Check(!result.Snapshot.IsAvailable && expiredStoreRequests == 0 && result.FailureKind == GeminiUsageFailureKind.OwnerRefreshRequired,
-                "expired non-file store does not send direct OAuth refresh requests");
+            Check(!result.Snapshot.IsAvailable && expiredStoreRefreshRequests == 1 && expiredStoreQuotaRequests == 0 && result.FailureKind == GeminiUsageFailureKind.CredentialChanged,
+                "external store refresh discards stale token if store changes during OAuth refresh");
         }
 
         store = GeminiCredential(now.AddHours(1));
@@ -269,11 +277,14 @@ internal static class OAuthCredentialConcurrencyTests
                 if (request.RequestUri!.Host == "oauth2.googleapis.com")
                 {
                     refreshRequests++;
+                    return Task.FromResult(JsonResponse("{\"access_token\":\"refreshed-in-memory\",\"expires_in\":3600}"));
                 }
+
+                Check(request.Headers.Authorization?.Parameter == "refreshed-in-memory", "locked Gemini file uses in-memory refreshed token");
                 return Task.FromResult(GeminiQuotaResponse(request));
             }));
             GeminiUsageDashboard result = await new GeminiUsageCollector(client, temp.Path, nowProvider: () => now).CollectDashboardAsync();
-            Check(result.Snapshot.IsAvailable == !expired && refreshRequests == 0, "Gemini avoids unsafe rotation but retains a still-valid access token");
+            Check(result.Snapshot.IsAvailable && refreshRequests == 1, "Gemini refreshes locked local file in memory without modifying it");
             Check(File.ReadAllText(geminiPath) == original, "unavailable Gemini writeback leaves credentials intact");
         }
 

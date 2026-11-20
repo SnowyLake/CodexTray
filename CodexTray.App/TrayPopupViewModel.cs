@@ -1059,6 +1059,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             GeminiUsageFailureKind.OwnerRefreshRequired => dashboard.CredentialOwner switch
             {
                 GeminiCredentialOwner.AntigravityCli => "Open Antigravity CLI",
+                GeminiCredentialOwner.AntigravityAcp => "Open Antigravity ACP",
                 GeminiCredentialOwner.GeminiCli => "Open Gemini CLI",
                 GeminiCredentialOwner.AntigravityIde => "Open Antigravity IDE",
                 _ => "Renew Gemini login",
