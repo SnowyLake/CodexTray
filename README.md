@@ -122,7 +122,7 @@ Cursor 未登录, 登录失效或当前用量查询失败时, Token Cost 只显�
 
 - 上方大卡片依次展示 Gemini 5 小时额度 (`Session`), Gemini 周额度 (`Weekly`) 以及高级模型独立周额度 (`Argon Weekly`, 仅在服务端返回该额度桶时显示, 例如非 Ultra 订阅). 卡片支持通过左下角页点或鼠标滚轮切换页签.
 - 下方小卡片以 `Claude & GPT Session` 和 `Claude & GPT Weekly` 分别展示合作模型的 5 小时额度与周额度, 同样支持左下角页点与鼠标滚轮切换.
-- 下方 Token Cost 与右上角 Session Logs 汇总 Antigravity 会话记录与 Gemini CLI 聊天会话日志, 并结合价格表中的主流 Gemini 与 Claude 模型单价估算 API 等价成本.
+- 下方 Token Cost 与右上角 Session Logs 汇总本机 Antigravity、T3 Code 默认数据目录中的 Antigravity ACP 和 Gemini CLI 会话日志, 无需手动配置 T3 Code profile. 费用按价格表中的 Gemini 与 Claude 模型单价估算.
 - 服务端标记为禁用的额度不会显示为可用余额. Gemini CLI 的本地统计包含工具提示、思考 token 和子代理会话, 缓存输入与已迁移的旧会话不会重复计数.
 - Antigravity 日志缺少模型名时, CodexTray 会从对应的本机会话数据库补读可确认的模型. 无法确认的用量仍计入总 token 数, 模型显示为 `Unknown`, 这部分不估价.
 

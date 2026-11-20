@@ -117,6 +117,7 @@ internal static class Program
         await RunAsync("merges Cursor costs with Grok and preserves local session logs", CursorUsageTests.IntegrationAsync);
         await RunAsync("keeps Grok ticks and prices normalized unknown-safe models", TestGrokBillingEdgesAsync);
         await RunAsync("collects Gemini transcript and CLI session token costs", TestGeminiTokenCostCollectorAsync);
+        await RunAsync("discovers T3 Code Antigravity ACP profiles and counts each session once", TestT3AntigravityTokenCostAsync);
         await RunAsync("recovers only verified Antigravity transcript models from SQLite", AntigravityTranscriptModelTests.RunAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
         s_Failures += await AppUpdateTests.RunAllAsync();
@@ -5378,6 +5379,49 @@ internal static class Program
         dashboard.Update(workerStats);
         AssertEqual("Gemini-4-Hydrogen", dashboard.DonutSegments.Single().Label, "Orchestrator worker donut label uses Hydrogen");
         return Task.CompletedTask;
+    }
+
+    private static Task TestT3AntigravityTokenCostAsync()
+    {
+        using TempDirectory temp = new();
+        DateTimeOffset asOf = new(2026, 11, 21, 2, 0, 0, TimeSpan.FromHours(8));
+        string geminiHome = Path.Combine(temp.Path, "gemini-home-override");
+        string agy = Path.Combine(geminiHome, "antigravity-cli");
+        string profiles = Path.Combine(temp.Path, ".t3", "userdata", "providers", "antigravity");
+        string firstAcp = Path.Combine(profiles, Guid.NewGuid().ToString("N"), "antigravity-acp");
+        string secondAcp = Path.Combine(profiles, Guid.NewGuid().ToString("N"), "antigravity-acp");
+        Guid sharedSession = Guid.NewGuid();
+
+        WriteTranscript(agy, Guid.NewGuid(), 100);
+        File.SetLastWriteTimeUtc(WriteTranscript(agy, sharedSession, 200), asOf.UtcDateTime.AddHours(-1));
+        File.SetLastWriteTimeUtc(WriteTranscript(firstAcp, sharedSession, 200, 300), asOf.UtcDateTime);
+
+        TokenCostCollector collector = new(FindRepositoryFile(Path.Combine("Resources", "model-pricing.json")));
+        AssertEqual(660L, collector.CollectGemini(geminiHome, temp.Path, asOf).LastTwentyFourHours.TotalTokens, "standalone Agy and the first T3 profile count");
+        WriteTranscript(secondAcp, Guid.NewGuid(), 400);
+        TokenCostStatistics stats = collector.CollectGemini(geminiHome, temp.Path, asOf);
+        AssertEqual(1080L, stats.LastTwentyFourHours.TotalTokens, "standalone Agy and both T3 profiles count without replaying the copied session");
+        AssertEqual(4, stats.SessionLogs.Count, "the newer transcript retains its extra response without duplicating the older copy");
+        AssertEqual(0.0042m, stats.LastTwentyFourHours.CostUsd, "T3 transcripts use the existing model prices");
+        AssertEqual(stats.LastTwentyFourHours.TotalTokens, collector.CollectGemini(geminiHome, temp.Path, asOf).LastTwentyFourHours.TotalTokens, "deduplication also applies on cache hits");
+        return Task.CompletedTask;
+
+        string WriteTranscript(string dataRoot, Guid session, params int[] inputs)
+        {
+            string logs = Path.Combine(dataRoot, "brain", session.ToString("D"), ".system_generated", "logs");
+            Directory.CreateDirectory(logs);
+            string path = Path.Combine(logs, "transcript.jsonl");
+            File.WriteAllLines(path, inputs.Select((input, step) => JsonSerializer.Serialize(new
+            {
+                type = "PLANNER_RESPONSE",
+                step_index = step,
+                created_at = asOf.AddMinutes(-10 + step),
+                model = "gemini-4-neon-high",
+                input_tokens = input,
+                output_tokens = 20,
+            })));
+            return path;
+        }
     }
 
     /// <summary>

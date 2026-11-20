@@ -262,6 +262,12 @@ public sealed class TokenCostCollector
     /// </summary>
     public TokenCostStatistics CollectGemini(string? geminiDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
     {
+        string? userProfileDirectory = string.IsNullOrWhiteSpace(geminiDirectory) ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : null;
+        return CollectGemini(geminiDirectory, userProfileDirectory, now, cancellationToken);
+    }
+
+    internal TokenCostStatistics CollectGemini(string? geminiDirectory, string? userProfileDirectory, DateTimeOffset? now, CancellationToken cancellationToken = default)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         string root = GeminiUsageCollector.ResolveGeminiHomePath(geminiDirectory);
         DateTimeOffset current = now ?? DateTimeOffset.Now;
@@ -279,11 +285,13 @@ public sealed class TokenCostCollector
                 m_GeminiPricing = pricing;
             }
 
-            foreach ((string path, string? database) in EnumerateGeminiTranscriptFiles(root, cancellationToken))
+            foreach ((string path, string? database) in EnumerateGeminiTranscriptFiles(root, userProfileDirectory, cancellationToken))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                seenFiles.Add(path);
-                CollectGeminiCachedFile(path, database, () => ParseAntigravityTranscriptEvents(path, database, pricing, cancellationToken), accumulator, sessionLogs, today);
+                if (seenFiles.Add(path))
+                {
+                    CollectGeminiCachedFile(path, database, () => ParseAntigravityTranscriptEvents(path, database, pricing, cancellationToken), accumulator, sessionLogs, today);
+                }
             }
 
             foreach (string path in EnumerateGeminiCliSessionFiles(root, cancellationToken))
@@ -371,7 +379,7 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Enumerates Antigravity brain transcript logs without following directory links.
     /// </summary>
-    private static IEnumerable<(string Path, string? Database)> EnumerateGeminiTranscriptFiles(string geminiDirectory, CancellationToken cancellationToken)
+    private static IEnumerable<(string Path, string? Database)> EnumerateGeminiTranscriptFiles(string geminiDirectory, string? userProfileDirectory, CancellationToken cancellationToken)
     {
         EnumerationOptions options = new()
         {
@@ -380,33 +388,61 @@ public sealed class TokenCostCollector
             AttributesToSkip = FileAttributes.ReparsePoint,
             MaxRecursionDepth = 8,
         };
-        HashSet<string> yielded = new(StringComparer.OrdinalIgnoreCase);
-        string[] brainDirectories =
+        List<string> brainDirectories =
         [
             Path.Combine(geminiDirectory, "antigravity-cli", "brain"),
             Path.Combine(geminiDirectory, "antigravity", "brain"),
             Path.Combine(geminiDirectory, "brain"),
         ];
 
+        if (!string.IsNullOrEmpty(userProfileDirectory))
+        {
+            DirectoryInfo profiles = new(Path.Combine(userProfileDirectory, ".t3", "userdata", "providers", "antigravity"));
+            if (profiles.Exists && (profiles.Attributes & FileAttributes.ReparsePoint) == 0)
+            {
+                EnumerationOptions direct = new() { AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true };
+                foreach (DirectoryInfo profile in profiles.EnumerateDirectories("*", direct))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    foreach (DirectoryInfo acp in profile.EnumerateDirectories("antigravity-acp", direct))
+                    {
+                        brainDirectories.AddRange(acp.EnumerateDirectories("brain", direct).Select(brain => brain.FullName));
+                    }
+                }
+            }
+        }
+
+        Dictionary<Guid, (FileInfo Transcript, string Database)> sessions = [];
         foreach (string brainDirectory in brainDirectories)
         {
-            if (!Directory.Exists(brainDirectory))
+            DirectoryInfo brain = new(brainDirectory);
+            if (!brain.Exists)
             {
                 continue;
             }
 
-            foreach (string path in Directory.EnumerateFiles(brainDirectory, "transcript.jsonl", options))
+            foreach (FileInfo transcript in brain.EnumerateFiles("transcript.jsonl", options))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (yielded.Add(path))
+                string[] parts = Path.GetRelativePath(brain.FullName, transcript.FullName).Split(Path.DirectorySeparatorChar);
+                if (parts is [string id, ".system_generated", "logs", "transcript.jsonl"] && Guid.TryParseExact(id, "D", out Guid sessionId))
                 {
-                    string[] parts = Path.GetRelativePath(brainDirectory, path).Split(Path.DirectorySeparatorChar);
-                    string? database = parts is [string id, ".system_generated", "logs", "transcript.jsonl"] && Guid.TryParseExact(id, "D", out _)
-                        ? Path.Combine(Path.GetDirectoryName(brainDirectory)!, "conversations", id + ".db")
-                        : null;
-                    yield return (path, database);
+                    // shortcut: prefer the latest snapshot; merge by step only if duplicated sessions can diverge.
+                    if (!sessions.TryGetValue(sessionId, out var previous) || transcript.LastWriteTimeUtc > previous.Transcript.LastWriteTimeUtc)
+                    {
+                        sessions[sessionId] = (transcript, Path.Combine(brain.Parent!.FullName, "conversations", id + ".db"));
+                    }
+                }
+                else
+                {
+                    yield return (transcript.FullName, null);
                 }
             }
+        }
+
+        foreach ((FileInfo transcript, string database) in sessions.Values)
+        {
+            yield return (transcript.FullName, database);
         }
     }
 
