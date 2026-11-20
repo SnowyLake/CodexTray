@@ -2,269 +2,214 @@
 
 ## 目录
 
-- [文档职责](#文档职责)
-- [项目概览](#项目概览)
-- [架构与数据流](#架构与数据流)
-- [目录结构](#目录结构)
-- [关键约束](#关键约束)
-- [构建与输出](#构建与输出)
-- [验证工作流](#验证工作流)
+- [文档职责与维护规范](#文档职责与维护规范)
+- [项目架构与演进边界](#项目架构与演进边界)
+- [核心技术决策与红线](#核心技术决策与红线)
+- [外部参考](#外部参考)
+- [修改关联检查清单](#修改关联检查清单)
+- [构建与验证](#构建与验证)
 - [发布流程](#发布流程)
 
-## 文档职责
+## 文档职责与维护规范
 
-`README.md` 面向使用者, 本文档面向修改和维护代码的 Agent 与开发者. 两份文档按以下范围维护:
+仓库根目录维护两份定位互补的核心文档, 各自职责与边界如下:
 
-| 文档 | 应包含的内容 |
-| --- | --- |
-| `README.md` | 功能介绍, 安装与登录要求, 页面操作, 费用含义, API 卡片配置, 插件使用, 数据与隐私, 常见问题. 技术内容仅保留用户完成配置或排错所需的部分. |
-| `AGENTS.md` | 项目结构, 代码入口, 数据来源与接口, 凭据读写, 统计规则, UI 约束, 修改时的关联检查, 构建验证与发布流程. |
+| 文档 | 目标读者 | 应包含内容 | 不应包含内容 |
+| --- | --- | --- | --- |
+| `README.md` | 最终用户 | 项目定位, 核心功能, 安装与前置登录要求, 界面与插件操作, 费用口径, API 卡片配置, 数据与隐私说明, 高频常见问题 | 内部接口路径, JSON 字段, 重试参数, 布局像素尺寸, 动画参数, 内部模型 ID 映射与代码结构 |
+| `AGENTS.md` | Agent 与维护者 | 文档分工规范, 架构与演进边界, 长期有效的技术决策与避坑原因 ("为什么"与"不能做什么"), 安全/隐私红线, 改动关联检查清单, 外部参考链接, 构建/验证/发布工作流 | 通过阅读代码即可直接获取的常量默认值, JSON 字段名, URL 路径, 超时/重试数值, 具体模型单价/别名清单, UI 尺寸/色值/动画参数, 逐文件清单 |
 
-功能或行为变化时, 更新 README 中受影响的使用说明, 并在本文档维护对应的技术约束. 接口字段, 解析算法, 重试次数, 数据库键和布局尺寸归入本文档, 不在 README 重复展开. 两份文档均描述当前行为, 不写成某次改动的过程记录; 实现细节以代码为准.
+维护两份文档时必须遵守以下原则:
 
-## 项目概览
+1. **以代码为单一事实源**: 不把易变的实现细节抄写进文档. 当实现细节可以从源码直接读取时, 文档只保留背后的设计判断, 约束边界或指向权威源码位置 (如 `CodexTrayDefaults`, `Resources/model-pricing.json`).
+2. **只描述当前态**: 两份文档均描述项目当前行为与规范, 禁止按时间把单次功能改动或 Bug 修复记录堆砌成流水账.
+3. **同步更新与清理漂移**: 用户可见的功能, 配置项或行为变化时更新 `README.md`; 架构边界, 不可破坏的不变量, 避坑决策或工程流程变化时更新 `AGENTS.md`. 修改相关区域若发现文档过时或冗余, 顺手清理.
 
-`CodexTray` 是一个 C#/.NET 10 Windows x64 托盘应用. 桌面 UI 使用 WPF 与 WPF UI (`WPF-UI` 4.3.0), 应用内对话框使用库的 `ContentDialog`. `System.Windows.Forms` 用于 `NotifyIcon`, 托盘菜单, 屏幕定位, 文件夹选择和应用初始化.
+## 项目架构与演进边界
 
-`CodexTray.Core` 负责采集, 设置, 缓存, 本地 HTTP 服务, 插件安装和应用内更新. `CodexTray.App` 负责 WPF 界面与托盘编排. Codex, Grok, Gemini 和 API 监控分别采集. Codex Weekly, Grok Weekly 和第一张 DeepSeek 卡片的 CNY 余额进入插件响应. Grok Weekly 与产品占比来自同一次 `https://cli-chat-proxy.grok.com/v1/billing?format=credits` 查询. 订阅名称优先使用 `GET https://cli-chat-proxy.grok.com/v1/settings` 的 `subscription_tier_display`. Token Cost 在 Codex, Grok 与 Gemini 页面显示, 其他 API provider 结果仅显示在主面板.
+### 模块划分
 
-## 架构与数据流
-
-### 应用生命周期
-
-1. `CodexTray.App/Program.cs` 使用 mutex 保证单实例. 后续进程通过 `TrayShowPanel` event 通知已有实例打开面板后退出. `--apply-update` 是更新进程, 不获取 mutex, 也不打开面板.
-2. `CodexTray.App/App.cs` 创建 WPF application host, `TrayController` 管理托盘, 设置, 定时刷新, 插件安装和本地服务.
-3. 首次启动由 `SettingsStore` 写入默认 `settings.json` 并打开主面板. 后续设置加载时会补齐缺失字段并规范化值.
-4. `TrayPopupWindow` 与 `TrayPopupViewModel` 提供 Codex/Grok/Gemini/APIs/Settings/About 页面. `ApiMonitorViewModel` 管理单张 API 卡片的编辑与显示状态. 左键切换弹窗, 右键菜单仅包含 `Open Panel`, `Refresh Now` 和 `Exit`.
-5. `AppSettings.VisiblePages` 控制 Codex, Grok, Gemini 与 APIs 页的可见性和后台采集. `VisiblePages` 为空时停止本地 HTTP 服务和定时刷新.
-6. `TrayController` 统一持有应用生命周期 cancellation token, 跟踪刷新, 插件定位, 单实例信号和本地服务切换任务. 各来源独立发布结果, Codex/Grok/Gemini 的额度与本地 Token Cost 分开发布; 每次发布前复核退出状态和页面可见性, 单来源失败不阻止其他来源. 刷新所有发布任务仍统一等待, 保持请求合并与退出排空. 正常退出时先取消并等待后台任务, 再异步停止本地服务和关闭 WPF application. 本地服务监听异常退出时同样复用 `StopAsync` 取消并排空活动连接, 排空完成后才能重启.
-7. `RefreshRequests` 合并待执行的来源位掩码和 API 卡片 ID; 全部 APIs 请求覆盖单卡请求. 当前 owner 排空后才开始下一批, 防止同一采集器并发执行. 页面刷新仅请求该来源; 卡片保存与重试仅请求该卡片. `ApiUsageSnapshots` 合并单卡结果, 按实时配置顺序重建第一页 DeepSeek 插件映射, 配置已修改或卡片已删除时丢弃迟到结果. 隐藏 APIs 时不得重新发布 DeepSeek 缓存.
-8. `UsageHttp` 仅用于只读额度与用量查询 (包括只读 POST), 不用于 OAuth token POST. 网络错误, 非调用方取消的超时, HTTP 429 与 5xx 最多尝试 3 次, 默认等待 500/1000 毫秒; `Retry-After` 支持秒数与日期, 累计等待预算 10 秒, 超出预算直接结束而不缩短服务要求的等待. 每次重新构造请求与内容, 中间响应先释放, 等待可取消. 401/403, 其他 4xx 与解析错误不自动重试, 复用 Grok 原有最多一次强制 OAuth 续期. Grok 额度失败后不改走其他额度端点.
-9. `UsageDiagnostics` 使用固定 HTTP/异常描述和错误类别; 不回显服务器 reason phrase, JSON message 或任意 exception.Message. Grok 自有解析异常保留固定字段描述, 复制诊断只含应用版本, 固定来源/provider 名称, 成功时间与错误类别, 不含 URL, 账号, 卡片 ID/名称, 请求头或响应原文. 复制诊断和恢复备份入口集中在 Settings 的 Advanced 一栏, 复制按钮传入 `PageItem.All` 汇总所有来源.
-
-### 应用内更新
-
-1. 启动时及运行中每隔 6 小时静默请求 `CodexTrayDefaults.GitHubLatestReleaseUrl`, 间隔统一维护在 `CodexTrayDefaults.UpdateCheckIntervalHours`. 检查循环由 `TrayController` 持有, 独立于数据页可见性, 退出时取消并等待. 自动与手动检查及安装共用 ViewModel busy 状态避免重叠; 自动检查失败不弹窗并保留已发现的版本. 发现新版本后, Settings 导航图标显示消息点, 版本号右侧显示 `New`, `Open About` 左侧按钮切换为安装图标, 点击后确认安装; 无已知更新时按钮执行手动检查. 不自动下载, 不使用 GitHub token. 请求必须带 `User-Agent: CodexTray`, 检查超时 20 秒. 手动检查发现新版本时用内部对话框询问是否安装, 确认后才下载. 手动检查已是最新或失败时, 用同一对话框显示结果.
-2. 只接受 tag `vX.Y.Z` 和资产名 `CodexTray-vX.Y.Z-win-x64.zip`. 下载 URL 必须是 `https://github.com` 上对应的 release asset. 用资产 `digest` 的 SHA-256 和 `size` 校验, 包大于 100 MB 时拒绝. 下载超时 120 秒.
-3. 解压时拒绝绝对路径, 盘符和 `..`. 包内必须同时有 `CodexTray.exe`, `Resources` 下的图标和 `model-pricing.json`, 以及 LiteMonitor 与 TrafficMonitor 插件文件.
-4. 校验通过后, 把新包中的 `CodexTray.exe` 复制到临时目录, 用 `--apply-update --wait-pid --parent-started-utc --source --target --restart` 启动. 主进程再走现有退出流程. 更新进程用 PID 和启动时间确认旧进程, 等待它退出, 最长 10 分钟. 覆盖和还原期间持有 `CodexTrayMutex`, 并在启动新进程之前释放.
-5. 覆盖前把安装目录备份到临时目录. 先复制资源和插件, 最后复制 exe. 单个文件最多重试 10 次, 间隔 250 毫秒. 根目录已有的 `settings.json` 不覆盖, 安装目录里的其他用户文件保留. 复制失败时从备份还原; 还原成功才重新启动旧版本. 覆盖、备份、还原和清理前检查路径及目录树中的重解析点; 安装目录包含联接或符号链接时拒绝自动更新.
-6. 安装目录不可写, 或当前进程不是 `CodexTray.exe` 时, 不退出程序. 根目录存在 `CodexTray.dll` 时视为开发编译, 检查和安装都拒绝, 也不退出程序. `Plugins/TrafficMonitor/CodexTray.dll` 不算. 超过 1 小时的更新临时目录会在下一次准备更新时删除.
-
-### 额度与插件链路
-
-1. `CodexUsageCollector` 读取 `~/.codex/auth.json` 中的 OAuth 凭据, 从 ChatGPT 官方 usage 与 rate-limit-reset-credits 接口采集 Session, Weekly 和 Reset Credits. 凭据缺失或无效时返回不可用状态. Grok Weekly 插件值由 `GrokUsageCollector.BuildPluginUsage` 从 billing 的 `creditUsagePercent` 生成. `ApiUsageCollector.BuildDeepSeekPluginUsage` 将 APIs 页中第一张 DeepSeek 卡片的 CNY 余额四舍五入为整元后转换为插件数据, 卡片本身仍显示两位小数.
-2. `TrayController` 将 Codex, Grok 与 DeepSeek 的最新结果分别写入 `UsageCache`, 由缓存合并为插件响应. 隐藏对应页面时会清除该缓存. 恢复备份时清空这三份插件缓存, 并立刻重新刷新.
-3. `LightweightHttpServer` 默认监听 `127.0.0.1:17890`, 暴露以下接口:
-   - `/codex-tray`: LiteMonitor 使用的 JSON 响应. DeepSeek 显示 `display.deepseek` 与 `limits.deepseek`; 余额格式为整元 `¥N`; `remaining_percent` 在余额可用时为 100, 否则为 0, 供 LiteMonitor 着色.
-   - `/codex-tray.txt`: TrafficMonitor 使用的三行文本, 依次为 Codex Weekly, Grok Weekly 和 DeepSeek 整元 CNY 余额.
-   - `/health`: 返回本地服务健康状态.
-4. `LiteMonitorPluginInstaller` 和 `TrafficMonitorPluginInstaller` 从发布目录读取模板, 写入当前端口后安装到监控器目录.
-   TrafficMonitor 默认 DLL 固定为应用目录内的 `Plugins/TrafficMonitor/CodexTray.dll`. 开发调用可以显式提供编译产物路径.
-5. TrafficMonitor 读取三行文本时, 正文上限为 4096 字节, 整次请求限时 5 秒. 失败时三项均显示 `N/A`. 数值与 tooltip 以完整快照发布, 原生取值接口为调用线程保留字符串.
-
-### API 监控链路
-
-卡片保存和后台采集共用 Base URL 校验. 远程目标必须使用 HTTPS, HTTP 限 localhost 和字面回环 IP, 并且绕过系统代理. 生产 HTTP 客户端禁用重定向及 Cookie. 卡片更换 provider 或目标源 (协议、主机、端口) 时清空密钥和 User ID, 同源路径编辑保留凭据.
-
-1. `AppSettings.ApiMonitors` 保存 API 监控卡片的顺序和 provider 配置. 支持的 provider 及新建卡片下拉顺序为 OpenAI, DeepSeek, OpenRouter, Vercel 与 NewAPI, 由 `ApiMonitorViewModel.ProviderOptions` 固定. 新建卡片的 provider, 名称和 Base URL 为 OpenAI 与 `https://api.openai.com`. `ApiMonitorSettings` 的字段初始值和未知 provider 的规范化结果仍是 DeepSeek. `TrayPopupViewModel` 负责增删, 排序和持久化卡片. 升降箭头仅位于卡片编辑页, 排序立即持久化已有卡片的顺序, 不保存未完成的字段编辑或 pending 卡片. `AppSettings.Normalize` 会移除旧版 Cursor 卡片和已保存的 NanoGPT 卡片.
-2. `ApiUsageCollector` 并行刷新所有卡片. OpenAI 使用 `/v1/organization/costs`, DeepSeek 使用 `/user/balance`, OpenRouter 使用 `/api/v1/credits`, Vercel 使用 `/v1/credits`, NewAPI 使用 `/api/user/self` 并发送 `New-Api-User` header.
-3. 请求发送到各卡片配置的 Base URL. OpenAI 需要组织 Admin key, 普通项目 API key 不能读取用量. 查询当前 UTC 自然月: `start_time` 为当月 1 日, `end_time` 为次日 0 点, `bucket_width` 为 `1d`, `limit` 为当月已过天数. 跟随 `next_page`, 最多 7 页; 仍未读完则失败, 不把部分合计显示为完整用量. 非 USD 金额视为失败. 未填写 `MonthlyStartingCredit` 时, 卡片只显示该月合计, 标签为 `Used:`. 该字段是用户手填的非负 USD 金额, 缺失或非法时保持未设置, 旧卡片无需补齐. 填写后主值 Balance 为起始额度减当月用量, 次值 Used 为当月用量; 用量更大时 Balance 显示负数, 不截成 0. 非 OpenAI 卡片在规范化时丢弃该字段. OpenRouter 使用 Management Key, 不使用普通 API key 的 `/key` limit 作为账户余额. Vercel 使用 AI Gateway API key, 不使用普通 Vercel 账号 token. NewAPI 还需要 User ID.
-4. `TrayController` 将结果交给 `TrayPopupViewModel` 更新单卡片状态与 APIs 页汇总状态, 并将第一张 DeepSeek 卡片写入 `UsageCache`. 其他 API provider 不进入插件 HTTP 响应. 有多张 DeepSeek 卡片时只使用最靠前的一张, 该卡片不可用时显示 `N/A`, 不回退到后续 DeepSeek 卡片.
-
-### Grok 页面链路
-
-Grok 与 Gemini 的文件凭据共用 `AtomicFile` 的 NTFS 事务写回. Grok OAuth 请求前以事务读写句柄确认文件内容与采集快照一致, 网络返回后在同一笔新的事务内比较当前内容、写入并提交, 并发换号或退出后丢弃旧结果; 无法事务写回时, Grok 仍有效的 access token 可以继续查询, 再次续期须由原客户端完成. Gemini 在本地 JSON 凭据文件支持事务写回时同样原子更新原文件, 不可写或被占用但内容未变时自动回退到按 `SourceKey` 绑定的短期 `access_token` 内存缓存.
-
-1. `GrokUsageCollector` 从 Grok Build 的 `~/.grok/auth.json` 读取 xAI OAuth access token, 不使用 OpenCode 凭据. 临近过期, 或额度请求返回 401/403 时, 使用 refresh token 调用 `auth.x.ai` 刷新并写回原文件. 设置请求失败不触发这次续期. OAuth token 不会复制到 `settings.json`.
-2. Grok 额度请求 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`, 与 Grok Build 客户端相同. `https://grok.com/rest/grok/credits` 对非浏览器返回 Cloudflare 挑战页, 不使用. 响应提供 Weekly 已用百分比 `creditUsagePercent`, 账期结束时间 (`currentPeriod.end`, 缺失时用 `billingPeriodEnd`) 和 `productUsage` 产品占比. 当前响应可以只有 `config`, 不带 `subscriptionTier`. 已用百分比先限制在 0 到 100. `productUsage` 缺少产品名或名称为空时记为 `Cursor`. 插件把已用百分比四舍五入为整数, 剩余为 `100 - 已用整数`. 卡片把剩余百分比 `100 - 已用` 四舍五入为整数. 重置时间使用该账期结束时间.
-3. 订阅徽章在额度采集成功后请求 `GET https://cli-chat-proxy.grok.com/v1/settings`, 请求头与 CLI 额度查询相同. 优先使用响应根对象的 `subscription_tier_display`; 该字段为空时使用同一响应的 `subscription_tier`. 两者都为空, 或这次设置请求失败时, 若 `~/.grok/logs/unified.jsonl` 有更新的 `subscriptionTier`, 或当前 access token 的 auth 条目有订阅档位, 用该本地记录. 本地记录也没有时, 保留 billing 响应根对象或 `config` 的 `subscriptionTier`. 不请求 `GET /v1/user?include=subscription`, 不用其中的 `subscriptionTier` (例如 `GrokPro`) 作为徽章来源. 额度和订阅徽章不使用 Cursor 登录, 也不请求 `GetSandUsageStatus` 或 `usage-summary`; Cursor 云端 token 用量由独立采集器读取. 选中的显示名会规范成大写徽章, 并把有公开对应关系的旧档显示成 The X Subscription 名称. `Free`, `Plus`, `Premium`, `Super`, `Ultra` 保持原名. `SuperGrok Lite` 显示为 `PLUS`, `SuperGrok` 显示为 `PREMIUM`, `SuperGrok Plus` 显示为 `SUPER`, `SuperGrok Heavy` 显示为 `ULTRA`, `X Premium` 显示为 `PLUS`, `X Premium+` 显示为 `PREMIUM`. `X Basic` 保持 `X BASIC`. 匹配使用完整档名, `SuperGrok Plus` 不会落到 `SuperGrok`, `X Premium+` 不会落到 `X Premium`. `LooksLikeSubscriptionTier` 只过滤本地日志和 auth 回填, 接受 `Free`, `X Basic` 以及精确的 `Plus`, `Super`, `Ultra`, 或包含 `Premium`, `SuperGrok`, `Business`, `Enterprise` 的字符串.
-4. `TrayController` 将 dashboard 交给 `TrayPopupViewModel`, 并将 `GrokUsageCollector.BuildPluginUsage` 写入 `UsageCache`. Grok billing 失败会清除已发布的 Weekly. Token Cost 由 `TokenCostCollector.CollectGrok` 将本地 Grok 记录与 `CursorUsageCollector` 返回的 Cursor 与 Grok API 云端事件合计, 独立于额度发布. 两来源使用同一 `asOf`; 隐藏 Grok 页面或退出时沿用现有取消和发布检查.
-
-### Gemini 页面链路
-
-凭据读写必须保留原文件结构: Antigravity CLI 的 `token` 对象内读写 access/refresh token 与 RFC3339 `expiry`, Gemini CLI 根对象沿用 `expiry_date`. Windows 凭据先区分 UTF-8 与 UTF-16LE, IDE 状态库支持 Base64 protobuf 的 `Topic -> Entry -> Row -> Base64 OAuthTokenInfo` 包装, 所有长度读取均检查边界. 单次采集已预刷新后, 401/403 不再次续期. `disabled: true` 的额度桶不参与显示. Gemini CLI 用量遵循 [官方字段映射](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingTypes.ts): `input` 已含缓存, `tool` 另计普通输入, `output + thoughts` 为输出, 不根据 `total` 猜测缓存是否已包含. 凭据结构参考 [agy 脱敏文件示例](https://github.com/google-antigravity/antigravity-cli/issues/479), IDE 编码参考 [Antigravity-Manager protobuf 实现](https://github.com/lbjlaq/Antigravity-Manager/blob/main/src-tauri/src/utils/protobuf.rs).
-
-1. `GeminiUsageCollector` 依次从本地文件 (`GEMINI_HOME` / `~/.gemini` 下的 `antigravity-cli/antigravity-oauth-token`, `antigravity-acp/acp_token.json`, `oauth_creds.json`, `antigravity/oauth_creds.json`), Windows 凭据管理器 (`CredReadW("gemini:antigravity")`, `"gemini:antigravity-acp"` 与 `"gemini-cli"`, 仅默认宿主环境读取) 与 Antigravity IDE 的 `%APPDATA%/Antigravity/User/globalStorage/state.vscdb` (`ItemTable` 键 `antigravityUnifiedStateSync.oauthToken`) 读取 Google OAuth 凭据, 并为所有来源记录精确的 `SourceKind`/`SourceLocation`/`RawFingerprint` (SHA-256 内存摘要, 不写入磁盘或日志) 用于并发换号校验与退避键.
-2. 刷新与恢复约束: 5 分钟预刷新缓冲期内, 若当前 `access_token` 尚未实际过期且无法直接静默续期 (缺 `refresh_token` 或缺 OAuth 客户端配对), 统一放行当前 token 不提前报错. 客户端配对按以下顺序解析 (且绝不混用半套配对): (1) 凭据 JSON 根对象的 `client_id` + `client_secret`; (2) 来源对应的 `CODEXTRAY_ANTIGRAVITY_*` 或 `CODEXTRAY_GEMINI_CLI_*` 环境变量; (3) 运行时在后台线程从本机已安装的对应应用流式提取 Google 安装型应用 OAuth 客户端配对 (Antigravity 依次检查 `%LOCALAPPDATA%\agy\bin\antigravity-acp.exe`/`agy.exe` 及 `%LOCALAPPDATA%\Programs\Antigravity*` 下的 `language_server_windows_x64.exe`/`app.asar`/`out\main.js`, IDE 来源优先扫描 IDE 文件; Gemini CLI 检查 `%APPDATA%\npm\node_modules` 下的 `@google/gemini-cli-core` `oauth2.js`; 每次扫描前用 `AppUpdatePaths.EnsureSafePath` 拒绝重解析点, 限制单文件不超过 256 MiB, 响应取消令牌, 仅在完整读取无 I/O 异常后按文件大小与修改时间缓存扫描结果, 在 Go `.rodata` 无空字节拼接场景下按严格 28 位 `GOCSPX-` 体长截断, 并跨候选文件汇总最多 24 组配对, 其中单个二进制不超过 4x4 组分离候选, 探测命中后缓存已验证配对供后续单次续期复用). 直接向 `https://oauth2.googleapis.com/token` (禁止重定向和 Cookie, 携带 `client_secret`) 发送 `refresh_token` POST: 本地 JSON 文件优先原子写回原文件并原地更新命中的到期时间字段 (`expiry_date`/`expiryDate`/`expires_at`/`expiresAt`/`expiry`); 若写回因文件锁定或不支持 TxF 失败但原文件内容未变, 以及 Windows 凭据管理器与 IDE `state.vscdb` 只读来源, 保持原存储不修改, 仅将换回的短期 `access_token` 与到期时间保存在按 `SourceKey` 绑定的私有内存缓存中 (不缓存长期 `refresh_token`). 在途刷新与写回前同时复核源凭据指纹与 `m_StateGeneration`, 隐藏页面或 `ResetState` 后的旧任务既不写盘也不再发起额度请求. 后台刷新永不拉起 `agy` 子进程或触发浏览器登录弹窗. 缺配对/客户端不匹配/缺 `refresh_token`/`invalid_grant`/续期后再次 401/403 对当前来源版本等待凭据变更; 临时本地读取异常与网络/超时按 2/5/15 分钟封顶退避, 主备端点及 `loadCodeAssist` 的 429 `Retry-After` 跨站点取最长保留. 退避, 内存 token 缓存与客户端扫描缓存由轻量非阻塞状态锁和代次计数保护 (`ResetState` 在隐藏页面或恢复设置备份时即时失效在途写回且不阻塞 UI); 凭据指纹变化或按页标记的手动刷新 (`RefreshRequests.ManualPages`) 立即解除退避. `OAuthTokenHelpers` 仅解析非 2xx 响应中白名单 OAuth `error` 码, 绝不暴露 `error_description`. Gemini 页面状态行根据 `GeminiUsageFailureKind` 和 `GeminiCredentialOwner` 给出可操作提示 (`AntigravityCli`, `AntigravityAcp`, `GeminiCli`, `AntigravityIde`), 失败时在 `GeminiUpdatedStatus` 暴露脱敏 `ToolTip` 并在 `GeminiUpdatedAtTextBlock` 暴露 `AutomationProperties.HelpText`. 凭据不写入 `settings.json` 或插件响应.
-3. 额度采集顺序请求 `https://daily-cloudcode-pa.googleapis.com` (主) 与 `https://cloudcode-pa.googleapis.com` (备) 上的 `POST /v1internal:loadCodeAssist` (`{"metadata":{"ideType":"ANTIGRAVITY"}}`) 与 `POST /v1internal:retrieveUserQuotaSummary`, 携带 `User-Agent: antigravity/hub/2.24.0` (通过 `TryAddWithoutValidation` 避免两位版本校验异常). 响应解析五个桶: 大卡片 `GeminiQuotaPager` (`QuotaPagerDataTemplate`) 顺序展示 `gemini-5h` (`Session`, `WindowMinutes=300`), `gemini-weekly` (`Weekly`, `WindowMinutes=10080`) 与 `gemini-argon-wtu-weekly` / 含 `"argon"` 的独立高级模型周额度 (`Argon Weekly`, tooltip `Argon Weekly`; 仅当服务端返回该桶时可见, 否则隐藏第三页); 下方小卡片 `GeminiPartnerQuotaPager` (`CompactQuotaPagerDataTemplate`) 展示 `3p-5h` 与 `3p-weekly` (标题分别为 `Claude & GPT Session` 与 `Claude & GPT Weekly`, 页点 tooltip 分别为 `Session` 与 `Weekly`). 桶缺失 `remainingFraction` 但存在 `resetTime` 或 `isExhausted == true` 时按剩余 `0%` 计. 订阅徽章归一为 `ULTRA`, `PRO`, `FREE`, `ENTERPRISE`, `TEAM` 等大写名称. Gemini 数据不进入 LiteMonitor / TrafficMonitor 插件响应.
-4. Token Cost 由 `TokenCostCollector.CollectGemini` 独立采集与发布: 读取 `<geminiHome>/antigravity-cli/brain/**/transcript.jsonl`, `<geminiHome>/antigravity/brain/**/transcript.jsonl`, `<geminiHome>/brain/**/transcript.jsonl` 与 `~/.t3/userdata/providers/antigravity/<profile>/antigravity-acp/brain/**/transcript.jsonl` 中的 `PLANNER_RESPONSE` / 模型响应行 (`input_tokens` 为 fresh input, 加 `cache_read_tokens` 构成 cacheable total input; 当含非空 `tool_calls` 且 `output >= 200` 时用下一条非 `USER_INPUT` 步骤时间差估算 `~N.N tok/s`), 以及 `<geminiHome>/tmp/**/chats/session-*.json(l)` (`$set` 状态快照按消息 `id` 去重, 处理 `thoughts` 输出计数与 `total`). T3 Code 的 profile 目录每次自动枚举, 不受 `GEMINI_HOME` 影响; 同一 Antigravity 会话 UUID 在多个数据根出现时只使用修改时间最新的标准日志. 使用独立锁定的 `m_GeminiFileUsageCache` 并随价格表变更失效. Antigravity 内部模型 ID `gemini-pro-orchestrator-g1-pro` / `gemini-pro-orchestrator` 映射至 `gemini-4-argon`, `gemini-pro-orchestrator-g1-ultra` / `gemini-ultra-orchestrator` 映射至 `gemini-4-carbon`, `gemini-flash-executor` / `gemini-flash-worker-agy` 映射至 `gemini-4-hydrogen`, 统一用于模型显示、Session Logs 与费用计算; `TryFindPricing` 与 `FormatModelLabel` 剥离 `-thinking`, `-g1-pro`, `-g1-ultra` 等后缀.
-5. 当 `brain/<uuid>/.system_generated/logs/transcript.jsonl` 中的 Antigravity 响应缺少模型 ID 时, 只读同一个数据根的 `conversations/<uuid>.db`. 用 `step_index` 找到 `steps` 中的响应步骤, 核对秒级时间与三类 token 数, 再用带响应 ID 的 protobuf 用量消息与 `gen_metadata` 匹配. 仅取明确且无冲突的 `responseModel`, 其中 `gemini-3.8-flash-n` 归为 `gemini-3.8-flash`; `gen_metadata.idx` 不是步骤索引. 数据库不添加用量事件. 无可靠匹配时保留 `Unknown` 和原 token 数, 不估价. transcript、数据库或其 WAL 变化会使文件缓存失效, 数据库临时读取失败时下次重试.
-6. Gemini CLI 恢复旧 `.json` 会话时会把历史复制到同名 `.jsonl`; 两份同时存在时仅统计 JSONL. 子代理会话读取 `tmp/**/chats/<parent-session-uuid>/<child-session-uuid>.jsonl`. 文件结构依据 [Gemini CLI 会话记录实现](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingService.ts).
-
-### 本地 Token Cost
-
-- 内置 `model-pricing.json` 的 Claude 条目仅保留 4.6 及之后版本, Gemini 条目仅保留 3.1 Pro 及之后版本; 旧版本别名一并移除, 不映射到新模型价格. 旧模型日志仍统计 token, 按现有未定价规则传播 `HasUnpricedUsage`.
-- Gemini / Claude 三价以 2026-11-17 核实的官方 Standard 文本非优惠原价为准: [Claude 价格表](https://platform.claude.com/docs/en/about-claude/pricing), [Gemini 价格表](https://aistudio.google.com/docs/pricing). 包含 Claude Opus 4.6/4.7/4.8/5/5.5, Sonnet 4.6/5/5.5, Haiku 5.5, Fable 与 Mythos 5/5.1/5.2, 以及 Gemini 3.1 Pro/Flash-Lite, 3.5 Flash/Flash-Lite, 3.6/3.7/3.8 Flash 和 4 Argon/Carbon/Hydrogen. Gemini 4 Neon 于 2026-11-19 按同一价格表补充. Claude 官方连字符版本 ID 通过别名匹配; Gemini `gemini-3.1-pro-preview-customtools` 显式别名到 3.1 Pro, Flash-Lite 的 `-preview` 沿用现有后缀匹配.
-- Gemini 3.5 Flash 独立使用 [Google Cloud 官方单列价格](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing) $1.50/$0.15/$9, 不再错误映射 Flash-Lite; [Developer API 自动路由至 3.6](https://aistudio.google.com/docs/deprecations#gemini-3) 未明确对应计费变化, 不据此推断其价格. 3.7 Flash 也独立列项. Gemini 4 Argon/Carbon 固定使用非优惠原价 $4/$0.20/$20, 3.6/3.7/3.8 Flash 固定使用 $1.50/$0.15/$7.50; 不采用限时优惠, 不按优惠日期切价. Hydrogen 及其 Orchestrator worker 使用 $1.50/$0.075/$7.50. Gemini 4 Neon 使用 $3/$0.15/$15, `gemini-pro-orchestrator-neon` 是其价格别名.
-- 固定三价采用基础上下文档位: Gemini 3.1 Pro 输入不超过 200k, Claude Haiku 5.5 输入不超过 100k; 不计算高于门槛的加价. 不覆盖 Fast、Batch、地区、缓存写入溢价/存储或独立工具收费, 也不收录图像/音频生成、embedding 和 Google Cloud 专供 Cyber 模型. 历史事件按当前价格重算, 不还原当时价格.
-
-- `CursorUsageCollector` 只读 `%APPDATA%/Cursor/User/globalStorage/state.vscdb` 的 `cursorAuth/accessToken`, 兼容明文 JWT 和 `cursor-safe-storage:v1:` 加密值. Windows 加密值使用 `Local State` 的 DPAPI 保护密钥解开 AES-GCM `v10` 数据, 不续期或写回 Cursor 登录. 从 JWT 的 `sub` 取得账号, 用 `userId::JWT` URL 编码构造 `WorkosCursorSessionToken` Cookie, 仅发送给 `https://cursor.com/api/dashboard/v2/query-billing-items`. 禁止自动重定向和环境 Cookie. `GetMe` 使用 Cursor Bearer 和 Connect 协议头, 只取账号创建时间作为历史查询下限. 不再查询旧 `GetFilteredUsageEvents`, 不拼接旧接口历史.
-- 新账本按 UTC 自然月查询, `scope=user`, 不传 `product` 以读取两种来源, `pageSize=500`, `startTime`/`endTime` 为 UTC ISO 时间. 同时在响应端只收 `product == cursor` 或 `product == grok-api`, 排除 Bot, Build, Chat 和 Imagine, 不按模型名筛选. 使用 `pagination.hasMore` 与 `nextCursor` 完整翻页, 最后一页可省略 `nextCursor`; 后续页必须有可推进游标, 按 `billingItemId` 去重. 时间必须在请求窗口内, 月末结束边界上的次月午夜记录由次月统计. Cursor 使用四类 `usage` 字段 `prompt-text-tokens`, `completion-text-tokens`, `cached-prompt-text-tokens`, `cache-write-text-tokens`. Grok API 使用 `Prompt text tokens`, `Cached prompt text tokens`, `Completion text tokens`, `Reasoning text tokens`; 后两项是独立输出计数, 相加后按输出价计费, 输入另含可选的 `Prompt image tokens`, 与文本输入同计普通输入价, 缓存命中分母为文本输入、图片输入与缓存输入之和. 两种来源均要求 `totalTokens` 为合法的非负整数或整数字符串. Cursor 的 meter 合计仍必须等于总数. Grok API 已知分类合计小于总数时, 用 `UnpricedTokens` 保存差额; 已知分类缺失、类型非法、溢出或合计大于总数时, 保留总数并将整条记为未定价, 不清空其他云端记录. 未知 meter 不直接求和, 避免把搜索次数、重叠细项等当成新增 token. 无法确认输入/输出类别的 token 不参与估价或缓存命中率分母, 缓存命中率仅基于已识别输入; 不含 token meters 的记录不计. 模型取 `displayExtras.model`, 缺失时为 `unknown`.
-- Cursor 与 Grok API 云端事件只保存原始计数和产品类型, 费用在 `CollectGrok` 中复用 `CalculateCost` 和当前价格表估算, 输出计数为总数减已知输入再减 `UnpricedTokens`, 未定价数量大于零时传播 `HasUnpricedUsage`, 不使用 `pricing.contracted` 的实际账单金额. 缓存命中分母为输入加缓存读写, 缓存写入按普通输入价计算. `grok-4.5` 的 Cursor 价格别名覆盖带/不带 `cursor-` 前缀, 4.6 的 Cursor 别名仅登记带 `cursor-` 的名称, `grok-4.7` 仅使用官方 Model ID 与实测账本采用的无前缀名称; 本地 Grok Build 所需的 `grok-4.6` 基础条目及 `-build`/`-latest` 别名保留; 三个版本均覆盖无 reasoning 后缀或官方支持的推理档位、带/不带 `-fast` 的组合, 标准变体使用对应本地 Grok 基础价格, Fast 变体映射到独立的 `grok-4.5-fast`、`grok-4.6-fast` 与 `grok-4.7-fast` 价格条目. Fast 三价按 [Cursor 官方价格表](https://cursor.com/docs/models-and-pricing)维护, 4.5 为每百万 token 输入/缓存输入/输出 $4/$1/$18, 4.6/4.7 为 $4/$1/$12; 圆环仍按版本合并 Fast 与标准变体, 累加各自算出的费用. 推理档位按 [Cursor 官方模型文档](https://cursor.com/docs/models/grok-4-5): 4.5 为 `low`/`medium`/`high`, 4.6/4.7 另含 `xhigh`; 无对应价格时保留 token 并传播 `HasUnpricedUsage`. 云端事件不进入 Session Logs 或速度统计. Cursor 模型统计键在原模型名后附加 `*`, Grok API 附加 `-api*`. 显示格式化将云端 Grok 去掉 `cursor-` 前缀、reasoning 和 Fast 后缀后按产品分别显示为 `Grok-4.x-Cursor` 和 `Grok-4.x-API`, 其他 Cursor 云端模型保留 `*`, 其他 API 模型附加 `-API`; 圆环与其 tooltip 中按连字符分段首字母大写, 保留 `GPT`、`DeepSeek`、`API` 品牌或缩写拼法, 不改变原始模型 ID; 同显示名先合并 token、费用和不完整标记, 与本地模型分别计算, 圆环仍按原规则合并 `Other`.
-- 每个账本月份完整分页后才进入内存与本地缓存. 缓存位于 `CodexTray.exe` 同级目录中的 `cursor-usage-cache.json.gz`, 使用标准库 GZipStream 无损压缩 JSON, 使用 schema Version 3 保存未定价 token 数量; Version 2 的已完成月份可直接迁移, 但须重新查询账号创建月并补查尚未读取的旧月, 避免永久保留由旧解析失败造成的历史截断; Version 1 只有 Cursor 数据, 必须重新采集历史以补齐 API, 不复用其历史边界或月份; 用版本号和账号 ID 的 SHA-256 校验归属, 只保存可读历史起点、月查询截止点、首页 SHA-256 和原始用量事件, 不保存凭据或原始响应; 费用仍使用当前价格表重算. 当前月和前月每次检查首页, 首页哈希不变时复用该月已完成分页, 未结束月份不因查询时间前进而重新写盘, 月份封口时仍更新截止点; 更早的已封口月份直接复用, 尚未查询到月末的月份即使跨多月重启也须补查. 独立的历史页修正需退出程序并删除本地缓存后重新读取. 缓存读入校验月份、产品类型、事件时间和 token 计数关系, 包括 `0 <= UnpricedTokens <= TotalTokens - CacheableInputTokens` 且 Cursor 的未定价计数必须为零, 无效或版本不符时忽略; 临时文件写完后原子替换, 缓存写入失败不影响本次结果. 新 `.json.gz` 不存在时读取同目录旧 `.json`, 按相同规则完整验证后迁移, 压缩流关闭且原子替换成功后才删除旧文件. 新压缩缓存存在时优先使用, 损坏时重新查询, 不回退旧文件. 首次遇到不可读且早于全部已缓存月份的旧月时停止继续回溯, 保留成功读到的新月份, 不将失败月份视为已知零用量; 该历史边界同时持久化, 重启不再探索更早月份, 删除缓存后重建可重新尝试. 当前月、已缓存月份或已知历史中的待补齐月份读取失败时清除云端结果和内存缓存, 回退到本地 Grok, 磁盘上的完整分页仍供后续恢复. 凭据失败和账号变更同样清除内存缓存, 不发布不匹配账号的磁盘用量. 首次查询从账号创建月回溯, 缓存建立后只使用已保存的可读历史范围. 调用方取消向上传播, 未完成月份不落盘. 单次请求超时 10 秒并复用 `UsageHttp` 重试.
-
-- Codex 会话缓存同时校验子会话分页和回放父会话分页的路径、长度及修改时间; 父分页变化或消失时重新校验回放截止点, 不沿用子会话的旧统计. 模型圆环合并同名模型及 `Other` 时传播 `HasUnpricedUsage`; 采集失败时自然月与滚动趋势图均显示 `N/A`.
-
-- `TokenCostSummary.HasUnpricedUsage` 按事件与所选周期传播, 保留已知费用小计; Grok 部分自报费用无法完整回算时同样标记. `RefreshState` 保存每部分最后成功时间和当前错误, 失败时 UI 和插件清空数值为 `N/A`. 部分费用在金额旁显示 `*`. 时段列表, 圆环中心与 Codex, Grok 标题栏更新时间不显示 tooltip. 价格表按内容比较并同步加载, Codex 在价格字典变化后清空已计算费用的会话缓存, 不依赖文件长度或修改时间.
-- `TokenCostCollector.CollectCodex` 读取 `~/.codex/sessions/**/*.jsonl` 与 `*.jsonl.zst`, 以及 `~/.codex/archived_sessions` 根目录下的同类文件. Codex 的「压缩本地聊天记录」对应 `features.local_thread_store_compression`: 超过 7 天的 rollout 被整文件压成 zstd `.jsonl.zst` 并删除明文, 解压后的行与原 JSONL 相同, `token_count` 仍按事件时间分日. 同一路径同时存在明文和 `.zst` 时只读明文. 使用 `Resources/model-pricing.json` 计算 API 等价成本与缓存命中率. 不读取 OpenCode. 同一 thread 的桌面分页文件按文件名顺序拼接后共享累计水位; 父会话未写到 `forked_from` / `parent_thread_id` 截止点的子会话整段不计.
-- `model-pricing.json` 每个模型使用默认一口价 `input`/`cachedInput`/`output`, 可选 `aliases` 与 `periods`. 默认三价覆盖全天. `periods` 按数组顺序命中第一段: 每段可写 `daysUtc` (0=周日到 6=周六), `startUtc`, `endUtc` (UTC `HH:mm`, 含起不含止). 省略星期或起止时间则该段默认全星期或全天. 未命中任何时段时回退默认三价. 分时只影响本地回算, 不拆分 UI, 也不覆盖 Grok 完整自报 `costUsdTicks`.
-- 本地记录中规范化后的模型名 `codex-auto-review` 不进入 Codex 与 Grok 的时段合计, 趋势, 模型占比, Session Logs 或费用. `model-pricing.json` 不登记该名称; 读取价格时也忽略同名条目和别名. 跳过 Codex 事件前仍更新累计水位, 使后续只带 `total_token_usage` 的增量不包含这段用量.
-- `CollectGrok` 读取 `~/.grok/sessions/**/updates.jsonl` 和 `~/.grok/archived_sessions/**/updates.jsonl`, 汇总 `turn_completed` 事件中的用量. 每轮 token 按 `inputTokens + outputTokens` 统计, `reasoningTokens` 已包含在输出中, 不重复相加.
-- Grok 费用优先采用完整的 `costUsdTicks`, 保留其中已计入的工具调用等费用. 自报费用缺失或 `costIsPartial` 为真时, 使用本地模型的输入, 缓存输入和输出价格回算. 只有费用而没有 token 的记录仍保留自报费用; 本地价格不可用时保留已有自报费用. 两者都不可用时, 仍统计 token, 成本按 `$0.00` 计入.
-- Grok 费用规则参考 [CCSwitch 的 Grok Build 会话导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs). 修改解析或计费时, 以当前代码和测试确认边界行为.
-- Codex 和 Grok 模型圆环 tooltip 的 `Speed` 使用所选周期的 `TimedOutputTokens` 总和除以 `TimedDurationMilliseconds` 总秒数, 同名模型与 `Other` 先合并分子和分母后计算, 显示一位小数. 不计入没有有效配对耗时的输出, 不重复相加 reasoning. 没有有效速度样本时不显示 `Speed`; `CostUsd` 为空时圆环中心只保留缓存命中率, tooltip 和趋势图也不显示 `Cost`. `TokenCostDashboardViewModel` 在构造时固定速度显示开关.
-- Grok `Speed` 显示 `N.N tok/s`, 使用 `turn_completed.usage.modelUsage[model]` 中同一对象的非负整数 `outputTokens` 与正整数 `apiDurationMs`; 无 `modelUsage` 时沿用顶层 `usage` 的 `unknown` 回退. 先沿现有 session/prompt/model 去重, 不分摊顶层耗时到模型. 只计入输出不少于 100 且 `apiDurationMs` 不少于 100 毫秒的调用. 报告的 API 耗时包含首 token 等待等开销, 部分调用未报告耗时时结果可能偏高.
-- Codex `Speed` 显示 `~N.N tok/s`, `TokenCostStatistics.IsSpeedEstimated` 标识估算口径. 仅在有效 `task_started.turn_id` 和匹配的 `turn_context` 下重建响应窗口: 最近输入或已接受用量的时间为起点; 匹配的 `token_usage_record` 优先作为终点, 否则用最后 reasoning, assistant message 或工具调用 `response_item`; 排除输出完成后的工具等待, 并忽略 `token_count` 后 100 毫秒内补写的旧输出项. 只将已接受的 `last_token_usage` 输出配到同模型的窗口; 输出少于 200 或耗时不在 1 秒到 1 小时内的窗口不计入速度. 重复快照不截短窗口, 父会话回放不累计速度, 缓存同时保留输出与耗时. 缺少边界, 乱序, 轮次不匹配, 中断, 错误或压缩后的不完整窗口不估算. 该速度仍包含首 token 等待, 网络和客户端调度, 不使用整轮耗时或减去整轮 TTFT 来推断. 窗口思路参考 [codex-tps](https://github.com/adenta/codex-tps/blob/be549617f50409c8c0e15a8a6838520ec12d2bb1/analysis.go) 与 CC Switch 的会话估算门槛.
-- Codex 分叉会话在父会话日志尚未写到分叉时刻时整段跳过, 不把回放前缀当新用量. 双段文件名 `rollout-…-<threadId>_<rolloutId>.jsonl` 按 thread id 拼页后再解析累计增量和父会话截止点; 同一 rollout id 的归档副本仍只计一份.
-- `TokenCostStatistics.SessionLogs` 在同一次采集中保留明细, 按时间从新到旧. 本地日期晚于本次采集日的事件不进入列表, 与周期合计相同. Codex 一行是一次计入费用的 `token_count` 增量, Grok 一行是去重后的一次 `turn_completed` 模型用量. 行内速度沿用已配对的 `TimedOutputTokens` 与 `TimedDurationMilliseconds`, 未达门槛则速度为空. Codex 缓存命中时从已缓存事件生成这些行. 该列表不进入插件响应. `SessionLogListViewModel` 每页 20 行. Codex 与 Grok 标题栏刷新按钮左侧使用固定的列表图标切换中间区域, 打开时只把前景改为 `#1ABC89`, 不更换字形. 页眉, 页脚和开关状态不写入 settings; 两个来源各自独立. 再点一次按钮回到额度与 Token Cost. 列表滚到边缘后滚轮翻页. 四列从左到右是 Time, Model, 速度和费用. Time 字号 11, 左对齐, 上行为 `yy/MM/dd`, 下行为 `HH:mm:ss`, 列宽 49. Model 列宽固定为 115, 刚好容纳 `deepseek-v4-flash`, 更长名称显示省略号, 字号 13. 列表不显示列标题. 费用列宽 55, 速度列宽 58, 字号同样是 13, 两者右对齐, 费用贴齐行的右缘. 三道列间距等分剩余宽度, 当前面板上约为 7; 列宽和间距不随模型名或翻页改变, 不需要滚动时仍保留滚动条占位. 费用为 `$0.0000`, 不完整时加 `*`, 缺失为 `—`. 速度为四舍五入整数加 ` tok/s`, 没有样本时为 `—`. 列表行高 36.
-
-### 设置边界
-
-- API 卡片保存只替换被保存卡片的字段; 保存、排序和删除均按当前顺序保留其他卡片的已保存配置, 不持久化其编辑草稿或 pending 卡片. 启动插件自动定位完成后仅合并未编辑的路径, 并更新路径基线, 不重新加载或替换整个设置与 API 卡片列表.
-
-- `SettingsStore.LoadError` 非空时禁止全部持久化, 自动插件定位也跳过. 读取与保存均验证 JSON object 和可反序列化字段, 运行期间文件损坏同样阻止覆盖. 主配置已成功解析时, 后续备份或规范化写入失败仍返回该有效配置, 同时报告错误并阻止持久化. `settings.last-good.json` 保存上一份有效配置; 恢复先验证备份, 把当前文件复制为 `settings.damaged-<guid>.json`, 再原子替换主文件. 主配置, 备份和保留副本中的 API 凭据均使用相同明文表示, 不得分享这些文件. 恢复会替换 ViewModel 的共享配置引用并阻止旧配置的在途刷新发布.
-- 默认值, 端口范围, HTTP 路径, 文件名和发布资源目录统一维护在 `CodexTrayDefaults` (`CodexTray.Core/CodexTrayDefaults.cs`).
-- 刷新间隔范围为 1 到 1440 分钟, 默认 1 分钟.
-- 主题支持 `System`, `Light`, `Dark`. Windows 11 默认启用 Mica, Windows 10 固定使用纯色背景. Mica 启用成功时必须同时设置覆盖客户区的 `WindowChrome.GlassFrameThickness = -1`, 并调用 WPF UI 的 `WindowBackdrop.RemoveBackground` 清除窗口及 `HwndSource.CompositionTarget` 背景; 仅把 RootBorder 设透明会露出默认黑色合成底色. Mica 关闭, 不可用或高对比度模式下, 移除玻璃框架并恢复窗口与 RootBorder 的不透明主题背景. 窗口资源使用 WPF UI 的 `ThemesDictionary` 与 `ControlsDictionary`, 不启用 WPF 内置 `Window.ThemeMode` 或加载 `PresentationFramework.Fluent`, 避免两套主题管理互相覆盖. 系统偏好变化经 Dispatcher 同步主题与 Mica, 强调色由 `ApplicationAccentColorManager` 生成并从库的 `UiApplication` 顶层资源复制到窗口, 避免窗口字典覆盖系统强调色. 高对比度选择库实际提供的 `HC1`, `HC2`, `HCBlack` 或 `HCWhite` 资源; 窗口关闭时取消系统事件订阅.
-- 应用内 `ToolTip` 的窗口级隐式样式继承 WPF UI 的 `DefaultToolTipStyle`, 保留 Segoe UI 字体, 由库的动态主题资源提供背景, 前景和边框. 库模板未绑定 `ToolTip.Padding`, 因此在 Loaded 时将模板 `Border` 的 Padding 设为 `8,2,8,2`, 与内容 Margin 4 合成左右 12, 上下 6 DIP 的留白. 图表, 按钮及自定义控件内的提示共享此样式; 不使用仅设置字体的独立样式覆盖库模板. 托盘图标仍使用 `NotifyIcon.Text` 的系统提示.
-- 主面板尺寸固定为 360 x 620.
-- 通用按钮和文本框使用 WPF UI 控件, 图标按钮统一使用透明背景和零边框, 下拉框等使用库的模板; 自启动, 时间格式和 Mica 使用 `ToggleSwitch`, 刷新与插件检测使用 `ProgressRing`. 数值编辑与凭据遮挡继续复用现有控件. 六个主页面进入时使用 WPF 可控 `Storyboard` 播放 200ms 淡入与左右滑动, 按 `PageViewport` 子项顺序 Codex/Grok/Gemini/APIs/Settings/About 判断方向, 前进从右侧 50 DIP 滑入, 返回从左侧 50 DIP 滑入; `PageViewport` 裁剪动画内容, 底部导航不参与位移. Session Logs 与统计区域使用 200ms 淡入及垂直位移, 记录从下方 30 DIP 进入, 返回的额度与统计从上方 30 DIP 进入; 内容区域单独裁剪, 不移动页眉. 所有过渡保持与 WPF UI 相同的 0.7 减速比例. 垂直动画仅在 `IsOpen` 的 Visibility 绑定更新时触发, 父页面或窗口显隐不触发; 隐藏时仍清除动画. 主页面索引未变的托盘重新显示不触发左右滑动. 对话框保留 160ms FadeIn. 遵循 `SystemParameters.ClientAreaAnimation`, 每个元素只保留一个活动 Storyboard, 完成, 隐藏, 重入或关闭时移除透明度与位移时钟; 完成回调只清理自身登记, 不影响后续动画. 主页面正在滑入时切换记录立即更新内容, 不叠加子区域动画, 主页面自然完成后恢复独立的上下动画. 保留原有即时失焦隐藏和 Esc 行为.
-- `ContentDialogHost` 位于窗口内容最上层, 使用库的焦点约束与输入阻挡. 对话框启用布局取整和 Display 文字格式, 加载时移除库模板外层 Border 的 DropShadowEffect, 避免整块内容离屏栅格化导致文字发虚. 对话框绑定现有 `InAppDialog*` 字段, 双按钮请求使用 Primary/Close, 单按钮请求仅使用带文字的 Close, PreviewKeyDown 优先处理 Esc 取消. 按钮点击时先释放 host, 再同步执行现有确认/取消命令; 旧对话框异步收尾不得关闭后续请求. 程序取消或窗口关闭须立即释放 host 和确认回调. Session Logs 外部滚动条固定为 12 DIP, 避免库默认滚动条尺寸挤压已有列间距.
-- `TrayController.BuildTrayTooltip` 只格式化当前可见来源的插件缓存, 使用 `Codex W`, `Grok W` 和 `DeepSeek` 标签, 总长最多 63 字符. 已停用的页面位不增加托盘行. 额度限制在 0 到 100 的整数, DeepSeek 整元余额超过 11 字符时截短并加省略号; 不回显源错误或凭据. 各来源发布与页面可见性变化后更新托盘 Text. `TrayPopupViewModel.IsPanelPinned` 默认 false, 不写 settings, 开启后 `OnDeactivated` 不隐藏; Esc 与托盘左键仍沿用显式隐藏逻辑, 页脚图钉使用现有绿色表示选中状态. 窗口关闭时保留 ViewModel 的采集状态, 清理应用内对话框及其确认回调, 并取消窗口的 `PropertyChanged` 订阅.
-- Codex, Grok, Gemini 与 APIs 页面默认可见. `VisiblePages` 为空时不运行定时刷新和本地 HTTP 服务. `PageItem` 保留 `Codex = 1`, `Apis = 4`, `Grok = 8`, `Gemini = 16`. `CurrentSettingsSchemaVersion` 为 `2`. 位 1 已停用, 旧配置里的该位在 `Normalize` 时被掩掉. 缺少 `SettingsSchemaVersion` 或版本低于当前值, 且 `VisiblePages` 为 `7` (v0 `Codex|Cursor|Apis`) 或 `13` (v1 `Codex|Apis|Grok`) 时, 视为当时的全部页面并迁为 `PageItem.All` (`Codex|Grok|Gemini|Apis`).
-- `QuotaPagerViewModel` 支持 2 到 3 个可见额度页切换 (`FirstQuota`, `SecondQuota`, 可选 `ThirdQuota`). Gemini 通过 `SelectAdjacent(int delta)` 滚轮循环; Codex 滚轮向下选 Weekly, 向上选 Session. 手动切到另一页时, 大小卡片的内容沿用主页面的 200ms 淡入与 50 DIP 水平位移, 下一页从右侧进入, 上一页从左侧进入, 页点保持固定. 点击页点按页序定向, 滚轮循环时沿用滚动方向. 后台刷新和自动回退不触发翻页动画, 父区域正在过渡时直接显示所选页. `QuotaViewModel.TooltipTitle` 允许卡片标题 (`Claude & GPT Session` / `Claude & GPT Weekly`) 与页点悬停提示 (`Session` / `Weekly`) 分离.
-- Codex, Grok 和 Gemini Token Cost 共用时段列表, 模型占比圆环和趋势图. 滚动周期为 `24H`, `7D`, `30D`, `Lifetime`, 自然周期为 `Today`, `Week`, `Month`, `Year`. `24H` 从当前时刻精确向前滚动 24 小时. `Week` 从本地当周周一开始, `Month` 从本地当月 1 日开始, `Year` 从本地当年 1 月 1 日开始, 都含起始日, 截止到 `asOf` 的本地日期, 更晚的日期不计入. `Lifetime` 仍累计不晚于该本地日期的全部历史. 圆环和趋势图随周期同步切换, 趋势图可切换最近 30 天与当前自然月; 自然月按整月固定宽度展示, 未来日期留白.
-- 圆环中心显示当前时段 token 总量, 成本与缓存命中率同行显示 (`$N · N%`). 时段列表与圆环中心不显示 tooltip. Token 数量使用 K, M, B.
-- Codex/Grok 共用图表的入场状态保存在稳定的 `ItemsControl` 上, 每次区域可见期间只播放一次 220ms 动画: 圆环各扇区同时独立逆时针填充并淡入, 柱图从底部 ScaleY 0 到 1 并淡入. 每个圆环分段保留 StartAngle 与 SweepAngle, 使用统一动画进度生成各自的扇形 Clip: 从该段顺时针末端逆时针向起点展开, 同时开始和结束, 不使用整圈扫描. 最终模型顺序与比例不变, 中心文字不参与裁剪; 动画结束或取消时移除 Clip. 首次没有有效图形时等待数据到达; 后台刷新只替换数据, 不清除入场标记. 手动切换圆环或柱状图时段后, ViewModel 在更新数据后通知 SelectedPeriod 或 ChartPeriod, 对应 ItemsControl 的 Tag 绑定更新负责重置并重播动画. 柱图滚动/自然月切换导致选中圆环周期变化时, 圆环同步重播; 重复选择当前时段不触发. 区域隐藏或卸载后重置标记, 因此切回页面, 关闭 Session Logs 或重新打开面板会重新入场. 悬停动画为 120ms: 扇区围绕共同圆心 `(72,72)` 放大到 1.04, 柱形以底部为原点放大到 ScaleX 1.12/ScaleY 1.04. 可视图形不接收命中, 鼠标事件使用固定的原始扇区或整列区域, 中心文字不缩放; 当前扇区的容器提高 ZIndex. 圆环占位底环仅在没有扇区时显示, 避免缩放露出内侧灰弧. 图表禁用自动 ToolTipService, 共用窗口资源 `ChartToolTip`, MouseEnter 同步更新 PlacementTarget, 内容并打开提示和高亮, MouseLeave 仅关闭仍归该项拥有的提示; 无额外延迟或独立显示超时. 提示保留 WPF UI 主题样式且不接收命中, 避免系统 tooltip 矩形安全区延迟相邻扇区的提示切换. 隐藏, 卸载和关闭须关闭提示并释放 owner. 模板冻结的变换在首次动画前克隆为实例. 动画使用 0.7 减速比例, 遵从系统动画与硬件加速开关; 隐藏, 卸载及关闭时移除时钟并恢复尺寸, 完成回调不得清除替代动画.
-- Codex 额度大卡片通过左下角页点或鼠标滚轮切换 Session 与 Weekly. Session 仅在有效时显示, 只有一个有效页面时隐藏页点. Resets 使用全宽小卡片. Codex 订阅徽章来自 usage 响应的 `plan_type`: `free`/`go`/`plus`/`chatgpt` 显示 `FREE`/`GO`/`PLUS`; `prolite` 及 `pro_lite`/`pro_5x`/`pro5x` 显示 `PRO 100`; `pro` 及 `pro_10x`/`pro10x`/`pro_20x`/`pro20x` 显示 `PRO 200`; `promax` 及 `pro_max`/`pro_25x`/`pro25x` 显示 `PRO 500`; 其他值显示 `UNKNOWN`.
-- Grok 上方使用 Weekly 大卡片和产品占比小卡片, 这是面板上唯一的订阅额度区域. 订阅徽章优先使用 `/v1/settings` 的 `subscription_tier_display`. Weekly 大卡片显示 billing 剩余整数百分比, 重置时间使用账期结束时间. 产品占比卡片分两行显示分段进度条和三个图例, 进度条与 Weekly 同粗. 进度条最多四段: 最高三项加上 `Others`. 图例固定三项, 全为零时显示 `Build`, `Bot`, `Cursor`; 不足三项时按该默认顺序补齐. 三个及以上非零产品时保留最高三项, 其余仅合并到进度条中的 `Others`. `Others` 不出现在图例中. 鼠标悬停进度条时列出全部返回产品的占比, 包括零值; 没有返回产品时不显示 tooltip. 图例前三项颜色与 Token Cost 圆环前三项一致, `Others` 与圆环第四项一致. 用量不可用时显示 `N/A`. 产品名和占比来自 billing `productUsage`. 显示名去掉 `PRODUCT_GROK_`, `PRODUCT_` 与 `Grok` 前缀, 因此 `PRODUCT_CURSOR` 显示为 `Cursor`. 缺少产品名时按 `Cursor` 计.
-- API provider 的 API key, Admin key, Management Key, access token 和 User ID 以明文保存在 `settings.json`.
-- API key 与 NewAPI User ID 使用 `CredentialInput` 的原生 WPF `PasswordBox` 双向编辑; 明文显示仅由当前控件右侧眼睛按钮的显示/隐藏状态控制, 图标, tooltip 与无障碍名称随状态同步, 隐藏, 卸载或更换卡片后重置, 不持久化显示状态. 主配置与备份尚未启用 DPAPI, 不得把屏幕遮挡描述为加密存储.
-- `settings.json` 位于 `CodexTray.exe` 同级目录.
-
-### 演进边界
-
-- 当前交付物仍是后台托盘应用. 未来桌面客户端预计与托盘共同存在, 新客户端应复用 `CodexTray.Core` 中不依赖 UI 的采集, 设置, 缓存, HTTP 服务, 应用内更新和插件能力.
-- `CodexTray.App` 保持 WPF 与托盘编排职责. 不在真实桌面客户端入口和进程模型确定前预先引入通用 Host, DI container, 单实现 interface 或跨进程抽象.
-- 可共享的长时任务必须支持 `CancellationToken`. 服务拥有者必须等待任务退出, 并在释放 `LightweightHttpServer` 前调用和等待 `StopAsync()`.
-
-## 目录结构
-
-- `CodexTray.Core`: Codex 官方额度采集, Grok Weekly, 产品占比与订阅名称采集, Gemini / Antigravity 额度与合作模型额度采集, API 余额与用量采集, Token Cost 统计, 缓存, HTTP 服务, 设置存储, 应用内更新, 监控器定位与插件安装, Windows 自启动.
-- `CodexTray.App`: WPF 托盘应用, Codex/Grok/Gemini/APIs/Settings/About 页面, 基于 `CommunityToolkit.Mvvm` 的 ViewModel 与命令, 以及自定义数值输入控件.
+- `CodexTray.Core` (`net10.0`): 平台无关/无 UI 的核心能力, 包含各来源额度与 Token Cost 采集, 缓存, 设置存储, 本地 HTTP 插件服务, 监控器定位与插件安装, 应用内更新与 Windows 自启动.
+- `CodexTray.App` (`net10.0-windows`): WPF + `WPF-UI` 桌面界面与 `System.Windows.Forms.NotifyIcon` 托盘编排, 使用 `CommunityToolkit.Mvvm`. 入口为 `Program.cs` (单实例互斥锁与 `--apply-update` 分支), `App.cs`, `TrayController.cs`, `TrayPopupWindow` 与 `TrayPopupViewModel`.
 - `CodexTray.Tests`: 自包含 C# 测试运行器.
-- `Plugins/LiteMonitor`: LiteMonitor JSON 模板 `CodexTray.json`.
-- `Plugins/TrafficMonitor`: TrafficMonitor 原生插件源码与 `CodexTray.ini` 模板. 原生构建输出位于 `Plugins/TrafficMonitor/Builds/**`.
-- `Resources`: 应用图标与 `model-pricing.json`.
-- `Docs`: README 展示资源.
-- `Scripts`: App 发布, 重启预览, release 打包和 TrafficMonitor 插件构建脚本.
-- `Builds/Output/win-x64`: 本地发布与重启预览输出.
-- `Builds/Release/vX.Y.Z`: 正式版本目录与 zip.
-- `Directory.Build.props` 和 `Directory.Build.targets`: MSBuild 默认配置与 `Builds/**` 编译项排除.
+- `Plugins/LiteMonitor` 与 `Plugins/TrafficMonitor`: LiteMonitor JSON 模板与 TrafficMonitor C++ 原生插件源码, 模板及独立原生测试.
+- `Resources`: 应用图标与外部可加载的 `model-pricing.json`.
+- `Scripts`: 本地发布, 重启预览, 原生插件构建/测试与正式发版打包脚本, 公共逻辑集中在 `Scripts/Publish-Shared.ps1`.
+- `Builds`: 本地发布 (`Builds/Output/win-x64`) 与正式版本输出 (`Builds/Release/vX.Y.Z`), 均不纳入版本控制.
 
-## 关键约束
+### 演进与工程边界
 
-- namespace 必须与项目目录对应: `CodexTray.Core`, `CodexTray.App`, `CodexTray.Tests`.
-- WPF UI 入口为 `App.cs`, `TrayController.cs`, `TrayPopupWindow.xaml`, `TrayPopupWindow.xaml.cs` 和 `TrayPopupViewModel.cs`. 托盘层使用 `System.Windows.Forms.NotifyIcon`.
-- ViewModel 复用 `CommunityToolkit.Mvvm` 的 `ObservableObject`, `[ObservableProperty]`, `[RelayCommand]` 和 `AsyncRelayCommand`. 不恢复项目自有的 `ObservableObject` 或 `RelayCommand` 实现.
-- 数值设置使用现有 `NumericUpDown` 和 `NumericInput`.
-- 监控器磁盘搜索复用 `MonitorLocator`, `LiteMonitorLocator` 和 `TrafficMonitorLocator`.
-- LiteMonitor 模板文件名保持为 `Plugins/LiteMonitor/CodexTray.json`. TrafficMonitor 模板文件名保持为 `Plugins/TrafficMonitor/CodexTray.ini`.
-- 应用版本与插件版本必须保持一致: `CodexTray.App/CodexTray.App.csproj` 中的 `<Version>`, `Plugins/LiteMonitor/CodexTray.json` 中的 `meta.version`, 以及 `Plugins/TrafficMonitor/TrafficMonitorPlugin.cpp` 中 `TMI_VERSION` 的返回值必须使用同一规范化版本号 `X.Y.Z`.
-- 修改插件字段, HTTP 路径或显示格式时, 同步检查两个插件模板, `TrafficMonitorPlugin.cpp`, `CodexTray.Tests/Program.cs` 和 README 的相关说明.
-- 修改 Token Cost 解析, 周期或定价结构时, 同步检查 `TokenCostCollector`, `TokenCostPeriodAccumulator`, `Resources/model-pricing.json` 和对应测试.
-- 修改 API provider, 请求字段或凭据来源时, 同步检查 `ApiUsageCollector`, `GrokUsageCollector`, `ApiMonitorSettings`, `ApiMonitorViewModel`, `TrayPopupWindow.xaml`, 对应测试和 README 的用户说明.
-- 修改 Grok 订阅名称来源时, 同步检查 `GrokUsageCollector`, `TrayPopupViewModel`, 对应测试和 README. 不读取 Cursor 登录, 也不请求 `GetSandUsageStatus`.
-- 修改 Codex 订阅徽章映射时, 同步检查 `TrayPopupViewModel.FormatPlan`, 对应测试和本文档中的 `plan_type` 显示表.
-- 修改 `VisiblePages` 或刷新调度时, 同步检查页面导航, 定时器, 插件本地 HTTP 服务启停, 缓存清理和各采集器调用条件.
-- 修改 WPF 布局或主题时, 检查是否需要更新 `Docs/showcase.png`.
-- 本地服务必须保持仅监听 `127.0.0.1`. 除第一张 DeepSeek 卡片的 CNY 余额外, 其他 API 监控结果不得进入插件 HTTP 响应. 不在日志, HTTP 响应, 文档示例或插件配置中暴露 OAuth token 或 API key.
-- 本地 HTTP 请求必须包含一个匹配监听端口的 Host (127.0.0.1 或 localhost). 最多同时处理 32 个客户端, 每个请求头总计不超过 16 KiB 和 32 个字段, 时限 5 秒. LiteMonitor JSON 只输出三项 `display` 与对应的 `limits.*.remaining_percent`.
-- `Scripts/Publish-App.ps1`, `Scripts/Restart-App.ps1` 和 `Scripts/Package-Release.ps1` 共享 `Scripts/Publish-Shared.ps1`. 发布参数, 清理逻辑或进程重启逻辑优先修改共享脚本. 发布预览和重启脚本仅停止与目标 exe 完整路径一致的进程; 存在其他安装路径或无法读取路径的同名进程时先报错, 不终止任何实例. `Scripts/Restart-App.ps1` 不执行发布.
-- 修改应用内更新的包名, 校验, 保留文件, `--apply-update` 参数或更新对话框时, 同步检查 `AppUpdateRelease`, `AppUpdatePackage`, `AppUpdateInstaller`, `GitHubAppUpdateClient`, `Program.cs`, Settings 页版本行, 对应测试和 README.
+- **为未来桌面客户端留口但不过度设计**: 当前交付物是托盘应用, 未来可能与独立桌面客户端共存. `CodexTray.Core` 必须保持不依赖 UI 以便复用; 但在真实桌面客户端入口和进程模型确定前, **不得**预先引入通用 Host, DI 容器, 单实现 interface 或跨进程抽象.
+- **既有基础设施约定**:
+  - Namespace 与项目目录保持一致 (`CodexTray.Core`, `CodexTray.App`, `CodexTray.Tests`).
+  - ViewModel 统一复用 `CommunityToolkit.Mvvm` (`ObservableObject`, `[ObservableProperty]`, `[RelayCommand]`, `AsyncRelayCommand`), 不手写自有 MVVM 基类.
+  - 共享默认值, 端口范围, HTTP 路径, 文件名与发布校验路径集中在 `CodexTray.Core/CodexTrayDefaults.cs`.
+  - 数值输入与凭据遮挡复用既有 `NumericUpDown` / `NumericInput` / `CredentialInput`; 监控器扫描复用 `MonitorLocator` 体系.
+- **生命周期与并发不变量**:
+  - 所有可共享长时任务必须支持 `CancellationToken`. 正常退出和本地服务异常重启时, 必须先取消并排空后台任务或活动连接, 再停止/释放 `LightweightHttpServer`.
+  - 各采集源以及 Codex/Grok/Gemini 的额度与本地 Token Cost 必须独立发布, 单源失败不得阻塞其他源; 每次发布前必须复核退出状态, 设置引用与页面可见性.
+  - `VisiblePages` 为空时必须停止定时刷新与本地 HTTP 服务; 隐藏对应页面或恢复备份时必须清理对应插件缓存与退避状态.
+  - `RefreshRequests` 负责合并待刷新来源与单卡请求并串行排空, 禁止同一采集器并发执行; 迟到结果若对应卡片已修改或删除必须丢弃.
 
-## 构建与输出
+## 核心技术决策与红线
 
-- `bin` 和 `obj` 使用项目默认位置.
-- 不提交 `bin`, `obj`, `Builds` 或 `Plugins/TrafficMonitor/Builds` 下的生成文件.
-- App 发布为 `net10.0-windows`, `win-x64`, 单文件, framework-dependent 应用. `CodexTray.Core` 目标框架为 `net10.0`.
-- `Scripts/Publish-App.ps1` 清理已有发布输出时必须保留 `settings.json`, `settings.last-good.json`, `settings.damaged-*.json` 以及新旧 `cursor-usage-cache.json.gz` / `cursor-usage-cache.json`.
-- `Resources` 和插件模板作为外部文件复制到发布目录.
-- 只有 `Plugins/TrafficMonitor/Builds/x64/Release/CodexTray.dll` 已存在时, App 发布才会复制 TrafficMonitor DLL.
-- `Directory.Build.targets` 排除 `Builds/**` 下的 `.cs`, 防止发布产物被 SDK 默认编译项重新纳入编译.
+### 安全与隐私
 
-## 验证工作流
+- **严禁硬编码真实密钥**: 绝不得在代码, 配置文件, 测试用例或文档示例中硬编码任何真实密钥, API key, OAuth `client_secret`, token 或账号凭据; 测试与示例一律使用无意义的占位符.
+- **本地插件服务隔离**: `LightweightHttpServer` 必须仅监听 `127.0.0.1`, 且强制校验请求 `Host` 与当前监听端口匹配 (仅限 `127.0.0.1` 或 `localhost`), 严禁向局域网开放.
+- **插件响应白名单**: 仅 Codex Weekly, Grok Weekly 与 APIs 页**第一张** DeepSeek 卡片的四舍五入整元 CNY 余额可进入插件 HTTP 响应. 第一张 DeepSeek 卡片不可用时返回 `N/A`, **不得**回退到后续 DeepSeek 卡片; 其他页面及 API provider 不得进入插件响应.
+- **凭据存储与脱敏**:
+  - OAuth token 绝不复制到 `settings.json`, 日志, 诊断文本或插件配置.
+  - API 监控凭据目前在 `settings.json`, `settings.last-good.json` 与 `settings.damaged-*.json` 中以明文存储; `CredentialInput` 仅用于屏幕遮挡且离开编辑态即重置, **不得**在文档或界面中将其表述为加密存储.
+  - `UsageDiagnostics` 与 `OAuthTokenHelpers` 必须输出固定错误类别或白名单 OAuth 错误码, 严禁回显服务端 `reason phrase`, `error_description`, 原始响应体, URL, 账号或卡片名称.
+- **API 监控网络约束**: 卡片保存与采集共用 Base URL 校验. 远程目标强制 HTTPS; HTTP 仅允许 `localhost` 与字面回环 IP 且必须绕过系统代理. 生产 HTTP 客户端禁用自动重定向与 Cookie. 卡片更换 provider 或目标源 (协议/主机/端口) 时必须清空已保存的密钥与 User ID, 同源改路径则保留.
 
-- 每次涉及需要重新编译的代码或 XAML 改动完成后, 必须在最终验证步骤自动执行 `Scripts/Publish-App.ps1 -NoPause`, 并确认发布成功且发布目录中的程序已启动.
-- 在 Codex Windows 环境执行可能触发 NuGet restore 的 build, test, publish 或打包命令时, 必须直接申请沙箱外执行权限. Windows Codex sandbox 可能导致 Schannel 返回 `SEC_E_NO_CREDENTIALS` 并产生 `NU1900`. 不得通过关闭 NuGet Audit 或屏蔽 `NU1900` 规避.
+### 凭据读写与重试边界
 
-构建全部项目:
+- **事务写回与并发换号保护**: Grok 与 Gemini 对本地 JSON 凭据文件的续期写回必须使用 `AtomicFile` 的 NTFS 事务写回, 并在网络请求前后校验文件内容指纹 (以及 Gemini 状态代次), 检测到原客户端换号, 登出或应用重置时必须丢弃旧结果, 不得覆盖新凭据. 遇到文件锁定或非 TxF 卷无法事务写回时, 不得强制覆写 (Grok 仅继续使用仍有效的 token, Gemini 回退到按来源绑定的私有内存缓存).
+- **只读来源与静默原则**: Windows 凭据管理器, Antigravity IDE `state.vscdb` 与 Cursor `state.vscdb` 一律只读不写回. 后台刷新**永不**拉起 `agy` 等外部 CLI 子进程或弹出浏览器登录窗, 也**不**自动续期 Cursor 登录.
+- **OAuth 客户端配对安全**: Gemini / Antigravity 的 OAuth `client_id` / `client_secret` 严禁硬编码进仓库; 仅从凭据文件, 环境变量或本机已安装应用运行时动态提取. 扫描本机路径前必须通过 `AppUpdatePaths.EnsureSafePath` 拒绝重解析点.
+- **重试范围限制**: `UsageHttp` 的重试机制 (网络错误, 超时, 429, 5xx) 仅用于只读额度与用量查询, **绝不**用于 OAuth token 刷新 POST. 401/403, 其他 4xx 与解析错误不自动重试; 单次采集已预刷新后遇到 401/403 不再次触发续期. 遇到 `Retry-After` 超出等待预算时直接失败, 不缩短服务端要求的等待时长.
+
+### 外部数据来源与统计口径
+
+- **Grok 额度与订阅**:
+  - 额度与产品占比固定走 `cli-chat-proxy.grok.com` (`/v1/billing?format=credits`), **不要**改走 `grok.com/rest/grok/credits` (非浏览器会触发 Cloudflare 挑战), 失败时也不回退其他额度端点.
+  - 订阅徽章优先取 `/v1/settings` 的显示名, 不足时才依次回退本机日志/auth 与 billing 字段; **不要**请求 `/v1/user?include=subscription`, 也**不要**用 Cursor 接口 (`GetSandUsageStatus` / `usage-summary`) 替代 Grok 订阅额度与徽章. 旧订阅档位统一映射为 The X Subscription 名称 (需完整匹配避免 `SuperGrok Plus` 误落 `SuperGrok`).
+- **Cursor 与 Grok API 云端账本**:
+  - 只使用新账本接口 (`query-billing-items`), **不要**查询或拼接旧版 `GetFilteredUsageEvents`.
+  - 只纳入 `cursor` 与 `grok-api`, 排除 Bot, Build, Chat 与 Imagine; 账本实付金额 (`pricing.contracted`) 不用于 Token Cost, 统一按本地价格表估算.
+  - 对账本中未识别的 token meter **不得**直接累加 (防止把搜索次数或重叠细项当成新增 token); 无法确认分类或价格时保留总 token 并向上传播 `HasUnpricedUsage`.
+  - 本地压缩缓存 (`cursor-usage-cache.json.gz`) 按账号校验, 仅在完整分页后落盘; 首次遇到早于已缓存月份的不可读旧月即持久化历史下限, 避免每次重启反复回溯无效月份.
+- **Gemini, Antigravity 与本地日志**:
+  - Codex, Grok 与 Gemini 均不读取 OpenCode 会话.
+  - Gemini CLI 用量严格遵循官方定义: `input` 已含缓存, `tool` 另计普通输入, `output + thoughts` 为输出, **不要**根据 `total` 猜测反推. 恢复旧 `.json` 与同名 `.jsonl` 共存时只计 `.jsonl`.
+  - Antigravity 日志缺少模型 ID 时, 仅只读同一数据根下的会话 SQLite 库做明确无冲突补读, **不**向库内写入也不凭空新增用量事件; 无法确认时保留 `Unknown` 且不估价.
+  - 服务端标记 `disabled: true` 的额度桶不展示.
+- **定价表与统计边界**:
+  - `Resources/model-pricing.json` 按官方 Standard 文本非优惠原价的基础上下文档位维护, 不应用限时促销折扣, 不拆长上下文阶梯加价, 历史事件按当前价格表重算.
+  - Claude 仅维护 4.6 及之后版本, Gemini 仅维护 3.1 Pro 及之后版本; 旧版本不映射到新模型价格, 保留历史 token 并标记未定价.
+  - 本地记录中的 `codex-auto-review` 排除出统计, 占比, Session Logs 与价格表; 跳过 Codex 事件时仍须推进累计水位, 避免后续增量吞入该段用量.
+  - Codex 分叉会话在父会话尚未写到分叉截止点前整段跳过, 避免把回放前缀重复计费.
+  - OpenAI API 卡片翻页超过上限仍未读完时视为失败, 不把部分合计展示为完整当月用量; `MonthlyStartingCredit` 仅属 OpenAI, 非 OpenAI 卡片规范化时丢弃.
+- **设置损坏保护**: `SettingsStore.LoadError` 非空时禁止一切持久化与自动插件路径写入, 保留原文件不覆盖; 恢复备份前须校验备份有效并先另存当前损坏文件.
+
+### WPF UI 与渲染陷阱
+
+- **主题与 Mica 合成**: 仅使用 `WPF-UI` 的 `ThemesDictionary` / `ControlsDictionary`, **禁止**启用 WPF 内置 `Window.ThemeMode` 或加载 `PresentationFramework.Fluent` (两套主题系统互相覆盖). Windows 11 启用 Mica 时必须同时设 `WindowChrome.GlassFrameThickness = -1` 并调用 `WindowBackdrop.RemoveBackground`, 否则透明根容器会露出黑色合成底色.
+- **对话框清晰度与生命周期**: `ContentDialog` 加载时须移除库模板外层 Border 的 `DropShadowEffect`, 避免离屏栅格化导致文字发虚; 按钮点击时先释放 host 再执行命令, 防止旧对话框异步收尾误关新请求.
+- **图表提示与动画清理**: 图表禁用系统自动 `ToolTipService`, 共用窗口级非命中 `ChartToolTip`, 规避系统 tooltip 安全区导致相邻扇区切换延迟. 所有页面/翻页/图表动画必须遵从 `SystemParameters.ClientAreaAnimation`, 隐藏, 卸载, 重入或关闭时必须移除动画时钟并清理 owner 状态.
+- **卡片编辑隔离**: 单张 API 卡片的保存, 排序与删除不得持久化其他卡片未保存的字段草稿或 pending 卡片.
+
+### 应用内更新安全
+
+- 仅接受 `vX.Y.Z` tag 与对应 `https://github.com` release asset, 强制校验 SHA-256 `digest`, 体积上限与 zip 解压路径穿越 (拒绝绝对路径, 盘符与 `..`), 且确认关键文件 (`CodexTray.exe`, `Resources`, 插件文件) 齐全.
+- 备份, 覆盖, 还原与清理全程校验并拒绝符号链接与目录联接 (重解析点).
+- 覆盖安装期间持有单实例互斥锁, 保留根目录 `settings.json` 及其他用户文件, 失败必须从备份完整还原后才重启旧版.
+- 检测到安装目录根目录存在 `CodexTray.dll` 时视为开发编译 (不包括 `Plugins/TrafficMonitor/CodexTray.dll`), 拒绝检查与安装更新且不退出程序.
+
+## 外部参考
+
+以下上游源码与官方文档用于核对协议字段与价格表, 修改相关采集或定价前优先复核:
+
+- Gemini CLI 会话字段与记录实现: [chatRecordingTypes.ts](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingTypes.ts), [chatRecordingService.ts](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingService.ts)
+- Antigravity 凭据与 IDE protobuf 结构: [agy 脱敏文件示例 (#479)](https://github.com/google-antigravity/antigravity-cli/issues/479), [Antigravity-Manager protobuf.rs](https://github.com/lbjlaq/Antigravity-Manager/blob/main/src-tauri/src/utils/protobuf.rs)
+- Grok 本地费用与 Codex 速度估算参考: [CCSwitch Grok Build 导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs), [codex-tps analysis.go](https://github.com/adenta/codex-tps/blob/be549617f50409c8c0e15a8a6838520ec12d2bb1/analysis.go)
+- 官方模型价格表: [Claude Pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Gemini Developer API Pricing](https://aistudio.google.com/docs/pricing), [Google Cloud Gemini Pricing](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing), [Cursor Models & Pricing](https://cursor.com/docs/models-and-pricing)
+
+## 修改关联检查清单
+
+| 变更范围 | 必须同步检查 |
+| --- | --- |
+| 应用或插件版本号 | 三处完全一致 (`X.Y.Z`): `CodexTray.App/CodexTray.App.csproj` `<Version>`, `Plugins/LiteMonitor/CodexTray.json` `meta.version`, `Plugins/TrafficMonitor/TrafficMonitorPlugin.cpp` `TMI_VERSION` |
+| 插件字段, HTTP 路径或显示格式 | `Plugins/LiteMonitor/CodexTray.json`, `Plugins/TrafficMonitor/CodexTray.ini`, `TrafficMonitorPlugin.cpp`, C# 与原生插件测试, `README.md` |
+| API provider, Base URL 或凭据规则 | `ApiUsageCollector`, `ApiMonitorSettings`, `ApiMonitorViewModel`, `TrayPopupWindow.xaml`, 测试, `README.md` |
+| Grok / Codex / Gemini 额度或徽章映射 | 对应 `*UsageCollector`, `TrayPopupViewModel`, 测试, `README.md` |
+| Token Cost 解析, 周期或定价结构 | `TokenCostCollector`, `TokenCostPeriodAccumulator`, `Resources/model-pricing.json`, 测试, `README.md` |
+| `VisiblePages` 或刷新调度 | 页面导航, 定时器, 本地 HTTP 服务启停, 缓存/退避清理, 托盘 tooltip |
+| 应用内更新协议, 校验或保留文件 | `AppUpdate*`, `GitHubAppUpdateClient`, `Program.cs`, Settings 页更新逻辑, 测试, `README.md` |
+| 发布清理或进程重启逻辑 | 优先修改 `Scripts/Publish-Shared.ps1`, 确认清理保留设置/备份/缓存且停进程校验 exe 完整路径, 运行 `Scripts/Test-PublishCleanup.ps1` |
+| WPF 显著布局或视觉改动 | 评估是否需要同步更新 `Docs/showcase.png` |
+
+## 构建与验证
+
+### 产物与环境规则
+
+- 严禁提交 `bin`, `obj`, `Builds` 或 `Plugins/TrafficMonitor/Builds` 下的生成文件.
+- App 发布产物为 `net10.0-windows` / `win-x64` 单文件 framework-dependent 应用; `Resources` 与插件模板作为外部文件随包复制. 仅当 `Plugins/TrafficMonitor/Builds/x64/Release/CodexTray.dll` 已预先编译存在时, App 发布才会复制该原生 DLL.
+- **改动后强制发布验证**: 每次涉及需要重新编译的代码或 XAML 改动完成后, 最终验证必须执行 `.\Scripts\Publish-App.ps1 -NoPause`, 并确认发布成功且 `Builds\Output\win-x64\CodexTray.exe` 已启动.
+- **Windows 沙箱 NuGet 提示**: 在 Codex Windows 沙箱中执行可能触发 NuGet restore 的 build/test/publish/打包命令时, 直接申请沙箱外执行权限 (沙箱内 Schannel 可能返回 `SEC_E_NO_CREDENTIALS` 导致 `NU1900`), **不得**通过关闭 NuGet Audit 或屏蔽 `NU1900` 规避.
+
+### 常用命令
+
+构建全部 C# 项目:
 
 ```powershell
 dotnet build .\CodexTray.sln -m:1
 ```
 
-运行测试:
+运行 C# 测试:
 
 ```powershell
 dotnet run --project .\CodexTray.Tests\CodexTray.Tests.csproj
 ```
 
-验证发布清理保留配置文件:
+验证发布清理保留设置与缓存文件:
 
 ```powershell
 .\Scripts\Test-PublishCleanup.ps1
 ```
 
-构建 TrafficMonitor 原生插件:
+构建 TrafficMonitor 原生插件 (需 VS C++ Build Tools):
 
 ```powershell
 .\Scripts\Build-TrafficMonitorPlugin.ps1
 ```
 
-发布 App 并重启已发布程序:
+运行 TrafficMonitor 原生插件回归测试:
+
+```powershell
+.\Scripts\Test-TrafficMonitorPlugin.ps1
+```
+
+本地发布并重启预览程序 (`Scripts/*.cmd` 供双击运行, 默认结束后停留):
 
 ```powershell
 .\Scripts\Publish-App.ps1 -NoPause
 ```
 
-不重新发布, 只重启当前发布输出中的预览程序:
+仅重启已发布的预览程序 (不重新编译发布):
 
 ```powershell
 .\Scripts\Restart-App.ps1 -NoPause
 ```
 
-对应 `.cmd` 入口供资源管理器双击使用, 默认在结束前停留窗口.
-
 ## 发布流程
 
-当用户要求发布新版本并提供版本号时, 完成以下流程:
+当用户要求发布新版本并提供版本号时 (支持 `X.Y.Z`, `vX.Y.Z` 及 SemVer 后缀; tag 与发布目录统一使用 `v<version>`), 严格按以下顺序执行:
 
-1. 读取 Git 规则模块, 再检查 `git status --short --branch`, 确认当前分支为 `develop`, 并区分本次发布修改与已有修改.
-2. 提交并推送本次发布涉及的源码, 脚本, 文档和资源修改. 不提交任何生成产物.
-3. 将 `CodexTray.App/CodexTray.App.csproj` 中的 `<Version>`, `Plugins/LiteMonitor/CodexTray.json` 中的 `meta.version`, 以及 `Plugins/TrafficMonitor/TrafficMonitorPlugin.cpp` 中 `TMI_VERSION` 的返回值同时更新为规范化后的不带 `v` 版本号 `X.Y.Z`, 并确认三处完全一致. 使用 `upgrade: X.Y.Z` 单独提交并推送. 此提交不得混入其他修改.
-4. 再次确认工作区干净, `develop` 与 `origin/develop` 同步, 本地可以安全切换分支. 同时确认目标 tag 和 GitHub Release 尚不存在.
-5. 切换到 `main`, 确认工作区干净且 `main` 与 `origin/main` 同步. 使用 `git merge --no-ff develop -m "feat: 合并 develop 以发布 vX.Y.Z"` 合并 `develop`, 必须保留明确的 merge commit. 如果发生冲突, 停止并报告状态.
-6. 推送 `main`, 并确认远端 `main` 已指向 merge commit.
-7. 执行 `dotnet build .\CodexTray.sln -m:1` 和 `dotnet run --project .\CodexTray.Tests\CodexTray.Tests.csproj`.
-8. 执行 `.\Scripts\Build-TrafficMonitorPlugin.ps1`, 确认 release 包需要的原生 DLL 已生成.
-9. 执行 `.\Scripts\Package-Release.ps1 -Version X.Y.Z -NoPause`, 传入的版本必须与 App, LiteMonitor 和 TrafficMonitor 的三处版本声明一致.
-10. 确认 `Builds/Release/vX.Y.Z/CodexTray-vX.Y.Z-win-x64.zip` 存在.
-11. 在已推送的 `main` merge commit 上创建 annotated tag `vX.Y.Z`, 再推送 tag.
-12. 获取上一个版本 tag, 检查从该 tag 到 `vX.Y.Z` 之间的 commit 和实际变更. 由 AI 合并同类改动, 去除仅用于发布, 格式化或内部维护且不影响用户的噪声, 编写准确, 面向用户的 Markdown Release Notes. 不直接复制 commit 列表, 不使用 `--generate-notes`, 不写入未在 diff 中确认的内容. 将结果保存到 `Builds/Release/vX.Y.Z/release-notes.md`.
-13. 使用以下命令创建 GitHub Release 并上传 zip:
+1. 先读取 Git 共享规则, 检查 `git status --short --branch`, 确认当前位于 `develop` 分支并厘清本次发布变更与既有修改.
+2. 提交并推送本次发布涉及的源码, 脚本, 文档与资源修改, 不提交任何生成产物.
+3. 同步更新三处版本号为规范化不带 `v` 的 `X.Y.Z`: `CodexTray.App/CodexTray.App.csproj` (`<Version>`), `Plugins/LiteMonitor/CodexTray.json` (`meta.version`), `Plugins/TrafficMonitor/TrafficMonitorPlugin.cpp` (`TMI_VERSION`). 使用 `upgrade: X.Y.Z` 单独提交并推送, 不得混入其他修改.
+4. 确认工作区干净, `develop` 与 `origin/develop` 同步, 且目标 tag 与 GitHub Release 均不存在.
+5. 切换到 `main`, 确认工作区干净且 `main` 与 `origin/main` 同步. 使用 `git merge --no-ff develop -m "feat: 合并 develop 以发布 vX.Y.Z"` 合并 (必须保留 merge commit). 遇到冲突立即停止并报告.
+6. 推送 `main`, 确认远端 `main` 指向该 merge commit.
+7. 运行 `dotnet build .\CodexTray.sln -m:1` 与 `dotnet run --project .\CodexTray.Tests\CodexTray.Tests.csproj`.
+8. 运行 `.\Scripts\Build-TrafficMonitorPlugin.ps1`, 确认原生插件 DLL 已生成.
+9. 运行 `.\Scripts\Package-Release.ps1 -Version X.Y.Z -NoPause`, 确认与三处版本声明一致.
+10. 确认 `Builds/Release/vX.Y.Z/CodexTray-vX.Y.Z-win-x64.zip` 已生成.
+11. 在已推送的 `main` merge commit 上创建 annotated tag `vX.Y.Z` 并推送 tag.
+12. 对比上一版本 tag 到 `vX.Y.Z` 的 commit 与实际 diff, 编写准确且面向用户的 Markdown Release Notes (合并同类变更, 剔除内部维护/格式化/发版噪声, 不直接粘贴 commit 列表, 不使用 `--generate-notes`, 不写入未在 diff 中确认的内容), 保存至 `Builds/Release/vX.Y.Z/release-notes.md`.
+13. 创建 GitHub Release 并上传压缩包:
 
-```powershell
-gh release create vX.Y.Z `
-  "Builds\Release\vX.Y.Z\CodexTray-vX.Y.Z-win-x64.zip" `
-  --title "CodexTray vX.Y.Z" `
-  --notes-file "Builds\Release\vX.Y.Z\release-notes.md" `
-  --verify-tag
-```
+    ```powershell
+    gh release create vX.Y.Z `
+      "Builds\Release\vX.Y.Z\CodexTray-vX.Y.Z-win-x64.zip" `
+      --title "CodexTray vX.Y.Z" `
+      --notes-file "Builds\Release\vX.Y.Z\release-notes.md" `
+      --verify-tag
+    ```
 
-14. GitHub Release 创建并核验成功后, 使用 `git switch develop` 切回 `develop`, 再确认工作区干净且 `develop` 与 `origin/develop` 同步.
+14. 核验 GitHub Release 后执行 `git switch develop` 切回 `develop`, 确认工作区干净且与 `origin/develop` 同步.
 
-版本输入支持 `X.Y.Z`, `vX.Y.Z` 和 SemVer 后缀. tag 与版本目录固定使用规范化后的 `v<version>`.
-
-如果 tag 或 release 已存在, 停止并报告状态, 不覆盖 tag. 只有用户明确同意时才能使用 `gh release upload --clobber`. 如果 push 被 non-fast-forward 拒绝, 停止并让用户决定 rebase 或 merge.
+**发布中止红线**: 目标 tag 或 release 已存在时立即停止并报告, 严禁覆盖 tag; 仅在用户明确同意时才能使用 `gh release upload --clobber`; 推送遇 non-fast-forward 拒绝时立即停止, 由用户决定 rebase 或 merge.
