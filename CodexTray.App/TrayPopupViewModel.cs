@@ -71,6 +71,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private const string k_CodexPageName = "Codex";
     private const string k_GrokPageName = "Grok";
     private const string k_GeminiPageName = "Gemini";
+    private const string k_OpenCodePageName = "OpenCode";
     private const string k_GrokBuildProductName = "Build";
     private const string k_GrokBotProductName = "Bot";
     private const string k_GrokCursorProductName = "Cursor";
@@ -118,10 +119,13 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     private bool m_GrokTokenCostAvailable;
     private GeminiUsageDashboard m_GeminiDashboard = GeminiUsageDashboard.Empty;
     private bool m_GeminiTokenCostAvailable;
+    private OpenCodeUsageDashboard m_OpenCodeDashboard = OpenCodeUsageDashboard.Empty;
+    private bool m_OpenCodeTokenCostAvailable;
     public RefreshState CodexUsageState { get; } = new();
     public RefreshState CodexResetState { get; } = new();
     public RefreshState GrokUsageState { get; } = new();
     public RefreshState GeminiUsageState { get; } = new();
+    public RefreshState OpenCodeUsageState { get; } = new();
 
     private ApiUsageRefreshStatus? m_ApiUsageStatus;
     private int m_ApiUsageErrorCount;
@@ -188,17 +192,29 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
 
     public QuotaPagerViewModel GeminiPartnerQuotaPager { get; }
 
+    public QuotaViewModel OpenCodeSessionQuota { get; } = new("Session");
+
+    public QuotaViewModel OpenCodeWeeklyQuota { get; } = new("Weekly");
+
+    public QuotaPagerViewModel OpenCodeQuotaPager { get; }
+
+    public QuotaViewModel OpenCodeMonthlyQuota { get; } = new("Monthly");
+
     public TokenCostDashboardViewModel CodexTokenCost { get; }
 
     public TokenCostDashboardViewModel GrokTokenCost { get; }
 
     public TokenCostDashboardViewModel GeminiTokenCost { get; }
 
+    public TokenCostDashboardViewModel OpenCodeTokenCost { get; }
+
     public SessionLogListViewModel CodexSessionLogs { get; } = new();
 
     public SessionLogListViewModel GrokSessionLogs { get; } = new();
 
     public SessionLogListViewModel GeminiSessionLogs { get; } = new();
+
+    public SessionLogListViewModel OpenCodeSessionLogs { get; } = new();
 
     public IRelayCommand OpenRepositoryCommand { get; }
 
@@ -341,6 +357,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 OnPropertyChanged(nameof(ShowCodexPage));
                 OnPropertyChanged(nameof(ShowGrokPage));
                 OnPropertyChanged(nameof(ShowGeminiPage));
+                OnPropertyChanged(nameof(ShowOpenCodePage));
                 OnPropertyChanged(nameof(ShowApisPage));
                 EvaluateDirtyState();
             }
@@ -370,6 +387,12 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     {
         get => (m_VisiblePages & PageItem.Gemini) != 0;
         set => SetPageItem(PageItem.Gemini, value);
+    }
+
+    public bool ShowOpenCodePage
+    {
+        get => (m_VisiblePages & PageItem.OpenCode) != 0;
+        set => SetPageItem(PageItem.OpenCode, value);
     }
 
     public bool ShowApisPage
@@ -407,6 +430,8 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public bool IsGrokVisible => m_CurrentPage == k_GrokPageName;
 
     public bool IsGeminiVisible => m_CurrentPage == k_GeminiPageName;
+
+    public bool IsOpenCodeVisible => m_CurrentPage == k_OpenCodePageName;
 
     public bool IsApiVisible => m_CurrentPage == k_ApiPageName;
 
@@ -480,6 +505,21 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public partial string? GeminiStatusTooltip { get; private set; }
 
     [ObservableProperty]
+    public partial Media.Brush OpenCodeStatusDotBrush { get; private set; } = s_RedBrush;
+
+    [ObservableProperty]
+    public partial string OpenCodePlanDisplay { get; private set; } = "UNKNOWN";
+
+    [ObservableProperty]
+    public partial Media.Brush OpenCodePlanBadgeBrush { get; private set; } = s_PlanBadgeInactiveBrush;
+
+    [ObservableProperty]
+    public partial string OpenCodeUpdatedAtDisplay { get; private set; } = "Waiting for first refresh";
+
+    [ObservableProperty]
+    public partial string? OpenCodeStatusTooltip { get; private set; }
+
+    [ObservableProperty]
     public partial IReadOnlyList<GrokProductUsageItemViewModel> GrokProductUsageItems { get; private set; } = [];
 
     [ObservableProperty]
@@ -532,9 +572,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         CodexQuotaPager = new QuotaPagerViewModel(CodexSessionQuota, CodexWeeklyQuota);
         GeminiQuotaPager = new QuotaPagerViewModel(GeminiSessionQuota, GeminiWeeklyQuota, GeminiArgonWeeklyQuota);
         GeminiPartnerQuotaPager = new QuotaPagerViewModel(GeminiPartnerSessionQuota, GeminiPartnerWeeklyQuota);
+        OpenCodeQuotaPager = new QuotaPagerViewModel(OpenCodeSessionQuota, OpenCodeWeeklyQuota);
         CodexTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
         GrokTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
         GeminiTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
+        OpenCodeTokenCost = new TokenCostDashboardViewModel(showSpeed: true);
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(CodexTrayDefaults.RepositoryUrl));
         RefreshCommand = new AsyncRelayCommand(refreshAsync);
         retryAsync ??= (_, _) => RefreshCommand.CanExecute(null) ? RefreshCommand.ExecuteAsync(null) : Task.CompletedTask;
@@ -556,9 +598,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
                 ? k_GrokPageName
                 : (settings.VisiblePages & PageItem.Gemini) != 0
                     ? k_GeminiPageName
-                    : (settings.VisiblePages & PageItem.Apis) != 0
-                        ? k_ApiPageName
-                        : k_SettingsPageName;
+                    : (settings.VisiblePages & PageItem.OpenCode) != 0
+                        ? k_OpenCodePageName
+                        : (settings.VisiblePages & PageItem.Apis) != 0
+                            ? k_ApiPageName
+                            : k_SettingsPageName;
         LoadSettings(settings);
         LoadApiMonitors(settings.ApiMonitors);
     }
@@ -1106,6 +1150,104 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Updates the OpenCode page from one OpenCode quota collection result.
+    /// </summary>
+    public void UpdateOpenCodeDashboard(OpenCodeUsageDashboard dashboard, TokenCostStatistics? tokenCost = null)
+    {
+        m_OpenCodeDashboard = dashboard;
+        OpenCodeUsageSnapshot snapshot = dashboard.Snapshot;
+        DateTimeOffset updatedAt = snapshot.UpdatedAt == DateTimeOffset.MinValue ? DateTimeOffset.Now : snapshot.UpdatedAt;
+        OpenCodeUsageState.Update(snapshot.IsAvailable, updatedAt, dashboard.StatusMessage);
+        if (snapshot.IsAvailable)
+        {
+            string normalizedPlan = FormatOpenCodePlan(snapshot.SubscriptionTier);
+            OpenCodePlanDisplay = normalizedPlan;
+            OpenCodePlanBadgeBrush = normalizedPlan == "UNKNOWN" ? s_PlanBadgeInactiveBrush : s_PlanBadgeActiveBrush;
+            ApplyOpenCodeWindow(OpenCodeSessionQuota, snapshot.Session, updatedAt);
+            ApplyOpenCodeWindow(OpenCodeWeeklyQuota, snapshot.Weekly, updatedAt);
+            ApplyOpenCodeWindow(OpenCodeMonthlyQuota, snapshot.Monthly, updatedAt);
+        }
+        else
+        {
+            OpenCodePlanDisplay = "UNKNOWN";
+            OpenCodePlanBadgeBrush = s_PlanBadgeInactiveBrush;
+            OpenCodeSessionQuota.UpdateUnavailable("N/A");
+            OpenCodeWeeklyQuota.UpdateUnavailable("N/A");
+            OpenCodeMonthlyQuota.UpdateUnavailable("N/A");
+        }
+
+        OpenCodeQuotaPager.EnsureValidSelection();
+
+        if (tokenCost != null)
+        {
+            UpdateOpenCodeTokenCost(tokenCost);
+        }
+        else
+        {
+            UpdateOpenCodeStatus();
+        }
+    }
+
+    /// <summary>
+    /// Updates local OpenCode token costs independently of the quota collection.
+    /// </summary>
+    public void UpdateOpenCodeTokenCost(TokenCostStatistics? statistics, string? error = null)
+    {
+        m_OpenCodeTokenCostAvailable = statistics != null;
+        OpenCodeTokenCost.Update(statistics, error);
+        OpenCodeSessionLogs.Update(statistics);
+        UpdateOpenCodeStatus();
+    }
+
+    /// <summary>
+    /// Combines the independently published OpenCode quota and local-cost availability.
+    /// </summary>
+    private void UpdateOpenCodeStatus()
+    {
+        OpenCodeUsageSnapshot snapshot = m_OpenCodeDashboard.Snapshot;
+        bool usageAvailable = snapshot.IsAvailable;
+        bool tokenCostAvailable = m_OpenCodeTokenCostAvailable;
+        OpenCodeStatusDotBrush = usageAvailable && tokenCostAvailable
+            ? s_GreenBrush
+            : usageAvailable || tokenCostAvailable
+                ? s_YellowBrush
+                : s_RedBrush;
+        OpenCodeUpdatedAtDisplay = usageAvailable && tokenCostAvailable
+            ? FormatUpdatedAt(snapshot.UpdatedAt.ToString("O", CultureInfo.InvariantCulture))
+            : usageAvailable
+                ? "Usage updated, Token Cost N/A"
+                : tokenCostAvailable
+                    ? "Token Cost updated, Usage N/A"
+                    : "Update error";
+        OpenCodeStatusTooltip = !usageAvailable && snapshot.UpdatedAt != DateTimeOffset.MinValue && OpenCodeUsageState.Error.Length > 0
+            ? OpenCodeUsageState.Tooltip
+            : null;
+    }
+
+    /// <summary>
+    /// Applies one optional OpenCode quota limit using the active reset-time formatting setting.
+    /// </summary>
+    private void ApplyOpenCodeWindow(QuotaViewModel target, UsageLimit? limit, DateTimeOffset now)
+    {
+        if (limit == null || limit.WindowMinutes <= 0)
+        {
+            target.UpdateUnavailable("N/A");
+            return;
+        }
+
+        target.Update(limit, OpenCodeUsageCollector.FormatResetLabel(limit, m_Settings.UseAbsoluteResetTime, now));
+    }
+
+    /// <summary>
+    /// Formats a normalized OpenCode subscription badge display string.
+    /// </summary>
+    private static string FormatOpenCodePlan(string? subscriptionTier)
+    {
+        string normalized = OpenCodeUsageCollector.NormalizeSubscriptionTier(subscriptionTier);
+        return normalized.Length == 0 ? "UNKNOWN" : normalized;
+    }
+
+    /// <summary>
     /// Shows the Codex dashboard page inside the tray popup.
     /// </summary>
     [RelayCommand]
@@ -1130,6 +1272,15 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
     public void ShowGemini()
     {
         SetPage(k_GeminiPageName);
+    }
+
+    /// <summary>
+    /// Shows the OpenCode dashboard page inside the tray popup.
+    /// </summary>
+    [RelayCommand]
+    public void ShowOpenCode()
+    {
+        SetPage(k_OpenCodePageName);
     }
 
     /// <summary>
@@ -1178,6 +1329,7 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
         OnPropertyChanged(nameof(IsCodexVisible));
         OnPropertyChanged(nameof(IsGrokVisible));
         OnPropertyChanged(nameof(IsGeminiVisible));
+        OnPropertyChanged(nameof(IsOpenCodeVisible));
         OnPropertyChanged(nameof(IsApiVisible));
         OnPropertyChanged(nameof(IsSettingsVisible));
         OnPropertyChanged(nameof(IsAboutVisible));
@@ -1380,6 +1532,11 @@ internal sealed partial class TrayPopupViewModel : ObservableObject
             {
                 Add("Gemini usage", GeminiUsageState);
                 Add("Gemini local cost", GeminiTokenCost.Freshness);
+            }
+            if ((page & PageItem.OpenCode) != 0)
+            {
+                Add("OpenCode usage", OpenCodeUsageState);
+                Add("OpenCode local cost", OpenCodeTokenCost.Freshness);
             }
             if ((page & PageItem.Apis) != 0)
             {

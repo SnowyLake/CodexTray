@@ -471,14 +471,14 @@ public sealed class LightweightHttpServer : IDisposable
                 codex_weekly = new { remaining_percent = codexRemainingPercent },
                 grok_weekly = new { remaining_percent = response.Limits.GrokWeekly.RemainingPercent },
                 gemini_session = new { remaining_percent = response.Limits.GeminiSession.RemainingPercent },
-                deepseek_balance = new { remaining_percent = response.Limits.DeepSeek.RemainingPercent },
+                opencode_session = new { remaining_percent = response.Limits.OpenCodeSession.RemainingPercent },
             },
             display = new
             {
                 codex_weekly = response.Display.Weekly,
                 grok_weekly = response.Display.GrokWeekly,
                 gemini_session = response.Display.GeminiSession,
-                deepseek_balance = response.Display.DeepSeek,
+                opencode_session = response.Display.OpenCodeSession,
             },
         }, requestToken).ConfigureAwait(false);
     }
@@ -570,11 +570,11 @@ public sealed class LightweightHttpServer : IDisposable
     }
 
     /// <summary>
-    /// Writes Codex Weekly, Grok Weekly, Gemini Session, and DeepSeek as a four-line text response for TrafficMonitor.
+    /// Writes Codex Weekly, Grok Weekly, Gemini Session, and OpenCode Session as a four-line text response for TrafficMonitor.
     /// </summary>
     private static Task WriteUsageTextAsync(NetworkStream stream, UsageResponse response, CancellationToken cancellationToken)
     {
-        string body = string.Join(Environment.NewLine, response.Display.Weekly, response.Display.GrokWeekly, response.Display.GeminiSession, response.Display.DeepSeek);
+        string body = string.Join(Environment.NewLine, response.Display.Weekly, response.Display.GrokWeekly, response.Display.GeminiSession, response.Display.OpenCodeSession);
         return WriteResponseAsync(stream, 200, "OK", "text/plain; charset=utf-8", body, cancellationToken);
     }
 

@@ -33,7 +33,7 @@ struct UsageValues
     std::wstring codex;
     std::wstring grok;
     std::wstring gemini;
-    std::wstring deepseek;
+    std::wstring opencode;
 };
 
 struct SharedUsage
@@ -620,11 +620,11 @@ bool ParseUsageLines(const std::wstring& text, UsageValues& values)
     values.codex = std::move(lines[0]);
     values.grok = std::move(lines[1]);
     values.gemini = std::move(lines[2]);
-    values.deepseek = std::move(lines[3]);
+    values.opencode = std::move(lines[3]);
     return true;
 }
 
-/// Fetches Codex, Grok, Gemini, then DeepSeek display values from the local four-line bridge service.
+/// Fetches Codex, Grok, Gemini, then OpenCode display values from the local four-line bridge service.
 bool FetchUsageValues(UsageValues& values, ULONGLONG deadline)
 {
     std::string body;
@@ -641,7 +641,7 @@ void PublishUsage(const std::shared_ptr<SharedUsage>& usage, UsageValues values,
     std::wstring tooltip;
     if (available)
     {
-        tooltip = L"Codex: " + values.codex + L"\nGrok: " + values.grok + L"\nGemini: " + values.gemini + L"\nDeepSeek: " + values.deepseek;
+        tooltip = L"Codex: " + values.codex + L"\nGrok: " + values.grok + L"\nGemini: " + values.gemini + L"\nOpenCode: " + values.opencode;
     }
     else
     {
@@ -797,7 +797,7 @@ public:
           m_CodexItem(L"Codex", L"CodexTrayCodex", L"Codex", L"100%", *m_Usage, &UsageValues::codex, 0),
           m_GrokItem(L"Grok", L"CodexTrayGrok", L"Grok", L"100%", *m_Usage, &UsageValues::grok, 1),
           m_GeminiItem(L"Gemini", L"CodexTrayGemini", L"Gemini", L"100%", *m_Usage, &UsageValues::gemini, 2),
-          m_DeepSeekItem(L"DeepSeek", L"CodexTrayDeepSeek", L"DeepSeek", L"\u00A59999", *m_Usage, &UsageValues::deepseek, 3)
+          m_OpenCodeItem(L"OpenCode", L"CodexTrayOpenCode", L"OpenCode", L"100%", *m_Usage, &UsageValues::opencode, 3)
     {
     }
 
@@ -813,7 +813,7 @@ public:
         case 2:
             return &m_GeminiItem;
         case 3:
-            return &m_DeepSeekItem;
+            return &m_OpenCodeItem;
         default:
             return nullptr;
         }
@@ -894,7 +894,7 @@ public:
         case TMI_NAME:
             return L"CodexTray";
         case TMI_DESCRIPTION:
-            return L"Displays Codex, Grok, and Gemini quota and DeepSeek balance from CodexTray.";
+            return L"Displays Codex, Grok, Gemini, and OpenCode quota from CodexTray.";
         case TMI_AUTHOR:
             return L"SnowyLake";
         case TMI_COPYRIGHT:
@@ -922,7 +922,7 @@ private:
     UsageItem m_CodexItem;
     UsageItem m_GrokItem;
     UsageItem m_GeminiItem;
-    UsageItem m_DeepSeekItem;
+    UsageItem m_OpenCodeItem;
 };
 
 }

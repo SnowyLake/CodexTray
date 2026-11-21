@@ -44,8 +44,8 @@ public sealed class UsageLimits
     [JsonPropertyName("gemini_session")]
     public UsageLimit GeminiSession { get; set; } = new() { Name = "session", RemainingPercent = 0 };
 
-    [JsonPropertyName("deepseek_balance")]
-    public UsageLimit DeepSeek { get; set; } = new() { Name = "deepseek", RemainingPercent = 0 };
+    [JsonPropertyName("opencode_session")]
+    public UsageLimit OpenCodeSession { get; set; } = new() { Name = "session", RemainingPercent = 0 };
 }
 
 public sealed class UsageLimit
@@ -142,8 +142,8 @@ public sealed class UsageDisplay
     [JsonPropertyName("gemini_session")]
     public string GeminiSession { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
-    [JsonPropertyName("deepseek_balance")]
-    public string DeepSeek { get; set; } = CodexTrayDefaults.UnavailableDisplay;
+    [JsonPropertyName("opencode_session")]
+    public string OpenCodeSession { get; set; } = CodexTrayDefaults.UnavailableDisplay;
 
     [JsonPropertyName("summary")]
     public string Summary { get; set; } = CodexTrayDefaults.UnavailableDisplay;
@@ -153,4 +153,4 @@ public sealed record GrokPluginUsage(UsageLimit Weekly, string Display);
 
 public sealed record GeminiPluginUsage(UsageLimit Session, string Display);
 
-public sealed record DeepSeekPluginUsage(UsageLimit Limit, string Display);
+public sealed record OpenCodePluginUsage(UsageLimit Session, string Display);

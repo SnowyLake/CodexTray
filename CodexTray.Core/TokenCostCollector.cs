@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using ZstdSharp;
 
 namespace CodexTray.Core;
@@ -143,8 +144,11 @@ public sealed class TokenCostCollector
     private Dictionary<string, ModelPricing>? m_CachedPricing;
     private Dictionary<string, ModelPricing>? m_CodexPricing;
     private Dictionary<string, ModelPricing>? m_GeminiPricing;
+    private Dictionary<string, ModelPricing>? m_OpenCodePricing;
+    private CachedFileUsage? m_OpenCodeDatabaseCache;
     private readonly Lock m_PricingLock = new();
     private readonly Lock m_GeminiCacheLock = new();
+    private readonly Lock m_OpenCodeCacheLock = new();
     private string? m_CachedPricingJson;
 
     /// <summary>
@@ -317,6 +321,868 @@ public sealed class TokenCostCollector
         }
 
         return accumulator.ToStatistics(isSpeedEstimated: true, sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
+    }
+
+    /// <summary>
+    /// Collects local OpenCode session usage across all models invoked through OpenCode.
+    /// </summary>
+    public TokenCostStatistics CollectOpenCode(string? openCodeDirectory = null, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
+    {
+        return CollectOpenCode(openCodeDirectory, getEnvironmentVariable: null, now, cancellationToken);
+    }
+
+    internal TokenCostStatistics CollectOpenCode(
+        string? openCodeDirectory,
+        Func<string, string?>? getEnvironmentVariable,
+        DateTimeOffset? now = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string dataDirectory = OpenCodeUsageCollector.ResolveDataDirectory(openCodeDirectory, getEnvironmentVariable);
+        string? databasePath = OpenCodeUsageCollector.ResolveDatabasePath(openCodeDirectory, getEnvironmentVariable);
+        DateTimeOffset current = now ?? DateTimeOffset.Now;
+        Dictionary<string, ModelPricing> pricing = LoadPricing(cancellationToken);
+        TokenCostPeriodAccumulator accumulator = new(current);
+        List<SessionLogEntry> sessionLogs = [];
+        DateTime today = current.LocalDateTime.Date;
+
+        lock (m_OpenCodeCacheLock)
+        {
+            if (!ReferenceEquals(m_OpenCodePricing, pricing))
+            {
+                m_OpenCodeDatabaseCache = null;
+                m_OpenCodePricing = pricing;
+            }
+
+            if (!string.IsNullOrWhiteSpace(databasePath) && File.Exists(databasePath))
+            {
+                FileFingerprint[] fingerprints = GetOpenCodeDatabaseFingerprints(databasePath);
+                List<CachedUsageEvent> events;
+                if (fingerprints.Length > 0 &&
+                    m_OpenCodeDatabaseCache != null &&
+                    m_OpenCodeDatabaseCache.Files.AsSpan().SequenceEqual(fingerprints))
+                {
+                    events = m_OpenCodeDatabaseCache.Events;
+                }
+                else
+                {
+                    events = ReadOpenCodeDatabaseEvents(databasePath, pricing, cancellationToken);
+                    if (fingerprints.Length > 0 && fingerprints.AsSpan().SequenceEqual(GetOpenCodeDatabaseFingerprints(databasePath)))
+                    {
+                        m_OpenCodeDatabaseCache = new CachedFileUsage
+                        {
+                            Files = fingerprints,
+                            Events = events,
+                        };
+                    }
+                    else
+                    {
+                        m_OpenCodeDatabaseCache = null;
+                    }
+                }
+
+                AddCachedUsage(events, accumulator, cancellationToken);
+                AppendSessionLogs(sessionLogs, events, today, cancellationToken);
+            }
+            else
+            {
+                m_OpenCodeDatabaseCache = null;
+                List<CachedUsageEvent> legacyEvents = ReadOpenCodeLegacyStorageEvents(dataDirectory, pricing, cancellationToken);
+                AddCachedUsage(legacyEvents, accumulator, cancellationToken);
+                AppendSessionLogs(sessionLogs, legacyEvents, today, cancellationToken);
+            }
+        }
+
+        return accumulator.ToStatistics(isSpeedEstimated: true, sessionLogs: SortSessionLogsNewestFirst(sessionLogs));
+    }
+
+    private static FileFingerprint[] GetOpenCodeDatabaseFingerprints(string databasePath)
+    {
+        if (!TryGetFileFingerprint(databasePath, out long dbLength, out DateTime dbWriteUtc))
+        {
+            return [];
+        }
+
+        FileFingerprint db = new(databasePath, dbLength, dbWriteUtc);
+        string walPath = databasePath + "-wal";
+        return TryGetFileFingerprint(walPath, out long walLength, out DateTime walWriteUtc)
+            ? [db, new FileFingerprint(walPath, walLength, walWriteUtc)]
+            : [db];
+    }
+
+    /// <summary>
+    /// Reads OpenCode v2 (session_message + event usage records) and v1 (message / part) usage rows from opencode.db
+    /// with SQLite-side filtering/projection, fork deduplication, and zero WAL sidecar creation on quiescent databases.
+    /// </summary>
+    private static List<CachedUsageEvent> ReadOpenCodeDatabaseEvents(
+        string databasePath,
+        Dictionary<string, ModelPricing> pricing,
+        CancellationToken cancellationToken)
+    {
+        using SqliteConnection connection = OpenCodeUsageCollector.OpenReadOnlyConnection(databasePath);
+
+        HashSet<string> tables = new(StringComparer.OrdinalIgnoreCase);
+        using (SqliteCommand tableCommand = connection.CreateCommand())
+        {
+            tableCommand.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('session_message', 'session_v2', 'event', 'message', 'part', 'session')";
+            using SqliteDataReader tableReader = tableCommand.ExecuteReader();
+            while (tableReader.Read())
+            {
+                if (!tableReader.IsDBNull(0))
+                {
+                    tables.Add(tableReader.GetString(0));
+                }
+            }
+        }
+
+        bool hasSessionV2Fork = tables.Contains("session_v2")
+            && HasTableColumn(connection, "session_v2", "fork_session_id")
+            && HasTableColumn(connection, "session_v2", "time_created");
+        bool hasSessionV1Created = tables.Contains("session")
+            && HasTableColumn(connection, "session", "time_created");
+
+        List<CachedUsageEvent> events = [];
+        HashSet<string> seenMessageIds = new(StringComparer.Ordinal);
+        Dictionary<string, List<OpenCodeCompactionRecord>> countedCompactions = new(StringComparer.Ordinal);
+
+        if (tables.Contains("session_message"))
+        {
+            bool hasSessionIdColumn = HasTableColumn(connection, "session_message", "session_id");
+            bool joinSessionV2 = hasSessionV2Fork && hasSessionIdColumn;
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = $"""
+                SELECT
+                    m.id,
+                    {(hasSessionIdColumn ? "m.session_id" : "''")},
+                    m.type,
+                    m.time_created,
+                    COALESCE(json_extract(m.data, '$.model.id'), json_extract(m.data, '$.modelID'), CASE WHEN json_type(m.data, '$.model') = 'text' THEN json_extract(m.data, '$.model') END),
+                    json_extract(m.data, '$.tokens.input'),
+                    json_extract(m.data, '$.tokens.output'),
+                    json_extract(m.data, '$.tokens.reasoning'),
+                    json_extract(m.data, '$.tokens.cache.read'),
+                    json_extract(m.data, '$.tokens.cache.write'),
+                    json_extract(m.data, '$.cost'),
+                    json_extract(m.data, '$.time.created'),
+                    json_extract(m.data, '$.time.streamed'),
+                    json_extract(m.data, '$.time.completed')
+                FROM session_message AS m
+                {(joinSessionV2 ? "LEFT JOIN session_v2 AS s ON s.id = m.session_id" : string.Empty)}
+                WHERE m.type IN ('assistant', 'compaction')
+                  AND json_valid(m.data)
+                  {(joinSessionV2 ? "AND (s.fork_session_id IS NULL OR (m.time_created >= s.time_created AND (json_extract(m.data, '$.time.created') IS NULL OR CAST(json_extract(m.data, '$.time.created') AS INTEGER) >= s.time_created)))" : string.Empty)}
+                """;
+            using SqliteDataReader reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string id = ReadOptionalSqliteString(reader, 0);
+                string sessionId = ReadOptionalSqliteString(reader, 1);
+                string messageType = ReadOptionalSqliteString(reader, 2);
+                OpenCodeProjectedRow projected = ReadOpenCodeProjectedRow(reader, fallbackCreatedOrdinal: 3, modelOrdinal: 4);
+
+                if (TryBuildOpenCodeUsageEvent(projected, fallbackModel: null, pricing, out CachedUsageEvent usageEvent, out bool isExcludedModel))
+                {
+                    if (id.Length > 0)
+                    {
+                        seenMessageIds.Add(id);
+                    }
+
+                    events.Add(usageEvent);
+                    if (string.Equals(messageType, "compaction", StringComparison.OrdinalIgnoreCase) && sessionId.Length > 0)
+                    {
+                        if (!countedCompactions.TryGetValue(sessionId, out List<OpenCodeCompactionRecord>? list))
+                        {
+                            list = [];
+                            countedCompactions[sessionId] = list;
+                        }
+
+                        long createdMs = projected.DataCreatedMs > 0 ? projected.DataCreatedMs : projected.FallbackCreatedMs;
+                        list.Add(new OpenCodeCompactionRecord(createdMs, projected.Input, projected.Output, projected.Reasoning, projected.CacheRead, projected.CacheWrite));
+                    }
+                }
+                else if (isExcludedModel && id.Length > 0)
+                {
+                    seenMessageIds.Add(id);
+                }
+            }
+        }
+
+        if (tables.Contains("event")
+            && HasTableColumn(connection, "event", "aggregate_id")
+            && HasTableColumn(connection, "event", "type")
+            && HasTableColumn(connection, "event", "data")
+            && HasTableColumn(connection, "event", "created"))
+        {
+            using SqliteCommand eventCommand = connection.CreateCommand();
+            eventCommand.CommandText = $"""
+                SELECT
+                    e.aggregate_id,
+                    e.created,
+                    json_extract(e.data, '$.source'),
+                    COALESCE(json_extract(e.data, '$.model.id'), json_extract(e.data, '$.modelID'), CASE WHEN json_type(e.data, '$.model') = 'text' THEN json_extract(e.data, '$.model') END),
+                    json_extract(e.data, '$.tokens.input'),
+                    json_extract(e.data, '$.tokens.output'),
+                    json_extract(e.data, '$.tokens.reasoning'),
+                    json_extract(e.data, '$.tokens.cache.read'),
+                    json_extract(e.data, '$.tokens.cache.write'),
+                    json_extract(e.data, '$.cost'),
+                    json_extract(e.data, '$.time.created'),
+                    json_extract(e.data, '$.time.streamed'),
+                    json_extract(e.data, '$.time.completed')
+                FROM event AS e
+                {(hasSessionV2Fork ? "LEFT JOIN session_v2 AS s ON s.id = e.aggregate_id" : string.Empty)}
+                WHERE (e.type = 'session.usage.recorded' OR e.type LIKE 'session.usage.recorded.%')
+                  AND json_valid(e.data)
+                  {(hasSessionV2Fork ? "AND (s.fork_session_id IS NULL OR e.created >= s.time_created)" : string.Empty)}
+                """;
+            using SqliteDataReader eventReader = eventCommand.ExecuteReader();
+            while (eventReader.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string sessionId = ReadOptionalSqliteString(eventReader, 0);
+                string source = ReadOptionalSqliteString(eventReader, 2);
+                OpenCodeProjectedRow projected = ReadOpenCodeProjectedRow(eventReader, fallbackCreatedOrdinal: 1, modelOrdinal: 3);
+                long createdMs = projected.DataCreatedMs > 0 ? projected.DataCreatedMs : projected.FallbackCreatedMs;
+
+                if (string.Equals(source, "compaction", StringComparison.OrdinalIgnoreCase) &&
+                    TryConsumeCountedCompaction(countedCompactions, sessionId, createdMs, projected.Input, projected.Output, projected.Reasoning, projected.CacheRead, projected.CacheWrite))
+                {
+                    continue;
+                }
+
+                if (TryBuildOpenCodeUsageEvent(projected, fallbackModel: "unknown", pricing, out CachedUsageEvent eventUsage, out _))
+                {
+                    events.Add(eventUsage);
+                }
+            }
+        }
+
+        if (tables.Contains("message"))
+        {
+            bool hasMessageSessionId = HasTableColumn(connection, "message", "session_id");
+            bool joinSessionV1 = hasSessionV1Created && hasMessageSessionId;
+            Dictionary<string, OpenCodeProjectedRow> legacyMessagesById = new(StringComparer.Ordinal);
+            List<OpenCodeProjectedRow> unkeyedLegacyMessages = [];
+
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = $"""
+                    SELECT
+                        m.id,
+                        m.time_created,
+                        COALESCE(json_extract(m.data, '$.model.id'), json_extract(m.data, '$.modelID'), CASE WHEN json_type(m.data, '$.model') = 'text' THEN json_extract(m.data, '$.model') END),
+                        json_extract(m.data, '$.tokens.input'),
+                        json_extract(m.data, '$.tokens.output'),
+                        json_extract(m.data, '$.tokens.reasoning'),
+                        json_extract(m.data, '$.tokens.cache.read'),
+                        json_extract(m.data, '$.tokens.cache.write'),
+                        json_extract(m.data, '$.cost'),
+                        json_extract(m.data, '$.time.created'),
+                        json_extract(m.data, '$.time.streamed'),
+                        json_extract(m.data, '$.time.completed')
+                    FROM message AS m
+                    {(joinSessionV1 ? "LEFT JOIN session AS s ON s.id = m.session_id" : string.Empty)}
+                    WHERE json_valid(m.data)
+                      AND lower(COALESCE(json_extract(m.data, '$.role'), '')) = 'assistant'
+                      {(joinSessionV1 ? "AND (s.time_created IS NULL OR COALESCE(CAST(json_extract(m.data, '$.time.created') AS INTEGER), m.time_created) >= s.time_created)" : string.Empty)}
+                    """;
+                using SqliteDataReader reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string id = ReadOptionalSqliteString(reader, 0);
+                    if (id.Length > 0 && seenMessageIds.Contains(id))
+                    {
+                        continue;
+                    }
+
+                    OpenCodeProjectedRow projected = ReadOpenCodeProjectedRow(reader, fallbackCreatedOrdinal: 1, modelOrdinal: 2);
+                    if (id.Length > 0)
+                    {
+                        legacyMessagesById[id] = projected;
+                    }
+                    else
+                    {
+                        unkeyedLegacyMessages.Add(projected);
+                    }
+                }
+            }
+
+            HashSet<string> messagesEmittedFromParts = new(StringComparer.Ordinal);
+            if (legacyMessagesById.Count > 0 && tables.Contains("part"))
+            {
+                using SqliteCommand partCommand = connection.CreateCommand();
+                partCommand.CommandText = $"""
+                    SELECT
+                        p.message_id,
+                        p.time_created,
+                        COALESCE(json_extract(p.data, '$.model.id'), json_extract(p.data, '$.modelID'), CASE WHEN json_type(p.data, '$.model') = 'text' THEN json_extract(p.data, '$.model') END),
+                        json_extract(p.data, '$.tokens.input'),
+                        json_extract(p.data, '$.tokens.output'),
+                        json_extract(p.data, '$.tokens.reasoning'),
+                        json_extract(p.data, '$.tokens.cache.read'),
+                        json_extract(p.data, '$.tokens.cache.write'),
+                        json_extract(p.data, '$.cost'),
+                        json_extract(p.data, '$.time.created'),
+                        json_extract(p.data, '$.time.streamed'),
+                        json_extract(p.data, '$.time.completed')
+                    FROM part AS p
+                    JOIN message AS m ON m.id = p.message_id
+                    {(joinSessionV1 ? "LEFT JOIN session AS s ON s.id = m.session_id" : string.Empty)}
+                    WHERE json_valid(p.data)
+                      AND lower(COALESCE(json_extract(p.data, '$.type'), '')) = 'step-finish'
+                      AND json_valid(m.data)
+                      AND lower(COALESCE(json_extract(m.data, '$.role'), '')) = 'assistant'
+                      {(joinSessionV1 ? "AND (s.time_created IS NULL OR COALESCE(CAST(json_extract(m.data, '$.time.created') AS INTEGER), m.time_created) >= s.time_created)" : string.Empty)}
+                    ORDER BY p.message_id, p.time_created, p.rowid
+                    """;
+                using SqliteDataReader partReader = partCommand.ExecuteReader();
+                string currentMessageId = string.Empty;
+                List<OpenCodeProjectedRow> currentParts = [];
+                while (partReader.Read())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string messageId = ReadOptionalSqliteString(partReader, 0);
+                    if (messageId.Length == 0 || !legacyMessagesById.ContainsKey(messageId))
+                    {
+                        continue;
+                    }
+
+                    if (currentMessageId.Length > 0 && !string.Equals(currentMessageId, messageId, StringComparison.Ordinal))
+                    {
+                        if (EmitLegacyStepFinishParts(legacyMessagesById[currentMessageId], currentParts, pricing, events))
+                        {
+                            messagesEmittedFromParts.Add(currentMessageId);
+                        }
+
+                        currentParts.Clear();
+                    }
+
+                    currentMessageId = messageId;
+                    currentParts.Add(ReadOpenCodeProjectedRow(partReader, fallbackCreatedOrdinal: 1, modelOrdinal: 2));
+                }
+
+                if (currentMessageId.Length > 0 && currentParts.Count > 0 &&
+                    EmitLegacyStepFinishParts(legacyMessagesById[currentMessageId], currentParts, pricing, events))
+                {
+                    messagesEmittedFromParts.Add(currentMessageId);
+                }
+            }
+
+            foreach ((string id, OpenCodeProjectedRow legacyMessage) in legacyMessagesById)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (messagesEmittedFromParts.Contains(id))
+                {
+                    continue;
+                }
+
+                if (TryBuildOpenCodeUsageEvent(legacyMessage, fallbackModel: null, pricing, out CachedUsageEvent messageEvent, out _))
+                {
+                    events.Add(messageEvent);
+                }
+            }
+
+            foreach (OpenCodeProjectedRow legacyMessage in unkeyedLegacyMessages)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (TryBuildOpenCodeUsageEvent(legacyMessage, fallbackModel: null, pricing, out CachedUsageEvent messageEvent, out _))
+                {
+                    events.Add(messageEvent);
+                }
+            }
+        }
+
+        return events;
+    }
+
+    private static bool EmitLegacyStepFinishParts(
+        OpenCodeProjectedRow parentMessage,
+        List<OpenCodeProjectedRow> parts,
+        Dictionary<string, ModelPricing> pricing,
+        List<CachedUsageEvent> destination)
+    {
+        List<(CachedUsageEvent Event, long TotalOutput)> emitted = [];
+        bool anyPartTimed = false;
+        string parentModel = parentMessage.RawModel.Length > 0 ? parentMessage.RawModel : "unknown";
+
+        foreach (OpenCodeProjectedRow part in parts)
+        {
+            if (!TryBuildOpenCodeUsageEvent(part, fallbackModel: parentModel, pricing, out CachedUsageEvent partEvent, out _))
+            {
+                continue;
+            }
+
+            if (partEvent.TimedDurationMilliseconds > 0)
+            {
+                anyPartTimed = true;
+            }
+
+            long partOutput = checked(part.Output + part.Reasoning);
+            emitted.Add((partEvent, partOutput));
+        }
+
+        if (emitted.Count == 0)
+        {
+            return false;
+        }
+
+        // Common v1 step-finish parts carry tokens/cost while created/completed live on the parent message.
+        // Pair parent duration once across the parent's steps so multi-step messages never double-count elapsed time.
+        if (!anyPartTimed)
+        {
+            long parentCreatedMs = parentMessage.DataCreatedMs > 0 ? parentMessage.DataCreatedMs : parentMessage.FallbackCreatedMs;
+            long parentEndMs = parentMessage.DataStreamedMs > parentCreatedMs ? parentMessage.DataStreamedMs : parentMessage.DataCompletedMs;
+            if (parentCreatedMs > 0 && parentEndMs > parentCreatedMs)
+            {
+                long totalOutput = 0;
+                foreach ((_, long partOutput) in emitted)
+                {
+                    totalOutput = checked(totalOutput + partOutput);
+                }
+
+                if (TryPairEstimatedSpeed(totalOutput, parentEndMs - parentCreatedMs, out long timedOutputTokens, out long timedDurationMilliseconds))
+                {
+                    int targetIndex = emitted.Count - 1;
+                    CachedUsageEvent last = emitted[targetIndex].Event;
+                    emitted[targetIndex] = (last with
+                    {
+                        TimedOutputTokens = timedOutputTokens,
+                        TimedDurationMilliseconds = timedDurationMilliseconds,
+                    }, emitted[targetIndex].TotalOutput);
+                }
+            }
+        }
+
+        foreach ((CachedUsageEvent item, _) in emitted)
+        {
+            destination.Add(item);
+        }
+
+        return true;
+    }
+
+    private static bool TryConsumeCountedCompaction(
+        Dictionary<string, List<OpenCodeCompactionRecord>> countedCompactions,
+        string sessionId,
+        long createdMs,
+        long input,
+        long output,
+        long reasoning,
+        long cacheRead,
+        long cacheWrite)
+    {
+        if (sessionId.Length == 0 || !countedCompactions.TryGetValue(sessionId, out List<OpenCodeCompactionRecord>? records) || records.Count == 0)
+        {
+            return false;
+        }
+
+        int bestIndex = -1;
+        long bestDelta = long.MaxValue;
+        for (int index = 0; index < records.Count; index++)
+        {
+            OpenCodeCompactionRecord candidate = records[index];
+            if (candidate.Input != input ||
+                candidate.Output != output ||
+                candidate.Reasoning != reasoning ||
+                candidate.CacheRead != cacheRead ||
+                candidate.CacheWrite != cacheWrite)
+            {
+                continue;
+            }
+
+            long delta = Math.Abs(candidate.CreatedMs - createdMs);
+            if (delta < bestDelta)
+            {
+                bestDelta = delta;
+                bestIndex = index;
+            }
+        }
+
+        if (bestIndex < 0)
+        {
+            return false;
+        }
+
+        records.RemoveAt(bestIndex);
+        return true;
+    }
+
+    private static bool HasTableColumn(SqliteConnection connection, string tableName, string columnName)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info(\"{tableName}\")";
+        using SqliteDataReader reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (!reader.IsDBNull(1) && string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static OpenCodeProjectedRow ReadOpenCodeProjectedRow(SqliteDataReader reader, int fallbackCreatedOrdinal, int modelOrdinal)
+    {
+        long fallbackCreatedMs = ReadSqliteInt64(reader, fallbackCreatedOrdinal);
+        string rawModel = ReadOptionalSqliteString(reader, modelOrdinal);
+        long input = ReadSqliteInt64(reader, modelOrdinal + 1);
+        long output = ReadSqliteInt64(reader, modelOrdinal + 2);
+        long reasoning = ReadSqliteInt64(reader, modelOrdinal + 3);
+        long cacheRead = ReadSqliteInt64(reader, modelOrdinal + 4);
+        long cacheWrite = ReadSqliteInt64(reader, modelOrdinal + 5);
+        decimal? reportedCost = ReadSqlitePositiveCost(reader, modelOrdinal + 6);
+        long dataCreatedMs = ReadSqliteInt64(reader, modelOrdinal + 7);
+        long dataStreamedMs = ReadSqliteInt64(reader, modelOrdinal + 8);
+        long dataCompletedMs = ReadSqliteInt64(reader, modelOrdinal + 9);
+        return new OpenCodeProjectedRow(
+            rawModel,
+            input,
+            output,
+            reasoning,
+            cacheRead,
+            cacheWrite,
+            reportedCost,
+            fallbackCreatedMs,
+            dataCreatedMs,
+            dataStreamedMs,
+            dataCompletedMs);
+    }
+
+    private static string ReadOptionalSqliteString(SqliteDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+        {
+            return string.Empty;
+        }
+
+        object value = reader.GetValue(ordinal);
+        return value is string text ? text.Trim() : string.Empty;
+    }
+
+    private static long ReadSqliteInt64(SqliteDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+        {
+            return 0;
+        }
+
+        object value = reader.GetValue(ordinal);
+        return value switch
+        {
+            long integer => integer,
+            int smallInt => smallInt,
+            double floating when double.IsFinite(floating) && floating >= long.MinValue && floating <= long.MaxValue => (long)floating,
+            _ => 0,
+        };
+    }
+
+    private static decimal? ReadSqlitePositiveCost(SqliteDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+        {
+            return null;
+        }
+
+        object value = reader.GetValue(ordinal);
+        double rawCost = value switch
+        {
+            double floating => floating,
+            long integer => integer,
+            int smallInt => smallInt,
+            _ => double.NaN,
+        };
+        return double.IsFinite(rawCost) && rawCost > 0 && rawCost < (double)decimal.MaxValue
+            ? (decimal)rawCost
+            : null;
+    }
+
+    /// <summary>
+    /// Reads pre-SQLite OpenCode JSON message files when opencode.db is not present.
+    /// </summary>
+    private static List<CachedUsageEvent> ReadOpenCodeLegacyStorageEvents(
+        string dataDirectory,
+        Dictionary<string, ModelPricing> pricing,
+        CancellationToken cancellationToken)
+    {
+        string messageDirectory = Path.Combine(dataDirectory, "storage", "message");
+        if (!Directory.Exists(messageDirectory))
+        {
+            return [];
+        }
+
+        EnumerationOptions options = new()
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+            MaxRecursionDepth = 4,
+        };
+        List<CachedUsageEvent> events = [];
+        foreach (string path in Directory.EnumerateFiles(messageDirectory, "*.json", options))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                if (new FileInfo(path).Length > MaxGrokSessionFileBytes)
+                {
+                    continue;
+                }
+
+                string raw = File.ReadAllText(path);
+                if (TryParseOpenCodeUsageEvent(raw, fallbackCreatedMs: 0, fallbackModel: null, requireAssistantRole: true, pricing, out CachedUsageEvent usageEvent))
+                {
+                    events.Add(usageEvent);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or ArgumentOutOfRangeException or OverflowException)
+            {
+            }
+        }
+
+        return events;
+    }
+
+    private static bool TryParseOpenCodeUsageEvent(
+        string rawJson,
+        long fallbackCreatedMs,
+        string? fallbackModel,
+        bool requireAssistantRole,
+        Dictionary<string, ModelPricing> pricing,
+        out CachedUsageEvent usageEvent)
+    {
+        usageEvent = default;
+        if (string.IsNullOrWhiteSpace(rawJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(rawJson);
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (requireAssistantRole && !string.Equals(GetString(root, "role"), "assistant", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            JsonElement tokens = GetObject(root, "tokens");
+            JsonElement cache = GetObject(tokens, "cache");
+            decimal? reportedCost = null;
+            if (root.TryGetProperty("cost", out JsonElement costElement) &&
+                costElement.ValueKind == JsonValueKind.Number &&
+                costElement.TryGetDouble(out double rawCost) &&
+                double.IsFinite(rawCost) &&
+                rawCost > 0 &&
+                rawCost < (double)decimal.MaxValue)
+            {
+                reportedCost = (decimal)rawCost;
+            }
+
+            JsonElement time = GetObject(root, "time");
+            OpenCodeProjectedRow projected = new(
+                ReadOpenCodeModel(root),
+                GetInt64(tokens, "input"),
+                GetInt64(tokens, "output"),
+                GetInt64(tokens, "reasoning"),
+                GetInt64(cache, "read"),
+                GetInt64(cache, "write"),
+                reportedCost,
+                fallbackCreatedMs,
+                GetInt64(time, "created"),
+                GetInt64(time, "streamed"),
+                GetInt64(time, "completed"));
+            return TryBuildOpenCodeUsageEvent(projected, fallbackModel, pricing, out usageEvent, out _);
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentOutOfRangeException or OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryBuildOpenCodeUsageEvent(
+        OpenCodeProjectedRow row,
+        string? fallbackModel,
+        Dictionary<string, ModelPricing> pricing,
+        out CachedUsageEvent usageEvent,
+        out bool isExcludedModel)
+    {
+        usageEvent = default;
+        string rawModel = row.RawModel.Length > 0 ? row.RawModel : (fallbackModel ?? "unknown");
+        string model = NormalizeModel(rawModel.Length > 0 ? rawModel : "unknown");
+        if (IsExcludedUsageModel(model))
+        {
+            isExcludedModel = true;
+            return false;
+        }
+
+        isExcludedModel = false;
+        if (row.Input < 0 || row.Output < 0 || row.Reasoning < 0 || row.CacheRead < 0 || row.CacheWrite < 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            // OpenCode stores fresh input separately from cache.read/cache.write and reasoning separately from output.
+            long cacheableInput = checked(row.Input + row.CacheRead + row.CacheWrite);
+            long totalOutput = checked(row.Output + row.Reasoning);
+            TokenCounts counts = new(cacheableInput, row.CacheRead, totalOutput);
+            decimal? effectiveReportedCost = IsUnpricedLegacyModel(model) ? null : row.ReportedCost;
+            if (!counts.HasUsage && !effectiveReportedCost.HasValue)
+            {
+                return false;
+            }
+
+            long createdMs = row.DataCreatedMs > 0 ? row.DataCreatedMs : row.FallbackCreatedMs;
+            if (createdMs <= 0)
+            {
+                return false;
+            }
+
+            DateTimeOffset timestamp = DateTimeOffset.FromUnixTimeMilliseconds(createdMs);
+            long endMs = row.DataStreamedMs > createdMs ? row.DataStreamedMs : row.DataCompletedMs;
+            long timedOutputTokens = 0;
+            long timedDurationMilliseconds = 0;
+            if (endMs > createdMs)
+            {
+                TryPairEstimatedSpeed(totalOutput, endMs - createdMs, out timedOutputTokens, out timedDurationMilliseconds);
+            }
+
+            decimal? localCost = counts.HasUsage ? CalculateCost(pricing, model, counts, timestamp) : null;
+            decimal? costUsd = localCost ?? effectiveReportedCost;
+            usageEvent = new CachedUsageEvent(
+                timestamp,
+                counts.Total,
+                costUsd,
+                model,
+                counts.CacheReadTokens,
+                counts.CacheableInputTokens,
+                timedOutputTokens,
+                timedDurationMilliseconds);
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentOutOfRangeException or OverflowException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns whether a model belongs to legacy Claude (&lt;4.6) or Gemini (&lt;3.1) families kept unpriced by repository policy.
+    /// </summary>
+    internal static bool IsUnpricedLegacyModel(string normalizedModel)
+    {
+        if (string.IsNullOrEmpty(normalizedModel))
+        {
+            return false;
+        }
+
+        if (normalizedModel.StartsWith("claude-", StringComparison.Ordinal))
+        {
+            return TryParseLeadingModelVersion(normalizedModel["claude-".Length..], out int major, out int minor)
+                && (major < 4 || (major == 4 && minor < 6));
+        }
+
+        if (normalizedModel.StartsWith("gemini-", StringComparison.Ordinal))
+        {
+            if (TryParseLeadingModelVersion(normalizedModel["gemini-".Length..], out int major, out int minor))
+            {
+                return major < 3 || (major == 3 && minor < 1);
+            }
+
+            return normalizedModel is "gemini-pro" or "gemini-pro-vision" or "gemini-ultra" or "gemini-nano";
+        }
+
+        return false;
+    }
+
+    private static bool TryParseLeadingModelVersion(string suffix, out int major, out int minor)
+    {
+        major = 0;
+        minor = 0;
+        string[] parts = suffix.Split('-', StringSplitOptions.RemoveEmptyEntries);
+        for (int index = 0; index < parts.Length; index++)
+        {
+            string token = parts[index];
+            if (token.Length == 0 || !char.IsAsciiDigit(token[0]))
+            {
+                continue;
+            }
+
+            int dot = token.IndexOf('.');
+            if (dot > 0)
+            {
+                return int.TryParse(token.AsSpan(0, dot), NumberStyles.None, CultureInfo.InvariantCulture, out major)
+                    && int.TryParse(token.AsSpan(dot + 1), NumberStyles.None, CultureInfo.InvariantCulture, out minor);
+            }
+
+            if (!int.TryParse(token, NumberStyles.None, CultureInfo.InvariantCulture, out major) || major >= 100)
+            {
+                return false;
+            }
+
+            if (index + 1 < parts.Length &&
+                int.TryParse(parts[index + 1], NumberStyles.None, CultureInfo.InvariantCulture, out int nextMinor) &&
+                nextMinor < 100)
+            {
+                minor = nextMinor;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private readonly record struct OpenCodeProjectedRow(
+        string RawModel,
+        long Input,
+        long Output,
+        long Reasoning,
+        long CacheRead,
+        long CacheWrite,
+        decimal? ReportedCost,
+        long FallbackCreatedMs,
+        long DataCreatedMs,
+        long DataStreamedMs,
+        long DataCompletedMs);
+
+    private readonly record struct OpenCodeCompactionRecord(
+        long CreatedMs,
+        long Input,
+        long Output,
+        long Reasoning,
+        long CacheRead,
+        long CacheWrite);
+
+    private static string ReadOpenCodeModel(JsonElement root)
+    {
+        JsonElement modelObject = GetObject(root, "model");
+        if (modelObject.ValueKind == JsonValueKind.Object)
+        {
+            string nestedId = GetString(modelObject, "id");
+            if (nestedId.Length > 0)
+            {
+                return nestedId;
+            }
+        }
+
+        string topLevelModel = GetString(root, "modelID");
+        if (topLevelModel.Length > 0)
+        {
+            return topLevelModel;
+        }
+
+        return GetString(root, "model");
     }
 
     /// <summary>
@@ -1375,10 +2241,11 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Adds one session-log row per increment that is not after the collect's local day.
     /// </summary>
-    private static void AppendSessionLogs(List<SessionLogEntry> sessionLogs, List<CachedUsageEvent> events, DateTime today)
+    private static void AppendSessionLogs(List<SessionLogEntry> sessionLogs, List<CachedUsageEvent> events, DateTime today, CancellationToken cancellationToken = default)
     {
         foreach (CachedUsageEvent usageEvent in events)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (usageEvent.Timestamp.LocalDateTime.Date > today)
             {
                 continue;
@@ -2077,10 +2944,11 @@ public sealed class TokenCostCollector
     /// <summary>
     /// Replays cached usage and paired response timing into a fresh period accumulator.
     /// </summary>
-    private static void AddCachedUsage(List<CachedUsageEvent> events, TokenCostPeriodAccumulator accumulator)
+    private static void AddCachedUsage(List<CachedUsageEvent> events, TokenCostPeriodAccumulator accumulator, CancellationToken cancellationToken = default)
     {
         foreach (CachedUsageEvent usageEvent in events)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             accumulator.Add(usageEvent.Timestamp, usageEvent.Tokens, usageEvent.CostUsd, usageEvent.Model, usageEvent.CacheReadTokens, usageEvent.CacheableInputTokens,
                             usageEvent.TimedOutputTokens, usageEvent.TimedDurationMilliseconds);
         }

@@ -1,4 +1,5 @@
 using CodexTray.Core;
+using Microsoft.Data.Sqlite;
 using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
@@ -23,6 +24,7 @@ internal sealed class TrayController : IDisposable
     private readonly CodexUsageCollector m_CodexUsageCollector;
     private readonly GrokUsageCollector m_GrokUsageCollector;
     private readonly GeminiUsageCollector m_GeminiUsageCollector;
+    private readonly OpenCodeUsageCollector m_OpenCodeUsageCollector;
     private readonly CursorUsageCollector m_CursorUsageCollector;
     private readonly ApiUsageCollector m_ApiUsageCollector;
     private readonly TokenCostCollector m_TokenCostCollector;
@@ -63,6 +65,7 @@ internal sealed class TrayController : IDisposable
         m_CodexUsageCollector = new CodexUsageCollector();
         m_GrokUsageCollector = new GrokUsageCollector();
         m_GeminiUsageCollector = new GeminiUsageCollector();
+        m_OpenCodeUsageCollector = new OpenCodeUsageCollector();
         m_CursorUsageCollector = new CursorUsageCollector();
         m_ApiUsageCollector = new ApiUsageCollector();
         m_TokenCostCollector = new TokenCostCollector();
@@ -559,11 +562,16 @@ internal sealed class TrayController : IDisposable
                 m_PopupViewModel?.UpdateGeminiDashboard(GeminiUsageDashboard.Empty);
                 m_PopupViewModel?.UpdateGeminiTokenCost(null);
             }
+            if ((m_Settings.VisiblePages & PageItem.OpenCode) == 0)
+            {
+                m_PopupViewModel?.UpdateOpenCodeDashboard(OpenCodeUsageDashboard.Empty);
+                m_PopupViewModel?.UpdateOpenCodeTokenCost(null);
+            }
             SyncSettingsRecoveryStatus();
             m_UsageCache.ClearCodex();
             m_UsageCache.ClearGrok();
             m_UsageCache.ClearGemini();
-            m_UsageCache.ClearDeepSeek();
+            m_UsageCache.ClearOpenCode();
             ConfigureRefreshTimer();
             QueueServiceReconcile();
             RefreshPopupStatus();
@@ -591,7 +599,7 @@ internal sealed class TrayController : IDisposable
         bool codexWasEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokWasEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
         bool geminiWasEnabled = (m_Settings.VisiblePages & PageItem.Gemini) != 0;
-        bool apisWasEnabled = (m_Settings.VisiblePages & PageItem.Apis) != 0;
+        bool openCodeWasEnabled = (m_Settings.VisiblePages & PageItem.OpenCode) != 0;
         bool serviceWasRequired = IsPluginServiceRequired;
         AppSettings candidate = m_Settings.Copy();
         m_PopupViewModel?.ApplySettings(candidate, markSaved: false);
@@ -607,7 +615,7 @@ internal sealed class TrayController : IDisposable
         bool codexIsEnabled = (m_Settings.VisiblePages & PageItem.Codex) != 0;
         bool grokIsEnabled = (m_Settings.VisiblePages & PageItem.Grok) != 0;
         bool geminiIsEnabled = (m_Settings.VisiblePages & PageItem.Gemini) != 0;
-        bool apisIsEnabled = (m_Settings.VisiblePages & PageItem.Apis) != 0;
+        bool openCodeIsEnabled = (m_Settings.VisiblePages & PageItem.OpenCode) != 0;
         if (codexWasEnabled && !codexIsEnabled)
         {
             m_UsageCache.ClearCodex();
@@ -626,9 +634,11 @@ internal sealed class TrayController : IDisposable
             m_PopupViewModel?.UpdateGeminiTokenCost(null);
         }
 
-        if (apisWasEnabled && !apisIsEnabled)
+        if (openCodeWasEnabled && !openCodeIsEnabled)
         {
-            m_UsageCache.ClearDeepSeek();
+            m_UsageCache.ClearOpenCode();
+            m_PopupViewModel?.UpdateOpenCodeDashboard(OpenCodeUsageDashboard.Empty);
+            m_PopupViewModel?.UpdateOpenCodeTokenCost(null);
         }
 
         bool serviceIsRequired = IsPluginServiceRequired;
@@ -780,13 +790,9 @@ internal sealed class TrayController : IDisposable
         {
             lines.Add("Gemini S: " + (usage?.Display.GeminiSession != null && usage.Display.GeminiSession != "N/A" ? Percent(usage.Limits.GeminiSession) : "N/A"));
         }
-        if ((visiblePages & PageItem.Apis) != 0)
+        if ((visiblePages & PageItem.OpenCode) != 0)
         {
-            string raw = usage?.Display.DeepSeek ?? "N/A";
-            string balance = raw.StartsWith('¥') && decimal.TryParse(raw.AsSpan(1), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal amount)
-                ? $"¥{amount:0}" : "N/A";
-            balance = balance.Length > 11 ? balance[..10] + "…" : balance;
-            lines.Add("DeepSeek: " + balance);
+            lines.Add("OpenCode S: " + (usage?.Display.OpenCodeSession != null && usage.Display.OpenCodeSession != "N/A" ? Percent(usage.Limits.OpenCodeSession) : "N/A"));
         }
 
         return lines.Count == 0 ? CodexTrayDefaults.AppName : string.Join('\n', lines);
@@ -905,6 +911,18 @@ internal sealed class TrayController : IDisposable
                     result => m_PopupViewModel?.UpdateGeminiTokenCost(result.Statistics, result.Error), localCosts: true));
             }
 
+            if ((visiblePages & PageItem.OpenCode) != 0)
+            {
+                children.Add(PublishAsync(PageItem.OpenCode, Task.Run(() => m_OpenCodeUsageCollector.CollectDashboardAsync(useAbsoluteResetTime, cancellationToken), cancellationToken),
+                    dashboard =>
+                    {
+                        m_UsageCache.UpdateOpenCode(OpenCodeUsageCollector.BuildPluginUsage(dashboard));
+                        m_PopupViewModel?.UpdateOpenCodeDashboard(dashboard);
+                    }));
+                children.Add(PublishAsync(PageItem.OpenCode, Task.Run(() => CollectTokenCostSafely(() => m_TokenCostCollector.CollectOpenCode(cancellationToken: cancellationToken)), cancellationToken),
+                    result => m_PopupViewModel?.UpdateOpenCodeTokenCost(result.Statistics, result.Error), localCosts: true));
+            }
+
             if ((visiblePages & PageItem.Apis) != 0)
             {
                 ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Where(card => request.AllApiCards || request.ApiIds.Contains(card.Id)).Select(CloneApiMonitor).ToArray();
@@ -962,6 +980,9 @@ internal sealed class TrayController : IDisposable
                             case PageItem.Gemini:
                                 m_PopupViewModel?.UpdateGeminiTokenCost(null, error);
                                 break;
+                            case PageItem.OpenCode:
+                                m_PopupViewModel?.UpdateOpenCodeTokenCost(null, error);
+                                break;
                         }
 
                         return;
@@ -990,6 +1011,19 @@ internal sealed class TrayController : IDisposable
                                 StatusMessage = error,
                             });
                             break;
+                        case PageItem.OpenCode:
+                            m_UsageCache.ClearOpenCode();
+                            m_PopupViewModel?.UpdateOpenCodeDashboard(new OpenCodeUsageDashboard
+                            {
+                                Snapshot = new OpenCodeUsageSnapshot
+                                {
+                                    Source = "opencode",
+                                    UpdatedAt = now,
+                                    IsAvailable = false,
+                                },
+                                StatusMessage = error,
+                            });
+                            break;
                     }
 
                     RefreshPopupStatus();
@@ -998,20 +1032,12 @@ internal sealed class TrayController : IDisposable
     }
 
     /// <summary>
-    /// Updates selected cards and recomputes the first DeepSeek plugin value in the current order.
+    /// Updates selected API monitor cards in the current order.
     /// </summary>
     private void PublishApiResults(IReadOnlyList<ApiMonitorSettings> queried, IReadOnlyList<ApiUsageResult> results)
     {
         IReadOnlyList<ApiUsageResult> merged = m_ApiSnapshots.Merge(m_Settings.ApiMonitors, queried, results);
         m_PopupViewModel?.UpdateApiUsage(merged);
-        if ((m_Settings.VisiblePages & PageItem.Apis) != 0)
-        {
-            m_UsageCache.UpdateDeepSeek(ApiUsageCollector.BuildDeepSeekPluginUsage(merged));
-        }
-        else
-        {
-            m_UsageCache.ClearDeepSeek();
-        }
     }
 
     /// <summary>
@@ -1060,7 +1086,7 @@ internal sealed class TrayController : IDisposable
         {
             return (collect(), string.Empty);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or OverflowException or KeyNotFoundException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or OverflowException or KeyNotFoundException or SqliteException)
         {
             return (null, exception is UnauthorizedAccessException ? "Local session or pricing file access denied" : "Local session or pricing data could not be read");
         }

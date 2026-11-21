@@ -5,7 +5,7 @@ public sealed class UsageCache
     private volatile UsageResponse? m_CodexResponse;
     private volatile GrokPluginUsage? m_GrokUsage;
     private volatile GeminiPluginUsage? m_GeminiUsage;
-    private volatile DeepSeekPluginUsage? m_DeepSeekUsage;
+    private volatile OpenCodePluginUsage? m_OpenCodeUsage;
 
     /// <summary>
     /// Stores the latest collected Codex usage response.
@@ -32,11 +32,11 @@ public sealed class UsageCache
     }
 
     /// <summary>
-    /// Stores the latest collected DeepSeek plugin snapshot.
+    /// Stores the latest collected OpenCode plugin snapshot.
     /// </summary>
-    public void UpdateDeepSeek(DeepSeekPluginUsage usage)
+    public void UpdateOpenCode(OpenCodePluginUsage usage)
     {
-        m_DeepSeekUsage = usage;
+        m_OpenCodeUsage = usage;
     }
 
     /// <summary>
@@ -64,11 +64,11 @@ public sealed class UsageCache
     }
 
     /// <summary>
-    /// Clears the cached DeepSeek plugin snapshot.
+    /// Clears the cached OpenCode plugin snapshot.
     /// </summary>
-    public void ClearDeepSeek()
+    public void ClearOpenCode()
     {
-        m_DeepSeekUsage = null;
+        m_OpenCodeUsage = null;
     }
 
     /// <summary>
@@ -80,15 +80,15 @@ public sealed class UsageCache
     }
 
     /// <summary>
-    /// Gets a merged plugin response from the latest Codex, Grok, Gemini, and DeepSeek values.
+    /// Gets a merged plugin response from the latest Codex, Grok, Gemini, and OpenCode values.
     /// </summary>
     public UsageResponse? Get()
     {
         UsageResponse? codex = m_CodexResponse;
         GrokPluginUsage? grok = m_GrokUsage;
         GeminiPluginUsage? gemini = m_GeminiUsage;
-        DeepSeekPluginUsage? deepSeek = m_DeepSeekUsage;
-        if (codex == null && grok == null && gemini == null && deepSeek == null)
+        OpenCodePluginUsage? openCode = m_OpenCodeUsage;
+        if (codex == null && grok == null && gemini == null && openCode == null)
         {
             return null;
         }
@@ -111,15 +111,15 @@ public sealed class UsageCache
             UsedPercent = 100,
             RemainingPercent = 0,
         };
-        UsageLimit deepSeekLimit = deepSeek?.Limit ?? new UsageLimit
+        UsageLimit openCodeSession = openCode?.Session ?? new UsageLimit
         {
-            Name = "deepseek",
+            Name = "session",
             UsedPercent = 100,
             RemainingPercent = 0,
         };
         string grokDisplay = grok?.Display ?? CodexTrayDefaults.UnavailableDisplay;
         string geminiDisplay = gemini?.Display ?? CodexTrayDefaults.UnavailableDisplay;
-        string deepSeekDisplay = deepSeek?.Display ?? CodexTrayDefaults.UnavailableDisplay;
+        string openCodeDisplay = openCode?.Display ?? CodexTrayDefaults.UnavailableDisplay;
         return new UsageResponse
         {
             Available = codex.Available,
@@ -133,7 +133,7 @@ public sealed class UsageCache
                 Weekly = codex.Limits.Weekly,
                 GrokWeekly = grokWeekly,
                 GeminiSession = geminiSession,
-                DeepSeek = deepSeekLimit,
+                OpenCodeSession = openCodeSession,
             },
             ResetCredits = codex.ResetCredits,
             Display = new UsageDisplay
@@ -141,7 +141,7 @@ public sealed class UsageCache
                 Weekly = codex.Display.Weekly,
                 GrokWeekly = grokDisplay,
                 GeminiSession = geminiDisplay,
-                DeepSeek = deepSeekDisplay,
+                OpenCodeSession = openCodeDisplay,
             },
         };
     }

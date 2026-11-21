@@ -47,7 +47,7 @@
   - 数值输入与凭据遮挡复用既有 `NumericUpDown` / `NumericInput` / `CredentialInput`; 监控器扫描复用 `MonitorLocator` 体系.
 - **生命周期与并发不变量**:
   - 所有可共享长时任务必须支持 `CancellationToken`. 正常退出和本地服务异常重启时, 必须先取消并排空后台任务或活动连接, 再停止/释放 `LightweightHttpServer`.
-  - 各采集源以及 Codex/Grok/Gemini 的额度与本地 Token Cost 必须独立发布, 单源失败不得阻塞其他源; 每次发布前必须复核退出状态, 设置引用与页面可见性.
+  - 各采集源以及 Codex/Grok/Gemini/OpenCode 的额度与本地 Token Cost 必须独立发布, 单源失败不得阻塞其他源; 每次发布前必须复核退出状态, 设置引用与页面可见性.
   - `VisiblePages` 为空时必须停止定时刷新与本地 HTTP 服务; 隐藏对应页面或恢复备份时必须清理对应插件缓存与退避状态.
   - `RefreshRequests` 负责合并待刷新来源与单卡请求并串行排空, 禁止同一采集器并发执行; 迟到结果若对应卡片已修改或删除必须丢弃.
 
@@ -57,7 +57,7 @@
 
 - **严禁硬编码真实密钥**: 绝不得在代码, 配置文件, 测试用例或文档示例中硬编码任何真实密钥, API key, OAuth `client_secret`, token 或账号凭据; 测试与示例一律使用无意义的占位符.
 - **本地插件服务隔离**: `LightweightHttpServer` 必须仅监听 `127.0.0.1`, 且强制校验请求 `Host` 与当前监听端口匹配 (仅限 `127.0.0.1` 或 `localhost`), 严禁向局域网开放.
-- **插件响应白名单**: 仅 Codex Weekly, Grok Weekly, Gemini 5 小时额度与 APIs 页**第一张** DeepSeek 卡片的四舍五入整元 CNY 余额可进入插件 HTTP 响应. 第一张 DeepSeek 卡片不可用时返回 `N/A`, **不得**回退到后续 DeepSeek 卡片; 其他页面及 API provider 不得进入插件响应.
+- **插件响应白名单**: 仅 Codex Weekly, Grok Weekly, Gemini 5 小时额度与 OpenCode 5 小时 Session 额度可进入插件 HTTP 响应; APIs 页及其他未列出的窗口不得进入插件响应.
 - **凭据存储与脱敏**:
   - OAuth token 绝不复制到 `settings.json`, 日志, 诊断文本或插件配置.
   - API 监控凭据目前在 `settings.json`, `settings.last-good.json` 与 `settings.damaged-*.json` 中以明文存储; `CredentialInput` 仅用于屏幕遮挡且离开编辑态即重置, **不得**在文档或界面中将其表述为加密存储.
@@ -67,7 +67,7 @@
 ### 凭据读写与重试边界
 
 - **事务写回与并发换号保护**: Grok 与 Gemini 对本地 JSON 凭据文件的续期写回必须使用 `AtomicFile` 的 NTFS 事务写回, 并在网络请求前后校验文件内容指纹 (以及 Gemini 状态代次), 检测到原客户端换号, 登出或应用重置时必须丢弃旧结果, 不得覆盖新凭据. 遇到文件锁定或非 TxF 卷无法事务写回时, 不得强制覆写 (Grok 仅继续使用仍有效的 token, Gemini 回退到按来源绑定的私有内存缓存).
-- **只读来源与静默原则**: Windows 凭据管理器, Antigravity IDE `state.vscdb` 与 Cursor `state.vscdb` 一律只读不写回. 后台刷新**永不**拉起 `agy` 等外部 CLI 子进程或弹出浏览器登录窗, 也**不**自动续期 Cursor 登录.
+- **只读来源与静默原则**: Windows 凭据管理器, Antigravity IDE `state.vscdb`, Cursor `state.vscdb` 与 OpenCode `opencode.db` / `auth.json` 一律只读不写回. 后台刷新**永不**拉起 `agy` 等外部 CLI 子进程或弹出浏览器登录窗, 也**不**自动续期 Cursor 或 OpenCode 登录 (OpenCode 服务端会轮换 refresh token, 无写回续期会破坏原客户端会话).
 - **OAuth 客户端配对安全**: Gemini / Antigravity 的 OAuth `client_id` / `client_secret` 严禁硬编码进仓库; 仅从凭据文件, 环境变量或本机已安装应用运行时动态提取. 扫描本机路径前必须通过 `AppUpdatePaths.EnsureSafePath` 拒绝重解析点.
 - **重试范围限制**: `UsageHttp` 的重试机制 (网络错误, 超时, 429, 5xx) 仅用于只读额度与用量查询, **绝不**用于 OAuth token 刷新 POST. 401/403, 其他 4xx 与解析错误不自动重试; 单次采集已预刷新后遇到 401/403 不再次触发续期. 遇到 `Retry-After` 超出等待预算时直接失败, 不缩短服务端要求的等待时长.
 
@@ -81,6 +81,10 @@
   - 只纳入 `cursor` 与 `grok-api`, 排除 Bot, Build, Chat 与 Imagine; 账本实付金额 (`pricing.contracted`) 不用于 Token Cost, 统一按本地价格表估算.
   - 对账本中未识别的 token meter **不得**直接累加 (防止把搜索次数或重叠细项当成新增 token); 无法确认分类或价格时保留总 token 并向上传播 `HasUnpricedUsage`.
   - 本地压缩缓存 (`cursor-usage-cache.json.gz`) 按账号校验, 仅在完整分页后落盘; 首次遇到早于已缓存月份的不可读旧月即持久化历史下限, 避免每次重启反复回溯无效月份.
+- **OpenCode 额度与本地会话**:
+  - 凭据按 `OPENCODE_API_KEY` -> `opencode.db` `credential` 表 (`opencode-go` 优先于 `opencode`) -> 旧版 `auth.json` 顺序只读读取; `credential` 表存在时视为权威来源, 登出后不得回退读取旧版 `auth.json`. 凭据含非官方 `metadata.server` (允许默认 `https://opencode.ai/console` 与旧官方 `https://console.opencode.ai`) 时必须拒绝且不发送任何请求. 打开静止的 WAL `opencode.db` 时使用 `immutable=1` 只读 URI 避免在数据目录产生 `-wal`/`-shm` 副作用文件, 存在活跃 `-wal`/`-shm` 时回退常规只读连接.
+  - 额度查询固定走 `GET https://opencode.ai/zen/go/v1/usage` (OAuth 额外查 `GET https://opencode.ai/console/api/go/status` 获取 `go` / `go-plus` / `go-teams` 档位); 未登录或明确无订阅 (`EntitlementError` 或 `go/status` 明确无订阅) 时回退为 `FREE` 档位与三项 `100%` 额度; 无法识别的 `go/status` 响应, 过期 OAuth 或多条冲突活跃凭据按失败处理, 不静默伪装为 `FREE`. 未开始的滚动 5 小时窗口 (`percent == 0` 且 `resetsAt ≈ capturedAt + 5h`) 以收到响应时的时间 (无 `Date` 头时) 判定并丢弃占位重置时间.
+  - OpenCode 本地 Token Cost 统计所有通过 OpenCode 调用的模型 (不按 `providerID` 过滤), 在 SQLite 侧过滤并投影计费字段, 同时覆盖 v2 `session_message` (`assistant`/`compaction`), `event` (`session.usage.recorded` 压缩与标题生成, 同笔压缩只计一次) 与 v1 `message`/`part` (`step-finish` 配对父消息耗时), 过滤 v2/v1 分叉复制历史, 仅在取得有效用量或明确排除模型后按消息 `id` 去重, 且旧 Claude/Gemini 型号不通过自报费用绕过未定价规则; Codex, Grok 与 Gemini 本地日志各自隔离, **不得**读取 OpenCode 会话.
 - **Gemini, Antigravity 与本地日志**:
   - Codex, Grok 与 Gemini 均不读取 OpenCode 会话.
   - Gemini CLI 用量严格遵循官方定义: `input` 已含缓存, `tool` 另计普通输入, `output + thoughts` 为输出, **不要**根据 `total` 猜测反推. 恢复旧 `.json` 与同名 `.jsonl` 共存时只计 `.jsonl`.
@@ -115,6 +119,7 @@
 - Gemini CLI 会话字段与记录实现: [chatRecordingTypes.ts](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingTypes.ts), [chatRecordingService.ts](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingService.ts)
 - Antigravity 凭据与 IDE protobuf 结构: [agy 脱敏文件示例 (#479)](https://github.com/google-antigravity/antigravity-cli/issues/479), [Antigravity-Manager protobuf.rs](https://github.com/lbjlaq/Antigravity-Manager/blob/main/src-tauri/src/utils/protobuf.rs)
 - Grok 本地费用与 Codex 速度估算参考: [CCSwitch Grok Build 导入](https://github.com/farion1231/cc-switch/blob/c0050623194303ecc95c3ce7ca8e362bce21e762/src-tauri/src/services/session_usage_grokbuild.rs), [codex-tps analysis.go](https://github.com/adenta/codex-tps/blob/be549617f50409c8c0e15a8a6838520ec12d2bb1/analysis.go)
+- OpenCode 额度与本地历史参考: [anomalyco/opencode usage-limits.ts](https://github.com/anomalyco/opencode/blob/44593c514ec56444a5f49954fa6a30d27cb5270f/packages/core/src/usage-limits.ts), [console-access.ts](https://github.com/anomalyco/opencode/blob/44593c514ec56444a5f49954fa6a30d27cb5270f/packages/core/src/console-access.ts), [session/stats.ts](https://github.com/anomalyco/opencode/blob/44593c514ec56444a5f49954fa6a30d27cb5270f/packages/core/src/session/stats.ts), [OpenUsage OpenCodeUsageMapper.swift](https://github.com/robinebers/openusage/blob/main/Sources/OpenUsage/Providers/OpenCode/OpenCodeUsageMapper.swift), [CodexBar OpenCodeGoLocalUsageReader.swift](https://github.com/steipete/CodexBar/blob/main/Sources/CodexBarCore/Providers/OpenCodeGo/OpenCodeGoLocalUsageReader.swift)
 - 官方模型价格表: [Claude Pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Gemini Developer API Pricing](https://aistudio.google.com/docs/pricing), [Google Cloud Gemini Pricing](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing), [Cursor Models & Pricing](https://cursor.com/docs/models-and-pricing)
 
 ## 修改关联检查清单
@@ -124,7 +129,7 @@
 | 应用或插件版本号 | 三处完全一致 (`X.Y.Z`): `CodexTray.App/CodexTray.App.csproj` `<Version>`, `Plugins/LiteMonitor/CodexTray.json` `meta.version`, `Plugins/TrafficMonitor/TrafficMonitorPlugin.cpp` `TMI_VERSION` |
 | 插件字段, HTTP 路径或显示格式 | `Plugins/LiteMonitor/CodexTray.json`, `Plugins/TrafficMonitor/CodexTray.ini`, `TrafficMonitorPlugin.cpp`, C# 与原生插件测试, `README.md` |
 | API provider, Base URL 或凭据规则 | `ApiUsageCollector`, `ApiMonitorSettings`, `ApiMonitorViewModel`, `TrayPopupWindow.xaml`, 测试, `README.md` |
-| Grok / Codex / Gemini 额度或徽章映射 | 对应 `*UsageCollector`, `TrayPopupViewModel`, 测试, `README.md` |
+| Grok / Codex / Gemini / OpenCode 额度或徽章映射 | 对应 `*UsageCollector`, `TrayPopupViewModel`, 测试, `README.md` |
 | Token Cost 解析, 周期或定价结构 | `TokenCostCollector`, `TokenCostPeriodAccumulator`, `Resources/model-pricing.json`, 测试, `README.md` |
 | `VisiblePages` 或刷新调度 | 页面导航, 定时器, 本地 HTTP 服务启停, 缓存/退避清理, 托盘 tooltip |
 | 应用内更新协议, 校验或保留文件 | `AppUpdate*`, `GitHubAppUpdateClient`, `Program.cs`, Settings 页更新逻辑, 测试, `README.md` |

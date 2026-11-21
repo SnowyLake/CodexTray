@@ -4,7 +4,7 @@
     "name": "CodexTray",
     "version": "6.4.1",
     "author": "SnowyLake",
-    "description": "显示 Codex, Grok, Gemini 的剩余额度百分比和 DeepSeek 余额"
+    "description": "显示 Codex, Grok, Gemini 和 OpenCode 的剩余额度百分比"
   },
   "inputs": [
     {
@@ -29,11 +29,11 @@
           "codex_display": "display.codex_weekly",
           "grok_display": "display.grok_weekly",
           "gemini_display": "display.gemini_session",
-          "deepseek_display": "display.deepseek_balance",
+          "opencode_display": "display.opencode_session",
           "codex_remaining": "limits.codex_weekly.remaining_percent",
           "grok_remaining": "limits.grok_weekly.remaining_percent",
           "gemini_remaining": "limits.gemini_session.remaining_percent",
-          "deepseek_remaining": "limits.deepseek_balance.remaining_percent"
+          "opencode_remaining": "limits.opencode_session.remaining_percent"
         },
         "process": [
           {
@@ -67,8 +67,8 @@
             }
           },
           {
-            "var": "deepseek_color",
-            "source": "deepseek_remaining",
+            "var": "opencode_color",
+            "source": "opencode_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -106,12 +106,12 @@
       "color": "{{gemini_color}}"
     },
     {
-      "key": "deepseek",
-      "label": "DeepSeek",
-      "short_label": "DeepSeek",
-      "format_val": "{{deepseek_display}}",
+      "key": "opencode",
+      "label": "OpenCode",
+      "short_label": "OpenCode",
+      "format_val": "{{opencode_display}}",
       "unit": "",
-      "color": "{{deepseek_color}}"
+      "color": "{{opencode_color}}"
     }
   ]
 }

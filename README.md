@@ -16,9 +16,9 @@
 
 ## 概览
 
-`CodexTray` 是一款面向 Windows x64 的系统托盘应用, 用于在一个轻量面板中查看 Codex, Grok 与 Gemini 的订阅额度, 重置时间, token 用量与估算费用, 同时支持监控多个主流 API 账户的余额或费用.
+`CodexTray` 是一款面向 Windows x64 的系统托盘应用, 用于在一个轻量面板中查看 Codex, Grok, Gemini 与 OpenCode 的订阅额度, 重置时间, token 用量与估算费用, 同时支持监控多个主流 API 账户的余额或费用.
 
-配合 LiteMonitor 或 TrafficMonitor 插件, 还可以将 Codex Weekly, Grok Weekly, Gemini 5 小时额度与第一张 DeepSeek 卡片的 CNY 余额直接展示在系统监控栏中.
+配合 LiteMonitor 或 TrafficMonitor 插件, 还可以将 Codex Weekly, Grok Weekly, Gemini 5 小时额度与 OpenCode 5 小时额度直接展示在系统监控栏中.
 
 本文面向最终用户, 介绍安装, 配置与日常使用. 开发与维护规范见 [AGENTS.md](AGENTS.md).
 
@@ -28,7 +28,7 @@
 
 ## 核心功能
 
-- **多平台订阅额度**: 在独立页面查看 Codex (Session / Weekly / Resets), Grok (Weekly 与产品使用占比) 及 Gemini (Gemini 5 小时/周/Argon 高级模型周额度, 以及 Claude & GPT 5 小时/周额度) 的剩余百分比, 订阅档位与重置时间.
+- **多平台订阅额度**: 在独立页面查看 Codex (Session / Weekly / Resets), Grok (Weekly 与产品使用占比), Gemini (Gemini 5 小时/周/Argon 高级模型周额度, 以及 Claude & GPT 5 小时/周额度) 及 OpenCode (Session / Weekly / Monthly) 的剩余百分比, 订阅档位与重置时间.
 - **Token Cost 与趋势分析**: 按滚动周期与自然周期统计 token 总量, 估算费用, 缓存命中率, 模型占比, 30 天或自然月趋势图, 并支持查看本地 Session Logs 明细与平均输出速度.
 - **多厂商 API 余额监控**: 在 APIs 页自由添加, 命名, 排序或删除 OpenAI, DeepSeek, OpenRouter, Vercel AI Gateway 与 NewAPI 监控卡片.
 - **独立刷新与故障隔离**: 各来源以及各页面的额度与 Token Cost 独立采集并立即更新, 互不阻塞. 失败项显示 `N/A`, 不沿用过期旧值.
@@ -50,16 +50,17 @@
 
 - **左键单击托盘图标**: 显示或隐藏主面板.
 - **右键单击托盘图标**: 打开菜单, 提供 `Open Panel`, `Refresh Now` 与 `Exit`.
-- **悬停托盘图标**: 查看当前可见来源的 Codex Weekly, Grok Weekly, Gemini 5 小时额度与第一张 DeepSeek 卡片余额.
+- **悬停托盘图标**: 查看当前可见来源的 Codex Weekly, Grok Weekly, Gemini 5 小时额度与 OpenCode 5 小时额度.
 - **固定与收起**: 点击面板左下角图钉可固定显示 (保持至退出); 再次点击恢复失焦自动收起. 按 `Esc` 或左键托盘图标随时收起面板.
 
 ### 页面说明
 
-使用 Codex, Grok 或 Gemini 页面前, 请先在本机登录对应客户端, CodexTray 会自动复用已有登录信息:
+使用 Codex, Grok, Gemini 或 OpenCode 页面前, 可先在本机登录对应客户端, CodexTray 会自动复用已有登录信息:
 
 - **Codex**: 需本机已登录 Codex. 展示计划档位, Session / Weekly 额度与 Resets 信息. 额度卡片可通过左下角页点或鼠标滚轮翻页 (Session 仅在有效时显示). 标题栏刷新按钮左侧可切换至 Session Logs.
 - **Grok**: 需本机已登录 Grok Build. 展示订阅名称 (旧档名统一对应为 The X Subscription 名称), Weekly 剩余额度, 重置时间与各产品使用占比 (悬停进度条可查看全部产品). 下方 Token Cost 同时汇总本机 Grok Build 与本机已登录的 Cursor 账本中的 Cursor / Grok API 用量; Session Logs 仅列出本机 Grok 记录.
 - **Gemini**: 需本机已登录 Antigravity CLI (`agy`), Antigravity ACP (如 T3 Code), Antigravity IDE 或 Gemini CLI. 上方大卡片切换 Gemini `Session` (5 小时), `Weekly` 与 `Argon Weekly` (仅服务端返回时显示); 下方小卡片切换 `Claude & GPT Session` 与 `Claude & GPT Weekly`. Token Cost 与 Session Logs 汇总本机 Antigravity (含 T3 Code) 与 Gemini CLI 记录. 当本机 token 临近过期时会自动静默续期; 若续期失效, 状态栏会提示打开对应客户端重新登录.
+- **OpenCode**: 自动读取本机 OpenCode 登录状态与本地会话记录. 上方大卡片切换 `Session` (5 小时) 与 `Weekly`, 下方小卡片展示 `Monthly`. 当本机未登录或已登录但未订阅 OpenCode Go 时, 订阅档位显示为 `FREE` 且三项额度均显示 `100%`. Token Cost 与 Session Logs 汇总通过 OpenCode 调用的全部模型用量 (各页面本地日志互相隔离, Codex, Grok 与 Gemini 不会读取 OpenCode 本地记录; 若在 OpenCode 中使用同一 Grok 账号的云端 `grok-api`, 该笔调用仍会出现在 Grok 的云端账本汇总中).
 - **APIs**: 管理自定义 API 余额/费用监控卡片.
 - **Settings**: 配置刷新间隔 (1 到 1440 分钟, 默认 1 分钟), 主题, 重置时间格式 (倒计时或具体时间), 开机自启, 可见页面 (`Visible pages`), 插件路径与更新检查. 隐藏某个页面后, 对应后台采集也会停止. `Advanced` 区域提供 `Copy diagnostics` (复制脱敏排查摘要) 与 `Restore last good settings` (恢复上一份有效配置).
 - **About**: 查看应用版本, 项目主页与许可证信息.
@@ -68,11 +69,11 @@
 
 ## Token Cost 与费用说明
 
-Codex, Grok 与 Gemini 页面均提供按时段汇总的 token 用量, 估算费用, 缓存命中率, 模型占比圆环与趋势图 (支持最近 30 天与当前自然月切换):
+Codex, Grok, Gemini 与 OpenCode 页面均提供按时段汇总的 token 用量, 估算费用, 缓存命中率, 模型占比圆环与趋势图 (支持最近 30 天与当前自然月切换):
 
 - **滚动周期**: `24H` (过去 24 小时), `7D`, `30D`, `Lifetime` (全部历史).
 - **自然周期**: `Today`, `Week` (本地周一起), `Month` (本地当月 1 日起), `Year` (本地当年 1 月 1 日起).
-- **输出速度 (`Speed`)**: 悬停模型占比圆环或查看 Session Logs 时显示. Grok 基于会话记录的 API 耗时计算 (`N.N tok/s`); Codex 与 Gemini 基于本机响应步骤时间差估算 (`~N.N tok/s`), 仅统计达到输出与耗时门槛的有效样本.
+- **输出速度 (`Speed`)**: 悬停模型占比圆环或查看 Session Logs 时显示. Grok 基于会话记录的 API 耗时计算 (`N.N tok/s`); Codex, Gemini 与 OpenCode 基于本机响应耗时估算 (`~N.N tok/s`), 仅统计达到输出与耗时门槛的有效样本.
 - **部分费用标记 (`*`)**: 当某时段内存在无法估价的模型或字段时, 已知金额后附带 `*` 提示; 模型圆环中云端来源模型名后的 `*` 表示云端记录.
 
 各页面的统计来源与费用口径如下:
@@ -82,6 +83,7 @@ Codex, Grok 与 Gemini 页面均提供按时段汇总的 token 用量, 估算费
 | Codex | 本机 Codex 会话日志 (含压缩后的 `.jsonl.zst`) | 按本地 `Resources/model-pricing.json` 估算 API 等价成本, 不代表订阅实付 |
 | Grok | 本机 Grok Build 会话 + 本机已登录 Cursor 账本中的 Cursor / Grok API 用量 | 本机记录优先使用会话自报费用, 缺失或不完整时按本地价格表回算; 云端部分按本地价格表估算并相加 |
 | Gemini | 本机 Antigravity (含 T3 Code) 与 Gemini CLI 会话日志 | 按本地 `Resources/model-pricing.json` 估算 API 等价成本, 不代表订阅实付 |
+| OpenCode | 本机 OpenCode 本地数据库与历史会话中的全部调用模型 | 优先按本地 `Resources/model-pricing.json` 估算; 未收录模型回退使用 OpenCode 自报费用 |
 
 本地价格表采用官方标准原价估算, 不包含限时促销, 长上下文阶梯加价, 缓存存储或独立工具费用, 历史用量会按当前价格表重算, 不可用于核对历史账单.
 
@@ -94,7 +96,7 @@ Codex, Grok 与 Gemini 页面均提供按时段汇总的 token 用量, 估算费
 | 服务商 | 默认 Base URL | 所需凭据 | 展示指标 |
 | --- | --- | --- | --- |
 | OpenAI | `https://api.openai.com` | 组织 Admin key (普通项目 key 不可用) | 当前 UTC 自然月 `Used`; 可选手动填写每月起始额度 (USD), 填写后同时显示 `Balance` (超出时为负) |
-| DeepSeek | `https://api.deepseek.com` | API key | 账户 CNY 余额 (第一张 DeepSeek 卡片同步供插件显示) |
+| DeepSeek | `https://api.deepseek.com` | API key | 账户 CNY 余额 |
 | OpenRouter | `https://openrouter.ai` | Management Key (普通 API key 不适用) | 剩余与已用 credits |
 | Vercel | `https://ai-gateway.vercel.sh` | AI Gateway API key (普通账号 token 不适用) | 团队剩余 credits 与累计已用量 |
 | NewAPI | 用户实例地址 | Access token + User ID | 剩余与已用额度 |
@@ -106,15 +108,15 @@ CodexTray 支持 **LiteMonitor** 与 **TrafficMonitor**:
 1. 在 Settings 页对应监控器一栏点击 `Auto detect` 自动定位, 或点击 `Browse` 选择包含监控器主程序的目录.
 2. 若更新已有 **TrafficMonitor** 插件, 请先退出 TrafficMonitor 以解除 DLL 占用.
 3. 点击 `Setup` 部署插件与端口配置.
-4. 启动或重启对应监控器, 并在监控器的显示设置中勾选需要的监控项 (例如新增的 `Gemini`).
+4. 启动或重启对应监控器, 并在监控器的显示设置中勾选需要的监控项 (例如新增的 `OpenCode`).
 
-插件固定展示四项数据: `Codex` (Codex Weekly), `Grok` (Grok Weekly), `Gemini` (Gemini 5 小时额度) 与 `DeepSeek` (第一张 DeepSeek 卡片的四舍五入整元 CNY 余额). 隐藏对应页面后该项显示 `N/A`; 全部页面关闭时停止本地插件服务.
+插件固定展示四项数据: `Codex` (Codex Weekly), `Grok` (Grok Weekly), `Gemini` (Gemini 5 小时额度) 与 `OpenCode` (OpenCode 5 小时 Session 额度). 隐藏对应页面后该项显示 `N/A`; 全部页面关闭时停止本地插件服务.
 
 升级 CodexTray 或修改 HTTP 端口后, 请按上述步骤重新点击 `Setup` 同步插件文件与端口配置.
 
 ## 数据与隐私
 
-- **复用已有登录**: Codex, Grok 与 Gemini 直接使用本机已有客户端登录查询各自官方接口; Cursor 登录以只读方式读取, 不自动续期或回写.
+- **复用已有登录**: Codex, Grok, Gemini 与 OpenCode 直接使用本机已有客户端登录查询各自官方接口; Cursor 与 OpenCode 本地数据库均以只读方式读取, 不自动续期或回写.
 - **本地配置文件**: 应用设置保存在 `CodexTray.exe` 同级目录的 `settings.json`, 上一份有效备份保存在 `settings.last-good.json`. API 密钥与 NewAPI User ID 以明文保存 (编辑时的眼睛图标仅用于屏幕遮挡, 非加密存储), 请勿分享设置或备份文件.
 - **本地缓存**: Cursor 与 Grok API 云端历史用量缓存在同级目录的 `cursor-usage-cache.json.gz`, 不包含凭据或聊天内容. 删除该文件不会影响登录与设置, 下次启动会重新拉取历史.
 - **仅限本机访问**: 插件 HTTP 服务仅监听 `127.0.0.1` (默认端口 `17890`), 不对局域网开放, 且仅输出插件所需的精简显示值.
@@ -124,7 +126,7 @@ CodexTray 支持 **LiteMonitor** 与 **TrafficMonitor**:
 
 ### 为什么额度或订阅显示 `N/A` 或 `UNKNOWN`?
 
-请确认当前 Windows 用户已登录对应客户端 (Codex / Grok Build / Antigravity 或 Gemini CLI), 且网络可正常访问官方服务. 如自动续期失败, 请在对应客户端重新登录 (如运行 `grok login`), 再点击 `Refresh Now`.
+请确认当前 Windows 用户已登录对应客户端 (Codex / Grok Build / Antigravity 或 Gemini CLI / OpenCode), 且网络可正常访问官方服务. 如自动续期失败或 OpenCode OAuth 已过期, 请在对应客户端重新登录 (如运行 `grok login`), 再点击 `Refresh Now`.
 
 ### 为什么 Token Cost 显示 `N/A`?
 
@@ -136,7 +138,7 @@ CodexTray 支持 **LiteMonitor** 与 **TrafficMonitor**:
 
 ### 为什么 LiteMonitor / TrafficMonitor 没有数据或未更新?
 
-请确认 CodexTray 正在运行且 Codex, Grok, Gemini 或 APIs 至少开启一项. 升级应用或修改 HTTP 端口后, 须在 Settings 页重新执行 `Setup`. 若 TrafficMonitor 提示缺少 DLL, 请确认发布包中的 `Plugins/TrafficMonitor/CodexTray.dll` 完整存在.
+请确认 CodexTray 正在运行且 Codex, Grok, Gemini, OpenCode 或 APIs 至少开启一项. 升级应用或修改 HTTP 端口后, 须在 Settings 页重新执行 `Setup`. 若 TrafficMonitor 提示缺少 DLL, 请确认发布包中的 `Plugins/TrafficMonitor/CodexTray.dll` 完整存在.
 
 ### 为什么应用内更新失败?
 

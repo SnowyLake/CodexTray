@@ -72,7 +72,6 @@ internal static class Program
         await RunAsync("persists API monitor settings", TestApiMonitorSettingsAsync);
         await RunAsync("collects API balances and OpenAI costs", TestApiUsageCollectorAsync);
         await RunAsync("isolates API credentials by provider and destination", TestApiCredentialBoundariesAsync);
-        await RunAsync("maps the first DeepSeek card to plugin usage", TestDeepSeekPluginUsageAsync);
         await RunAsync("parses Grok billing responses", TestGrokUsageCollectorAsync);
         await RunAsync("refreshes expired Grok Build OAuth", TestGrokBuildOAuthRefreshAsync);
         await RunAsync("prefers Grok settings display name", TestGrokSettingsSubscriptionTierAsync);
@@ -120,6 +119,9 @@ internal static class Program
         await RunAsync("discovers T3 Code Antigravity ACP profiles and counts each session once", TestT3AntigravityTokenCostAsync);
         await RunAsync("recovers only verified Antigravity transcript models from SQLite", AntigravityTranscriptModelTests.RunAsync);
         await RunAsync("counts live subagent usage without replaying parent history", TestSubagentTokenCostAsync);
+        await RunAsync("collects OpenCode Go quota, Free fallback, credentials, and plugin usage", OpenCodeTests.QuotaAndCredentialsAsync);
+        await RunAsync("collects OpenCode local token costs across all models without leaking into Codex/Grok/Gemini", OpenCodeTests.TokenCostAndIsolationAsync);
+        await RunAsync("updates OpenCode ViewModel cards and Free badge state", OpenCodeTests.ViewModelAsync);
         s_Failures += await AppUpdateTests.RunAllAsync();
         await RunAsync("separates page, session-log and window visibility transitions", PageTransitionTests.RunAsync);
         Console.WriteLine(s_Failures == 0 ? "All C# tests passed." : $"C# tests failed: {s_Failures}");
@@ -140,33 +142,36 @@ internal static class Program
                 Weekly = new UsageLimit { RemainingPercent = 100, WindowMinutes = 10_080 },
                 GrokWeekly = new UsageLimit { RemainingPercent = 0 },
                 GeminiSession = new UsageLimit { RemainingPercent = 85 },
+                OpenCodeSession = new UsageLimit { RemainingPercent = 92 },
             },
-            Display = new UsageDisplay { GrokWeekly = "0%", GeminiSession = "85%", DeepSeek = "¥123" },
+            Display = new UsageDisplay { GrokWeekly = "0%", GeminiSession = "85%", OpenCodeSession = "92%" },
         };
-        AssertEqual("Codex W: 100%\nGrok W: 0%\nGemini S: 85%\nDeepSeek: ¥123", TrayController.BuildTrayTooltip(PageItem.All, usage), "all visible source summary");
+        AssertEqual("Codex W: 100%\nGrok W: 0%\nGemini S: 85%\nOpenCode S: 92%", TrayController.BuildTrayTooltip(PageItem.All, usage), "all visible source summary");
         AssertEqual("Grok W: 0%", TrayController.BuildTrayTooltip(PageItem.Grok, usage), "hidden sources are absent");
         AssertEqual("Gemini S: 85%", TrayController.BuildTrayTooltip(PageItem.Gemini, usage), "Gemini-only visible source summary");
+        AssertEqual("OpenCode S: 92%", TrayController.BuildTrayTooltip(PageItem.OpenCode, usage), "OpenCode-only visible source summary");
+        AssertEqual(CodexTrayDefaults.AppName, TrayController.BuildTrayTooltip(PageItem.Apis, usage), "APIs page adds no tray quota line");
         AssertEqual(CodexTrayDefaults.AppName, TrayController.BuildTrayTooltip((PageItem)2, usage), "retired page bits add no tray quota line");
         usage.Limits.Weekly.WindowMinutes = 0;
         AssertEqual("Codex W: N/A", TrayController.BuildTrayTooltip(PageItem.Codex, usage), "a session-only Codex result cannot invent a weekly quota");
         usage.Limits.Weekly.WindowMinutes = 10_080;
         AssertEqual(CodexTrayDefaults.AppName, TrayController.BuildTrayTooltip(PageItem.None, usage), "no visible sources");
-        AssertEqual("Codex W: N/A\nGrok W: N/A\nGemini S: N/A\nDeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.All, null), "initial unavailable summary");
+        AssertEqual("Codex W: N/A\nGrok W: N/A\nGemini S: N/A\nOpenCode S: N/A", TrayController.BuildTrayTooltip(PageItem.All, null), "initial unavailable summary");
         usage.Available = false;
         usage.Display.GrokWeekly = "N/A";
         usage.Display.GeminiSession = "N/A";
-        AssertTrue(TrayController.BuildTrayTooltip(PageItem.All, usage).StartsWith("Codex W: N/A\nGrok W: N/A\nGemini S: N/A"), "failed sources do not show old percentages");
+        usage.Display.OpenCodeSession = "N/A";
+        AssertEqual("Codex W: N/A\nGrok W: N/A\nGemini S: N/A\nOpenCode S: N/A", TrayController.BuildTrayTooltip(PageItem.All, usage), "failed sources do not show old percentages");
         usage.Available = true;
         usage.Limits.Weekly.RemainingPercent = 999;
         usage.Limits.GrokWeekly.RemainingPercent = 100;
         usage.Display.GrokWeekly = "100%";
         usage.Limits.GeminiSession.RemainingPercent = 100;
         usage.Display.GeminiSession = "100%";
-        usage.Display.DeepSeek = "¥79228162514264337593543950335";
+        usage.Limits.OpenCodeSession.RemainingPercent = 999;
+        usage.Display.OpenCodeSession = "100%";
         string bounded = TrayController.BuildTrayTooltip(PageItem.All, usage);
-        AssertTrue(bounded.Length <= 63 && bounded.EndsWith('…') && !bounded.Contains(usage.Error!), "tray text is bounded and excludes errors");
-        usage.Display.DeepSeek = "credential-secret";
-        AssertEqual("DeepSeek: N/A", TrayController.BuildTrayTooltip(PageItem.Apis, usage), "only numeric CNY balances are accepted");
+        AssertTrue(bounded.Length <= 63 && bounded == "Codex W: 100%\nGrok W: 100%\nGemini S: 100%\nOpenCode S: 100%" && !bounded.Contains(usage.Error!), "tray text is bounded and excludes errors");
         return Task.CompletedTask;
     }
 
@@ -294,7 +299,7 @@ internal static class Program
                 System.Windows.Controls.Grid codexTokenCostChartPlot = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostChartPlot");
                 System.Windows.Controls.Grid codexPageGrid = (System.Windows.Controls.Grid)window.FindName("CodexPageGrid");
                 System.Windows.Controls.Grid pageViewport = (System.Windows.Controls.Grid)window.FindName("PageViewport");
-                AssertTrue(pageViewport.ClipToBounds && pageViewport.Children.Count == 6 && pageViewport.Children.Contains(codexPageGrid), "all main pages must slide inside a clipped viewport");
+                AssertTrue(pageViewport.ClipToBounds && pageViewport.Children.Count == 7 && pageViewport.Children.Contains(codexPageGrid), "all main pages must slide inside a clipped viewport");
                 System.Windows.Controls.Grid codexTokenCostOverview = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostOverview");
                 System.Windows.Controls.Grid codexTokenCostDonutArea = FindNamedDescendant<System.Windows.Controls.Grid>(codexTokenCostDashboard, "TokenCostDonutArea");
                 System.Windows.Controls.Button codexTokenCostChartPeriodButton = FindNamedDescendant<System.Windows.Controls.Button>(codexTokenCostDashboard, "TokenCostChartPeriodButton");
@@ -469,7 +474,11 @@ internal static class Program
                 System.Windows.Controls.Button geminiTabButton = (System.Windows.Controls.Button)window.FindName("GeminiTabButton");
                 int geminiTabIndex = tabPanel.Children.IndexOf(geminiTabButton);
                 AssertEqual("Grok", ((System.Windows.Controls.Button)tabPanel.Children[geminiTabIndex - 1]).ToolTip, "Gemini tab predecessor");
-                AssertEqual("APIs", ((System.Windows.Controls.Button)tabPanel.Children[geminiTabIndex + 1]).ToolTip, "Gemini tab successor");
+                AssertEqual("OpenCode", ((System.Windows.Controls.Button)tabPanel.Children[geminiTabIndex + 1]).ToolTip, "Gemini tab successor");
+                System.Windows.Controls.Button openCodeTabButton = (System.Windows.Controls.Button)window.FindName("OpenCodeTabButton");
+                int openCodeTabIndex = tabPanel.Children.IndexOf(openCodeTabButton);
+                AssertEqual("Gemini", ((System.Windows.Controls.Button)tabPanel.Children[openCodeTabIndex - 1]).ToolTip, "OpenCode tab predecessor");
+                AssertEqual("APIs", ((System.Windows.Controls.Button)tabPanel.Children[openCodeTabIndex + 1]).ToolTip, "OpenCode tab successor");
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
                     {
@@ -714,6 +723,44 @@ internal static class Program
                 AssertEqual("ULTRA", viewModel.GeminiPlanDisplay, "Gemini Ultra subscription badge");
                 AssertEqual(System.Windows.Visibility.Collapsed, geminiThirdButton.Visibility, "absent Argon hides third dot");
                 AssertTrue(viewModel.GeminiQuotaPager.IsFirstSelected, "removing active Argon falls back to Session");
+
+                DateTimeOffset openCodeNow = DateTimeOffset.Now;
+                viewModel.UpdateOpenCodeDashboard(new OpenCodeUsageDashboard
+                {
+                    Snapshot = new OpenCodeUsageSnapshot
+                    {
+                        Source = "opencode_go",
+                        UpdatedAt = openCodeNow,
+                        Session = new UsageLimit { Name = "session", WindowMinutes = 300, RemainingPercent = 92, UsedPercent = 8, ResetsAt = openCodeNow.AddHours(4).ToUnixTimeSeconds() },
+                        Weekly = new UsageLimit { Name = "weekly", WindowMinutes = 10_080, RemainingPercent = 78, UsedPercent = 22, ResetsAt = openCodeNow.AddDays(5).ToUnixTimeSeconds() },
+                        Monthly = new UsageLimit { Name = "monthly", WindowMinutes = 43_200, RemainingPercent = 66, UsedPercent = 34, ResetsAt = openCodeNow.AddDays(18).ToUnixTimeSeconds() },
+                        SubscriptionTier = "GO",
+                        IsAvailable = true,
+                    },
+                    StatusMessage = string.Empty,
+                }, CreateTokenCostStatistics(9));
+                viewModel.ShowOpenCode();
+                content.InvalidateMeasure();
+                content.Measure(new System.Windows.Size(window.Width, window.Height));
+                content.Arrange(new System.Windows.Rect(0, 0, window.Width, window.Height));
+                content.UpdateLayout();
+                System.Windows.Controls.ScrollViewer openCodeQuotaScrollViewer = (System.Windows.Controls.ScrollViewer)window.FindName("OpenCodeQuotaScrollViewer");
+                AssertTrue(openCodeQuotaScrollViewer.ScrollableHeight == 0, $"OpenCode quota cards should not scroll, actual {openCodeQuotaScrollViewer.ScrollableHeight}");
+                AssertEqual(0d, openCodeQuotaScrollViewer.ViewportHeight - openCodeQuotaScrollViewer.ExtentHeight, "OpenCode quota cards should fill the reserved region");
+                System.Windows.Controls.Border openCodePrimaryCard = (System.Windows.Controls.Border)window.FindName("OpenCodePrimaryCard");
+                System.Windows.Controls.Border openCodeMonthlyCard = (System.Windows.Controls.Border)window.FindName("OpenCodeMonthlyCard");
+                AssertEqual(codexPrimaryCard.ActualHeight, openCodePrimaryCard.ActualHeight, "OpenCode large card height");
+                AssertEqual(codexResetCreditsCard.ActualHeight, openCodeMonthlyCard.ActualHeight, "OpenCode small monthly card height");
+                AssertEqual("GO", viewModel.OpenCodePlanDisplay, "OpenCode subscription badge");
+                System.Windows.Controls.Grid openCodePageGrid = (System.Windows.Controls.Grid)window.FindName("OpenCodePageGrid");
+                System.Windows.Controls.ContentControl openCodeTokenCostDashboard = (System.Windows.Controls.ContentControl)window.FindName("OpenCodeTokenCostDashboard");
+                AssertTrue(ReferenceEquals(codexTokenCostDashboard.ContentTemplate, openCodeTokenCostDashboard.ContentTemplate), "Codex and OpenCode should share the token cost template");
+                AssertTrue(codexSectionHeights.SequenceEqual(openCodePageGrid.RowDefinitions.Select(row => row.ActualHeight)), "Codex and OpenCode section heights");
+                AssertTrue(viewModel.OpenCodeQuotaPager.IsFirstSelected, "OpenCode primary card starts on Session");
+                openCodePrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent });
+                AssertTrue(viewModel.OpenCodeQuotaPager.IsSecondSelected, "mouse wheel switches OpenCode large card to Weekly");
+                openCodePrimaryCard.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseWheelEvent });
+                AssertTrue(viewModel.OpenCodeQuotaPager.IsFirstSelected, "mouse wheel wraps OpenCode large card back to Session");
 
                 viewModel.ShowApi();
                 content.InvalidateMeasure();
@@ -1299,9 +1346,17 @@ internal static class Program
             },
             StatusMessage = string.Empty,
         }));
-        usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
-            new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
-            "¥110"));
+        usageCache.UpdateOpenCode(OpenCodeUsageCollector.BuildPluginUsage(new OpenCodeUsageDashboard
+        {
+            Snapshot = new OpenCodeUsageSnapshot
+            {
+                Source = "opencode_go",
+                UpdatedAt = now,
+                Session = new UsageLimit { Name = "session", UsedPercent = 15, RemainingPercent = 85, WindowMinutes = 300 },
+                IsAvailable = true,
+            },
+            StatusMessage = string.Empty,
+        }));
         using LightweightHttpServer server = new(usageCache, 0);
         server.Start();
 
@@ -1319,22 +1374,22 @@ internal static class Program
         AssertTrue(!limits.TryGetProperty("session", out JsonElement sessionLimit), "HTTP plugin response should omit Codex Session limit");
         AssertTrue(!display.TryGetProperty("weekly", out JsonElement legacyWeeklyDisplay), "HTTP plugin response should use codex_weekly display");
         AssertTrue(!limits.TryGetProperty("weekly", out JsonElement legacyWeeklyLimit), "HTTP plugin response should use codex_weekly limit");
-        AssertTrue(!display.TryGetProperty("deepseek", out JsonElement legacyDeepSeekDisplay), "HTTP plugin response should use deepseek_balance display");
-        AssertTrue(!limits.TryGetProperty("deepseek", out JsonElement legacyDeepSeekLimit), "HTTP plugin response should use deepseek_balance limit");
+        AssertTrue(!display.TryGetProperty("deepseek_balance", out JsonElement legacyDeepSeekDisplay), "HTTP plugin response should omit removed deepseek_balance display");
+        AssertTrue(!limits.TryGetProperty("deepseek_balance", out JsonElement legacyDeepSeekLimit), "HTTP plugin response should omit removed deepseek_balance limit");
         AssertEqual("80%", display.GetProperty("codex_weekly").GetString(), "HTTP plugin Codex display");
         AssertTrue(!display.TryGetProperty("cursor_monthly", out JsonElement cursorDisplay), "HTTP plugin response should omit Cursor Monthly display");
         AssertTrue(!limits.TryGetProperty("cursor_monthly", out JsonElement cursorLimit), "HTTP plugin response should omit Cursor Monthly limit");
         AssertEqual("95%", display.GetProperty("grok_weekly").GetString(), "HTTP plugin Grok display");
         AssertEqual("75%", display.GetProperty("gemini_session").GetString(), "HTTP plugin Gemini display");
-        AssertEqual("¥110", display.GetProperty("deepseek_balance").GetString(), "HTTP plugin DeepSeek display");
+        AssertEqual("85%", display.GetProperty("opencode_session").GetString(), "HTTP plugin OpenCode display");
         AssertEqual(80, limits.GetProperty("codex_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Codex remaining percent");
         AssertEqual(95, limits.GetProperty("grok_weekly").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Grok remaining percent");
         AssertEqual(75, limits.GetProperty("gemini_session").GetProperty("remaining_percent").GetInt32(), "HTTP plugin Gemini remaining percent");
-        AssertEqual(100, limits.GetProperty("deepseek_balance").GetProperty("remaining_percent").GetInt32(), "HTTP plugin DeepSeek remaining percent");
+        AssertEqual(85, limits.GetProperty("opencode_session").GetProperty("remaining_percent").GetInt32(), "HTTP plugin OpenCode remaining percent");
         string[] displayNames = [.. display.EnumerateObject().Select(property => property.Name)];
         string[] limitNames = [.. limits.EnumerateObject().Select(property => property.Name)];
-        AssertTrue(displayNames.SequenceEqual(["codex_weekly", "grok_weekly", "gemini_session", "deepseek_balance"]), "HTTP plugin display field order");
-        AssertTrue(limitNames.SequenceEqual(["codex_weekly", "grok_weekly", "gemini_session", "deepseek_balance"]), "HTTP plugin limit field order");
+        AssertTrue(displayNames.SequenceEqual(["codex_weekly", "grok_weekly", "gemini_session", "opencode_session"]), "HTTP plugin display field order");
+        AssertTrue(limitNames.SequenceEqual(["codex_weekly", "grok_weekly", "gemini_session", "opencode_session"]), "HTTP plugin limit field order");
         AssertTrue(!display.TryGetProperty("codex_5h", out JsonElement legacySession), "legacy session plugin field should be removed");
         AssertTrue(!display.TryGetProperty("codex_7d", out JsonElement legacyWeekly), "legacy weekly plugin field should be removed");
 
@@ -1344,11 +1399,11 @@ internal static class Program
         AssertEqual("80%", usageLines[0], "text endpoint Codex display");
         AssertEqual("95%", usageLines[1], "text endpoint Grok display");
         AssertEqual("75%", usageLines[2], "text endpoint Gemini display");
-        AssertEqual("¥110", usageLines[3], "text endpoint DeepSeek display");
+        AssertEqual("85%", usageLines[3], "text endpoint OpenCode display");
 
         usageCache.ClearCodex();
         usageCache.ClearGrok();
-        usageCache.ClearDeepSeek();
+        usageCache.ClearOpenCode();
         string geminiOnlyJson = await client.GetStringAsync($"http://{CodexTrayDefaults.Host}:{server.Port}{CodexTrayDefaults.UsageEndpointPath}");
         using JsonDocument geminiOnlyDoc = JsonDocument.Parse(geminiOnlyJson);
         JsonElement geminiOnlyDisplay = geminiOnlyDoc.RootElement.GetProperty("display");
@@ -1394,9 +1449,9 @@ internal static class Program
         usageCache.UpdateGemini(new GeminiPluginUsage(
             new UsageLimit { Name = "session", RemainingPercent = 75 },
             "75%"));
-        usageCache.UpdateDeepSeek(new DeepSeekPluginUsage(
-            new UsageLimit { Name = "deepseek", RemainingPercent = 100 },
-            "¥110"));
+        usageCache.UpdateOpenCode(new OpenCodePluginUsage(
+            new UsageLimit { Name = "session", RemainingPercent = 88 },
+            "88%"));
 
         UsageResponse merged = usageCache.Get() ?? throw new InvalidOperationException("merged usage should be available");
         AssertEqual(true, usageCache.GetCodex()?.Available, "Codex snapshot should stay available");
@@ -1404,30 +1459,30 @@ internal static class Program
         AssertEqual("60%", merged.Display.GrokWeekly, "merged Grok display");
         AssertEqual("75%", merged.Display.GeminiSession, "merged Gemini display");
         AssertEqual(75, merged.Limits.GeminiSession.RemainingPercent, "merged Gemini remaining percent");
-        AssertEqual("¥110", merged.Display.DeepSeek, "merged DeepSeek display");
-        AssertEqual(100, merged.Limits.DeepSeek.RemainingPercent, "merged DeepSeek remaining percent");
+        AssertEqual("88%", merged.Display.OpenCodeSession, "merged OpenCode display");
+        AssertEqual(88, merged.Limits.OpenCodeSession.RemainingPercent, "merged OpenCode remaining percent");
 
         usageCache.ClearCodex();
         AssertTrue(usageCache.GetCodex() == null, "cleared Codex snapshot should be empty");
-        UsageResponse withoutCodex = usageCache.Get() ?? throw new InvalidOperationException("Grok, Gemini, and DeepSeek usage should be available");
+        UsageResponse withoutCodex = usageCache.Get() ?? throw new InvalidOperationException("Grok, Gemini, and OpenCode usage should be available");
         AssertEqual("N/A", withoutCodex.Display.Weekly, "cleared Codex display");
         AssertEqual("60%", withoutCodex.Display.GrokWeekly, "preserved Grok display");
         AssertEqual("75%", withoutCodex.Display.GeminiSession, "preserved Gemini display");
-        AssertEqual("¥110", withoutCodex.Display.DeepSeek, "preserved DeepSeek display");
+        AssertEqual("88%", withoutCodex.Display.OpenCodeSession, "preserved OpenCode display");
 
         usageCache.ClearGrok();
-        UsageResponse geminiAndDeepSeek = usageCache.Get() ?? throw new InvalidOperationException("Gemini and DeepSeek usage should be available");
-        AssertEqual("N/A", geminiAndDeepSeek.Display.GrokWeekly, "cleared Grok display");
-        AssertEqual("75%", geminiAndDeepSeek.Display.GeminiSession, "preserved Gemini display after Grok clears");
-        AssertEqual("¥110", geminiAndDeepSeek.Display.DeepSeek, "preserved DeepSeek display after Grok clears");
+        UsageResponse geminiAndOpenCode = usageCache.Get() ?? throw new InvalidOperationException("Gemini and OpenCode usage should be available");
+        AssertEqual("N/A", geminiAndOpenCode.Display.GrokWeekly, "cleared Grok display");
+        AssertEqual("75%", geminiAndOpenCode.Display.GeminiSession, "preserved Gemini display after Grok clears");
+        AssertEqual("88%", geminiAndOpenCode.Display.OpenCodeSession, "preserved OpenCode display after Grok clears");
 
         usageCache.ClearGemini();
-        UsageResponse deepSeekOnly = usageCache.Get() ?? throw new InvalidOperationException("DeepSeek-only usage should be available");
-        AssertEqual("N/A", deepSeekOnly.Display.GeminiSession, "cleared Gemini display");
-        AssertEqual(0, deepSeekOnly.Limits.GeminiSession.RemainingPercent, "cleared Gemini remaining percent");
-        AssertEqual("¥110", deepSeekOnly.Display.DeepSeek, "preserved DeepSeek display after other sources clear");
+        UsageResponse openCodeOnly = usageCache.Get() ?? throw new InvalidOperationException("OpenCode-only usage should be available");
+        AssertEqual("N/A", openCodeOnly.Display.GeminiSession, "cleared Gemini display");
+        AssertEqual(0, openCodeOnly.Limits.GeminiSession.RemainingPercent, "cleared Gemini remaining percent");
+        AssertEqual("88%", openCodeOnly.Display.OpenCodeSession, "preserved OpenCode display after other sources clear");
 
-        usageCache.ClearDeepSeek();
+        usageCache.ClearOpenCode();
         AssertTrue(usageCache.Get() == null, "cleared plugin usage should be empty");
 
         GeminiPluginUsage unavailableGemini = GeminiUsageCollector.BuildPluginUsage(GeminiUsageDashboard.Empty);
@@ -1637,7 +1692,7 @@ internal static class Program
             ("codex", "Codex", "codex_display", "display.codex_weekly", "codex_remaining", "limits.codex_weekly.remaining_percent", "codex_color"),
             ("grok", "Grok", "grok_display", "display.grok_weekly", "grok_remaining", "limits.grok_weekly.remaining_percent", "grok_color"),
             ("gemini", "Gemini", "gemini_display", "display.gemini_session", "gemini_remaining", "limits.gemini_session.remaining_percent", "gemini_color"),
-            ("deepseek", "DeepSeek", "deepseek_display", "display.deepseek_balance", "deepseek_remaining", "limits.deepseek_balance.remaining_percent", "deepseek_color"),
+            ("opencode", "OpenCode", "opencode_display", "display.opencode_session", "opencode_remaining", "limits.opencode_session.remaining_percent", "opencode_color"),
         ];
         JsonElement[] processSteps = [.. step.GetProperty("process").EnumerateArray()];
         JsonElement[] outputs = [.. pluginDocument.RootElement.GetProperty("outputs").EnumerateArray()];
@@ -1800,7 +1855,19 @@ internal static class Program
 
         File.WriteAllText(legacyStore.SettingsPath, "{\"SettingsSchemaVersion\":1,\"VisiblePages\":13}");
         AppSettings v1AllSettings = legacyStore.Load();
-        AssertEqual(PageItem.All, v1AllSettings.VisiblePages, "v1 all pages should include Gemini");
+        AssertEqual(PageItem.All, v1AllSettings.VisiblePages, "v1 all pages should include Gemini and OpenCode");
+
+        File.WriteAllText(legacyStore.SettingsPath, "{\"SettingsSchemaVersion\":1,\"VisiblePages\":7}");
+        AppSettings v1CustomSettings = legacyStore.Load();
+        AssertEqual(PageItem.Codex | PageItem.Apis, v1CustomSettings.VisiblePages, "v1 disabled Grok should stay disabled on upgrade");
+
+        File.WriteAllText(legacyStore.SettingsPath, "{\"SettingsSchemaVersion\":2,\"VisiblePages\":13}");
+        AppSettings v2CustomSettings = legacyStore.Load();
+        AssertEqual(PageItem.Codex | PageItem.Grok | PageItem.Apis, v2CustomSettings.VisiblePages, "v2 disabled Gemini should stay disabled on upgrade");
+
+        File.WriteAllText(legacyStore.SettingsPath, "{\"SettingsSchemaVersion\":2,\"VisiblePages\":29}");
+        AppSettings v2AllSettings = legacyStore.Load();
+        AssertEqual(PageItem.All, v2AllSettings.VisiblePages, "v2 all pages should include OpenCode");
         using JsonDocument migratedDocument = JsonDocument.Parse(File.ReadAllText(legacyStore.SettingsPath));
         AssertEqual(AppSettings.CurrentSettingsSchemaVersion, migratedDocument.RootElement.GetProperty(nameof(AppSettings.SettingsSchemaVersion)).GetInt32(), "migrated schema version");
         AssertTrue(migratedDocument.RootElement.TryGetProperty(nameof(AppSettings.MicaEnabled), out _), "migrated settings should include Mica toggle");
@@ -2245,7 +2312,6 @@ internal static class Program
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
             IReadOnlyList<ApiUsageResult> localized = await collector.CollectAsync([deepSeek]);
             AssertEqual("¥110.00", localized[0].BalanceDisplay, "DeepSeek decimal format stays invariant");
-            AssertEqual("¥110", ApiUsageCollector.BuildDeepSeekPluginUsage(localized).Display, "localized refresh preserves the plugin balance");
         }
         finally
         {
@@ -2307,55 +2373,6 @@ internal static class Program
         public ICredentials? Credentials { get; set; }
         public Uri GetProxy(Uri destination) => throw new InvalidOperationException("local credentials must bypass the system proxy");
         public bool IsBypassed(Uri host) => throw new InvalidOperationException("local credentials must bypass the system proxy");
-    }
-
-    /// <summary>
-    /// Tests that plugin usage uses the first DeepSeek card and rounds CNY balance to a whole yuan.
-    /// </summary>
-    private static Task TestDeepSeekPluginUsageAsync()
-    {
-        DateTimeOffset now = DateTimeOffset.Now;
-        DeepSeekPluginUsage mixed = ApiUsageCollector.BuildDeepSeekPluginUsage(
-        [
-            new ApiUsageResult("openrouter", true, "$74.75", "$25.75", string.Empty, now, Provider: ApiMonitorSettings.OpenRouterProvider),
-            new ApiUsageResult("deepseek", true, "¥110.00", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
-            new ApiUsageResult("deepseek-2", true, "¥9.00", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
-        ]);
-        AssertEqual("¥110", mixed.Display, "first DeepSeek card should be used");
-        AssertEqual(100, mixed.Limit.RemainingPercent, "available DeepSeek remaining percent");
-
-        DeepSeekPluginUsage roundedDown = ApiUsageCollector.BuildDeepSeekPluginUsage(
-        [
-            new ApiUsageResult("deepseek", true, "¥276.21", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
-        ]);
-        AssertEqual("¥276", roundedDown.Display, "DeepSeek plugin balance should round 0.21 down");
-
-        DeepSeekPluginUsage roundedUp = ApiUsageCollector.BuildDeepSeekPluginUsage(
-        [
-            new ApiUsageResult("deepseek", true, "¥110.50", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
-        ]);
-        AssertEqual("¥111", roundedUp.Display, "DeepSeek plugin balance should round 0.50 away from zero");
-
-        DeepSeekPluginUsage halfDown = ApiUsageCollector.BuildDeepSeekPluginUsage(
-        [
-            new ApiUsageResult("deepseek", true, "¥0.49", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
-        ]);
-        AssertEqual("¥0", halfDown.Display, "DeepSeek plugin balance should round 0.49 down to zero");
-
-        DeepSeekPluginUsage unavailableFirst = ApiUsageCollector.BuildDeepSeekPluginUsage(
-        [
-            new ApiUsageResult("deepseek", false, "N/A", "N/A", "Enter an API key", now, Provider: ApiMonitorSettings.DeepSeekProvider),
-            new ApiUsageResult("deepseek-2", true, "¥9.00", string.Empty, string.Empty, now, Provider: ApiMonitorSettings.DeepSeekProvider),
-        ]);
-        AssertEqual(CodexTrayDefaults.UnavailableDisplay, unavailableFirst.Display, "unavailable first DeepSeek card should not fall through");
-        AssertEqual(0, unavailableFirst.Limit.RemainingPercent, "unavailable DeepSeek remaining percent");
-
-        DeepSeekPluginUsage noDeepSeek = ApiUsageCollector.BuildDeepSeekPluginUsage(
-        [
-            new ApiUsageResult("openrouter", true, "$74.75", "$25.75", string.Empty, now, Provider: ApiMonitorSettings.OpenRouterProvider),
-        ]);
-        AssertEqual(CodexTrayDefaults.UnavailableDisplay, noDeepSeek.Display, "missing DeepSeek card should be unavailable");
-        return Task.CompletedTask;
     }
 
     /// <summary>
