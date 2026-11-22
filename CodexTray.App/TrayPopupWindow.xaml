@@ -191,150 +191,48 @@
                 <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
             </Style>
 
-            <!-- Segmented nav tab -->
+            <SolidColorBrush x:Key="FooterAccentBrush" Color="#1ABC89" />
+            <Style x:Key="FooterDividerStyle" TargetType="Border">
+                <Setter Property="Width" Value="1" />
+                <Setter Property="Height" Value="18" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Background" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding VisiblePages}" Value="{x:Static core:PageItem.None}">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
             <Style x:Key="TabButtonStyle" TargetType="{x:Type ui:Button}" BasedOn="{StaticResource IconButtonStyle}">
-                <Setter Property="Height" Value="32" />
-                <Setter Property="MinWidth" Value="80" />
-                <Setter Property="Padding" Value="14,0" />
-                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Margin" Value="0,0,6,0" />
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="Cursor" Value="Hand" />
-                <Setter Property="ToolTipService.InitialShowDelay" Value="{StaticResource ToolTipInitialShowDelay}" />
-                <Setter Property="ToolTipService.ShowDuration" Value="{StaticResource ToolTipShowDuration}" />
-            </Style>
-            <Style x:Key="CodexTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
-                <Setter Property="MinWidth" Value="0" />
-                <Setter Property="Width" Value="36" />
-                <Setter Property="Height" Value="36" />
-                <Setter Property="Padding" Value="0" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                <Setter Property="FontSize" Value="16" />
-                <Setter Property="Margin" Value="0,0,4,0" />
-                <Style.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <Trigger Property="IsPressed" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <DataTrigger Binding="{Binding IsCodexVisible}" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </DataTrigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="GrokTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
-                <Setter Property="MinWidth" Value="0" />
-                <Setter Property="Width" Value="36" />
-                <Setter Property="Height" Value="36" />
-                <Setter Property="Padding" Value="0" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                <Setter Property="FontSize" Value="16" />
-                <Setter Property="Margin" Value="0,0,4,0" />
-                <Style.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <Trigger Property="IsPressed" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <DataTrigger Binding="{Binding IsGrokVisible}" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </DataTrigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="GeminiTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
-                <Setter Property="MinWidth" Value="0" />
-                <Setter Property="Width" Value="36" />
-                <Setter Property="Height" Value="36" />
-                <Setter Property="Padding" Value="0" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                <Setter Property="FontSize" Value="16" />
-                <Setter Property="Margin" Value="0,0,4,0" />
-                <Style.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <Trigger Property="IsPressed" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <DataTrigger Binding="{Binding IsGeminiVisible}" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </DataTrigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="OpenCodeTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
-                <Setter Property="MinWidth" Value="0" />
-                <Setter Property="Width" Value="36" />
-                <Setter Property="Height" Value="36" />
-                <Setter Property="Padding" Value="0" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                <Setter Property="FontSize" Value="16" />
-                <Setter Property="Margin" Value="0,0,4,0" />
-                <Style.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <Trigger Property="IsPressed" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <DataTrigger Binding="{Binding IsOpenCodeVisible}" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </DataTrigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="SettingsTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
-                <Setter Property="MinWidth" Value="0" />
-                <Setter Property="Width" Value="36" />
-                <Setter Property="Height" Value="36" />
-                <Setter Property="Padding" Value="0" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                <Setter Property="FontSize" Value="16" />
-                <Style.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <Trigger Property="IsPressed" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <DataTrigger Binding="{Binding IsSettingsVisible}" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </DataTrigger>
-                </Style.Triggers>
-            </Style>
-            <Style x:Key="ApiTabButtonStyle" BasedOn="{StaticResource TabButtonStyle}" TargetType="{x:Type ui:Button}">
-                <Setter Property="MinWidth" Value="0" />
-                <Setter Property="Width" Value="36" />
-                <Setter Property="Height" Value="36" />
-                <Setter Property="Padding" Value="0" />
-                <Setter Property="Margin" Value="0,0,4,0" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-                <Setter Property="FontSize" Value="16" />
-                <Style.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <Trigger Property="IsPressed" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </Trigger>
-                    <DataTrigger Binding="{Binding IsApiVisible}" Value="True">
-                        <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                    </DataTrigger>
-                </Style.Triggers>
+                <Setter Property="AutomationProperties.Name" Value="{Binding ToolTip, RelativeSource={RelativeSource Self}}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ui:Button}">
+                            <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+                                <Grid>
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <Border x:Name="SelectionLine" Width="16" Height="3" CornerRadius="1.5" Margin="0,0,0,2"
+                                            VerticalAlignment="Bottom" Background="{StaticResource FooterAccentBrush}" Visibility="Collapsed" />
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Surface" Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Surface" Property="Background" Value="{DynamicResource ControlFillColorTertiaryBrush}" />
+                                </Trigger>
+                                <Trigger Property="Selector.IsSelected" Value="True">
+                                    <Setter TargetName="SelectionLine" Property="Visibility" Value="Visible" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
             <!-- Quota progress bar -->
@@ -2545,33 +2443,31 @@
             </Grid>
 
             <!-- Footer -->
-            <Grid Grid.Row="1"
-                  Margin="0,18,0,0"
+            <Grid Grid.Row="1" Margin="-18,8,-18,0"
                   Visibility="{Binding IsAboutVisible, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <ui:Button x:Name="PanelPinButton" HorizontalAlignment="Left"
-                        Command="{Binding TogglePanelPinnedCommand}"
-                        ToolTip="{Binding PanelPinTooltip}" Content="&#xE718;">
-                    <ui:Button.Style>
-                        <Style TargetType="{x:Type ui:Button}" BasedOn="{StaticResource IconButtonStyle}">
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsPanelPinned}" Value="True">
-                                    <Setter Property="Foreground" Value="#1ABC89" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </ui:Button.Style>
+                <Border Grid.ColumnSpan="4" Height="1" Margin="0,0,0,9" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                <ui:Button x:Name="PanelPinButton" Grid.Row="1"
+                           Command="{Binding TogglePanelPinnedCommand}" ToolTip="{Binding PanelPinTooltip}"
+                           AutomationProperties.Name="{Binding PanelPinTooltip}" Style="{StaticResource IconButtonStyle}">
+                    <ui:SymbolIcon Symbol="Pin20" FontSize="18" Filled="{Binding IsPanelPinned}" />
                 </ui:Button>
-                <StackPanel Grid.Column="1"
-                            Orientation="Horizontal"
-                            HorizontalAlignment="Right">
+                <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource FooterDividerStyle}" />
+                <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
                     <ui:Button Command="{Binding ShowCodexCommand}"
                             ToolTip="Codex"
                             Visibility="{Binding ShowCodexPage, Converter={StaticResource BooleanToVisibilityConverter}}"
-                            Style="{StaticResource CodexTabButtonStyle}">
+                            Selector.IsSelected="{Binding IsCodexVisible, Mode=OneWay}"
+                            Style="{StaticResource TabButtonStyle}">
                         <Path Width="18"
                               Height="18"
                               Data="{StaticResource OpenAiLogoGeometry}"
@@ -2582,7 +2478,8 @@
                             Command="{Binding ShowGrokCommand}"
                             ToolTip="Grok"
                             Visibility="{Binding ShowGrokPage, Converter={StaticResource BooleanToVisibilityConverter}}"
-                            Style="{StaticResource GrokTabButtonStyle}">
+                            Selector.IsSelected="{Binding IsGrokVisible, Mode=OneWay}"
+                            Style="{StaticResource TabButtonStyle}">
                         <Path Width="18"
                               Height="18"
                               Data="{StaticResource GrokLogoGeometry}"
@@ -2593,7 +2490,8 @@
                             Command="{Binding ShowGeminiCommand}"
                             ToolTip="Gemini"
                             Visibility="{Binding ShowGeminiPage, Converter={StaticResource BooleanToVisibilityConverter}}"
-                            Style="{StaticResource GeminiTabButtonStyle}">
+                            Selector.IsSelected="{Binding IsGeminiVisible, Mode=OneWay}"
+                            Style="{StaticResource TabButtonStyle}">
                         <Path Width="18"
                               Height="18"
                               Data="{StaticResource GeminiLogoGeometry}"
@@ -2604,7 +2502,8 @@
                             Command="{Binding ShowOpenCodeCommand}"
                             ToolTip="OpenCode"
                             Visibility="{Binding ShowOpenCodePage, Converter={StaticResource BooleanToVisibilityConverter}}"
-                            Style="{StaticResource OpenCodeTabButtonStyle}">
+                            Selector.IsSelected="{Binding IsOpenCodeVisible, Mode=OneWay}"
+                            Style="{StaticResource TabButtonStyle}">
                         <Path Width="15"
                               Height="18"
                               Data="{StaticResource OpenCodeLogoGeometry}"
@@ -2615,18 +2514,17 @@
                             Content="&#xE774;"
                             ToolTip="APIs"
                             Visibility="{Binding ShowApisPage, Converter={StaticResource BooleanToVisibilityConverter}}"
-                            Style="{StaticResource ApiTabButtonStyle}" />
-                    <Grid>
-                        <ui:Button Command="{Binding ShowSettingsCommand}"
-                                Content="&#xE713;"
-                                ToolTip="Settings"
-                                Style="{StaticResource SettingsTabButtonStyle}" />
-                        <Ellipse Width="6" Height="6" Margin="0,4,4,0"
-                                 HorizontalAlignment="Right" VerticalAlignment="Top"
-                                 Fill="{Binding AccentBrush}" IsHitTestVisible="False"
-                                 Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    </Grid>
+                            Selector.IsSelected="{Binding IsApiVisible, Mode=OneWay}"
+                            Style="{StaticResource TabButtonStyle}" />
                 </StackPanel>
+                <Grid Grid.Row="1" Grid.Column="3">
+                    <ui:Button x:Name="SettingsTabButton" Margin="0" Command="{Binding ShowSettingsCommand}" Content="&#xE713;" ToolTip="Settings"
+                               Selector.IsSelected="{Binding IsSettingsVisible, Mode=OneWay}" Style="{StaticResource TabButtonStyle}" />
+                    <Ellipse Width="6" Height="6" Margin="0,4,4,0"
+                             HorizontalAlignment="Right" VerticalAlignment="Top"
+                             Fill="{StaticResource FooterAccentBrush}" IsHitTestVisible="False"
+                             Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                </Grid>
             </Grid>
 
             <ui:ContentDialogHost x:Name="DialogHost"

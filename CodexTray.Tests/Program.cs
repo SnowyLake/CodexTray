@@ -467,7 +467,7 @@ internal static class Program
                     ((System.Windows.Media.SolidColorBrush)viewModel.CodexStatusDotBrush).Color,
                     "Codex status should stay independent from token cost accent");
                 System.Windows.Controls.Button grokTabButton = (System.Windows.Controls.Button)window.FindName("GrokTabButton");
-                System.Windows.Controls.StackPanel tabPanel = (System.Windows.Controls.StackPanel)grokTabButton.Parent;
+                System.Windows.Controls.Panel tabPanel = (System.Windows.Controls.Panel)grokTabButton.Parent;
                 int grokTabIndex = tabPanel.Children.IndexOf(grokTabButton);
                 AssertEqual("Codex", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex - 1]).ToolTip, "Grok tab predecessor");
                 AssertEqual("Gemini", ((System.Windows.Controls.Button)tabPanel.Children[grokTabIndex + 1]).ToolTip, "Grok tab successor");
@@ -479,6 +479,25 @@ internal static class Program
                 int openCodeTabIndex = tabPanel.Children.IndexOf(openCodeTabButton);
                 AssertEqual("Gemini", ((System.Windows.Controls.Button)tabPanel.Children[openCodeTabIndex - 1]).ToolTip, "OpenCode tab predecessor");
                 AssertEqual("APIs", ((System.Windows.Controls.Button)tabPanel.Children[openCodeTabIndex + 1]).ToolTip, "OpenCode tab successor");
+                PageItem visiblePages = viewModel.VisiblePages;
+                var pinButton = (System.Windows.Controls.Button)window.FindName("PanelPinButton");
+                var settingsButton = (System.Windows.Controls.Button)window.FindName("SettingsTabButton");
+                foreach (PageItem pages in new[] { PageItem.All, PageItem.Grok | PageItem.Apis, PageItem.Grok, PageItem.None })
+                {
+                    viewModel.VisiblePages = pages;
+                    content.UpdateLayout();
+                    var visibleTabs = tabPanel.Children.OfType<System.Windows.Controls.Button>().Where(button => button.Visibility == System.Windows.Visibility.Visible).ToArray();
+                    AssertTrue(visibleTabs.Append(settingsButton).All(button => button.RenderSize == pinButton.RenderSize), "all footer buttons should match the pin button size");
+                    double nextButtonX = 0;
+                    foreach (var button in visibleTabs)
+                    {
+                        AssertEqual(nextButtonX, button.TranslatePoint(new System.Windows.Point(), tabPanel).X, "visible buttons should have a six-unit gap");
+                        nextButtonX += button.ActualWidth + 6;
+                    }
+                    AssertEqual(nextButtonX, tabPanel.ActualWidth, "the page group should reserve one gap per visible page including the gap before settings");
+                    AssertEqual(tabPanel.ActualWidth, settingsButton.TranslatePoint(new System.Windows.Point(), tabPanel).X, "visible pages should sit immediately left of settings");
+                }
+                viewModel.VisiblePages = visiblePages;
                 viewModel.UpdateGrokDashboard(new GrokUsageDashboard(
                     new GrokUsageSnapshot(5, DateTimeOffset.Now.AddDays(7).ToUnixTimeSeconds(), "SuperGrok Heavy")
                     {
