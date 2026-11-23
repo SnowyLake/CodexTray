@@ -133,8 +133,9 @@ internal static class RetryTests
         requests.Add(PageItem.Apis, "a");
         requests.Add(PageItem.Grok);
         requests.Add(PageItem.Gemini);
+        requests.Add(PageItem.OpenCode);
         RefreshRequest first = requests.Take()!;
-        Check(first.Pages == (PageItem.Codex | PageItem.Apis | PageItem.Grok | PageItem.Gemini) && first.ApiIds.SequenceEqual(["a"]) && !first.AllApiCards, "merge independent retry targets");
+        Check(first.Pages == (PageItem.Codex | PageItem.Apis | PageItem.Grok | PageItem.Gemini | PageItem.OpenCode) && first.ApiIds.SequenceEqual(["a"]) && !first.AllApiCards, "merge independent retry targets");
         Check(requests.Take() == null, "batch is drained");
         requests.Add(PageItem.Apis, "b");
         requests.Add(PageItem.All);
@@ -148,13 +149,11 @@ internal static class RetryTests
         cache.Merge([a, b], [a, b], [Result(a, "¥10.00"), Result(b, "¥20.00")]);
         IReadOnlyList<ApiUsageResult> merged = cache.Merge([a, b], [b], [Result(b, "¥25.00")]);
         Check(merged[0].BalanceDisplay == "¥10.00" && merged[1].BalanceDisplay == "¥25.00", "one retry preserves sibling");
-        Check(ApiUsageCollector.BuildDeepSeekPluginUsage(merged).Display == "¥10", "first DeepSeek stays mapped");
         merged = cache.Merge([b, a], [], []);
-        Check(ApiUsageCollector.BuildDeepSeekPluginUsage(merged).Display == "¥25", "reorder immediately remaps first DeepSeek");
+        Check(merged[0].BalanceDisplay == "¥25.00" && merged[1].BalanceDisplay == "¥10.00", "reorder preserves card snapshots");
         ApiMonitorSettings edited = new() { Id = "b", ApiKey = "new-key" };
         merged = cache.Merge([edited, a], [b], [Result(b, "¥99.00")]);
         Check(!merged[0].Available && merged[1].Available, "late edited result is discarded");
-        Check(ApiUsageCollector.BuildDeepSeekPluginUsage(merged).Display == "N/A", "unavailable first never falls back");
         merged = cache.Merge([a], [b], [Result(b, "¥99.00")]);
         Check(merged.Count == 1 && merged[0].MonitorId == "a", "late removed card stays removed");
 
@@ -163,8 +162,9 @@ internal static class RetryTests
             (page, id) => { targets.Add((page, id)); return Task.CompletedTask; });
         await vm.RetrySourceCommand.ExecuteAsync(PageItem.Grok);
         await vm.RetrySourceCommand.ExecuteAsync(PageItem.Gemini);
+        await vm.RetrySourceCommand.ExecuteAsync(PageItem.OpenCode);
         await vm.RetryApiMonitorCommand.ExecuteAsync(vm.ApiMonitors[1]);
-        Check(targets.SequenceEqual([(PageItem.Grok, null), (PageItem.Gemini, null), (PageItem.Apis, "b")]), "UI targets one source or card");
+        Check(targets.SequenceEqual([(PageItem.Grok, null), (PageItem.Gemini, null), (PageItem.OpenCode, null), (PageItem.Apis, "b")]), "UI targets one source or card");
     }
 
     /// <summary>
@@ -193,7 +193,7 @@ internal static class RetryTests
         Check(!vm.BuildDiagnostics(PageItem.Apis).Contains(secret), "whole API page uses the same provider whitelist");
         Check(vm.BuildDiagnostics(PageItem.Grok).Contains("Not collected"), "initial diagnostics do not claim successful collection");
         string allDiagnostics = vm.BuildDiagnostics(PageItem.All);
-        Check(new[] { "Codex usage:", "Grok usage:", "Gemini usage:", "Gemini local cost:", "Unknown API balance:" }.All(allDiagnostics.Contains), "advanced diagnostics include every source");
+        Check(new[] { "Codex usage:", "Grok usage:", "Gemini usage:", "Gemini local cost:", "OpenCode usage:", "OpenCode local cost:", "Unknown API balance:" }.All(allDiagnostics.Contains), "advanced diagnostics include every source");
         Check(!allDiagnostics.Contains(secret) && !allDiagnostics.Contains("message.example") && !allDiagnostics.Contains("user-secret") && !allDiagnostics.Contains("card-secret"),
             "combined diagnostics retain provider whitelisting and credential redaction");
     }

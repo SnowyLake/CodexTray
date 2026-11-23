@@ -13,7 +13,8 @@ public enum PageItem
     Apis = 1 << 2,
     Grok = 1 << 3,
     Gemini = 1 << 4,
-    All = Codex | Grok | Gemini | Apis,
+    OpenCode = 1 << 5,
+    All = Codex | Grok | Gemini | OpenCode | Apis,
 }
 
 public sealed class ApiMonitorSettings
@@ -117,7 +118,7 @@ public sealed class AppSettings
     // Removed provider. Saved cards are dropped on load instead of being queried.
     private const string k_LegacyNanoGptProvider = "NanoGPT";
 
-    public const int CurrentSettingsSchemaVersion = 2;
+    public const int CurrentSettingsSchemaVersion = 3;
 
     public const string ThemeModeSystem = "System";
 
@@ -389,11 +390,20 @@ public sealed class SettingsStore
             throw new JsonException("Settings root must be an object.");
         }
 
-        bool migrateLegacyAllPages = !document.RootElement.TryGetProperty(nameof(AppSettings.SettingsSchemaVersion), out JsonElement schemaVersion) ||
-            !schemaVersion.TryGetInt32(out int version) || version < AppSettings.CurrentSettingsSchemaVersion;
+        int schemaVersionValue = document.RootElement.TryGetProperty(nameof(AppSettings.SettingsSchemaVersion), out JsonElement schemaVersion) &&
+            schemaVersion.TryGetInt32(out int parsedVersion)
+                ? parsedVersion
+                : 0;
         AppSettings settings = JsonSerializer.Deserialize<AppSettings>(json, s_JsonOptions) ?? throw new JsonException("Settings object is missing.");
-        // VisiblePages 7 was Codex|Cursor|Apis (v0) and 13 was Codex|Apis|Grok (v1), the full sets before Gemini existed.
-        if (migrateLegacyAllPages && settings.VisiblePages is (PageItem)7 or (PageItem)13)
+        // Match each legacy schema version's full-page mask so explicitly disabled pages stay off across upgrades.
+        bool shouldMigrateAllPages = schemaVersionValue switch
+        {
+            <= 0 => settings.VisiblePages is (PageItem)7 or (PageItem)13,
+            1 => settings.VisiblePages == (PageItem)13,
+            2 => settings.VisiblePages == (PageItem)29,
+            _ => false,
+        };
+        if (shouldMigrateAllPages)
         {
             settings.VisiblePages = PageItem.All;
         }

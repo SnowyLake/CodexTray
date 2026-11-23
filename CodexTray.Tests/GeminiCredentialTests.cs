@@ -16,8 +16,8 @@ internal static class GeminiCredentialTests
 {
     internal static Task EncodingsAsync()
     {
-        const string accessToken = "ya29.synthetic-access-token-for-tests";
-        const string refreshToken = "1//synthetic-refresh-token-for-tests";
+        const string accessToken = "ya29.test-access-token";
+        const string refreshToken = "1//test-refresh-token";
         string json = JsonSerializer.Serialize(new { access_token = accessToken, refresh_token = refreshToken });
         foreach (Encoding encoding in new[] { Encoding.UTF8, Encoding.Unicode })
         {
@@ -167,18 +167,6 @@ internal static class GeminiCredentialTests
                 },
             },
         });
-        string agyUsageJson = JsonSerializer.Serialize(new
-        {
-            conversation_id = "conv-test",
-            status = "SUCCESS",
-            response = "ignored text",
-            num_turns = 0,
-            command = new
-            {
-                name = "usage",
-                data = JsonDocument.Parse(quotaJson).RootElement,
-            },
-        });
 
         // 1. Production Credential Manager shape without client pair: succeeds through the 5-minute buffer with zero OAuth POSTs, fails at actual expiry.
         string store = BuildStore("ya29.token-v1", expiry);
@@ -234,20 +222,38 @@ internal static class GeminiCredentialTests
         }
         File.Delete(filePath);
 
-        // 3. Agy CLI helper updates the Credential Manager store and restores full Cloud Code quota + tier across two expiry boundaries.
+        // 3. Read-only external store refreshes silently using discovered local OAuth client pair, caches in memory, and refreshes again across expiry boundaries without mutating the store.
+        string syntheticClientId = ScannerFixtureClientId('a');
+        string syntheticClientSecret = ScannerFixtureClientSecret('a');
+        string fakeBinaryPath = Path.Combine(temp.Path, "fake-agy.bin");
+        File.WriteAllText(fakeBinaryPath, $"const id=\"{syntheticClientId}\";const sec=\"{syntheticClientSecret}\";");
+
         now = expiry.AddMinutes(10);
         store = BuildStore("ya29.expired-1", expiry);
-        int versionCalls = 0;
-        int usageCalls = 0;
+        string originalStore = store;
+        int refreshPosts = 0;
         string expectedToken = "ya29.refreshed-1";
-        using (HttpClient client = new(new Handler((request, _) =>
+        using (HttpClient client = new(new Handler(async (request, token) =>
         {
-            Check(request.RequestUri!.Host != "oauth2.googleapis.com", "agy recovery must not send direct OAuth POST");
-            Check(request.Headers.Authorization?.Parameter == expectedToken, "Cloud Code uses refreshed token written by agy");
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                refreshPosts++;
+                string form = await request.Content!.ReadAsStringAsync(token);
+                Check(form.Contains("client_id=" + Uri.EscapeDataString(syntheticClientId), StringComparison.Ordinal)
+                    && form.Contains("client_secret=" + Uri.EscapeDataString(syntheticClientSecret), StringComparison.Ordinal)
+                    && form.Contains("refresh_token=" + Uri.EscapeDataString("1//fixture-refresh"), StringComparison.Ordinal),
+                    "direct silent refresh uses discovered OAuth client pair and read-only refresh token");
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(new { access_token = expectedToken, expires_in = 3600 })),
+                };
+            }
+
+            Check(request.Headers.Authorization?.Parameter == expectedToken, "Cloud Code uses in-memory refreshed access token");
             string body = request.RequestUri.AbsolutePath.EndsWith("loadCodeAssist", StringComparison.Ordinal)
                 ? "{\"cloudaicompanionProject\":\"p1\",\"paidTier\":{\"id\":\"PRO\"}}"
                 : quotaJson;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
         })))
         {
             GeminiUsageCollector collector = new(
@@ -255,140 +261,110 @@ internal static class GeminiCredentialTests
                 temp.Path,
                 credentialStoreReader: () => store,
                 nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, args, _, _, _) =>
-                {
-                    if (args.Length == 1 && args[0] == "--version")
-                    {
-                        versionCalls++;
-                        return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, "1.5.12\n", false, false));
-                    }
-
-                    usageCalls++;
-                    store = BuildStore(expectedToken, now.AddHours(1));
-                    return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, agyUsageJson, false, false));
-                });
+                clientDiscoveryPaths: [fakeBinaryPath]);
 
             GeminiUsageDashboard first = await collector.CollectDashboardAsync();
             Check(first.Snapshot.IsAvailable && first.Snapshot.SubscriptionTier == "PRO" && first.Snapshot.Source == "cloud_code",
-                "agy store update restores full Cloud Code quota and subscription tier");
-            Check(versionCalls == 1 && usageCalls == 1, "agy version and usage each ran once");
+                "read-only external store restores full Cloud Code quota and subscription tier via direct silent refresh");
+            Check(refreshPosts == 1 && store == originalStore, "external store stays untouched while refreshing once");
 
-            // Subsequent minute poll reuses refreshed store without invoking agy again.
+            // Subsequent minute poll reuses private in-memory token without another OAuth POST.
             now = now.AddMinutes(1);
             GeminiUsageDashboard nextMinute = await collector.CollectDashboardAsync();
-            Check(nextMinute.Snapshot.IsAvailable && versionCalls == 1 && usageCalls == 1, "fresh store skips agy helper");
+            Check(nextMinute.Snapshot.IsAvailable && refreshPosts == 1, "in-memory token cache prevents redundant OAuth refreshes");
 
-            // Second expiry boundary triggers agy again while reusing cached version.
-            now = now.AddHours(1);
+            // Proactive refresh at the 5-minute buffer before expiry fetches a new token cleanly.
+            now = now.AddMinutes(55);
             expectedToken = "ya29.refreshed-2";
             GeminiUsageDashboard secondCycle = await collector.CollectDashboardAsync();
-            Check(secondCycle.Snapshot.IsAvailable && versionCalls == 1 && usageCalls == 2, "second expiry recovers cleanly with cached version");
+            Check(secondCycle.Snapshot.IsAvailable && refreshPosts == 2, "proactive refresh renews cached token at 5-minute buffer");
+
+            // Switching accounts in the external store immediately evicts the cached token and uses the new account.
+            store = BuildStore("ya29.new-account-valid", now.AddHours(1));
+            expectedToken = "ya29.new-account-valid";
+            GeminiUsageDashboard switched = await collector.CollectDashboardAsync();
+            Check(switched.Snapshot.IsAvailable && refreshPosts == 2, "account change evicts old in-memory cached token");
         }
 
-        // 4. Verified zero-turn JSON fallback when store is unchanged; non-zero turn report is rejected.
-        store = BuildStore("ya29.expired-readonly", now.AddHours(-1));
-        using (HttpClient client = new(new Handler((_, _) => throw new InvalidOperationException("fallback should not hit HTTP when store unchanged"))))
+        // 4. Antigravity ACP file (antigravity-acp/acp_token.json) is discovered, refreshed, and reports AntigravityAcp owner on failure.
+        string acpDir = Path.Combine(temp.Path, "antigravity-acp");
+        Directory.CreateDirectory(acpDir);
+        string acpPath = Path.Combine(acpDir, "acp_token.json");
+        File.WriteAllText(acpPath, JsonSerializer.Serialize(new
         {
-            GeminiUsageCollector fallbackCollector = new(
-                client,
-                temp.Path,
-                credentialStoreReader: () => store,
-                nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, args, _, _, _) => Task.FromResult(args[0] == "--version"
-                    ? new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false)
-                    : new GeminiUsageCollector.AgyCliResult(0, agyUsageJson, false, false)));
-            GeminiUsageDashboard fallback = await fallbackCollector.CollectDashboardAsync();
-            Check(fallback.Snapshot.IsAvailable && fallback.Snapshot.Source == "agy_cli" && fallback.Snapshot.GeminiFiveHour!.RemainingPercent == 80,
-                "zero-turn agy usage JSON acts as bounded fallback");
-
-            string nonZeroTurnJson = agyUsageJson.Replace("\"num_turns\":0", "\"num_turns\":1", StringComparison.Ordinal);
-            GeminiUsageCollector rejectedCollector = new(
-                client,
-                temp.Path,
-                credentialStoreReader: () => store,
-                nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, args, _, _, _) => Task.FromResult(args[0] == "--version"
-                    ? new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false)
-                    : new GeminiUsageCollector.AgyCliResult(0, nonZeroTurnJson, false, false)));
-            GeminiUsageDashboard rejected = await rejectedCollector.CollectDashboardAsync();
-            Check(!rejected.Snapshot.IsAvailable && rejected.FailureKind == GeminiUsageFailureKind.OwnerRefreshRequired,
-                "non-zero turn CLI output is rejected");
-        }
-
-        // 5. Safety gates: disableSlashCommands, unsupported version, auth_method mismatch, logout during helper, and timeout backoff.
-        string settingsPath = Path.Combine(agyDir, "settings.json");
-        File.WriteAllText(settingsPath, "{\"disableSlashCommands\":true}");
-        int blockedCalls = 0;
-        using (HttpClient client = new(new Handler((_, _) => new TaskCompletionSource<HttpResponseMessage>().Task)))
+            client_id = syntheticClientId,
+            client_secret = syntheticClientSecret,
+            access_token = "ya29.acp-expired",
+            refresh_token = "1//acp-refresh",
+            expiry = now.AddHours(-1).ToString("O"),
+        }));
+        using (HttpClient client = new(new Handler((request, _) =>
         {
-            GeminiUsageCollector blocked = new(
-                client,
-                temp.Path,
-                credentialStoreReader: () => store,
-                nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, _, _, _, _) => { blockedCalls++; return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false)); });
-            GeminiUsageDashboard blockedResult = await blocked.CollectDashboardAsync();
-            Check(!blockedResult.Snapshot.IsAvailable && blockedCalls == 0 && blockedResult.FailureKind == GeminiUsageFailureKind.OwnerRefreshRequired,
-                "disableSlashCommands blocks launching agy");
-        }
-        File.Delete(settingsPath);
-
-        int oldVersionUsageCalls = 0;
-        using (HttpClient client = new(new Handler((_, _) => new TaskCompletionSource<HttpResponseMessage>().Task)))
-        {
-            GeminiUsageCollector oldCli = new(
-                client,
-                temp.Path,
-                credentialStoreReader: () => store,
-                nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, args, _, _, _) =>
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    if (args[0] != "--version")
-                    {
-                        oldVersionUsageCalls++;
-                    }
-                    return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, "1.1.10", false, false));
+                    Content = new StringContent("{\"access_token\":\"ya29.acp-fresh\",\"expires_in\":3600}"),
                 });
-            GeminiUsageDashboard oldResult = await oldCli.CollectDashboardAsync();
-            Check(!oldResult.Snapshot.IsAvailable && oldVersionUsageCalls == 0, "agy below 1.1.11 never runs /usage");
+            }
+
+            Check(request.Headers.Authorization?.Parameter == "ya29.acp-fresh", "ACP credential refreshes with its own client pair");
+            string body = request.RequestUri.AbsolutePath.EndsWith("loadCodeAssist", StringComparison.Ordinal)
+                ? "{\"cloudaicompanionProject\":\"p-acp\",\"paidTier\":{\"id\":\"ULTRA\"}}"
+                : quotaJson;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+        })))
+        {
+            GeminiUsageDashboard acpOk = await new GeminiUsageCollector(client, temp.Path, nowProvider: () => now).CollectDashboardAsync();
+            Check(acpOk.Snapshot.IsAvailable && acpOk.Snapshot.SubscriptionTier == "ULTRA", "antigravity-acp/acp_token.json refreshes and loads quota");
+            using JsonDocument savedAcp = JsonDocument.Parse(File.ReadAllText(acpPath));
+            Check(savedAcp.RootElement.GetProperty("access_token").GetString() == "ya29.acp-fresh"
+                && savedAcp.RootElement.TryGetProperty("expiry", out _), "ACP token file preserves RFC3339 expiry field");
         }
 
-        int timeoutUsageCalls = 0;
-        using (HttpClient client = new(new Handler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) }))))
+        File.WriteAllText(acpPath, JsonSerializer.Serialize(new
+        {
+            access_token = "ya29.acp-no-refresh",
+            expiry = now.AddHours(-1).ToString("O"),
+        }));
+        using (HttpClient client = new(new Handler((_, _) => new TaskCompletionSource<HttpResponseMessage>().Task)))
+        {
+            GeminiUsageDashboard acpExpired = await new GeminiUsageCollector(client, temp.Path, nowProvider: () => now).CollectDashboardAsync();
+            Check(!acpExpired.Snapshot.IsAvailable && acpExpired.FailureKind == GeminiUsageFailureKind.OwnerRefreshRequired
+                && acpExpired.CredentialOwner == GeminiCredentialOwner.AntigravityAcp,
+                "expired ACP login without refresh token maps to AntigravityAcp owner");
+            TrayPopupViewModel acpVm = new(new AppSettings(), () => Task.CompletedTask);
+            acpVm.UpdateGeminiDashboard(acpExpired);
+            Check(acpVm.GeminiUpdatedAtDisplay == "Open Antigravity ACP", "ACP failure status text identifies Antigravity ACP");
+        }
+        File.Delete(acpPath);
+
+        // 5. Transient refresh timeout backs off automatically and recovers on manual refresh or credential update.
+        store = BuildStore("ya29.timeout-expired", now.AddHours(-1));
+        int timeoutRefreshCalls = 0;
+        using (HttpClient client = new(new Handler((request, _) =>
+        {
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                timeoutRefreshCalls++;
+                throw new TaskCanceledException("simulated OAuth refresh timeout");
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) });
+        })))
         {
             GeminiUsageCollector timeoutCollector = new(
                 client,
                 temp.Path,
                 credentialStoreReader: () => store,
                 nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, args, _, _, _) =>
-                {
-                    if (args[0] == "--version")
-                    {
-                        return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false));
-                    }
-                    timeoutUsageCalls++;
-                    return Task.FromResult(new GeminiUsageCollector.AgyCliResult(-1, string.Empty, TimedOut: true, OutputTruncated: false));
-                });
+                clientDiscoveryPaths: [fakeBinaryPath]);
             GeminiUsageDashboard t1 = await timeoutCollector.CollectDashboardAsync();
-            Check(!t1.Snapshot.IsAvailable && t1.FailureKind == GeminiUsageFailureKind.Timeout && timeoutUsageCalls == 1, "agy timeout is classified");
+            Check(!t1.Snapshot.IsAvailable && t1.FailureKind == GeminiUsageFailureKind.Timeout && timeoutRefreshCalls == 1, "OAuth refresh timeout is classified");
             now = now.AddMinutes(1);
             GeminiUsageDashboard t2 = await timeoutCollector.CollectDashboardAsync();
-            Check(!t2.Snapshot.IsAvailable && timeoutUsageCalls == 1, "backoff suppresses immediate minute retry");
+            Check(!t2.Snapshot.IsAvailable && timeoutRefreshCalls == 1, "backoff suppresses immediate minute retry");
             GeminiUsageDashboard tManual = await timeoutCollector.CollectDashboardAsync(forceRefresh: true);
-            Check(!tManual.Snapshot.IsAvailable && timeoutUsageCalls == 2, "manual refresh bypasses backoff");
+            Check(!tManual.Snapshot.IsAvailable && timeoutRefreshCalls == 2, "manual refresh bypasses backoff");
             store = BuildStore("ya29.user-renewed", now.AddHours(1));
             GeminiUsageDashboard recovered = await timeoutCollector.CollectDashboardAsync();
             Check(recovered.Snapshot.IsAvailable, "updated credential immediately clears backoff");
@@ -444,6 +420,8 @@ internal static class GeminiCredentialTests
     {
         using TempDirectory temp = new();
         DateTimeOffset now = new(2026, 11, 19, 17, 0, 0, TimeSpan.FromHours(8));
+        string syntheticClientId = ScannerFixtureClientId('a');
+        string syntheticClientSecret = ScannerFixtureClientSecret('a');
         string BuildStore(string accessToken, DateTimeOffset tokenExpiry, string authMethod = "consumer", string? tier = null) => JsonSerializer.Serialize(new
         {
             auth_method = authMethod,
@@ -471,44 +449,252 @@ internal static class GeminiCredentialTests
                 },
             },
         });
-        string agyUsageJson = JsonSerializer.Serialize(new
-        {
-            status = "SUCCESS",
-            num_turns = 0,
-            command = new
-            {
-                name = "usage",
-                data = JsonDocument.Parse(quotaJson).RootElement,
-            },
-        });
 
-        // P1-1: Stale local file must never accept agy stdout fallback when the file itself was not updated.
-        string agyDir = Path.Combine(temp.Path, "antigravity-cli");
-        Directory.CreateDirectory(agyDir);
-        string filePath = Path.Combine(agyDir, "antigravity-oauth-token");
-        File.WriteAllText(filePath, BuildStore("ya29.account-a-expired", now.AddHours(-1), tier: "PRO"));
-        using (HttpClient client = new(new Handler((_, _) => throw new InvalidOperationException("must not query Cloud Code for stale unchanged file"))))
+        // 1. Streaming binary scanner handles single tokens straddling 1 MiB chunk boundaries, packed Go .rodata strings, multi-client Go binaries, and JS proximity selection.
+        string goBinaryPath = Path.Combine(temp.Path, "packed-rodata.exe");
+        using (FileStream fs = File.Create(goBinaryPath))
         {
-            GeminiUsageCollector collector = new(
+            // Place syntheticClientId directly straddling the 1 MiB chunk boundary and syntheticClientSecret straddling the 2 MiB boundary.
+            const int chunk = 1024 * 1024;
+            byte[] filler1 = new byte[chunk - 30];
+            Array.Fill(filler1, (byte)'X');
+            fs.Write(filler1);
+            byte[] idBytes = Encoding.ASCII.GetBytes(syntheticClientId + "trailingString");
+            fs.Write(idBytes);
+            int toSecondChunk = (2 * chunk) - (int)fs.Position - 12;
+            byte[] filler2 = new byte[toSecondChunk];
+            Array.Fill(filler2, (byte)'Y');
+            fs.Write(filler2);
+            fs.Write(Encoding.ASCII.GetBytes(syntheticClientSecret + "Bar\0"));
+        }
+        Check(GeminiUsageCollector.TryScanOAuthClientPairFromFile(goBinaryPath, out string scannedId, out string scannedSecret)
+            && scannedId == syntheticClientId && scannedSecret == syntheticClientSecret,
+            "streaming scanner extracts single client ID and GOCSPX secret straddling 1 MiB chunk boundaries without swallowing packed neighbors");
+
+        string secondClientId = ScannerFixtureClientId('b');
+        string secondClientSecret = ScannerFixtureClientSecret('b');
+        string multiGoBinaryPath = Path.Combine(temp.Path, "multi-rodata.exe");
+        using (FileStream fs = File.Create(multiGoBinaryPath))
+        {
+            byte[] pad = new byte[10000];
+            Array.Fill(pad, (byte)'Z');
+            fs.Write(Encoding.ASCII.GetBytes("foo" + syntheticClientId + "bar" + secondClientId + "baz"));
+            fs.Write(pad);
+            fs.Write(Encoding.ASCII.GetBytes("a" + syntheticClientSecret + "xyz" + secondClientSecret + "uvw"));
+        }
+        IReadOnlyList<GeminiUsageCollector.OAuthClientPair> multiPairs = GeminiUsageCollector.ScanOAuthClientPairsFromFile(multiGoBinaryPath);
+        Check(multiPairs.Count == 4, $"multi-client Go binary yields bounded cross-product pairs (actual {multiPairs.Count})");
+
+        string multiStore = BuildStore("ya29.multi-expired", now.AddHours(-1));
+        int multiRefreshAttempts = 0;
+        using (HttpClient client = new(new Handler(async (request, token) =>
+        {
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                multiRefreshAttempts++;
+                string form = await request.Content!.ReadAsStringAsync(token);
+                if (form.Contains("client_id=" + Uri.EscapeDataString(secondClientId), StringComparison.Ordinal)
+                    && form.Contains("client_secret=" + Uri.EscapeDataString(secondClientSecret), StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("{\"access_token\":\"ya29.multi-ok\",\"expires_in\":3600}"),
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    Content = new StringContent("{\"error\":\"invalid_client\"}"),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) };
+        })))
+        {
+            GeminiUsageCollector multiCollector = new(
                 client,
                 temp.Path,
+                credentialStoreReader: () => multiStore,
                 nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, args, _, _, _) => Task.FromResult(args[0] == "--version"
-                    ? new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false)
-                    : new GeminiUsageCollector.AgyCliResult(0, agyUsageJson, false, false)));
-            GeminiUsageDashboard rejected = await collector.CollectDashboardAsync();
-            Check(!rejected.Snapshot.IsAvailable && rejected.FailureKind == GeminiUsageFailureKind.OwnerRefreshRequired,
-                "stale local file rejects agy stdout fallback to prevent cross-account attribution");
+                clientDiscoveryPaths: [multiGoBinaryPath]);
+            GeminiUsageDashboard firstMulti = await multiCollector.CollectDashboardAsync();
+            Check(firstMulti.Snapshot.IsAvailable && multiRefreshAttempts == 4, "multi-client Go binary finds the matching OAuth pair across candidates");
+            int attemptsBeforeSecond = multiRefreshAttempts;
+            now = now.AddMinutes(56);
+            GeminiUsageDashboard secondMulti = await multiCollector.CollectDashboardAsync();
+            Check(secondMulti.Snapshot.IsAvailable && multiRefreshAttempts == attemptsBeforeSecond + 1, "verified OAuth client pair is cached and succeeds on first attempt next cycle");
         }
-        File.Delete(filePath);
 
-        // P1-2: ResetState never blocks on s_AuthLock and prevents stale in-flight 403s from poisoning post-reset collections.
+        string jsBundlePath = Path.Combine(temp.Path, "bundle.js");
+        string unrelatedClientId = ScannerFixtureClientId('c');
+        File.WriteAllText(jsBundlePath,
+            $"const other=\"{unrelatedClientId}\";" + new string(' ', 6000) + $"const id=\"{syntheticClientId}\",secret=\"{syntheticClientSecret}\";");
+        Check(GeminiUsageCollector.TryScanOAuthClientPairFromFile(jsBundlePath, out string nearbyId, out string nearbySecret)
+            && nearbyId == syntheticClientId && nearbySecret == syntheticClientSecret,
+            "scanner prefers the client ID adjacent to the GOCSPX secret over distant unrelated IDs");
+
+        // 1b. Multi-file discovery tries subsequent files if the first file's client pair does not match, and transient scan locks are not cached as empty.
+        string secondFilePath = Path.Combine(temp.Path, "second-bundle.js");
+        File.WriteAllText(secondFilePath, $"const id=\"{secondClientId}\",secret=\"{secondClientSecret}\";");
+        using (HttpClient client = new(new Handler(async (request, token) =>
+        {
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                string form = await request.Content!.ReadAsStringAsync(token);
+                if (form.Contains("client_id=" + Uri.EscapeDataString(secondClientId), StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"access_token\":\"ya29.second-file\",\"expires_in\":3600}") };
+                }
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{\"error\":\"invalid_client\"}") };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) };
+        })))
+        {
+            GeminiUsageCollector multiFileCollector = new(
+                client,
+                temp.Path,
+                credentialStoreReader: () => multiStore,
+                nowProvider: () => now,
+                clientDiscoveryPaths: [jsBundlePath, secondFilePath]);
+            GeminiUsageDashboard multiFileOk = await multiFileCollector.CollectDashboardAsync();
+            Check(multiFileOk.Snapshot.IsAvailable, "discovery continues to subsequent candidate files when the first file's client pair returns invalid_client");
+        }
+
+        string lockedScanFile = Path.Combine(temp.Path, "locked-scan.js");
+        File.WriteAllText(lockedScanFile, $"const id=\"{syntheticClientId}\",secret=\"{syntheticClientSecret}\";");
+        using (HttpClient client = new(new Handler((request, _) =>
+        {
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"access_token\":\"ya29.after-unlock\",\"expires_in\":3600}") });
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) });
+        })))
+        {
+            GeminiUsageCollector lockScanCollector = new(
+                client,
+                temp.Path,
+                credentialStoreReader: () => multiStore,
+                nowProvider: () => now,
+                clientDiscoveryPaths: [lockedScanFile]);
+            using (FileStream exclusiveLock = new(lockedScanFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                GeminiUsageDashboard lockedFail = await lockScanCollector.CollectDashboardAsync();
+                Check(!lockedFail.Snapshot.IsAvailable && lockedFail.FailureKind == GeminiUsageFailureKind.LocalDataError,
+                    "transient client-discovery I/O error reports LocalDataError instead of poisoning cache");
+            }
+
+            GeminiUsageDashboard unlockedOk = await lockScanCollector.CollectDashboardAsync(forceRefresh: true);
+            Check(unlockedOk.Snapshot.IsAvailable, "manual refresh after unlocking discovery file succeeds without caching empty scan");
+        }
+
+        // 1c. ResetState during an in-flight OAuth 200 OK blocks both local file writeback and follow-up quota requests; in-flight TxF lock falls back to in-memory cache; alternate expiry fields update in place.
+        string resetAcpDir = Path.Combine(temp.Path, "antigravity-acp");
+        Directory.CreateDirectory(resetAcpDir);
+        string resetAcpFile = Path.Combine(resetAcpDir, "acp_token.json");
+        string originalResetAcp = JsonSerializer.Serialize(new
+        {
+            client_id = syntheticClientId,
+            client_secret = syntheticClientSecret,
+            access_token = "ya29.before-reset",
+            refresh_token = "1//reset-refresh",
+            expires_at = now.AddHours(-1).ToString("O"),
+        });
+        File.WriteAllText(resetAcpFile, originalResetAcp);
+        TaskCompletionSource enteredPostResetRefresh = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource releasePostResetRefresh = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int postResetQuotaCalls = 0;
+        using (HttpClient client = new(new Handler(async (request, _) =>
+        {
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                enteredPostResetRefresh.TrySetResult();
+                await releasePostResetRefresh.Task;
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"access_token\":\"ya29.must-not-write\",\"expires_in\":3600}") };
+            }
+            postResetQuotaCalls++;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) };
+        })))
+        {
+            GeminiUsageCollector postResetCollector = new(client, temp.Path, nowProvider: () => now);
+            Task<GeminiUsageDashboard> staleWriteRun = postResetCollector.CollectDashboardAsync();
+            await enteredPostResetRefresh.Task;
+            postResetCollector.ResetState();
+            releasePostResetRefresh.TrySetResult();
+            GeminiUsageDashboard staleWriteResult = await staleWriteRun;
+            Check(!staleWriteResult.Snapshot.IsAvailable && postResetQuotaCalls == 0 && File.ReadAllText(resetAcpFile) == originalResetAcp,
+                "ResetState while OAuth 200 OK is in flight skips file writeback and follow-up quota requests");
+        }
+
+        // Alternate expiry fields (expires_at ISO string and expiryDate ms epoch) update in place so the next collect performs 0 OAuth POSTs.
+        foreach (string expiryFixture in new[]
+        {
+            JsonSerializer.Serialize(new { client_id = syntheticClientId, client_secret = syntheticClientSecret, access_token = "ya29.old", refresh_token = "1//r", expires_at = now.AddHours(-1).ToString("O") }),
+            JsonSerializer.Serialize(new { client_id = syntheticClientId, client_secret = syntheticClientSecret, access_token = "ya29.old", refresh_token = "1//r", expiryDate = now.AddHours(-1).ToUnixTimeMilliseconds() }),
+        })
+        {
+            File.WriteAllText(resetAcpFile, expiryFixture);
+            int altRefreshCalls = 0;
+            using HttpClient client = new(new Handler((request, _) =>
+            {
+                if (request.RequestUri!.Host == "oauth2.googleapis.com")
+                {
+                    altRefreshCalls++;
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"access_token\":\"ya29.alt-fresh\",\"expires_in\":3600}") });
+                }
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) });
+            }));
+            GeminiUsageCollector altCollector = new(client, temp.Path, nowProvider: () => now);
+            GeminiUsageDashboard alt1 = await altCollector.CollectDashboardAsync();
+            GeminiUsageDashboard alt2 = await altCollector.CollectDashboardAsync();
+            Check(alt1.Snapshot.IsAvailable && alt2.Snapshot.IsAvailable && altRefreshCalls == 1,
+                "persisting refreshed tokens updates existing expires_at/expiryDate fields in place without re-refreshing");
+        }
+
+        // In-flight TxF lock acquired after OAuth starts falls back to in-memory cache without reporting CredentialChanged.
+        File.WriteAllText(resetAcpFile, originalResetAcp);
+        FileStream? inFlightReadLock = null;
+        int inFlightLockRefreshes = 0;
+        try
+        {
+            using HttpClient client = new(new Handler((request, _) =>
+            {
+                if (request.RequestUri!.Host == "oauth2.googleapis.com")
+                {
+                    inFlightLockRefreshes++;
+                    inFlightReadLock = new FileStream(resetAcpFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"access_token\":\"ya29.inflight-mem\",\"expires_in\":3600}") });
+                }
+                Check(request.Headers.Authorization?.Parameter == "ya29.inflight-mem", "in-flight TxF lock falls back to in-memory access token");
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) });
+            }));
+            GeminiUsageCollector inFlightLockCollector = new(client, temp.Path, nowProvider: () => now);
+            GeminiUsageDashboard lockedCommit1 = await inFlightLockCollector.CollectDashboardAsync();
+            GeminiUsageDashboard lockedCommit2 = await inFlightLockCollector.CollectDashboardAsync();
+            Check(lockedCommit1.Snapshot.IsAvailable && lockedCommit2.Snapshot.IsAvailable && inFlightLockRefreshes == 1
+                && File.ReadAllText(resetAcpFile) == originalResetAcp,
+                "TxF commit failure caused by an in-flight read lock falls back to in-memory cache while preserving the file");
+        }
+        finally
+        {
+            inFlightReadLock?.Dispose();
+            File.Delete(resetAcpFile);
+        }
+
+        // 2. ResetState never blocks on s_AuthLock and prevents stale in-flight 403s from poisoning post-reset collections.
         string store = BuildStore("ya29.in-flight", now.AddHours(1));
-        TaskCompletionSource enteredHelper = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        TaskCompletionSource releaseHelper = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        using (HttpClient client = new(new Handler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) }))))
+        TaskCompletionSource enteredRefresh = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource releaseRefresh = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using (HttpClient client = new(new Handler(async (request, _) =>
+        {
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                enteredRefresh.TrySetResult();
+                await releaseRefresh.Task;
+                return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{\"error\":\"invalid_grant\"}") };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) };
+        })))
         {
             string expiredStore = BuildStore("ya29.expired-lock", now.AddHours(-1));
             GeminiUsageCollector collector = new(
@@ -516,25 +702,13 @@ internal static class GeminiCredentialTests
                 temp.Path,
                 credentialStoreReader: () => expiredStore,
                 nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: async (_, args, _, _, _) =>
-                {
-                    if (args[0] == "--version")
-                    {
-                        return new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false);
-                    }
-
-                    enteredHelper.TrySetResult();
-                    await releaseHelper.Task;
-                    return new GeminiUsageCollector.AgyCliResult(-1, string.Empty, false, false);
-                });
+                clientDiscoveryPaths: [jsBundlePath]);
 
             Task<GeminiUsageDashboard> blockedRun = collector.CollectDashboardAsync();
-            await enteredHelper.Task;
+            await enteredRefresh.Task;
             Task resetTask = Task.Run(collector.ResetState);
             Check(await Task.WhenAny(resetTask, Task.Delay(500)) == resetTask, "ResetState returns immediately while auth lock is held");
-            releaseHelper.TrySetResult();
+            releaseRefresh.TrySetResult();
             await blockedRun;
         }
 
@@ -571,7 +745,7 @@ internal static class GeminiCredentialTests
             Check(freshRun.Snapshot.IsAvailable && quotaAttempts == 2, "stale 403 before ResetState must not block subsequent automatic refreshes");
         }
 
-        // P1-3: Ancestor directory junction is rejected by IsTrustedLocalExecutable.
+        // 3. Ancestor directory junction is rejected by IsTrustedLocalFile.
         string realRoot = Path.Combine(temp.Path, "real-agy");
         string realBin = Path.Combine(realRoot, "bin");
         Directory.CreateDirectory(realBin);
@@ -587,8 +761,8 @@ internal static class GeminiCredentialTests
             });
             mklink?.WaitForExit(5000);
             Check(Directory.Exists(junctionRoot), "test junction created");
-            Check(GeminiUsageCollector.IsTrustedLocalExecutable(realExe), "normal executable path is trusted");
-            Check(!GeminiUsageCollector.IsTrustedLocalExecutable(Path.Combine(junctionRoot, "bin", "agy.exe")), "grandparent junction is rejected");
+            Check(GeminiUsageCollector.IsTrustedLocalFile(realExe), "normal local file path is trusted");
+            Check(!GeminiUsageCollector.IsTrustedLocalFile(Path.Combine(junctionRoot, "bin", "agy.exe")), "grandparent junction is rejected");
         }
         finally
         {
@@ -598,83 +772,7 @@ internal static class GeminiCredentialTests
             }
         }
 
-        // P2-4a: Transient --version probe failure is not cached as null and recovers after backoff.
-        store = BuildStore("ya29.probe-expired", now.AddHours(-1));
-        int probeCount = 0;
-        using (HttpClient client = new(new Handler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) }))))
-        {
-            GeminiUsageCollector collector = new(
-                client,
-                temp.Path,
-                credentialStoreReader: () => store,
-                nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, args, _, _, _) =>
-                {
-                    if (args[0] == "--version")
-                    {
-                        probeCount++;
-                        return Task.FromResult(probeCount == 1
-                            ? new GeminiUsageCollector.AgyCliResult(1, string.Empty, false, false)
-                            : new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false));
-                    }
-
-                    store = BuildStore("ya29.probe-recovered", now.AddHours(1));
-                    return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, agyUsageJson, false, false));
-                });
-
-            GeminiUsageDashboard fail1 = await collector.CollectDashboardAsync();
-            Check(!fail1.Snapshot.IsAvailable && probeCount == 1, "first version probe failure fails cleanly");
-            now = now.AddMinutes(3);
-            GeminiUsageDashboard ok2 = await collector.CollectDashboardAsync();
-            Check(ok2.Snapshot.IsAvailable && probeCount == 2, "version probe retries after transient backoff instead of caching null");
-        }
-
-        // P2-4b: Temporarily locked local credential file uses transient backoff and recovers once unlocked.
-        string cliPath = Path.Combine(temp.Path, "oauth_creds.json");
-        File.WriteAllText(cliPath, JsonSerializer.Serialize(new
-        {
-            access_token = "ya29.locked-old",
-            refresh_token = "1//locked-refresh",
-            client_id = "fixture-client",
-            client_secret = "fixture-secret",
-            expiry_date = now.AddHours(-1).ToUnixTimeMilliseconds(),
-        }));
-        using (HttpClient client = new(new Handler((request, _) =>
-        {
-            if (request.RequestUri!.Host == "oauth2.googleapis.com")
-            {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{\"access_token\":\"ya29.unlocked-new\",\"expires_in\":3600}"),
-                });
-            }
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) });
-        })))
-        {
-            GeminiUsageCollector collector = new(client, temp.Path, nowProvider: () => now);
-            using (FileStream hold = new(cliPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-            {
-                GeminiUsageDashboard lockedResult = await collector.CollectDashboardAsync();
-                Check(!lockedResult.Snapshot.IsAvailable && lockedResult.FailureKind == GeminiUsageFailureKind.OwnerRefreshRequired,
-                    "locked file reports writeback failure");
-            }
-
-            now = now.AddMinutes(3);
-            GeminiUsageDashboard unlockedResult = await collector.CollectDashboardAsync();
-            Check(unlockedResult.Snapshot.IsAvailable, "unlocked file recovers automatically after transient backoff");
-        }
-        File.Delete(cliPath);
-
-        // P2-5: Real process helper captures stdout cleanly and aborts/cleans up on timeout.
-        string cmdPath = Path.Combine(Environment.SystemDirectory, "cmd.exe");
-        GeminiUsageCollector.AgyCliResult echoResult = await GeminiUsageCollector.ExecuteAgyProcessAsync(cmdPath, ["/c", "echo 1.5.12"], TimeSpan.FromSeconds(5), 1024, default);
-        Check(echoResult.ExitCode == 0 && !echoResult.TimedOut && echoResult.StdOut.Contains("1.5.12", StringComparison.Ordinal), "real process stdout read succeeds");
-        GeminiUsageCollector.AgyCliResult slowResult = await GeminiUsageCollector.ExecuteAgyProcessAsync(cmdPath, ["/c", "ping -n 10 127.0.0.1 >nul"], TimeSpan.FromMilliseconds(200), 1024, default);
-        Check(slowResult.TimedOut, "real process timeout kills process tree and cleans up streams");
-
-        // P2-6: Retry-After from primary host 429 is preserved when fallback host returns 503.
+        // 4. Retry-After from primary host 429 is preserved when fallback host returns 503.
         store = BuildStore("ya29.rate-limited", now.AddHours(1));
         int rateLimitRequests = 0;
         using (HttpClient client = new(new Handler((request, _) =>
@@ -699,7 +797,7 @@ internal static class GeminiCredentialTests
                 "primary 429 Retry-After survives fallback 503 and suppresses requests for 1 hour");
         }
 
-        // P2-7: Manual refresh on another page must not bypass Gemini backoff.
+        // 5. Manual refresh on another page must not bypass Gemini backoff.
         RefreshRequests requests = new();
         requests.Add(PageItem.All, manual: false);
         requests.Add(PageItem.Apis, "card-1", manual: true);
@@ -707,79 +805,75 @@ internal static class GeminiCredentialTests
         Check((batch.ManualPages & PageItem.Apis) != 0 && (batch.ManualPages & PageItem.Gemini) == 0,
             "manual refresh flag is tracked per page");
 
-        // Additional gate & 403 coverage: auth_method mismatch, logout during helper, and 403 with agy helper enabled.
-        store = BuildStore("ya29.api-key", now.AddHours(-1), authMethod: "api_key");
-        int apiKeyHelperCalls = 0;
-        using (HttpClient client = new(new Handler((_, _) => new TaskCompletionSource<HttpResponseMessage>().Task)))
-        {
-            GeminiUsageCollector collector = new(
-                client,
-                temp.Path,
-                credentialStoreReader: () => store,
-                nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, _, _, _, _) => { apiKeyHelperCalls++; return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false)); });
-            GeminiUsageDashboard blocked = await collector.CollectDashboardAsync();
-            Check(!blocked.Snapshot.IsAvailable && apiKeyHelperCalls == 0, "non-consumer auth_method blocks agy helper");
-        }
-
-        string? logoutStore = BuildStore("ya29.logout-before", now.AddHours(-1));
-        using (HttpClient client = new(new Handler((_, _) => new TaskCompletionSource<HttpResponseMessage>().Task)))
-        {
-            GeminiUsageCollector collector = new(
-                client,
-                temp.Path,
-                credentialStoreReader: () => logoutStore,
-                nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, args, _, _, _) =>
-                {
-                    if (args[0] == "--version")
-                    {
-                        return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false));
-                    }
-                    logoutStore = null;
-                    return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, agyUsageJson, false, false));
-                });
-            GeminiUsageDashboard loggedOut = await collector.CollectDashboardAsync();
-            Check(!loggedOut.Snapshot.IsAvailable && loggedOut.FailureKind == GeminiUsageFailureKind.CredentialChanged,
-                "logout during agy helper discards output as CredentialChanged");
-        }
-
+        // 6. 403 triggers at most one silent refresh, then maps to AccessDenied and waits for credential change; 401 on cached token evicts cache and recovers once.
         store = BuildStore("ya29.403-v1", now.AddHours(1));
-        int forbiddenHelperCalls = 0;
-        using (HttpClient client = new(new Handler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden)))))
+        int forbiddenRefreshCalls = 0;
+        using (HttpClient client = new(new Handler((request, _) =>
+        {
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                forbiddenRefreshCalls++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"access_token\":\"ya29.403-v2\",\"expires_in\":3600}"),
+                });
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+        })))
         {
             GeminiUsageCollector collector = new(
                 client,
                 temp.Path,
                 credentialStoreReader: () => store,
                 nowProvider: () => now,
-                allowAgyHelper: true,
-                agyExecutablePath: @"C:\fake\agy.exe",
-                agyCliRunner: (_, args, _, _, _) =>
-                {
-                    if (args[0] == "--version")
-                    {
-                        return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, "1.5.12", false, false));
-                    }
-                    forbiddenHelperCalls++;
-                    store = BuildStore("ya29.403-v2", now.AddHours(1));
-                    return Task.FromResult(new GeminiUsageCollector.AgyCliResult(0, agyUsageJson, false, false));
-                });
+                clientDiscoveryPaths: [jsBundlePath]);
 
             GeminiUsageDashboard afterRefresh403 = await collector.CollectDashboardAsync();
-            Check(!afterRefresh403.Snapshot.IsAvailable && afterRefresh403.FailureKind == GeminiUsageFailureKind.AccessDenied && forbiddenHelperCalls == 1,
-                "403 after agy refresh maps to AccessDenied after one attempt");
+            Check(!afterRefresh403.Snapshot.IsAvailable && afterRefresh403.FailureKind == GeminiUsageFailureKind.AccessDenied && forbiddenRefreshCalls == 1,
+                "403 after silent refresh maps to AccessDenied after one attempt");
             now = now.AddMinutes(5);
             GeminiUsageDashboard suppressed = await collector.CollectDashboardAsync();
-            Check(!suppressed.Snapshot.IsAvailable && forbiddenHelperCalls == 1,
-                "new token version that still returns 403 waits for credential change");
+            Check(!suppressed.Snapshot.IsAvailable && forbiddenRefreshCalls == 1,
+                "token version that still returns 403 waits for credential change");
         }
 
-        // P2-8: AutomationProperties.HelpText is exposed on the TextBlock automation peer.
+        store = BuildStore("ya29.stale-cached-source", now.AddHours(-1));
+        int cachedRecoveryRefreshes = 0;
+        bool rejectCachedToken = false;
+        using (HttpClient client = new(new Handler((request, _) =>
+        {
+            if (request.RequestUri!.Host == "oauth2.googleapis.com")
+            {
+                int call = ++cachedRecoveryRefreshes;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($"{{\"access_token\":\"ya29.cached-{call}\",\"expires_in\":3600}}"),
+                });
+            }
+
+            if (rejectCachedToken && request.Headers.Authorization?.Parameter == "ya29.cached-1")
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(quotaJson) });
+        })))
+        {
+            GeminiUsageCollector collector = new(
+                client,
+                temp.Path,
+                credentialStoreReader: () => store,
+                nowProvider: () => now,
+                clientDiscoveryPaths: [jsBundlePath]);
+            GeminiUsageDashboard initialOk = await collector.CollectDashboardAsync();
+            Check(initialOk.Snapshot.IsAvailable && cachedRecoveryRefreshes == 1, "initial expired store populates in-memory token cache");
+            rejectCachedToken = true;
+            now = now.AddMinutes(5);
+            GeminiUsageDashboard recoveredFrom401 = await collector.CollectDashboardAsync();
+            Check(recoveredFrom401.Snapshot.IsAvailable && cachedRecoveryRefreshes == 2, "401 on cached token evicts cache and refreshes once");
+        }
+
+        // 7. AutomationProperties.HelpText is exposed on the TextBlock automation peer.
         Exception? staError = null;
         Thread sta = new(() =>
         {
@@ -829,6 +923,11 @@ internal static class GeminiCredentialTests
             throw staError;
         }
     }
+
+    // Only scanner fixtures need Google-shaped values. Build them from zero and repeated markers, never from a registered client.
+    private static string ScannerFixtureClientId(char marker) => $"000000-{new string(marker, 32)}.apps.googleusercontent.com";
+
+    private static string ScannerFixtureClientSecret(char marker) => $"GOCSPX-{new string(marker, 28)}";
 
     private static byte[] Field(int number, byte[] payload)
     {

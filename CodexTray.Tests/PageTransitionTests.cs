@@ -28,13 +28,15 @@ internal static class PageTransitionTests
                 bool animationsEnabled = SystemParameters.ClientAreaAnimation && Wpf.Ui.Hardware.HardwareAcceleration.IsSupported(Wpf.Ui.Hardware.RenderingTier.PartialAcceleration);
                 CheckQuotaTransitions(window, viewModel, animationsEnabled);
                 CheckChartAnimations(window, viewModel, animationsEnabled);
-                foreach (string source in new[] { "Codex", "Grok", "Gemini" })
+                foreach (string source in new[] { "Codex", "Grok", "Gemini", "OpenCode" })
                 {
-                    SessionLogListViewModel logs = source == "Codex"
-                        ? viewModel.CodexSessionLogs
-                        : source == "Grok"
-                            ? viewModel.GrokSessionLogs
-                            : viewModel.GeminiSessionLogs;
+                    SessionLogListViewModel logs = source switch
+                    {
+                        "Codex" => viewModel.CodexSessionLogs,
+                        "Grok" => viewModel.GrokSessionLogs,
+                        "Gemini" => viewModel.GeminiSessionLogs,
+                        _ => viewModel.OpenCodeSessionLogs,
+                    };
                     Grid page = (Grid)window.FindName(source + "PageGrid");
                     UIElement[] regions = [
                         (UIElement)window.FindName(source + "SessionLogContent"),
@@ -62,9 +64,13 @@ internal static class PageTransitionTests
                             {
                                 viewModel.ShowGrok();
                             }
-                            else
+                            else if (source == "Gemini")
                             {
                                 viewModel.ShowGemini();
+                            }
+                            else
+                            {
+                                viewModel.ShowOpenCode();
                             }
                         }
                         Pump();
@@ -107,6 +113,7 @@ internal static class PageTransitionTests
                     viewModel.ShowCodex();
                     viewModel.ShowGrok();
                     viewModel.ShowGemini();
+                    viewModel.ShowOpenCode();
                     viewModel.ShowApi();
                     viewModel.ShowSettings();
                     viewModel.ShowAbout();
@@ -131,7 +138,7 @@ internal static class PageTransitionTests
                 window.Close();
                 Pump(250);
                 Check(viewport.Children.OfType<UIElement>().All(IsIdle), "closing must clear main-page animations");
-                Check(new[] { "Codex", "Grok", "Gemini" }.SelectMany(source => new[] { "SessionLogContent", "TokenCostDashboard", "QuotaScrollViewer" }
+                Check(new[] { "Codex", "Grok", "Gemini", "OpenCode" }.SelectMany(source => new[] { "SessionLogContent", "TokenCostDashboard", "QuotaScrollViewer" }
                     .Select(suffix => (UIElement)window.FindName(source + suffix))).All(IsIdle), "closing must clear session slides and fades");
             }
             catch (Exception exception)
@@ -158,46 +165,53 @@ internal static class PageTransitionTests
 
     private static void CheckQuotaTransitions(TrayPopupWindow window, TrayPopupViewModel viewModel, bool animationsEnabled)
     {
-        viewModel.ShowGemini();
-        Pump(250);
-        foreach (string cardName in new[] { "GeminiPrimaryCard", "GeminiPartnerCard" })
+        foreach ((Action showPage, string[] cardNames) in new (Action, string[])[]
         {
-            Border card = (Border)window.FindName(cardName);
-            var pager = (TrayPopupViewModel.QuotaPagerViewModel)card.DataContext;
-            pager.FirstQuota.UpdateUsedPercent(25, "fixture");
-            pager.SecondQuota.UpdateUsedPercent(50, "fixture");
-            pager.ThirdQuota?.UpdateUsedPercent(75, "fixture");
-            Grid content = (Grid)Descendants(card).OfType<ContentControl>().Single(control => control.Name == "FirstQuotaContent").Parent;
-            StackPanel indicators = Descendants(card).OfType<StackPanel>().Single(panel => panel.Name == "PageIndicators");
-            var lastQuota = pager.ThirdQuota ?? pager.SecondQuota;
-            pager.SelectQuotaCommand.Execute(lastQuota);
-            Pump();
-            Check(IsIdle(indicators) && IsIdle(card), "quota transitions must keep the card and page indicators fixed");
-            Check(animationsEnabled ? IsFading(content) && content.RenderTransform is TranslateTransform { X: > 0, Y: 0 } : IsIdle(content), "selecting a later quota must slide in from the right when enabled");
-            pager.SelectAdjacent(1);
-            Pump();
-            Check(pager.IsFirstSelected && (!animationsEnabled || content.RenderTransform is TranslateTransform { X: > 0, Y: 0 }), "wrapping forward must still slide in from the right");
-            pager.SelectAdjacent(-1);
-            Pump();
-            Check(!animationsEnabled || content.RenderTransform is TranslateTransform { X: < 0, Y: 0 }, "reversing mid-slide must start a slide from the left");
+            (viewModel.ShowGemini, ["GeminiPrimaryCard", "GeminiPartnerCard"]),
+            (viewModel.ShowOpenCode, ["OpenCodePrimaryCard"]),
+        })
+        {
+            showPage();
             Pump(250);
-            pager.SelectQuotaCommand.Execute(lastQuota);
-            lastQuota.UpdateUsedPercent(10, "updated");
-            pager.EnsureValidSelection();
-            Pump();
-            Check(IsIdle(content), "reselecting or refreshing the current quota must not replay its transition");
-            pager.SelectQuotaCommand.Execute(pager.FirstQuota);
-            window.Hide();
-            Pump();
-            window.ShowNearTray(null);
-            Pump();
-            Check(IsIdle(content), "hiding mid-slide must release the quota clocks without replay on show");
+            foreach (string cardName in cardNames)
+            {
+                Border card = (Border)window.FindName(cardName);
+                var pager = (TrayPopupViewModel.QuotaPagerViewModel)card.DataContext;
+                pager.FirstQuota.UpdateUsedPercent(25, "fixture");
+                pager.SecondQuota.UpdateUsedPercent(50, "fixture");
+                pager.ThirdQuota?.UpdateUsedPercent(75, "fixture");
+                Grid content = (Grid)Descendants(card).OfType<ContentControl>().Single(control => control.Name == "FirstQuotaContent").Parent;
+                StackPanel indicators = Descendants(card).OfType<StackPanel>().Single(panel => panel.Name == "PageIndicators");
+                var lastQuota = pager.ThirdQuota ?? pager.SecondQuota;
+                pager.SelectQuotaCommand.Execute(lastQuota);
+                Pump();
+                Check(IsIdle(indicators) && IsIdle(card), "quota transitions must keep the card and page indicators fixed");
+                Check(animationsEnabled ? IsFading(content) && content.RenderTransform is TranslateTransform { X: > 0, Y: 0 } : IsIdle(content), "selecting a later quota must slide in from the right when enabled");
+                pager.SelectAdjacent(1);
+                Pump();
+                Check(pager.IsFirstSelected && (!animationsEnabled || content.RenderTransform is TranslateTransform { X: > 0, Y: 0 }), "wrapping forward must still slide in from the right");
+                pager.SelectAdjacent(-1);
+                Pump();
+                Check(!animationsEnabled || content.RenderTransform is TranslateTransform { X: < 0, Y: 0 }, "reversing mid-slide must start a slide from the left");
+                Pump(250);
+                pager.SelectQuotaCommand.Execute(lastQuota);
+                lastQuota.UpdateUsedPercent(10, "updated");
+                pager.EnsureValidSelection();
+                Pump();
+                Check(IsIdle(content), "reselecting or refreshing the current quota must not replay its transition");
+                pager.SelectQuotaCommand.Execute(pager.FirstQuota);
+                window.Hide();
+                Pump();
+                window.ShowNearTray(null);
+                Pump();
+                Check(IsIdle(content), "hiding mid-slide must release the quota clocks without replay on show");
+            }
         }
     }
 
     private static void CheckChartAnimations(TrayPopupWindow window, TrayPopupViewModel viewModel, bool animationsEnabled)
     {
-        foreach (string source in new[] { "Codex", "Grok", "Gemini" })
+        foreach (string source in new[] { "Codex", "Grok", "Gemini", "OpenCode" })
         {
             if (source == "Codex")
             {
@@ -207,16 +221,22 @@ internal static class PageTransitionTests
             {
                 viewModel.ShowGrok();
             }
-            else
+            else if (source == "Gemini")
             {
                 viewModel.ShowGemini();
             }
+            else
+            {
+                viewModel.ShowOpenCode();
+            }
             Pump(250);
-            TrayPopupViewModel.TokenCostDashboardViewModel dashboard = source == "Codex"
-                ? viewModel.CodexTokenCost
-                : source == "Grok"
-                    ? viewModel.GrokTokenCost
-                    : viewModel.GeminiTokenCost;
+            TrayPopupViewModel.TokenCostDashboardViewModel dashboard = source switch
+            {
+                "Codex" => viewModel.CodexTokenCost,
+                "Grok" => viewModel.GrokTokenCost,
+                "Gemini" => viewModel.GeminiTokenCost,
+                _ => viewModel.OpenCodeTokenCost,
+            };
             ContentControl region = (ContentControl)window.FindName(source + "TokenCostDashboard");
             ItemsControl donut = Descendants(region).OfType<ItemsControl>().Single(item => item.Name == "TokenCostDonutItemsControl");
             ItemsControl bars = Descendants(region).OfType<ItemsControl>().Single(item => item.Name == "TokenCostChartItemsControl");

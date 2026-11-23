@@ -2,9 +2,9 @@
   "id": "CodexTray",
   "meta": {
     "name": "CodexTray",
-    "version": "6.4.1",
+    "version": "6.5.0",
     "author": "SnowyLake",
-    "description": "显示 Codex, Grok 的剩余额度百分比和 DeepSeek 余额"
+    "description": "显示 Codex, Grok, Gemini 和 OpenCode 的剩余额度百分比"
   },
   "inputs": [
     {
@@ -26,12 +26,14 @@
         "method": "GET",
         "response_format": "json",
         "extract": {
-          "codex_display": "display.weekly",
+          "codex_display": "display.codex_weekly",
           "grok_display": "display.grok_weekly",
-          "deepseek_display": "display.deepseek",
-          "codex_remaining": "limits.weekly.remaining_percent",
+          "gemini_display": "display.gemini_session",
+          "opencode_display": "display.opencode_session",
+          "codex_remaining": "limits.codex_weekly.remaining_percent",
           "grok_remaining": "limits.grok_weekly.remaining_percent",
-          "deepseek_remaining": "limits.deepseek.remaining_percent"
+          "gemini_remaining": "limits.gemini_session.remaining_percent",
+          "opencode_remaining": "limits.opencode_session.remaining_percent"
         },
         "process": [
           {
@@ -55,8 +57,18 @@
             }
           },
           {
-            "var": "deepseek_color",
-            "source": "deepseek_remaining",
+            "var": "gemini_color",
+            "source": "gemini_remaining",
+            "function": "threshold_switch",
+            "value_map": {
+              "0": "2",
+              "20": "1",
+              "50": "0"
+            }
+          },
+          {
+            "var": "opencode_color",
+            "source": "opencode_remaining",
             "function": "threshold_switch",
             "value_map": {
               "0": "2",
@@ -86,12 +98,20 @@
       "color": "{{grok_color}}"
     },
     {
-      "key": "deepseek",
-      "label": "DeepSeek",
-      "short_label": "DeepSeek",
-      "format_val": "{{deepseek_display}}",
+      "key": "gemini",
+      "label": "Gemini",
+      "short_label": "Gemini",
+      "format_val": "{{gemini_display}}",
       "unit": "",
-      "color": "{{deepseek_color}}"
+      "color": "{{gemini_color}}"
+    },
+    {
+      "key": "opencode",
+      "label": "OpenCode",
+      "short_label": "OpenCode",
+      "format_val": "{{opencode_display}}",
+      "unit": "",
+      "color": "{{opencode_color}}"
     }
   ]
 }
