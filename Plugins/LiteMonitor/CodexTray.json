@@ -2,7 +2,7 @@
   "id": "CodexTray",
   "meta": {
     "name": "CodexTray",
-    "version": "6.4.1",
+    "version": "6.5.0",
     "author": "SnowyLake",
     "description": "显示 Codex, Grok, Gemini 和 OpenCode 的剩余额度百分比"
   },

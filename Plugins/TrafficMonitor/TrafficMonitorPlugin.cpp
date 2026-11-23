@@ -900,7 +900,7 @@ public:
         case TMI_COPYRIGHT:
             return L"MIT";
         case TMI_VERSION:
-            return L"6.4.1";
+            return L"6.5.0";
         case TMI_URL:
             return L"";
         default:
