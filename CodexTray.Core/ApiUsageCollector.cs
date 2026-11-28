@@ -183,15 +183,22 @@ public sealed class ApiUsageCollector
     }
 
     /// <summary>
-    /// Queries OpenAI organization costs for the current UTC month.
+    /// Queries OpenAI organization costs since the most recent monthly reset at UTC midnight.
     /// </summary>
     private async Task<ApiUsageResult> CollectOpenAiAsync(ApiMonitorSettings monitor, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        DateTimeOffset utcNow = m_Clock().ToUniversalTime();
-        long monthStart = new DateTimeOffset(utcNow.Year, utcNow.Month, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
-        long todayStart = new DateTimeOffset(utcNow.Year, utcNow.Month, utcNow.Day, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
-        long rangeEnd = todayStart + 86_400;
-        int limit = utcNow.Day;
+        DateTimeOffset today = m_Clock().UtcDateTime.Date;
+        int resetDay = monitor.EffectiveUsageResetDay;
+        DateTimeOffset ResetInMonth(DateTimeOffset month) => new(month.Year, month.Month, Math.Min(resetDay, DateTime.DaysInMonth(month.Year, month.Month)), 0, 0, 0, TimeSpan.Zero);
+
+        DateTimeOffset cycleStart = ResetInMonth(today);
+        if (today < cycleStart)
+        {
+            cycleStart = ResetInMonth(today.AddMonths(-1));
+        }
+        long monthStart = cycleStart.ToUnixTimeSeconds();
+        long rangeEnd = today.AddDays(1).ToUnixTimeSeconds();
+        int limit = (today - cycleStart).Days + 1;
         if (!TryBuildUri(monitor.BaseUrl, "/v1/organization/costs", out Uri? uri))
         {
             return Unavailable(monitor.Id, ApiMonitorSettings.BaseUrlRequirement, now);

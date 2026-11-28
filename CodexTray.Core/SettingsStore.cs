@@ -46,10 +46,17 @@ public sealed class ApiMonitorSettings
     public string UserId { get; set; } = string.Empty;
 
     /// <summary>
-    /// User-entered USD amount for the current month. Null means the OpenAI card shows usage only.
+    /// User-entered USD amount for each usage cycle. Null means the OpenAI card shows usage only.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public decimal? MonthlyStartingCredit { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? UsageResetDay { get; set; }
+
+    internal int EffectiveUsageResetDay => Math.Clamp(UsageResetDay ?? 1, 1, 31);
+
+    public ApiMonitorSettings Copy() => (ApiMonitorSettings)MemberwiseClone();
 
     public static bool TryParseBaseUrl(string? value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Uri? uri)
     {
@@ -89,6 +96,7 @@ public sealed class ApiMonitorSettings
             _ => DeepSeekProvider,
         };
         Name = string.IsNullOrWhiteSpace(Name) ? Provider : Name.Trim();
+        UsageResetDay = Provider == OpenAiProvider ? EffectiveUsageResetDay : null;
 
         if (Provider == CursorProvider)
         {
@@ -157,16 +165,7 @@ public sealed class AppSettings
     public AppSettings Copy()
     {
         AppSettings copy = (AppSettings)MemberwiseClone();
-        copy.ApiMonitors = ApiMonitors.Select(monitor => new ApiMonitorSettings
-        {
-            Id = monitor.Id,
-            Name = monitor.Name,
-            Provider = monitor.Provider,
-            BaseUrl = monitor.BaseUrl,
-            ApiKey = monitor.ApiKey,
-            UserId = monitor.UserId,
-            MonthlyStartingCredit = monitor.MonthlyStartingCredit,
-        }).ToList();
+        copy.ApiMonitors = ApiMonitors.Select(monitor => monitor.Copy()).ToList();
         return copy;
     }
 

@@ -2129,6 +2129,7 @@ internal static class Program
                     Name = "Personal DeepSeek",
                     ApiKey = "deepseek-secret-token",
                     MonthlyStartingCredit = 9m,
+                    UsageResetDay = 20,
                 },
                 new ApiMonitorSettings
                 {
@@ -2149,6 +2150,7 @@ internal static class Program
                     BaseUrl = "https://api.openai.example/",
                     ApiKey = "sk-admin-test",
                     MonthlyStartingCredit = 25.5m,
+                    UsageResetDay = 15,
                 },
                 new ApiMonitorSettings
                 {
@@ -2190,6 +2192,8 @@ internal static class Program
         AssertEqual("https://api.openai.example", openAi.BaseUrl, "saved OpenAI base URL");
         AssertEqual("sk-admin-test", openAi.ApiKey, "saved OpenAI admin key");
         AssertEqual(25.5m, openAi.MonthlyStartingCredit, "saved OpenAI monthly starting credit");
+        AssertEqual(15, openAi.UsageResetDay, "saved OpenAI reset day");
+        AssertEqual(null, deepSeek.UsageResetDay, "other providers drop the reset day");
         AssertEqual(null, deepSeek.MonthlyStartingCredit, "non-OpenAI cards do not keep a starting credit");
         AssertTrue(!json.Contains("\"MonthlyStartingCredit\": 9", StringComparison.Ordinal), "settings should drop a starting credit from non-OpenAI cards");
         AssertEqual("https://openrouter.example", openRouter.BaseUrl, "saved OpenRouter base URL");
@@ -2214,6 +2218,7 @@ internal static class Program
         AppSettings legacy = store.Load();
         ApiMonitorSettings legacyOpenAi = legacy.ApiMonitors.Single();
         AssertEqual(null, legacyOpenAi.MonthlyStartingCredit, "OpenAI card without a starting credit stays unset");
+        AssertEqual(1, legacyOpenAi.UsageResetDay, "existing OpenAI cards default to the first day of the month");
         AssertEqual("sk-admin-legacy", legacyOpenAi.ApiKey, "legacy OpenAI card still loads");
         return Task.CompletedTask;
     }
@@ -2325,6 +2330,23 @@ internal static class Program
         AssertEqual("$95.50", results[8].BalanceDisplay, "Vercel remaining credits");
         AssertEqual("$4.50", results[8].UsedDisplay, "Vercel used credits");
         AssertEqual("$95.50", results[9].BalanceDisplay, "Vercel root base URL credits");
+        foreach ((string instant, int resetDay, string start) in new[]
+        {
+            ("2027-01-15T07:59:59+08:00", 15, "2026-12-15T00:00:00Z"),
+            ("2027-01-15T08:00:00+08:00", 15, "2027-01-15T00:00:00Z"),
+            ("2027-02-28T00:00:00Z", 31, "2027-02-28T00:00:00Z"),
+            ("2028-03-30T23:59:59Z", 31, "2028-02-29T00:00:00Z"),
+            ("2028-03-30T20:00:00-04:00", 31, "2028-03-31T00:00:00Z"),
+        })
+        {
+            DateTimeOffset now = DateTimeOffset.Parse(instant, CultureInfo.InvariantCulture);
+            DateTimeOffset expectedStart = DateTimeOffset.Parse(start, CultureInfo.InvariantCulture);
+            using HttpClient cycleClient = new(new ApiUsageHttpMessageHandler(expectedStart, now));
+            openAiCredit.UsageResetDay = resetDay;
+            ApiUsageResult cycle = (await new ApiUsageCollector(cycleClient, () => now).CollectAsync([openAiCredit])).Single();
+            AssertEqual("$3.35", cycle.UsedDisplay, $"UTC cycle usage since {start} at {instant}");
+            AssertEqual("$6.65", cycle.BalanceDisplay, "starting credit covers the same cycle as Used");
+        }
         CultureInfo previousCulture = CultureInfo.CurrentCulture;
         try
         {
@@ -3916,6 +3938,12 @@ internal static class Program
         AssertEqual("Waiting for refresh", viewModel.StatusText, "provider switch should clear status");
         AssertEqual("Used:", viewModel.PrimaryDisplayLabel, "OpenAI primary display label");
         AssertEqual("Admin API key", viewModel.CredentialLabel, "OpenAI credential label");
+        viewModel.ToggleEditingCommand.Execute(null);
+        viewModel.UsageResetDayText = "32";
+        AssertTrue(!viewModel.ToggleEditingCommand.CanExecute(null), "invalid reset day prevents saving");
+        viewModel.UsageResetDayText = "15";
+        viewModel.ToggleEditingCommand.Execute(null);
+        AssertTrue(!viewModel.IsEditing && viewModel.ToSettings().UsageResetDay == 15, "saving applies the card's reset day");
         AssertTrue(viewModel.IsOpenAi && !viewModel.HasSecondaryDisplay, "OpenAI shows monthly usage only");
         viewModel.Update(new ApiUsageResult(
             viewModel.Id,
@@ -3960,6 +3988,11 @@ internal static class Program
         viewModel.MonthlyStartingCredit = "";
         viewModel.Provider = ApiMonitorSettings.VercelProvider;
         AssertEqual("https://ai-gateway.vercel.sh", viewModel.BaseUrl, "Vercel default base URL");
+        viewModel.ToggleEditingCommand.Execute(null);
+        viewModel.ToggleEditingCommand.Execute(null);
+        viewModel.Provider = ApiMonitorSettings.OpenAiProvider;
+        AssertEqual("1", viewModel.UsageResetDayText, "returning to OpenAI after saving another provider starts with the default day");
+        viewModel.Provider = ApiMonitorSettings.VercelProvider;
         AssertTrue(!viewModel.HasSecondaryDisplay, "Vercel waiting secondary display");
         viewModel.Update(new ApiUsageResult(viewModel.Id, true, "$95.50", "$4.50", string.Empty, DateTimeOffset.UtcNow));
         AssertTrue(viewModel.HasSecondaryDisplay, "Vercel secondary display");
@@ -6049,7 +6082,7 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
     }
 }
 
-internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
+internal sealed class ApiUsageHttpMessageHandler(DateTimeOffset? expectedStart = null, DateTimeOffset? expectedNow = null) : HttpMessageHandler
 {
     /// <summary>
     /// Fixed UTC instant used by the OpenAI costs fixture.
@@ -6111,19 +6144,20 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
     }
 
     /// <summary>
-    /// Returns two OpenAI cost pages and checks the UTC month query.
+    /// Returns two OpenAI cost pages and checks the expected UTC cycle bounds.
     /// </summary>
     private string OpenAiCostsBody(HttpRequestMessage request, string token)
     {
         AssertBearerRequest(request, HttpMethod.Get, "/v1/organization/costs", token);
         Dictionary<string, string> query = ParseQuery(request.RequestUri ?? throw new InvalidOperationException("missing OpenAI costs URI"));
-        long monthStart = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
-        long todayStart = new DateTimeOffset(2026, 11, 15, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
-        long rangeEnd = new DateTimeOffset(2026, 11, 16, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        long monthStart = (expectedStart ?? new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero)).ToUnixTimeSeconds();
+        DateTimeOffset utcToday = (expectedNow ?? OpenAiNow).UtcDateTime.Date;
+        long todayStart = utcToday.ToUnixTimeSeconds();
+        long rangeEnd = utcToday.AddDays(1).ToUnixTimeSeconds();
         if (query.GetValueOrDefault("start_time") != monthStart.ToString(CultureInfo.InvariantCulture) ||
             query.GetValueOrDefault("end_time") != rangeEnd.ToString(CultureInfo.InvariantCulture) ||
             query.GetValueOrDefault("bucket_width") != "1d" ||
-            query.GetValueOrDefault("limit") != "15" ||
+            query.GetValueOrDefault("limit") != ((rangeEnd - monthStart) / 86_400).ToString(CultureInfo.InvariantCulture) ||
             query.ContainsKey("group_by"))
         {
             throw new InvalidOperationException($"unexpected OpenAI costs query: {request.RequestUri}");
@@ -6140,7 +6174,7 @@ internal sealed class ApiUsageHttpMessageHandler : HttpMessageHandler
 
         if (query.GetValueOrDefault("page") == "cost-page-2")
         {
-            long earlier = monthStart + (9 * 86_400);
+            long earlier = Math.Min(todayStart, monthStart + (9 * 86_400));
             return "{\"object\":\"page\",\"has_more\":false,\"next_page\":null,\"data\":[" +
                 "{\"start_time\":0,\"results\":[{\"amount\":{\"value\":99,\"currency\":\"usd\"}}]}," +
                 "{\"start_time\":" + earlier.ToString(CultureInfo.InvariantCulture) + ",\"results\":[{\"amount\":{\"value\":2.00,\"currency\":\"usd\"}}]}," +
