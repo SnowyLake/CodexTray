@@ -925,7 +925,7 @@ internal sealed class TrayController : IDisposable
 
             if ((visiblePages & PageItem.Apis) != 0)
             {
-                ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Where(card => request.AllApiCards || request.ApiIds.Contains(card.Id)).Select(CloneApiMonitor).ToArray();
+                ApiMonitorSettings[] apiMonitors = m_Settings.ApiMonitors.Where(card => request.AllApiCards || request.ApiIds.Contains(card.Id)).Select(card => card.Copy()).ToArray();
                 children.Add(PublishAsync(PageItem.Apis, m_ApiUsageCollector.CollectAsync(apiMonitors, cancellationToken), results => PublishApiResults(apiMonitors, results),
                     failure: _ => PublishApiResults(apiMonitors, apiMonitors.Select(card =>
                         new ApiUsageResult(card.Id, false, "N/A", "N/A", "Collection failed; retry this card", DateTimeOffset.Now, Provider: card.Provider)).ToArray())));
@@ -1090,23 +1090,6 @@ internal sealed class TrayController : IDisposable
         {
             return (null, exception is UnauthorizedAccessException ? "Local session or pricing file access denied" : "Local session or pricing data could not be read");
         }
-    }
-
-    /// <summary>
-    /// Copies an API monitor before an asynchronous refresh.
-    /// </summary>
-    private static ApiMonitorSettings CloneApiMonitor(ApiMonitorSettings monitor)
-    {
-        return new ApiMonitorSettings
-        {
-            Id = monitor.Id,
-            Name = monitor.Name,
-            Provider = monitor.Provider,
-            BaseUrl = monitor.BaseUrl,
-            ApiKey = monitor.ApiKey,
-            UserId = monitor.UserId,
-            MonthlyStartingCredit = monitor.MonthlyStartingCredit,
-        };
     }
 
     /// <summary>

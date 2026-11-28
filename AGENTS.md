@@ -95,7 +95,7 @@
   - Claude 仅维护 4.6 及之后版本, Gemini 仅维护 3.1 Pro 及之后版本; 旧版本不映射到新模型价格, 保留历史 token 并标记未定价.
   - 本地记录中的 `codex-auto-review` 排除出统计, 占比, Session Logs 与价格表; 跳过 Codex 事件时仍须推进累计水位, 避免后续增量吞入该段用量.
   - Codex 分叉会话在父会话尚未写到分叉截止点前整段跳过, 避免把回放前缀重复计费.
-  - OpenAI API 卡片翻页超过上限仍未读完时视为失败, 不把部分合计展示为完整当月用量; `MonthlyStartingCredit` 仅属 OpenAI, 非 OpenAI 卡片规范化时丢弃.
+  - OpenAI API 卡片翻页超过上限仍未读完时视为失败, 不把部分合计展示为完整周期用量. 每月重置日与起始额度仅属 OpenAI, 非 OpenAI 卡片规范化时丢弃.
 - **设置损坏保护**: `SettingsStore.LoadError` 非空时禁止一切持久化与自动插件路径写入, 保留原文件不覆盖; 恢复备份前须校验备份有效并先另存当前损坏文件.
 
 ### WPF UI 与渲染陷阱

@@ -92,6 +92,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             OnPropertyChanged(nameof(SecondaryDisplayLabel));
             OnPropertyChanged(nameof(CredentialLabel));
             OnPropertyChanged(nameof(DisplayName));
+            ToggleEditingCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -125,6 +126,12 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasSecondaryDisplay))]
     [NotifyPropertyChangedFor(nameof(PrimaryDisplayLabel))]
     public partial string MonthlyStartingCredit { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ToggleEditingCommand))]
+    public partial string UsageResetDayText { get; set; }
+
+    private int? ParsedUsageResetDay => int.TryParse(UsageResetDayText, out int day) && day is >= 1 and <= 31 ? day : null;
 
     public bool IsNewApi => m_Provider == ApiMonitorSettings.NewApiProvider;
 
@@ -175,6 +182,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
         BaseUrl = settings.BaseUrl;
         ApiKey = settings.ApiKey;
         UserId = settings.UserId;
+        UsageResetDayText = (settings.UsageResetDay ?? 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
         MonthlyStartingCredit = settings.MonthlyStartingCredit is decimal credit
             ? credit.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
             : string.Empty;
@@ -195,6 +203,7 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             BaseUrl = BaseUrl,
             ApiKey = ApiKey,
             UserId = UserId,
+            UsageResetDay = ParsedUsageResetDay,
             MonthlyStartingCredit = ApiMonitorSettings.ParseMonthlyStartingCredit(MonthlyStartingCredit),
         }.Normalize();
     }
@@ -262,10 +271,14 @@ internal sealed partial class ApiMonitorViewModel : ObservableObject
             return;
         }
 
+        if (!IsOpenAi)
+        {
+            UsageResetDayText = "1";
+        }
         IsPending = false;
         EditingSaved?.Invoke(this, EventArgs.Empty);
     }
 
-    private bool CanToggleEditing() => !IsEditing || !HasInvalidBaseUrl;
+    private bool CanToggleEditing() => !IsEditing || (!HasInvalidBaseUrl && (!IsOpenAi || ParsedUsageResetDay.HasValue));
 
 }

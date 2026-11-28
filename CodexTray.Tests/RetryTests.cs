@@ -157,6 +157,13 @@ internal static class RetryTests
         merged = cache.Merge([a], [b], [Result(b, "¥99.00")]);
         Check(merged.Count == 1 && merged[0].MonitorId == "a", "late removed card stays removed");
 
+        ApiMonitorSettings previousCycle = new() { Provider = ApiMonitorSettings.OpenAiProvider, UsageResetDay = 1 };
+        ApiMonitorSettings newCycle = previousCycle.Copy();
+        newCycle.UsageResetDay = 15;
+        cache.Merge([previousCycle], [previousCycle], [Result(previousCycle, "$10.00")]);
+        merged = cache.Merge([newCycle], [previousCycle], [Result(previousCycle, "$12.00")]);
+        Check(!merged.Single().Available, "changing the reset day invalidates cached and in-flight costs");
+
         List<(PageItem, string?)> targets = [];
         TrayPopupViewModel vm = new(new AppSettings { ApiMonitors = [a, b] }, () => throw new InvalidOperationException("targeted retry must not call full refresh"),
             (page, id) => { targets.Add((page, id)); return Task.CompletedTask; });

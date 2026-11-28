@@ -96,7 +96,7 @@ Codex, Grok, Gemini 与 OpenCode 页面均提供按时段汇总的 token 用量,
 
 | 服务商 | 默认 Base URL | 所需凭据 | 展示指标 |
 | --- | --- | --- | --- |
-| OpenAI | `https://api.openai.com` | 组织 Admin key (普通项目 key 不可用) | 当前 UTC 自然月 `Used`; 可选手动填写每月起始额度 (USD), 填写后同时显示 `Balance` (超出时为负) |
+| OpenAI | `https://api.openai.com` | 组织 Admin key (普通项目 key 不可用) | `Used` 从最近一次月度重置日的 UTC 00:00 起累计. 每张卡片可设 1 到 31 日, 默认 1 日, 短月取当月最后一天. 可选填写每月起始额度 (USD), `Balance` 显示起始额度减去本周期的 `Used`, 超出时为负 |
 | DeepSeek | `https://api.deepseek.com` | API key | 账户 CNY 余额 |
 | OpenRouter | `https://openrouter.ai` | Management Key (普通 API key 不适用) | 剩余与已用 credits |
 | Vercel | `https://ai-gateway.vercel.sh` | AI Gateway API key (普通账号 token 不适用) | 团队剩余 credits 与累计已用量 |
